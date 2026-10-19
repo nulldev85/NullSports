@@ -8,33 +8,52 @@ on:
     # of break this repo actually hits is an API that does not exist in the
     # pinned VLCKit, which nothing but a real build can catch, and waiting for
     # someone to remember to dispatch a run is how a branch sits broken.
-    branches: [iphone, 'claude/**']
+    branches: [main, iphone, 'claude/**']
 
 # A newer push supersedes an unfinished check on the same branch. Never cancel
-# a run on iphone: that one is producing an IPA someone is waiting for.
+# a run on main or iphone: those produce the shipping IPAs.
 concurrency:
   group: build-ios-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/iphone' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/iphone' }}
 
 jobs:
   build:
-    runs-on: macos-latest
-    timeout-minutes: 30
+    runs-on: xcode-27
+    timeout-minutes: 45
     env:
-      # Packaging an installable build is for the shipping branch and for
+      # Packaging an installable build is for the shipping branches and for
       # anyone who asks for one by hand. Every other branch stops after the
       # tests, so a check costs a fraction of the runner time.
-      PACKAGES_IPA: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/iphone' }}
+      PACKAGES_IPA: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
+      - name: Configure Library metadata services
+        env:
+          LINEUP_TMDB_TOKEN: ${{ secrets.LINEUP_TMDB_TOKEN }}
+          LINEUP_TVDB_API_KEY: ${{ secrets.LINEUP_TVDB_API_KEY }}
+          LINEUP_OPENSUBTITLES_API_KEY: ${{ secrets.LINEUP_OPENSUBTITLES_API_KEY }}
+          LINEUP_FANART_API_KEY: ${{ secrets.LINEUP_FANART_API_KEY }}
+        run: |
+          python3 -B Tools/configure-metadata.py
+          python3 -B Tools/check-metadata-bundle.py Lineup/Resources --require-online-subtitles --require-fanart
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: "27.0"
+      - name: Check Swift syntax and shared source membership
+        run: |
+          set -euo pipefail
+          python3 -B Tests/SharedSourceMembershipChecks.py
+          python3 -B Tests/MetadataBundleChecks.py
+          find Lineup iPhone AetherPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
       - name: Check shared sports logic
         run: |
           set -euo pipefail
+          python3 -B Tests/TeamDirectoryChecks.py
+          python3 -B Tests/SimulatorSelectionChecks.py
+          swiftc Tests/iOS/PlaybackFixtureByteRange.swift Tests/PlaybackFixtureRangeChecks.swift -o /tmp/playback-fixture-range-checks
+          /tmp/playback-fixture-range-checks
           swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/matcher-checks
           /tmp/matcher-checks
           swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/daily-checks
@@ -45,6 +64,14 @@ jobs:
           /tmp/mobile-guide-checks
           swiftc iPhone/MobilePlaybackPolicy.swift Tests/MobilePlaybackPolicyChecks.swift -o /tmp/mobile-playback-policy-checks
           /tmp/mobile-playback-policy-checks
+          swiftc iPhone/MobileSubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/mobile-subtitle-preference-checks
+          /tmp/mobile-subtitle-preference-checks
+          swiftc Lineup/Services/PlaybackSegments.swift Tests/MobilePlaybackSegmentChecks.swift -o /tmp/mobile-playback-segment-checks
+          /tmp/mobile-playback-segment-checks
+          swiftc iPhone/MobileGameStatsFeed.swift Tests/MobileGameStatsChecks.swift -o /tmp/mobile-game-stats-checks
+          /tmp/mobile-game-stats-checks
+          swiftc iPhone/MobileFanartPolicy.swift Tests/MobileFanartPolicyChecks.swift -o /tmp/mobile-fanart-policy-checks
+          /tmp/mobile-fanart-policy-checks
           swiftc iPhone/PlaybackDiagnosticsLog.swift Tests/PlaybackDiagnosticsLogChecks.swift -o /tmp/playback-diagnostics-checks
           /tmp/playback-diagnostics-checks
           swiftc Lineup/Services/TeamChannelPreferences.swift Tests/TeamChannelPreferenceChecks.swift -o /tmp/team-preference-checks
@@ -56,10 +83,16 @@ jobs:
           set -euo pipefail
           swiftc Lineup/Services/LivePlaybackHealth.swift Tests/LivePlaybackHealthChecks.swift -o /tmp/lineup-playback-health-checks
           /tmp/lineup-playback-health-checks
-          swiftc Lineup/Services/ProfessionalChannelMatcher.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/lineup-professional-match-checks
+          swiftc Lineup/Services/ProfessionalChannelMatcher.swift Lineup/Services/EventChannelEvidence.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/lineup-professional-match-checks
           /tmp/lineup-professional-match-checks
           swiftc Lineup/Services/ProviderRefreshPolicy.swift Tests/ProviderRefreshPolicyChecks.swift -o /tmp/lineup-provider-refresh-checks
           /tmp/lineup-provider-refresh-checks
+
+      - name: Generate playback integration fixtures
+        run: |
+          set -euo pipefail
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          bash Tools/make-tv-playback-fixture.sh ios
 
       - name: Generate project
         run: |
@@ -69,13 +102,43 @@ jobs:
           grep -q 'ASSETCATALOG_COMPILER_APPICON_NAME: LineupAppIcon' project.yml
           brew install xcodegen
           xcodegen generate
+          python3 -B Tools/check-aether-bundle.py --project Lineup.xcodeproj/project.pbxproj
       - name: Check playback lifecycle in iPhone simulator
         run: |
           set -euo pipefail
-          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "iPhone" in v["name"]))')
+          configuration=$(xcrun simctl list --json | python3 -B Tools/select-ios-simulator.py)
+          IFS=$'\t' read -r device_type runtime <<< "$configuration"
+          device=$(xcrun simctl create "Lineup-iPhone-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$device_type" "$runtime")
+          cleanup_simulator() {
+            xcrun simctl shutdown "$device" >/dev/null 2>&1 || true
+            xcrun simctl delete "$device" >/dev/null 2>&1 || true
+          }
+          trap cleanup_simulator EXIT
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          echo "Testing on a fresh simulator: $device_type / $runtime"
           xcodebuild test -project Lineup.xcodeproj -scheme LineupiOS \
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+            -parallel-testing-enabled NO \
             -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+      - name: Export navigation preview screenshots
+        if: always()
+        run: |
+          result=$(find build-tests/Logs/Test -maxdepth 1 -name '*.xcresult' -print -quit 2>/dev/null || true)
+          if [ -n "$result" ]; then
+            xcrun xcresulttool export attachments --path "$result" --output-path navigation-previews || echo "::warning::Could not export test screenshots"
+          fi
+      - name: Upload navigation previews
+        if: always()
+        # Supplementary previews must not prevent the release build/package.
+        # Simulator tests and the installable IPA upload remain mandatory.
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lineup-iPhone-navigation-previews
+          path: navigation-previews
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Build unsigned iPhone app
         if: env.PACKAGES_IPA == 'true'
         run: |
@@ -97,6 +160,7 @@ jobs:
           app="build/Build/Products/Release-iphoneos/Lineup.app"
           [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
           test -d "$app"
+          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart
           missing=0
           for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
             if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then
@@ -132,6 +196,14 @@ jobs:
           legacy_icons=$(find "$app" -maxdepth 1 -name 'AppIcon*.png')
           test -z "$legacy_icons"
 
+      - name: Check AetherEngine linkage, resources, and iOS minimum
+        run: |
+          set -euo pipefail
+          app="build/Build/Products/Release-iphoneos/Lineup.app"
+          [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
+          python3 -B Tests/AetherBundleChecks.py
+          python3 Tools/check-aether-bundle.py "$app"
+
       - name: Package IPA
         if: env.PACKAGES_IPA == 'true'
         run: |
@@ -149,4 +221,4 @@ jobs:
           name: Lineup-iPhone-unsigned-IPA
           path: Lineup-iPhone-unsigned.ipa
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone') && 14 || 7 }}

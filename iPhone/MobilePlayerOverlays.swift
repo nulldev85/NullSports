@@ -1,5 +1,33 @@
 import SwiftUI
 
+/// Actions keep their own row; badges wrap as whole items rather than
+/// squeezing the engine name or splitting a quality such as "1080p".
+struct MobilePlayerHeader<Actions: View, Details: View>: View {
+    @ViewBuilder var actions: () -> Actions
+    @ViewBuilder var details: () -> Details
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            actions()
+            PlaybackBadgeFlow { details() }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct MobilePlaybackEngineBadge: View {
+    let engine: MobileStreamEngine
+    var body: some View {
+        Text(engine.title).font(.inter(.caption2, .bold)).lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(.white).allowsHitTesting(false)
+            .accessibilityLabel("Playback engine: " + engine.title)
+            .accessibilityIdentifier("lineup.playback.activeEngine")
+    }
+}
+
 /// The channel just tuned to, and what the guide says is on it, as the
 /// banner over the picture names them. Worked out once, when the channel
 /// changes, by the screen that changed it: the player itself does not read
@@ -21,7 +49,7 @@ struct MobileChannelBanner: View {
                 if let loaded {
                     loaded.resizable().scaledToFit()
                 } else {
-                    Image(systemName: "tv").font(.system(size: 17, weight: .light)).opacity(0.6)
+                    Image(systemName: "tv").font(.system(size: 17, weight: .light, design: .rounded)).opacity(0.6)
                 }
             }
             .frame(width: 48, height: 32)
@@ -64,7 +92,7 @@ struct MobileGameAlertBanner: View {
 
     /// "BOS @ NYY", or an event's name.
     static func matchup(_ game: SportsGame) -> String {
-        if game.isEvent { return game.eventName ?? game.league.shortName }
+        if game.isEvent { return game.matchupLine }
         return "\(abbreviation(game.awayAbbreviation, team: game.awayTeam)) \(game.sidesSymbol) \(abbreviation(game.homeAbbreviation, team: game.homeTeam))"
     }
 
@@ -111,7 +139,7 @@ struct MobileGameAlertBanner: View {
             }
             .buttonStyle(.plain)
             Button(action: onDismiss) {
-                Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                Image(systemName: "xmark").font(.system(size: 11, weight: .bold, design: .rounded))
                     .frame(width: 32, height: 32)
                     .contentShape(Circle())
             }
@@ -142,7 +170,9 @@ struct MobileCatchUpBar: View {
     /// Inline, under the guide: Start Over as an icon, and nothing behind it
     /// that the badge already says.
     let compact: Bool
+    var onEditingChanged: (Bool) -> Void = { _ in }
     let onStartOver: () -> Void
+    @StateObject private var seekPreviewSession = MobileSeekPreviewSession()
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { clock in
@@ -150,16 +180,25 @@ struct MobileCatchUpBar: View {
         }
     }
 
+    @ViewBuilder
     private func content(now: Date) -> some View {
-        HStack(spacing: 10) {
-            if controller.canStartOver {
-                startOverButton
+        if !compact, controller.recordingEndsWithProgramme, let progress = controller.recordingProgress {
+            VStack(alignment: .leading, spacing: 8) {
+                if controller.canStartOver { startOverButton }
+                MobileLibrarySeekBar(controller: controller, progress: progress,
+                                     preview: seekPreviewSession.store, onEditingChanged: onEditingChanged)
             }
-            timeline(now: now)
+        } else {
+            HStack(spacing: 10) {
+                if controller.canStartOver {
+                    startOverButton
+                }
+                timeline(now: now)
+            }
+            .padding(.leading, controller.canStartOver ? 6 : 12).padding(.trailing, 12)
+            .padding(.vertical, 6)
+            .lineupLiquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous), fallback: Color.black.opacity(0.6))
         }
-        .padding(.leading, controller.canStartOver ? 6 : 12).padding(.trailing, 12)
-        .padding(.vertical, 6)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous), fallback: Color.black.opacity(0.6))
     }
 
     @ViewBuilder
@@ -168,7 +207,7 @@ struct MobileCatchUpBar: View {
             Group {
                 if compact {
                     Image(systemName: "backward.end.fill")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .frame(width: 30, height: 30)
                 } else {
                     Label("Start Over", systemImage: "backward.end.fill")
@@ -182,7 +221,7 @@ struct MobileCatchUpBar: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Start over")
-        .accessibilityHint("Plays this programme from its beginning.")
+        .accessibilityHint("Plays this program from its beginning.")
     }
 
     private func timeline(now: Date) -> some View {
@@ -193,25 +232,10 @@ struct MobileCatchUpBar: View {
         let atLive = controller.catchUp == nil
         let caption = caption(position: position, now: now)
         return VStack(spacing: 5) {
-            GeometryReader { track in
-                let width = track.size.width
-                ZStack(alignment: .leading) {
-                    Capsule().fill(LineupStyle.mediaText.opacity(0.16))
-                        .frame(height: 4)
-                    // As far as the broadcast has got: the part that can be played.
-                    Capsule().fill(LineupStyle.mediaText.opacity(0.34))
-                        .frame(width: max(0, width * reached), height: 4)
-                    Capsule().fill(LineupStyle.mediaText)
-                        .frame(width: max(0, width * place), height: 4)
-                    // Red only at the live edge, as everywhere else in the app.
-                    Circle().fill(atLive ? LineupStyle.liveDot : LineupStyle.mediaText)
-                        .frame(width: 9, height: 9)
-                        .offset(x: min(max(0, width * place - 4.5), max(0, width - 9)))
-                }
-                .frame(width: width, height: 9, alignment: .leading)
-                .frame(maxHeight: .infinity)
-            }
-            .frame(height: 9)
+            // As far as the broadcast has got, the part that can be played,
+            // in the softer accent; where the picture is, in the accent.
+            LineupProgressBar(value: place, reach: reached,
+                              height: compact ? 6 : LineupProgressBar.standardHeight)
             HStack(spacing: 6) {
                 Text(span.start.formatted(date: .omitted, time: .shortened))
                 Spacer(minLength: 0)
@@ -225,7 +249,7 @@ struct MobileCatchUpBar: View {
             .lineLimit(1)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Programme timeline")
+        .accessibilityLabel("Program timeline")
         .accessibilityValue(caption)
         .accessibilityAdjustableAction { direction in
             switch direction {

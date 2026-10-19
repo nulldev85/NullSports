@@ -44,11 +44,11 @@ struct MobileCatchUpSheet: View {
                     if loading {
                         ProgressView().frame(maxHeight: .infinity)
                     } else if programmes.isEmpty {
-                        ContentUnavailableView(failed ? "Catch Up unavailable" : "Nothing kept yet",
+                        LineupUnavailableView(failed ? "Catch Up unavailable" : "Nothing kept yet",
                             systemImage: failed ? "wifi.exclamationmark" : "clock.arrow.circlepath",
                             description: Text(failed
                                 ? "The provider didn't answer. Try again in a moment."
-                                : "Programmes from this channel will show here once the provider has kept them."))
+                                : "Programs from this channel will show here once the provider has kept them."))
                             .frame(maxHeight: .infinity)
                     } else {
                         list
@@ -57,7 +57,7 @@ struct MobileCatchUpSheet: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
             }
         }
         .presentationDetents([.large])
@@ -81,17 +81,17 @@ struct MobileCatchUpSheet: View {
                 }
                 .padding(6)
                 .frame(width: 64, height: 44)
-                .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("CATCH UP")
-                        .font(.inter(.caption2, .bold)).tracking(1.4)
-                        .foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(13, .heavy)).tracking(0.4)
+                        .foregroundStyle(LineupPanelStyle.caption)
                     Text(stream.name)
                         .font(.inter(.title3, .bold)).lineLimit(1)
                         .foregroundStyle(LineupStyle.text)
                         .accessibilityAddTraits(.isHeader)
                     if !programmes.isEmpty {
-                        Text("\(programmes.count) programmes over \(days.count == 1 ? "1 day" : "\(days.count) days")")
+                        Text("\(programmes.count) programs over \(days.count == 1 ? "1 day" : "\(days.count) days")")
                             .font(.inter(.caption, .medium))
                             .foregroundStyle(LineupStyle.secondary)
                     }
@@ -143,15 +143,13 @@ struct MobileCatchUpSheet: View {
                         withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(group.day, anchor: .top) }
                     } label: {
                         Text(MobileCatchUpFormat.dayTitle(group.day, short: true))
-                            .font(.inter(.subheadline, .semibold))
-                            .foregroundStyle(chosen ? LineupStyle.background : LineupStyle.text)
-                            .padding(.horizontal, 14).padding(.vertical, 8)
-                            .background(chosen ? LineupStyle.text : LineupStyle.raised, in: Capsule())
+                            .lineupChip(chosen)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, LineupPanelStyle.margin)
+            .padding(.vertical, 2)
         }
         .padding(.bottom, 6)
     }
@@ -163,15 +161,15 @@ private struct MobileCatchUpDayHeader: View {
     let count: Int
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(MobileCatchUpFormat.dayTitle(day, short: false).uppercased())
-                .font(.inter(.caption, .bold)).tracking(1.4)
-                .foregroundStyle(LineupStyle.text)
+        HStack(alignment: .center, spacing: 8) {
+            LineupIconTile(symbol: "calendar", size: 24)
+            Text(MobileCatchUpFormat.dayTitle(day, short: false))
+                .modifier(LineupGroupHeading())
             Text(day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
                 .font(.inter(.caption2, .semibold)).tracking(1)
                 .foregroundStyle(LineupStyle.secondary)
             Spacer(minLength: 0)
-            Text(count == 1 ? "1 programme" : "\(count) programmes")
+            Text(count == 1 ? "1 program" : "\(count) programs")
                 .font(.inter(.caption2, .medium))
                 .foregroundStyle(LineupStyle.secondary)
         }
@@ -230,30 +228,23 @@ struct MobileCatchUpRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Image(systemName: "play.fill")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 12, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.secondary)
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(programme.isOnNow ? LineupStyle.focused : LineupStyle.raised,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .background(programme.isOnNow ? LineupPanelStyle.well : LineupPanelStyle.fill,
+                    in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
 }
 
-/// How far a programme still on has got, on a quiet track.
+/// How far a programme still on has got: the app's progress bar.
 private struct MobileCatchUpProgress: View {
     let fraction: Double
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(LineupStyle.text.opacity(0.14))
-                Capsule().fill(LineupStyle.liveDot)
-                    .frame(width: max(3, proxy.size.width * fraction))
-            }
-        }
-        .frame(height: 3)
+        LineupProgressBar(value: fraction, height: 5)
     }
 }
 

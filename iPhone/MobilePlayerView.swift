@@ -25,11 +25,31 @@ struct MobilePlayerView: View {
     var sourceQuality: String? = nil
     /// What is playing, shown beside the controls while they are up.
     var synopsis: MobilePlayerSynopsis? = nil
+    /// Supplied by Library episode/movie playback, never live/preview video.
+    var segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil
+    var subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil
+    var seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil
+    @StateObject private var seekPreviewSession = MobileSeekPreviewSession()
+    private var seekPreview: MobileSeekPreviewStore { seekPreviewSession.store }
+    @State private var segments: MobilePlaybackSegments?
+    @AppStorage("Lineup.library.introDB.v1") private var introEnabled = true
+    @AppStorage("Lineup.library.skipRecaps.v1") private var recapEnabled = true
+    @AppStorage("Lineup.library.creditsPrompt.v1") private var creditsEnabled = true
+    @AppStorage("Lineup.library.postCreditsNotice.v1") private var postCreditsEnabled = true
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
-    @State private var scrubTarget: Double?
+    /// Lineup chooses the episode; verified credits can show the offer earlier.
+    var nextEpisode: MobileNextEpisodeOffer? = nil
+    /// Told when the title plays to its end, before the player closes.
+    var onReachedEnd: (() -> Void)? = nil
+    /// Sent away for this episode: it does not come back.
+    @State private var nextEpisodeDeclined = false
+    @State private var isScrubbing = false
     @State private var lastReportedPosition: TimeInterval = 0
     @State private var showingSubtitles = false
+    @State private var showingOnlineSubtitles = false
+    @State private var showingSubtitleSettings = false
+    @State private var onlineSubtitleSession = UUID()
 
     var body: some View {
         ZStack {
@@ -88,6 +108,7 @@ struct MobilePlayerView: View {
             if controlsVisible {
                 VStack(spacing: 0) {
                     LineupGlassGroup {
+                    MobilePlayerHeader {
                     HStack(spacing: 10) {
                         control("xmark", label: "Close player") { exit() }
                         if showsTitleInHeader {
@@ -100,7 +121,7 @@ struct MobilePlayerView: View {
                                 controller.togglePictureInPicture()
                             }
                         }
-                        if !isLive && controller.subtitleTracks.count > 1 {
+                        if !isLive && (controller.subtitleTracks.count > 1 || offersOnlineSubtitles || subtitleIdentityLookup != nil) {
                             control(controller.selectedSubtitleID == PlaybackSubtitleTrack.off.id
                                     ? "captions.bubble" : "captions.bubble.fill",
                                     label: "Subtitles, \(controller.selectedSubtitleTitle)") {
@@ -108,9 +129,13 @@ struct MobilePlayerView: View {
                                 showingSubtitles = true
                             }
                         }
+                    }
+                    } details: {
                         if controller.error == nil && !controller.loading {
-                            if isLive { statusBadge }
-                            if let detail = badgeDetail { qualityBadge(detail) }
+                            MobilePlaybackEngineBadge(engine: controller.engine)
+                            if isLive { statusBadge.fixedSize() }
+                            if let detail = badgeDetail { qualityBadge(detail).fixedSize() }
+                            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
                         }
                     }
                     }
@@ -153,10 +178,18 @@ struct MobilePlayerView: View {
                     GeometryReader { frame in
                         VStack(alignment: .leading, spacing: 10) {
                             Spacer()
+                            if skipAction != nil {
+                                HStack { Spacer(); skipSegmentButton }
+                            } else if showsPostCreditsNotice {
+                                HStack { Spacer(); postCreditsNotice }
+                            }
                             if let synopsis, !synopsis.isEmpty {
                                 synopsisPanel(synopsis, within: frame.size.width)
                             }
-                            scrubber(progress)
+                            MobileLibrarySeekBar(controller: controller, progress: progress, preview: seekPreview) { editing in
+                                isScrubbing = editing
+                                if editing { hideControlsTask?.cancel() } else { scheduleAutoHide() }
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity,
                                alignment: .bottomLeading)
@@ -167,6 +200,29 @@ struct MobilePlayerView: View {
                 }
             }
         }
+        // Next Episode, in the bottom-right corner while the controls are
+        // away, as on the television.
+        .overlay(alignment: .bottomTrailing) {
+            if showsNextEpisode, let offer = nextEpisode {
+                MobileNextEpisodeCard(offer: offer, play: { playNext(offer) },
+                                      decline: { nextEpisodeDeclined = true })
+                    .padding(.trailing, 16).padding(.bottom, 24)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            } else if !controlsVisible, skipAction != nil {
+                skipSegmentButton.padding(.trailing, 16).padding(.bottom, 24)
+            } else if !controlsVisible, showsPostCreditsNotice {
+                postCreditsNotice.padding(.trailing, 16).padding(.bottom, 24)
+            }
+        }
+        .task(id: urls) {
+            segments = nil
+            nextEpisodeDeclined = false
+            guard !isLive, let segmentsLookup else { return }
+            let result = await segmentsLookup()
+            guard !Task.isCancelled else { return }
+            segments = result
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.86), value: showsNextEpisode)
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
         .animation(.easeInOut(duration: 0.2), value: controller.failoverNotice)
         // The picture and its backing fill the screen; the controls do not.
@@ -175,25 +231,59 @@ struct MobilePlayerView: View {
         // screenshot does not capture, so it only showed up on the device.
         .background(Color.black.ignoresSafeArea())
         .foregroundStyle(LineupStyle.mediaText)
-        .modifier(MobileDismissGesture(enabled: true,
+        .modifier(MobileDismissGesture(enabled: !isScrubbing,
                                        onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .confirmationDialog("Subtitles", isPresented: $showingSubtitles,
-                            titleVisibility: .visible) {
-            ForEach(controller.subtitleTracks) { track in
-                Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
+        .lineupChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles) {
+            var items = controller.subtitleTracks.map { track in
+                MobileMenuItem(track.title, id: "\(track.id)",
+                               isSelected: track.id == controller.selectedSubtitleID) {
                     controller.selectSubtitle(track)
                     showControls()
                 }
             }
-            Button("Cancel", role: .cancel) { showControls() }
+            if offersOnlineSubtitles {
+                items.append(MobileMenuItem(controller.canAttachOnlineSubtitles ? "Find Subtitles Online" : "Use AetherEngine or VLC for Online Subtitles",
+                    symbol: "magnifyingglass", id: "online-subtitles", isEnabled: controller.canAttachOnlineSubtitles) {
+                    onlineSubtitleSession = controller.subtitleSessionID
+                    showingOnlineSubtitles = true
+                })
+            }
+            if !isLive && subtitleIdentityLookup != nil {
+                items.append(MobileMenuItem("Subtitle Settings", symbol: "textformat.size", id: "subtitle-settings") {
+                    showingSubtitleSettings = true
+                })
+            }
+            return items
+        } onCancel: { showControls() }
+        .sheet(isPresented: $showingOnlineSubtitles, onDismiss: { showControls() }) {
+            if let subtitleIdentityLookup {
+                MobileOnlineSubtitlesSheet(name: name, identity: subtitleIdentityLookup,
+                    showsPiPLimitation: controller.engine == .aether) { data, subtitle in
+                    try await controller.addOnlineSubtitle(data, title: subtitle.title, language: subtitle.language,
+                        sessionID: onlineSubtitleSession)
+                }
+            }
+        }
+        .onChange(of: controller.subtitleSessionID) { _, _ in showingOnlineSubtitles = false }
+        .task(id: urls) {
+            seekPreview.configure(nil)
+            guard !isLive, let seekPreviewLookup else { return }
+            let source = await seekPreviewLookup()
+            guard !Task.isCancelled else { return }
+            seekPreview.configure(source)
+        }
+        .sheet(isPresented: $showingSubtitleSettings, onDismiss: { showControls() }) {
+            MobileSubtitleSettingsSheet(controller: controller)
         }
         .onAppear {
             controller.isLive = isLive
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
         }
         .onDisappear {
+            seekPreview.cancel()
+            controller.finishScrubbing(resume: false)
             reportProgress(force: true)
             controller.shutdown()
             hideControlsTask?.cancel()
@@ -203,6 +293,7 @@ struct MobilePlayerView: View {
         .onChange(of: controller.finished) { _, finished in
             guard finished else { return }
             reportProgress(force: true)
+            onReachedEnd?()
             exit()
         }
         // Backgrounding is no longer a stop. MobileBackgroundPolicy decides
@@ -213,6 +304,70 @@ struct MobilePlayerView: View {
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() } else { hideControlsTask?.cancel(); controlsVisible = true }
         }
+    }
+
+    /// Keep the existing manual offer, with a credits cue when available and
+    /// the original final-thirty-seconds fallback otherwise.
+    private var showsNextEpisode: Bool {
+        guard nextEpisode != nil, !isLive, !nextEpisodeDeclined, !controlsVisible,
+              !controller.loading, !controller.pictureInPictureActive, !isScrubbing, !controller.isScrubbing,
+              controller.error == nil, let progress = controller.progress,
+              progress.duration > 90 else { return false }
+        return (segments ?? MobilePlaybackSegments()).offersNext(at: progress.position, duration: progress.duration,
+                                                               creditsEnabled: creditsEnabled)
+    }
+
+    private var offersOnlineSubtitles: Bool {
+        !isLive && !controller.loading && subtitleIdentityLookup != nil && MobileOpenSubtitles.configured
+    }
+
+    private var skipAction: (title: String, destination: Double)? {
+        guard !isLive, segmentsLookup != nil, !isScrubbing, !controller.isScrubbing,
+              !controller.loading, controller.error == nil, !showsNextEpisode,
+              !controller.pictureInPictureActive, let progress = controller.progress else { return nil }
+        if recapEnabled, let destination = segments?.recap?.destination(at: progress.position, duration: progress.duration) {
+            return ("Skip Recap", destination)
+        }
+        if introEnabled, let destination = segments?.intro?.destination(at: progress.position, duration: progress.duration) {
+            return ("Skip Intro", destination)
+        }
+        return nil
+    }
+
+    private var skipSegmentButton: some View {
+        Button {
+            guard let action = skipAction else { return }
+            controller.seek(to: action.destination)
+            showControls()
+        } label: {
+            Label(skipAction?.title ?? "Skip Intro", systemImage: "forward.end.fill")
+                .font(.inter(.subheadline, .bold))
+                .padding(.horizontal, 18).frame(minHeight: 48)
+                .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
+        }.buttonStyle(.plain)
+    }
+
+    private var showsPostCreditsNotice: Bool {
+        guard postCreditsEnabled, !isLive, !isScrubbing, !controller.isScrubbing,
+              !controller.loading, controller.error == nil, !controller.pictureInPictureActive,
+              let progress = controller.progress else { return false }
+        return segments?.hasPostCreditsAhead(at: progress.position, duration: progress.duration) == true
+    }
+
+    private var postCreditsNotice: some View {
+        Label("Post-credit scene ahead", systemImage: "film.stack")
+            .font(.inter(.subheadline, .semibold)).padding(.horizontal, 14).padding(.vertical, 12)
+            .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LineupStyle.line, lineWidth: 1))
+            .accessibilityAddTraits(.updatesFrequently)
+            .allowsHitTesting(false)
+    }
+
+    private func playNext(_ offer: MobileNextEpisodeOffer) {
+        reportProgress(force: true)
+        offer.play()
+        exit()
     }
 
     private func toggleControls() {
@@ -230,7 +385,7 @@ struct MobilePlayerView: View {
     }
 
     private func reportProgress(force: Bool = false) {
-        guard !isLive, let progress = controller.progress, progress.duration > 0 else { return }
+        guard !isLive, !controller.isScrubbing, let progress = controller.progress, progress.duration > 0 else { return }
         guard force || abs(progress.position - lastReportedPosition) >= 5 else { return }
         lastReportedPosition = progress.position
         onProgress?(progress.position, progress.duration)
@@ -238,7 +393,7 @@ struct MobilePlayerView: View {
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
-        guard controller.isPlaying else { return }
+        guard controller.isPlaying, !isScrubbing else { return }
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(4)) } catch { return }
             guard !Task.isCancelled else { return }
@@ -317,64 +472,8 @@ struct MobilePlayerView: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// A track drawn to match the app's other floating controls rather than
-    /// the system slider, whose stock thumb and grey rail sat on the video
-    /// looking like nothing else on the screen.
-    private func scrubber(_ progress: MobilePlaybackProgress) -> some View {
-        let shown = scrubTarget ?? progress.position
-        let fraction = progress.duration > 0 ? min(max(shown / progress.duration, 0), 1) : 0
-        return VStack(spacing: 8) {
-            GeometryReader { track in
-                let width = track.size.width
-                ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.18))
-                    Capsule().fill(LineupStyle.mediaAccent)
-                        .frame(width: max(0, width * fraction))
-                    Circle()
-                        .fill(.white)
-                        .frame(width: scrubTarget == nil ? 13 : 17)
-                        .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
-                        .offset(x: max(0, width * fraction - (scrubTarget == nil ? 6.5 : 8.5)))
-                }
-                .frame(height: 5)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            if scrubTarget == nil {
-                                hideControlsTask?.cancel()
-                                controller.beginScrubbing()
-                            }
-                            let ratio = min(max(value.location.x / max(width, 1), 0), 1)
-                            scrubTarget = ratio * progress.duration
-                        }
-                        .onEnded { _ in
-                            controller.endScrubbing(at: scrubTarget ?? shown)
-                            scrubTarget = nil
-                            scheduleAutoHide()
-                        }
-                )
-            }
-            .frame(height: 22)
-            HStack {
-                Text(MobilePlaybackProgress.timecode(shown))
-                Spacer()
-                Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
-            }
-            .font(.inter(.caption2, .semibold).monospacedDigit())
-            .foregroundStyle(LineupStyle.mediaText.opacity(0.8))
-        }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .animation(.easeOut(duration: 0.12), value: scrubTarget == nil)
-        .accessibilityElement()
-        .accessibilityLabel("Playback position")
-        .accessibilityValue(MobilePlaybackProgress.timecode(shown))
-    }
-
     private func qualityBadge(_ text: String) -> some View {
-        Text(text).font(.inter(.caption2, .semibold))
+        Text(text).font(.inter(.caption2, .semibold)).lineLimit(1)
             .padding(.horizontal, 10).padding(.vertical, 6)
             .lineupLiquidGlass(Capsule())
     }
@@ -382,6 +481,7 @@ struct MobilePlayerView: View {
     /// The close button leaves the same way a swipe does: the picture is
     /// stilled first, so it travels with the frame instead of trailing it.
     private func exit() {
+        controller.finishScrubbing(resume: false)
         controller.freezePictureForExit()
         dismiss()
     }
@@ -392,10 +492,71 @@ struct MobilePlayerView: View {
     private func control(_ symbol: String, label: String, size: CGFloat = 44,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold))
+            Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold, design: .rounded))
                 .frame(width: size, height: size)
                 .contentShape(Circle())
                 .lineupGlassControl(Circle(), prominent: size >= 60)
         }.buttonStyle(.plain).accessibilityLabel(label)
+    }
+}
+
+/// The episode after the one playing, offered as it ends.
+struct MobileNextEpisodeOffer {
+    let code: String?
+    let title: String
+    let play: () -> Void
+}
+
+/// Next Episode: a small panel in the bottom-right corner with the episode's
+/// number and name and Play Now in the accent; the cross sends it away.
+private struct MobileNextEpisodeCard: View {
+    let offer: MobileNextEpisodeOffer
+    let play: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                LineupIconTile(symbol: "forward.end.fill", size: 24)
+                Text("NEXT EPISODE")
+                    .font(.inter(12, .heavy)).tracking(0.4)
+                    .foregroundStyle(LineupPanelStyle.caption)
+                Spacer(minLength: 8)
+                Button(action: decline) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(LineupPanelStyle.quiet)
+                        .frame(width: 28, height: 28)
+                        .background(LineupPanelStyle.well, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Not now")
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                if let code = offer.code {
+                    Text(code).font(.inter(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                }
+                Text(offer.title).font(.inter(16, .bold)).foregroundStyle(LineupStyle.text)
+                    .lineLimit(2)
+            }
+            Button(action: play) {
+                HStack(spacing: 6) {
+                    Image(systemName: "play.fill").font(.system(size: 13, weight: .bold, design: .rounded))
+                    Text("Play Now").font(.inter(15, .bold))
+                }
+                .foregroundStyle(LineupStyle.onHighlight)
+                .frame(maxWidth: .infinity, minHeight: 40)
+                .background(LineupStyle.highlight, in: Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(14)
+        .frame(width: 250)
+        .background(LineupPanelStyle.fill, in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Next episode, \(offer.code.map { $0 + ", " } ?? "")\(offer.title)")
     }
 }

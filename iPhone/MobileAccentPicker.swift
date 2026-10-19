@@ -26,14 +26,15 @@ struct MobileAccentPicker: View {
 
     var body: some View {
         let accent = LineupAccent.accent(forHex: draft)
+        // A sheet of its own, so a held colour's choices rise over it here.
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 18) {
                     AccentPreviewCard(accent: accent)
-                    section("Color", trailing: accent.isPreset ? accent.name : nil) {
+                    section("Color", symbol: "paintpalette", trailing: accent.isPreset ? accent.name : nil) {
                         swatchGrid
                     }
-                    section("Custom") {
+                    section("Custom", symbol: "slider.horizontal.3") {
                         VStack(spacing: 0) {
                             hexRow
                             Divider().overlay(LineupStyle.line).padding(.leading, 16)
@@ -43,8 +44,8 @@ struct MobileAccentPicker: View {
                         }
                     }
                     if !saved.isEmpty {
-                        section("My colors", footer: "Touch and hold one to remove it.") {
-                            savedRow
+                        section("My colors", symbol: "bookmark", footer: "Touch and hold one to remove it.") {
+                            savedGrid
                         }
                     }
                     if draft != LineupAccent.red.hex {
@@ -63,17 +64,16 @@ struct MobileAccentPicker: View {
             .navigationTitle("Accent Color")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.foregroundStyle(LineupStyle.text)
+                LineupToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle())
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                LineupToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         if typingHex { applyHex() }
                         onChoose(draft)
                         dismiss()
                     }
-                    .fontWeight(.semibold)
-                    .foregroundStyle(accent.color)
+                    .buttonStyle(LineupBarButtonStyle(prominent: true, fill: accent.color, ink: accent.onAccent))
                 }
             }
             // The swatches and the mixer keep the code in step; typing waits
@@ -85,26 +85,33 @@ struct MobileAccentPicker: View {
                 AccentColorChart(hex: draft) { chosen in choose(chosen) }
             }
         }
+        .lineupHoldMenuHost()
         .presentationBackground(LineupStyle.background)
         .preferredColorScheme(.dark)
     }
 }
 
 extension MobileAccentPicker {
-    /// A plain heading, the content in one grey panel, and a line under it.
-    fileprivate func section<Content: View>(_ title: String, trailing: String? = nil, footer: String? = nil,
+    /// A panel with the app's header in it -- icon, caption, hairline -- the
+    /// content under that, and a line under the panel.
+    fileprivate func section<Content: View>(_ title: String, symbol: String, trailing: String? = nil,
+                                            footer: String? = nil,
                                             @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title)
-                Spacer()
-                if let trailing { Text(trailing).foregroundStyle(LineupStyle.secondary) }
+            VStack(alignment: .leading, spacing: 0) {
+                LineupPanelHeader(title: title, systemImage: symbol) {
+                    if let trailing {
+                        Text(trailing).font(.inter(.footnote, .semibold))
+                            .foregroundStyle(LineupPanelStyle.quiet)
+                    }
+                }
+                .padding(.top, 15).padding(.bottom, 11)
+                .padding(.horizontal, LineupPanelStyle.inset)
+                Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                    .padding(.horizontal, LineupPanelStyle.inset)
+                content()
             }
-            .font(.inter(.subheadline, .semibold))
-            .foregroundStyle(LineupStyle.text)
-            .padding(.horizontal, 4)
-            content()
-                .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
             if let footer {
                 Text(footer)
                     .font(.inter(.footnote))
@@ -118,9 +125,13 @@ extension MobileAccentPicker {
         withAnimation(.easeOut(duration: 0.18)) { draft = hex }
     }
 
+    fileprivate var swatchColumns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 8), count: 5)
+    }
+
     /// The ten presets, five to a row.
     fileprivate var swatchGrid: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
+        LazyVGrid(columns: swatchColumns, spacing: 14) {
             ForEach(LineupAccent.presets) { preset in
                 Button { choose(preset.hex) } label: {
                     AccentSwatch(color: preset.color, selected: preset.hex == draft)
@@ -171,7 +182,7 @@ extension MobileAccentPicker {
                 Spacer(minLength: 8)
                 Circle().fill(accent.color).frame(width: 22, height: 22)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
             }
             .font(.inter(.body))
@@ -203,26 +214,22 @@ extension MobileAccentPicker {
         .disabled(!(canSave || typingHex))
     }
 
-    /// The colours kept, newest first: a tap tries one, a long press offers
-    /// to forget it.
-    fileprivate var savedRow: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 10) {
-                ForEach(saved, id: \.self) { hex in
-                    Button { choose(hex) } label: {
-                        AccentSwatch(color: LineupAccent.accent(forHex: hex).color, selected: hex == draft)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button("Remove", systemImage: "trash", role: .destructive) { forget(hex) }
-                    }
+    /// The colours kept, newest first, in the same grid as the presets.
+    /// A tap tries one; a long press offers to forget it.
+    fileprivate var savedGrid: some View {
+        LazyVGrid(columns: swatchColumns, spacing: 14) {
+            ForEach(saved, id: \.self) { hex in
+                AccentSwatch(color: LineupAccent.accent(forHex: hex).color, selected: hex == draft)
+                    .lineupHoldMenu("#\(hex)", symbol: "paintpalette", items: {
+                        [MobileMenuItem("Remove from My Colors", symbol: "trash", isDestructive: true) {
+                            forget(hex)
+                        }]
+                    }) { choose(hex) }
                     .accessibilityLabel("Saved color #\(hex)")
-                }
             }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 12)
         }
-        .scrollIndicators(.hidden)
+        .padding(.vertical, 16)
+        .padding(.horizontal, 12)
     }
 
     /// The typed code, as the colour being tried -- or, if it is not a
@@ -279,7 +286,7 @@ private struct AccentPreviewCard: View {
     let accent: LineupAccent
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+        let shape = LineupPanelStyle.shape
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
                 Rectangle().fill(accent.color).frame(width: 3, height: 28)
@@ -307,15 +314,14 @@ private struct AccentPreviewCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupStyle.surface, in: shape)
-        .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
+        .background(LineupPanelStyle.fill, in: shape)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview in \(accent.name)")
     }
 
     private func tab(symbol: String, selected: Bool) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 18))
+            .font(.system(size: 18, design: .rounded))
             .foregroundStyle(selected ? accent.color : LineupStyle.text)
             .opacity(selected ? 1 : 0.38)
             .frame(width: 32, height: 34)
@@ -388,17 +394,16 @@ private struct AccentColorChart: View {
             .navigationTitle("Custom Color")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.foregroundStyle(LineupStyle.text)
+                LineupToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle())
                 }
-                ToolbarItem(placement: .confirmationAction) {
+                LineupToolbarItem(placement: .confirmationAction) {
                     Button("Use") {
                         if typing { applyTyped() }
                         onUse(hex)
                         dismiss()
                     }
-                    .fontWeight(.semibold)
-                    .foregroundStyle(accent.color)
+                    .buttonStyle(LineupBarButtonStyle(prominent: true, fill: accent.color, ink: accent.onAccent))
                 }
             }
             // The field and the strip keep the hex in step; typing waits for

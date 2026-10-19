@@ -169,7 +169,8 @@ final class ProviderVOD {
     var profile: XtreamProfile? {
         let now = Date()
         if let remembered, now.timeIntervalSince(remembered.readAt) < 5 { return remembered.profile }
-        let profile = SportsLibrary.storedActiveProfile(in: defaults)
+        let stored = SportsLibrary.storedActiveProfile(in: defaults)
+        let profile = stored?.isPlaylist == true ? nil : stored
         remembered = (profile, now)
         return profile
     }
@@ -185,6 +186,7 @@ final class ProviderVOD {
     /// The provider in use and a client for it, or nil when none is signed in.
     var provider: (profile: XtreamProfile, client: XtreamClient)? {
         guard let profile = SportsLibrary.storedActiveProfile(in: defaults),
+              !profile.isPlaylist,
               let password = KeychainStore.password(profileID: profile.id) else { return nil }
         return (profile, XtreamClient(profile: profile, password: password))
     }

@@ -7,6 +7,17 @@ struct MobilePlaybackPolicyChecks {
             precondition(condition, message)
         }
 
+        let recordingStart = Date(timeIntervalSince1970: 1200)
+        let sixSeconds = recordingStart.addingTimeInterval(6)
+        check(MobileRecordingSeekPolicy.providerStart(target: sixSeconds.addingTimeInterval(10), current: sixSeconds) == nil,
+              "A ten-second forward skip must never reopen the same minute at its beginning")
+        check(MobileRecordingSeekPolicy.providerStart(target: sixSeconds.addingTimeInterval(70), current: sixSeconds)
+              == recordingStart.addingTimeInterval(60), "An unavailable native seek can reopen a later minute")
+        check(MobileRecordingSeekPolicy.providerStart(target: recordingStart, current: sixSeconds) == recordingStart,
+              "Deliberate rewind to the beginning remains available")
+        check(MobileRecordingSeekPolicy.providerStart(target: sixSeconds, current: sixSeconds) == nil,
+              "An unchanged drag must not restart the open minute")
+
         // Engine selection -------------------------------------------------
         let hls = URL(string: "http://example.com/live/user/pass/1234.m3u8")!
         let ts = URL(string: "http://example.com/live/user/pass/1234.ts")!
@@ -14,11 +25,11 @@ struct MobilePlaybackPolicyChecks {
         let odd = URL(string: "http://example.com/live/user/pass/1234")!
 
         check(MobileEngineSelection.engine(for: hls) == .system, "HLS opens in AVPlayer")
-        check(MobileEngineSelection.engine(for: ts) == .vlc, "Transport streams open in VLC")
+        check(MobileEngineSelection.engine(for: ts) == .aether, "Transport streams open in AetherEngine")
         check(MobileEngineSelection.engine(for: tokened) == .system,
               "A query string does not change the engine")
-        check(MobileEngineSelection.engine(for: odd) == .vlc,
-              "An extensionless URL falls back to VLC rather than guessing")
+        check(MobileEngineSelection.engine(for: odd) == .aether,
+              "Extensionless server routes use AetherEngine")
         check(MobileEngineSelection.engine(for: URL(string: "http://e.com/a/1234.M3U8")!) == .system,
               "Extension matching ignores case")
 
@@ -36,7 +47,13 @@ struct MobilePlaybackPolicyChecks {
               "Relative order inside each group is preserved")
 
         check(MobileEngineSelection.canPictureInPicture([ts, hls]), "A channel with HLS can offer PiP")
-        check(!MobileEngineSelection.canPictureInPicture([ts]), "A VLC-only channel cannot offer PiP")
+        check(MobileEngineSelection.canPictureInPicture([ts]), "Raw transport streams can offer PiP through Aether")
+        check(MobileEngineSelection.engine(for: hls, preference: .aether) == .aether, "An explicit Aether choice applies to HLS")
+        check(MobileEngineSelection.engine(for: ts, preference: .vlc) == .vlc, "An explicit VLC choice is honored")
+        check(!MobileEngineSelection.canPictureInPicture([ts], preference: .vlc), "VLC has no PiP source")
+        check(MobileEngineSelection.engine(for: hls, failed: [.system]) == .aether, "Native HLS failure still tries PiP-capable Aether")
+        check(MobileEngineSelection.engine(for: hls, failed: [.system, .aether]) == .vlc, "VLC is the final fallback")
+        check(MobileEngineSelection.engine(for: hls, failed: [.system, .aether, .vlc]) == nil, "Exhaustion cannot loop")
         check(!MobileEngineSelection.canPictureInPicture([]), "No candidates cannot offer PiP")
 
         // Background policy ------------------------------------------------

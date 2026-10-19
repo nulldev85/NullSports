@@ -163,20 +163,25 @@ struct MDBListCatalogItem: Hashable, Sendable {
 
 struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let id: String
-    let name: String
+    private let providerName: String
+    var name: String { metadata?.title ?? providerName }
     let type: String
-    let overview: String?
-    let productionYear: Int?
+    private let providerOverview: String?
+    var overview: String? { metadata?.overview ?? providerOverview }
+    private let providerYear: Int?
+    var productionYear: Int? { metadata?.year ?? providerYear }
     let primaryImageAspectRatio: Double?
     let childCount: Int?
     // Everything below is optional so an older server, or an addon that returns
     // only the basics, still decodes: a missing field simply goes unshown.
-    let genres: [String]?
+    private let providerGenres: [String]?
+    var genres: [String]? { metadata?.genres ?? providerGenres }
     let officialRating: String?
     let communityRating: Double?
     let criticRating: Double?
     let runTimeTicks: Int64?
-    let premiereDate: String?
+    private let providerPremiereDate: String?
+    var premiereDate: String? { metadata?.premiereDate ?? providerPremiereDate }
     let indexNumber: Int?
     let parentIndexNumber: Int?
     let seriesName: String?
@@ -191,19 +196,44 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     let productionLocations: [String]?
     let people: [MediaPerson]?
     let remoteTrailers: [MediaTrailer]?
-    let providerIDs: [String: String]?
+    private let originalProviderIDs: [String: String]?
+    var providerIDs: [String: String]? {
+        guard let metadata else { return originalProviderIDs }
+        var ids = originalProviderIDs ?? [:]
+        for (provider, value) in metadata.externalIDs where !ids.keys.contains(where: { $0.lowercased() == provider }) {
+            ids[provider] = value
+        }
+        return ids
+    }
 
     // Artwork a source names outright rather than hosting behind an image
     // route, which is how a catalog imported from elsewhere arrives.
-    let posterURL: String?
-    let backdropURL: String?
+    private let providerPosterURL: String?
+    var posterURL: String? { metadata?.poster ?? providerPosterURL }
+    private let providerBackdropURL: String?
+    var backdropURL: String? { metadata?.backdrop ?? providerBackdropURL }
     let logoArtworkURL: String?
+
+    // Not in CodingKeys: provider snapshots and local viewing history retain
+    // the original data, and switching back to Provider restores it exactly.
+    var metadata: LibraryMetadata? = nil
+
+    func withMetadata(_ value: LibraryMetadata?) -> MediaItem {
+        var copy = self
+        copy.metadata = value
+        return copy
+    }
 
     /// The connected server this came from. Lineup's own, like the artwork
     /// above: every item a server hands back is marked with it on arrival,
     /// because with several servers connected an item id only means something
     /// to the server that issued it.
     var serverID: UUID?
+    var serverExtensions: ServerExtensions? = nil
+
+    struct ServerExtensions: Codable, Hashable, Sendable {
+        let genreRequired: Bool?
+    }
 
     // An optional `let` gets no implicit default, so the added fields are given
     // one here and every existing caller keeps the call it already makes.
@@ -222,18 +252,18 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
          posterURL: String? = nil, backdropURL: String? = nil,
          logoArtworkURL: String? = nil, serverID: UUID? = nil) {
         self.id = id
-        self.name = name
+        self.providerName = name
         self.type = type
-        self.overview = overview
-        self.productionYear = productionYear
+        self.providerOverview = overview
+        self.providerYear = productionYear
         self.primaryImageAspectRatio = primaryImageAspectRatio
         self.childCount = childCount
-        self.genres = genres
+        self.providerGenres = genres
         self.officialRating = officialRating
         self.communityRating = communityRating
         self.criticRating = criticRating
         self.runTimeTicks = runTimeTicks
-        self.premiereDate = premiereDate
+        self.providerPremiereDate = premiereDate
         self.indexNumber = indexNumber
         self.parentIndexNumber = parentIndexNumber
         self.seriesName = seriesName
@@ -248,9 +278,9 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         self.productionLocations = productionLocations
         self.people = people
         self.remoteTrailers = remoteTrailers
-        self.providerIDs = providerIDs
-        self.posterURL = posterURL
-        self.backdropURL = backdropURL
+        self.originalProviderIDs = providerIDs
+        self.providerPosterURL = posterURL
+        self.providerBackdropURL = backdropURL
         self.logoArtworkURL = logoArtworkURL
         self.serverID = serverID
     }
@@ -313,6 +343,41 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     // digits defeat the ISO parser, and only the day is ever shown. Reading the
     // date part directly avoids both the parser and a cached formatter.
     var formattedAirDate: String? { Self.formattedDate(premiereDate) }
+
+    /// Episodes the server does not have yet stand in Continue Watching
+    /// under ids of this kind, until the real one arrives.
+    static let upcomingPrefix = "upcoming:"
+    var isUpcomingPlaceholder: Bool { id.hasPrefix(Self.upcomingPrefix) }
+
+    /// When it first airs, read from the premiere date: a full timestamp
+    /// from a server or TVmaze, or a bare day from Plex.
+    var premiereDay: Date? {
+        guard let raw = premiereDate, raw.count >= 10 else { return nil }
+        if raw.count >= 19, let date = Self.timestampFormatter.date(from: String(raw.prefix(19))) { return date }
+        return Self.dayFormatter.date(from: String(raw.prefix(10)))
+    }
+
+    private static func utcFormatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = format
+        return formatter
+    }
+    private static let timestampFormatter = utcFormatter("yyyy-MM-dd'T'HH:mm:ss")
+    private static let dayFormatter = utcFormatter("yyyy-MM-dd")
+
+    /// Not on the air yet.
+    var isUnaired: Bool { premiereDay.map { $0 > Date() } ?? false }
+
+    /// What a card says over an episode that cannot be played yet: the day
+    /// it airs, or that it is on its way. Only an episode is asked, so a
+    /// shelf of films never reads a date at all.
+    var upcomingLabel: String? {
+        guard type == "Episode", isUpcomingPlaceholder || isUnaired else { return nil }
+        guard let day = premiereDay, day > Date() else { return "COMING SOON" }
+        return "AIRS " + day.formatted(.dateTime.month(.abbreviated).day()).uppercased()
+    }
     var formattedEndDate: String? { Self.formattedDate(endDate) }
 
     private static func formattedDate(_ raw: String?) -> String? {
@@ -341,18 +406,18 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id = "Id"
-        case name = "Name"
+        case providerName = "Name"
         case type = "Type"
-        case overview = "Overview"
-        case productionYear = "ProductionYear"
+        case providerOverview = "Overview"
+        case providerYear = "ProductionYear"
         case primaryImageAspectRatio = "PrimaryImageAspectRatio"
         case childCount = "ChildCount"
-        case genres = "Genres"
+        case providerGenres = "Genres"
         case officialRating = "OfficialRating"
         case communityRating = "CommunityRating"
         case criticRating = "CriticRating"
         case runTimeTicks = "RunTimeTicks"
-        case premiereDate = "PremiereDate"
+        case providerPremiereDate = "PremiereDate"
         case indexNumber = "IndexNumber"
         case parentIndexNumber = "ParentIndexNumber"
         case seriesName = "SeriesName"
@@ -367,14 +432,72 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         case productionLocations = "ProductionLocations"
         case people = "People"
         case remoteTrailers = "RemoteTrailers"
-        case providerIDs = "ProviderIds"
+        case originalProviderIDs = "ProviderIds"
         // Lineup's own, never sent by a server: an absent key decodes to nil,
         // so a server's answer is unaffected by their existence.
-        case posterURL = "LineupPoster"
-        case backdropURL = "LineupBackdrop"
+        case providerPosterURL = "LineupPoster"
+        case providerBackdropURL = "LineupBackdrop"
         case logoArtworkURL = "LineupLogo"
         case serverID = "LineupServer"
+        case serverExtensions = "aiostreams"
     }
+}
+
+extension MediaItem {
+    /// Optional server metadata is independent: an odd rating or a numeric
+    /// provider ID must not discard the title, its episode coordinates, or art.
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard let identity = values.lenientString(.id), let kind = values.lenientString(.type) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                debugDescription: "A media item requires an identity and type"))
+        }
+        id = identity
+        type = kind
+        providerName = values.lenientString(.providerName) ?? identity
+        providerOverview = values.lenientString(.providerOverview)
+        providerYear = values.lenientString(.providerYear).flatMap(Int.init)
+        primaryImageAspectRatio = values.lenientDouble(.primaryImageAspectRatio)
+        childCount = values.lenientString(.childCount).flatMap(Int.init)
+        providerGenres = try? values.decodeIfPresent([String].self, forKey: .providerGenres)
+        officialRating = values.lenientString(.officialRating)
+        communityRating = values.lenientDouble(.communityRating)
+        criticRating = values.lenientDouble(.criticRating)
+        runTimeTicks = values.lenientString(.runTimeTicks).flatMap(Int64.init)
+        providerPremiereDate = values.lenientString(.providerPremiereDate)
+        indexNumber = values.lenientString(.indexNumber).flatMap(Int.init)
+        parentIndexNumber = values.lenientString(.parentIndexNumber).flatMap(Int.init)
+        seriesName = values.lenientString(.seriesName)
+        seriesID = values.lenientString(.seriesID)
+        userData = try? values.decodeIfPresent(MediaUserData.self, forKey: .userData)
+        imageTags = try? values.decodeIfPresent([String: String].self, forKey: .imageTags)
+        backdropImageTags = try? values.decodeIfPresent([String].self, forKey: .backdropImageTags)
+        status = values.lenientString(.status)
+        endDate = values.lenientString(.endDate)
+        tags = try? values.decodeIfPresent([String].self, forKey: .tags)
+        studios = try? values.decodeIfPresent([MediaNamedInfo].self, forKey: .studios)
+        productionLocations = try? values.decodeIfPresent([String].self, forKey: .productionLocations)
+        people = try? values.decodeIfPresent([MediaPerson].self, forKey: .people)
+        remoteTrailers = try? values.decodeIfPresent([MediaTrailer].self, forKey: .remoteTrailers)
+        let ids = try? values.nestedContainer(keyedBy: ServerMetadataKey.self, forKey: .originalProviderIDs)
+        originalProviderIDs = ids.map { container in
+            container.allKeys.reduce(into: [:]) { result, key in
+                if let value = container.lenientString(key) { result[key.stringValue] = value }
+            }
+        }
+        providerPosterURL = values.lenientString(.providerPosterURL)
+        providerBackdropURL = values.lenientString(.providerBackdropURL)
+        logoArtworkURL = values.lenientString(.logoArtworkURL)
+        serverID = try? values.decodeIfPresent(UUID.self, forKey: .serverID)
+        serverExtensions = try? values.decodeIfPresent(ServerExtensions.self, forKey: .serverExtensions)
+    }
+}
+
+private struct ServerMetadataKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
 }
 
 struct MediaNamedInfo: Codable, Hashable, Sendable {
@@ -458,6 +581,51 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
+/// Hiding a movie or an entire show is independent of its playback records.
+/// Store only identity here so a refresh cannot replace the viewer's choice.
+struct LocalContinueWatchingDismissal: Codable, Hashable, Sendable {
+    let id: UUID
+    let profileID: UUID
+    let itemID: String
+    let isShow: Bool
+    let seriesID: String?
+    let seriesName: String?
+
+    init(item: MediaItem, profileID: UUID) {
+        id = UUID()
+        self.profileID = profileID
+        itemID = item.id
+        isShow = item.isSeries || item.type == "Episode"
+        seriesID = Self.nonempty(item.isSeries ? item.id : item.seriesID)
+        seriesName = Self.normalized(item.isSeries ? item.name : item.seriesName)
+    }
+
+    func matches(_ item: MediaItem, profileID: UUID) -> Bool {
+        guard self.profileID == profileID else { return false }
+        let otherIsShow = item.isSeries || item.type == "Episode"
+        guard isShow == otherIsShow else { return false }
+        if itemID == item.id { return true }
+        guard isShow else { return false }
+        if let seriesID, let otherID = Self.nonempty(item.isSeries ? item.id : item.seriesID) {
+            return seriesID == otherID
+        }
+        // Some providers initially supply only a show name, then enrich the
+        // same episodes with an ID. Known, different IDs always stay separate.
+        guard let seriesName else { return false }
+        return seriesName == Self.normalized(item.isSeries ? item.name : item.seriesName)
+    }
+
+    private static func nonempty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        nonempty(value)?.folding(options: [.caseInsensitive, .diacriticInsensitive],
+                                locale: Locale(identifier: "en_US_POSIX"))
+    }
+}
+
 /// What a card shows of where the viewer is in a title.
 struct MediaCardPlayback: Equatable {
     /// The bar beside the play mark: a film's progress, or how far through
@@ -505,8 +673,8 @@ enum LocalEpisodeProgressionPolicy {
 /// What this device saw comes first, because it is the only record of an
 /// episode played from another server or the IPTV provider: the server the
 /// show belongs to never hears of those, and its own "next up" stays where
-/// it was. The server's answer still counts when it is further along --
-/// the show watched on another device -- but it never moves a viewer back.
+/// it was. Server Next Up is a fallback when this device has no viewing
+/// history; it cannot skip ahead of an established local position.
 enum SeriesResumePolicy {
     /// The show's episodes in watching order: its seasons, then its
     /// specials, which a viewer reaches on purpose rather than in sequence.
@@ -533,34 +701,54 @@ enum SeriesResumePolicy {
         func next(after position: Int) -> Int? {
             order.indices.first { $0 > position && !isWatched(order[$0]) }
         }
+        // A server suggestion or generated queue entry is not evidence that
+        // intervening episodes were watched. Some servers return E10 after
+        // E2 (string ordering), even while their episode list marks E3 unwatched.
+        // Repair that gap within the suggested season. Real local playback
+        // and manual choices are handled before these fallback hints.
+        func fallback(at position: Int, hint: MediaItem? = nil) -> MediaItem {
+            let candidate = order[position]
+            let progress = hint?.userData?.playedPercentage ?? candidate.userData?.playedPercentage ?? 0
+            if progress > 0 && progress < 92 { return candidate }
+            var hasWatched = false
+            for episode in order[..<position] where episode.parentIndexNumber == candidate.parentIndexNumber {
+                if isWatched(episode) { hasWatched = true }
+                else if hasWatched { return episode }
+            }
+            return candidate
+        }
         let latest = { (values: [LocalMediaPlayback]) in values.max { $0.updatedAt < $1.updatedAt } }
 
-        // An episode stopped part-way through is where the viewer is.
-        if let started = latest(records.filter {
+        let started = latest(records.filter {
             !$0.completed && $0.isUpNext != true && $0.explicitlyUnwatched != true && $0.position >= 5
-        }), let found = index(of: started.item) {
-            return order[found]
-        }
+        })
         let finished = latest(records.filter(\.completed))
         // An episode the viewer marked unwatched, after anything they finished:
         // they chose to go back to it.
         if let markedBack = latest(records.filter { $0.isUpNext == true && $0.explicitlyUnwatched == true }),
            markedBack.updatedAt >= (finished?.updatedAt ?? .distantPast),
+           markedBack.updatedAt >= (started?.updatedAt ?? .distantPast),
            let found = index(of: markedBack.item) {
             return order[found]
         }
-        // The episode after the last one finished here, and the server's
-        // next-up; whichever is further on.
+        if let started, let found = index(of: started.item),
+           (started.updatedAt >= (finished?.updatedAt ?? .distantPast)
+            || found > (finished.flatMap { index(of: $0.item) } ?? -1)) { return order[found] }
+        // Local completion determines the next episode. A remote Next Up
+        // can be stale in either direction and must never win by being later.
         let local = finished.flatMap { index(of: $0.item) }.flatMap { next(after: $0) }
+        if let local { return order[local] }
         let server = serverNext.flatMap { index(of: $0) }.flatMap { found in
             isWatched(order[found]) ? next(after: found) : found
         }
-        if let further = [local, server].compactMap({ $0 }).max() { return order[further] }
         // A show finished here starts again from the top.
         if finished != nil, local == nil, let last = finished.flatMap({ index(of: $0.item) }),
            next(after: last) == nil, !order[..<last].contains(where: { !isWatched($0) }) {
             return order[0]
         }
+        if finished == nil, let server { return fallback(at: server, hint: serverNext) }
+        if finished == nil, let queued = latest(records.filter { $0.isUpNext == true }),
+           let found = index(of: queued.item), !isWatched(order[found]) { return fallback(at: found) }
         return order.first { !isWatched($0) } ?? order[0]
     }
 
@@ -582,7 +770,9 @@ enum SeriesResumePolicy {
             .max(by: { $0.updatedAt < $1.updatedAt }) else { return true }
         if isWatched(upNext.item) { return true }
         let place = { (item: MediaItem) in (item.parentIndexNumber ?? 0, item.indexNumber ?? 0) }
-        return !(place(upNext.item) > place(finished.item))
+        let previous = place(finished.item), queued = place(upNext.item)
+        return !(queued == (previous.0, previous.1 + 1)
+                 || queued == (previous.0 + 1, 1))
     }
 }
 
@@ -595,6 +785,16 @@ struct LocalMediaFavorite: Codable, Hashable, Sendable, Identifiable {
 }
 
 enum LocalMediaTrackingPolicy {
+    /// VLC can reach a real EOF without ever learning the container's length.
+    /// A stopped or failed stream elsewhere is a retry, not a watched title.
+    static func reachedEnd(ended: Bool, failed: Bool, hasPlayed: Bool,
+                           position: TimeInterval, duration: TimeInterval, fraction: Double) -> Bool {
+        guard hasPlayed, position.isFinite, position >= 5 else { return false }
+        if ended { return true }
+        guard failed, duration.isFinite, duration > 0 else { return false }
+        return position >= duration - 15 || (fraction.isFinite && fraction >= 0.99)
+    }
+
     static func isComplete(position: TimeInterval, duration: TimeInterval) -> Bool {
         guard duration > 0, position >= 0 else { return false }
         let safePosition = min(position, duration)
@@ -808,7 +1008,9 @@ struct MediaServerPublicInfo: Decodable, Sendable {
 
     struct Extensions: Decodable, Sendable {
         let configureURL: String?
-        enum CodingKeys: String, CodingKey { case configureURL = "configureUrl" }
+        var features: [String: Int]? = nil
+        func supports(_ name: String) -> Bool { (features?[name] ?? 0) >= 1 }
+        enum CodingKeys: String, CodingKey { case configureURL = "configureUrl", features }
     }
 
     var kind: MediaServerKind {
@@ -944,8 +1146,9 @@ struct JellyfinAuthenticationResponse: Codable, Sendable {
 
 struct MediaPlaybackInfo: Decodable, Sendable {
     let mediaSources: [MediaPlaybackSource]
+    var playSessionID: String? = nil
 
-    enum CodingKeys: String, CodingKey { case mediaSources = "MediaSources" }
+    enum CodingKeys: String, CodingKey { case mediaSources = "MediaSources", playSessionID = "PlaySessionId" }
 }
 
 /// One subtitle choice exposed by the active playback engine. The engine keeps
@@ -1018,9 +1221,14 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// Where a stream that no media server serves plays from: the IPTV
     /// provider's own address for a film or an episode.
     var directURL: URL? = nil
+    var playSessionID: String? = nil
+    /// Unlike the first standard Id, this names one exact AIOStreams version.
+    var selectionID: String { aiostreams?.id ?? sourceID }
+    var sourceType: String? = nil
+    var isPlaceholder: Bool { sourceType?.caseInsensitiveCompare("Placeholder") == .orderedSame }
 
     /// Unique across servers, which can number their streams alike.
-    var id: String { (serverID?.uuidString ?? "") + "|" + sourceID }
+    var id: String { (serverID?.uuidString ?? "") + "|" + selectionID }
 
     struct RemuxInfo: Decodable, Hashable, Sendable {
         let providerInfo: ProviderInfo?
@@ -1042,14 +1250,22 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         let addon: String?
         let filename: String?
         let cached: Bool?
+        let id: String?
+        let name: String?
+        let description: String?
+        let bingeGroup: String?
 
-        enum CodingKeys: String, CodingKey { case addon, filename, cached }
+        enum CodingKeys: String, CodingKey { case addon, filename, cached, id, name, description, bingeGroup }
 
         init(from decoder: Decoder) throws {
             let values = try? decoder.container(keyedBy: CodingKeys.self)
             addon = values?.lenientString(.addon)
             filename = values?.lenientString(.filename)
             cached = try? values?.decodeIfPresent(Bool.self, forKey: .cached)
+            id = values?.lenientString(.id).flatMap { $0.isEmpty ? nil : $0 }
+            name = values?.lenientString(.name)
+            description = values?.lenientString(.description)
+            bingeGroup = values?.lenientString(.bingeGroup)
         }
     }
 
@@ -1062,10 +1278,13 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         case bitrate = "Bitrate"
         case remux = "Remux"
         case aiostreams
+        case sourceType = "Type"
     }
 
     var displayLines: [String] {
-        (name ?? remux?.providerInfo?.description ?? "Stream")
+        let formatted = [aiostreams?.name, aiostreams?.description].compactMap { $0 }
+            .filter { !$0.isEmpty }.joined(separator: "\n")
+        return (formatted.isEmpty ? (name ?? remux?.providerInfo?.description ?? "Stream") : formatted)
             .split(separator: "\n").map(String.init).filter { !$0.isEmpty }
     }
 
@@ -1130,6 +1349,9 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// writes no score when it is nought: there, an unwritten score among
     /// written ones ranks as zero, between the positive and the negative.
     static func ranked(_ sources: [MediaPlaybackSource]) -> [MediaPlaybackSource] {
+        // The documented version extension is already in the server's chosen
+        // order. A formatter's decorative score must not rerank these results.
+        if sources.contains(where: { $0.aiostreams?.id != nil }) { return sources }
         guard sources.contains(where: { $0.score != nil }) else { return sources }
         func rank(_ source: MediaPlaybackSource) -> Int? {
             source.score ?? (source.aiostreams != nil ? 0 : nil)

@@ -8,6 +8,9 @@ struct ProfileSetupView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var isConnecting = false
+    @State private var playlistConnection = false
+    @State private var guideURL = ""
+    @State private var connectionError: String?
 
     var body: some View {
         HStack(spacing: 80) {
@@ -16,7 +19,7 @@ struct ProfileSetupView: View {
                     .font(.inter(.caption, .black))
                     .tracking(3)
                     .foregroundStyle(LineupStyle.field)
-                Text("Your games.\nYour provider.").foregroundColor(LineupStyle.lightPurple)
+                Text(playlistConnection ? "Your playlist.\nYour TV guide." : "Your games.\nYour provider.").foregroundColor(LineupStyle.lightPurple)
                     .font(.inter(58, .bold))
                     .foregroundStyle(LineupStyle.text)
                 Text("A quiet, fast home for live American sports.").foregroundColor(LineupStyle.lightPurple)
@@ -26,13 +29,23 @@ struct ProfileSetupView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(spacing: 18) {
+                Picker("Connection", selection: $playlistConnection) {
+                    Label("Xtream", systemImage: "server.rack").tag(false)
+                    Label("M3U / EPGenius", systemImage: "list.bullet.rectangle").tag(true)
+                }
                 TextField("Profile name", text: $profileName)
-                TextField("Server URL", text: $serverURL)
+                TextField(playlistConnection ? "Playlist URL" : "Server URL", text: $serverURL)
                     .textContentType(.URL)
+                if playlistConnection {
+                    TextField("XMLTV guide URL (optional)", text: $guideURL).textContentType(.URL)
+                    Text("EPGenius organizes your existing provider's channels and guide. It does not supply video. Paste the playlist and EPG links from its setup.")
+                        .font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
+                } else {
                 TextField("Username", text: $username)
                     .textContentType(.username)
                 SecureField("Password", text: $password)
                     .textContentType(.password)
+                }
                 Button {
                     connect()
                 } label: {
@@ -43,7 +56,8 @@ struct ProfileSetupView: View {
                     }
                     .font(.inter(.headline))
                 }
-                .disabled(serverURL.isEmpty || username.isEmpty || password.isEmpty || isConnecting)
+                .disabled(serverURL.isEmpty || (!playlistConnection && (username.isEmpty || password.isEmpty)) || isConnecting)
+                if let connectionError { Text(connectionError).font(.inter(.caption)).foregroundStyle(.red) }
             }
             .textFieldStyle(.plain)
             .foregroundColor(LineupStyle.lightPurple)
@@ -66,8 +80,15 @@ struct ProfileSetupView: View {
 
     private func connect() {
         isConnecting = true
+        connectionError = nil
         Task {
-            _ = await library.addProfile(name: profileName, serverURL: serverURL, username: username, password: password)
+            let added: Bool
+            if playlistConnection {
+                added = await library.addPlaylist(name: profileName, playlist: serverURL, guide: guideURL)
+            } else {
+                added = await library.addProfile(name: profileName, serverURL: serverURL, username: username, password: password)
+            }
+            if added { dismiss() } else { connectionError = library.errorMessage }
             isConnecting = false
         }
     }

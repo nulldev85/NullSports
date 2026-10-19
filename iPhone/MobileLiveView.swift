@@ -6,12 +6,21 @@ struct MobileLiveView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     @State private var league: SportsLeague?
+    @State private var soccerCompetition: String?
     @State private var onlyFollowed = false
+    @StateObject private var gameReplays = MobileGameReplayStore()
+    @State private var selectedGameReplay: MobileGameReplaySelection?
+    @State private var catchUpChannel: MobileSportsCatchUpChannel?
+    @State private var pendingCatchUp: MobileGameReplaySelection?
+    @State private var catchUpLookup: Task<Void, Never>?
     @State private var choosingChannel: SportsGame?
+    @State private var showingEventChannels: SportsGame?
     @State private var pendingStream: XtreamStream?
     @State private var pendingGame: SportsGame?
     @State private var upcomingGame: SportsGame?
+    @State private var racingDetails: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var previewStream: XtreamStream?
     @State private var expanded = false
@@ -23,11 +32,25 @@ struct MobileLiveView: View {
     /// The channel just moved to, named over the picture for a moment.
     @State private var channelBanner: MobileChannelBannerInfo?
     @State private var bannerTask: Task<Void, Never>?
+    @State private var qualityTask: Task<Void, Never>?
+    @State private var qualityRequest: UUID?
     /// Both teams have a usable preference and they disagree.
     @State private var feedChoice: FeedChoice?
     /// A channel was just chosen for this game; ask how long it should apply.
     @State private var scopingSelection: PendingSelection?
     @StateObject private var playbackSlot = MobilePlaybackSlot()
+    /// The watched game's stats, held behind the picture.
+    @StateObject private var gameStats = MobileGameStats()
+    /// The stats are open: under the picture upright, beside it on its side.
+    @State private var showsStats = false
+    @State private var syncingStats = false
+    /// Two games at once, full screen.
+    @State private var multiview: MobileMultiviewSession?
+    /// The game on screen, kept while a channel is chosen for the one to
+    /// watch beside it.
+    @State private var multiviewFirst: MobileMultiviewSession.Tile?
+    @State private var multiviewPicking: SportsGame?
+    @State private var multiviewSecond: MobileMultiviewSession.Tile?
     /// A new selection gets a new controller; see `MobilePlaybackSlot`.
     private var playback: MobilePlaybackController {
         get { playbackSlot.controller }
@@ -57,7 +80,10 @@ struct MobileLiveView: View {
     }
 
     private func slate() -> Slate {
-        let all = library.games(for: league).filter { !onlyFollowed || library.isFollowing($0) }
+        let all = library.games(for: league).map(gameStats.shield).filter {
+            (!onlyFollowed || library.isFollowing($0))
+                && (league != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
+        }
         let calendar = Calendar.current
         var byDay: [Date: [SportsGame]] = [:]
         var live: [SportsGame] = []
@@ -88,7 +114,7 @@ struct MobileLiveView: View {
     /// Everything on now in every league, for the scoreboard under the
     /// preview, whichever league or teams the list below it is showing.
     private func liveEverywhere() -> [SportsGame] {
-        library.games(for: nil).filter(\.isLive)
+        library.games(for: nil).map(gameStats.shield).filter(\.isLive)
             .map { (game: $0, followed: library.isFollowing($0)) }
             .sorted { left, right in
                 if left.followed != right.followed { return left.followed }
@@ -117,7 +143,7 @@ struct MobileLiveView: View {
     private static let leagueStripHeight: CGFloat = 48
     private static var headerHeight: CGFloat { mastheadHeight + leagueStripHeight }
     /// The margin the preview and the score bar under it keep from the edges.
-    private static let inset: CGFloat = 16
+    private static let inset: CGFloat = LineupPanelStyle.margin
 
     var body: some View {
         // Once, at the top, and passed down. Everything below reads from it.
@@ -128,15 +154,21 @@ struct MobileLiveView: View {
             slate.all.first { $0.id == game.id }
                 // Narrowed to a league or to followed teams, the list may not
                 // hold the game being watched; the schedule still does.
-                ?? library.games(for: nil).first { $0.id == game.id }
-                ?? game
+                ?? library.gamesByLeague[game.league]?.first { $0.id == game.id }.map(gameStats.shield)
+                ?? gameStats.shield(game)
         }
+        // The game the stats panel can follow: on ESPN's play-by-play.
+        let statsGame = MobileGameStats.supports(watching) ? watching : nil
+        let statsOpen = showsStats && statsGame != nil && previewStream != nil
+        let statsBeside = statsOpen && fillsScreen
         return NavigationStack {
             GeometryReader { viewport in
                 // The preview sits in the same margins as the cards, under the
                 // header, and moves to the top of the screen as it expands.
                 let videoHeight = (viewport.size.width - Self.inset * 2) * 9 / 16
                 let metadataHeight: CGFloat = watching == nil ? 106 : 0
+                let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
+                    ? MobilePlayerLayout.inlineTimelineHeight : 0
                 let previewTop = Self.headerHeight + 4
                 let fullHeight = MobilePlayerLayout.fullscreenHeight(
                     containerHeight: viewport.size.height,
@@ -147,14 +179,23 @@ struct MobileLiveView: View {
                         masthead(slate)
                         leagueBar
                         if previewStream != nil {
-                            Color.clear.frame(height: 4 + videoHeight + metadataHeight)
-                            if let watching {
+                            Color.clear.frame(height: 4 + videoHeight + metadataHeight + timelineHeight)
+                            if statsOpen, let statsGame {
+                                // Upright, the stats take the room under the
+                                // picture that the games had.
+                                MobileGameStatsPanel(stats: gameStats, game: statsGame,
+                                                     onSync: { syncingStats = true },
+                                                     onClose: { toggleStats() })
+                                    .clipShape(RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
+                                    .padding(.horizontal, Self.inset).padding(.top, 10).padding(.bottom, 8)
+                                    .transition(.opacity)
+                            } else if let watching {
                                 MobileLiveScoreboard(watching: watching, live: liveEverywhere()) { open($0) }
                                     .padding(.horizontal, Self.inset).padding(.top, 10)
                                     .padding(.bottom, 4)
                             }
                         }
-                        slateList(slate)
+                        if !statsOpen { slateList(slate) }
                     }
                     .allowsHitTesting(!fillsScreen)
                     .accessibilityHidden(fillsScreen)
@@ -186,10 +227,15 @@ struct MobileLiveView: View {
                                 onLastChannel: { if let last = lastChannel { tune(last) } },
                                 channelBanner: channelBanner,
                                 watchingGameID: previewGame?.id,
-                                onWatchGame: { watchGame($0) }
+                                onWatchGame: { watchGame($0) },
+                                onToggleStats: statsGame == nil ? nil : { toggleStats() },
+                                statsShown: statsOpen
                             )
-                            .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight,
+                            .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight + timelineHeight,
                                    alignment: .top)
+                            // On its side, the picture makes room for the
+                            // stats beside it rather than going under them.
+                            .padding(.trailing, statsBeside ? Self.statsWidth(viewport) + viewport.safeAreaInsets.trailing : 0)
                             .background(LineupStyle.background)
                             // Squared off like the Guide's own cells until it
                             // fills the screen.
@@ -205,6 +251,19 @@ struct MobileLiveView: View {
                             onBeginExit: { playback.freezePictureForExit() },
                             onDismiss: closePreview))
                         .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
+                    if statsBeside, let statsGame {
+                        MobileGameStatsPanel(stats: gameStats, game: statsGame, sideways: true,
+                                             onSync: { syncingStats = true },
+                                             onClose: { toggleStats() })
+                            .padding(.top, viewport.safeAreaInsets.top)
+                            .frame(width: Self.statsWidth(viewport))
+                            .padding(.trailing, viewport.safeAreaInsets.trailing)
+                            .background(LineupPanelStyle.fill)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                            .ignoresSafeArea()
+                            .transition(.move(edge: .trailing))
                     }
 
                     if leagueMenuOpen && !fillsScreen {
@@ -240,7 +299,7 @@ struct MobileLiveView: View {
             }
             .background(LineupStyle.background)
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(fillsScreen ? .hidden : .visible, for: .tabBar)
+            .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
             // Turning the phone needs no animation of its own: the rotation
@@ -254,77 +313,113 @@ struct MobileLiveView: View {
                 // comes back upright as the preview, not as full screen.
                 if value { expanded = false }
             }
-            .alert("Game has not started yet", isPresented: Binding(
-                get: { upcomingGame != nil },
-                set: { if !$0 { upcomingGame = nil } }
-            )) {
-                if let game = upcomingGame {
-                    Button(reminders.reminds(game) ? "Remove reminder" : "Remind me") {
-                        reminders.toggleGame(game)
-                        upcomingGame = nil
-                    }
-                }
-                Button("OK", role: .cancel) { upcomingGame = nil }
-            } message: {
-                if let game = upcomingGame {
-                    Text("\(game.matchupLine)\nScheduled for \(game.start.formatted(date: .abbreviated, time: .shortened)).")
-                }
+            .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .fullScreenCover(item: $multiview) { session in
+                MobileMultiviewView(session: session).environmentObject(library)
             }
-            .alert("Streams are still syncing…", isPresented: $showsChannelSyncMessage) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.")
-            }
-            .sheet(item: $choosingChannel, onDismiss: {
-                // The scope prompt has to wait for the sheet to be gone, or it
-                // would try to present over a dismissing sheet.
-                if let stream = pendingStream, let game = pendingGame {
-                    pendingStream = nil
-                    pendingGame = nil
-                    applySelection(stream, for: game)
-                }
+            .sheet(item: $multiviewPicking, onDismiss: {
+                // Opened once the picker has gone: one full-screen cover
+                // can't come up while a sheet is still leaving.
+                if let first = multiviewFirst, let second = multiviewSecond { launchMultiview([first, second]) }
+                multiviewFirst = nil
+                multiviewSecond = nil
             }) { game in
-                MobileChannelPicker(game: game) { stream in
+                MobileChannelPicker(library: library, game: game) { stream in
+                    multiviewSecond = MobileMultiviewSession.Tile(stream: stream, game: game)
+                    multiviewPicking = nil
+                }
+            }
+            .sheet(isPresented: $syncingStats) {
+                if let statsGame { MobileStatsSyncSheet(stats: gameStats, game: statsGame) }
+            }
+            // The stats follow the game on screen from the moment it opens,
+            // shown or not, so what the picture needs is there when they are.
+            .task(id: "\(previewGame?.id ?? "")|\(previewStream?.id ?? -1)") {
+                let slot = playbackSlot
+                gameStats.playerLag = { [weak slot] in slot?.controller.secondsBehindLive ?? 0 }
+                gameStats.follow(previewStream == nil ? nil : previewGame, channelID: previewStream?.id)
+                if previewGame == nil { showsStats = false }
+            }
+            .fullScreenCover(item: $selectedGameReplay) { selection in
+                MobileGameReplayPlayer(selection: selection).environmentObject(library)
+            }
+            .sheet(item: $catchUpChannel, onDismiss: finishCatchUpSelection) { channel in
+                sportsCatchUpSheet(channel)
+            }
+            .overlay(alignment: .top) {
+                if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
+            }
+            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel() }
+            .sheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
+                MobileEventChannelsSheet(library: library, game: game, playingID: previewStream?.id) { stream in
+                    pendingStream = stream
+                    pendingGame = game
+                    showingEventChannels = nil
+                }
+            }
+            .lineupChoices("Game has not started yet", symbol: "clock",
+                           isPresented: Binding(get: { upcomingGame != nil },
+                                                set: { if !$0 { upcomingGame = nil } }),
+                           message: upcomingGame.map {
+                               "\($0.matchupLine)\nScheduled for \($0.start.formatted(date: .abbreviated, time: .shortened))."
+                           },
+                           cancelTitle: "OK") {
+                guard let game = upcomingGame else { return [] }
+                let reminded = reminders.reminds(game)
+                return [MobileMenuItem(reminded ? "Remove Reminder" : "Remind Me",
+                                       symbol: reminded ? "bell.slash" : "bell") {
+                    reminders.toggleGame(game)
+                    upcomingGame = nil
+                }]
+            } onCancel: { upcomingGame = nil }
+            .lineupChoices("Streams are still syncing…", symbol: "arrow.clockwise",
+                           isPresented: $showsChannelSyncMessage,
+                           message: "Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.",
+                           cancelTitle: "OK") { [] }
+            .sheet(item: $choosingChannel, onDismiss: finishChannelSelection) { game in
+                MobileChannelPicker(library: library, game: game) { stream in
                     pendingStream = stream
                     pendingGame = game
                     choosingChannel = nil
                 }
-                .environmentObject(library)
             }
             // Both teams have a saved channel and they disagree — the one case
             // where a preference cannot answer on its own.
-            .confirmationDialog("Which feed?", isPresented: presenting($feedChoice),
-                                titleVisibility: .visible, presenting: feedChoice) { choice in
-                Button(choice.home.channelName) {
-                    feedChoice = nil
-                    if let stream = library.stream(withID: choice.home.streamID) {
-                        showPreview(stream, for: choice.game)
+            .lineupChoices("Which feed?", symbol: "tv", isPresented: presenting($feedChoice),
+                           message: feedChoice.map {
+                               "\($0.home.team) prefers \($0.home.channelName). \($0.away.team) prefers \($0.away.channelName)."
+                           }) {
+                guard let choice = feedChoice else { return [] }
+                return [
+                    MobileMenuItem(choice.home.channelName, id: "home") {
+                        feedChoice = nil
+                        if let stream = library.stream(withID: choice.home.streamID) {
+                            showPreview(stream, for: choice.game)
+                        }
+                    },
+                    MobileMenuItem(choice.away.channelName, id: "away") {
+                        feedChoice = nil
+                        if let stream = library.stream(withID: choice.away.streamID) {
+                            showPreview(stream, for: choice.game)
+                        }
+                    },
+                    MobileMenuItem("Choose Another Channel", symbol: "list.bullet.rectangle", id: "other") {
+                        let game = choice.game
+                        feedChoice = nil
+                        choosingChannel = game
                     }
-                }
-                Button(choice.away.channelName) {
-                    feedChoice = nil
-                    if let stream = library.stream(withID: choice.away.streamID) {
-                        showPreview(stream, for: choice.game)
-                    }
-                }
-                Button("Choose another channel") {
-                    let game = choice.game
-                    feedChoice = nil
-                    choosingChannel = game
-                }
-                Button("Cancel", role: .cancel) { feedChoice = nil }
-            } message: { choice in
-                Text("\(choice.home.team) prefers \(choice.home.channelName). \(choice.away.team) prefers \(choice.away.channelName).")
-            }
+                ]
+            } onCancel: { feedChoice = nil }
             // After a manual pick: how long should it apply?
-            .confirmationDialog("Use this channel for…", isPresented: presenting($scopingSelection),
-                                titleVisibility: .visible, presenting: scopingSelection) { selection in
-                Button("Just this game") {
-                    library.saveGameSelection(selection.stream, for: selection.game)
-                    scopingSelection = nil
-                }
-                ForEach(library.preferenceSides(for: selection.game)) { side in
-                    Button("Always use this channel for the \(side.role) (\(side.team))") {
+            .lineupChoices("Use this channel for…", symbol: "star.square.on.square",
+                           isPresented: presenting($scopingSelection),
+                           message: scopingSelection.map {
+                               "\($0.stream.name) is playing now. Lineup can remember it for one of these teams."
+                           }) {
+                guard let selection = scopingSelection else { return [] }
+                let sides = library.preferenceSides(for: selection.game).map { side in
+                    MobileMenuItem("Always for the \(side.role) (\(side.team))", symbol: "star",
+                                   id: "side-\(side.id)") {
                         // The broader team preference also remembers the
                         // channel for this exact game. That makes all three
                         // scope choices deterministic even when an ad-hoc
@@ -334,14 +429,22 @@ struct MobileLiveView: View {
                         scopingSelection = nil
                     }
                 }
-            } message: { selection in
-                Text("\(selection.stream.name) is playing now. Lineup can remember it for one of these teams.")
+                return [MobileMenuItem("Just This Game", symbol: "sportscourt", id: "game") {
+                    library.saveGameSelection(selection.stream, for: selection.game)
+                    scopingSelection = nil
+                }] + sides
             }
             .onChange(of: isActive) { _, active in
+                if !active { cancelQualityCheck(); catchUpLookup?.cancel() }
                 // Leaving the Live tab still closes the preview, unless it is
                 // the stream currently playing in the PiP window.
                 if active { playback.resume() } else { leagueMenuOpen = false }
                 if !active && !playback.pictureInPictureActive { closePreview() }
+            }
+            .onChange(of: library.activeProfile?.id) { _, _ in
+                catchUpLookup?.cancel()
+                pendingCatchUp = nil
+                catchUpChannel = nil
             }
             .onChange(of: playback.isPlaying) { _, playing in
                 // Genuinely playing, not merely selected: a channel that never
@@ -349,6 +452,7 @@ struct MobileLiveView: View {
                 if playing, let stream = previewStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: scenePhase) { _, phase in
+                if phase == .background { cancelQualityCheck() }
                 guard previewStream != nil else { return }
                 // Backgrounding no longer stops the stream; MobileBackgroundPolicy
                 // decides whether this transition touches playback at all.
@@ -377,7 +481,7 @@ struct MobileLiveView: View {
                         MobileLiveDot()
                     }
                     let liveCount = slate.live.count + slate.mine.filter(\.isLive).count
-                    Text(liveCount == 0 ? "\(slate.all.count) MATCHUPS" : "\(liveCount) LIVE NOW")
+                    Text(liveCount == 0 ? "\(slate.all.count) \(league?.isRacing == true ? "EVENTS" : "MATCHUPS")" : "\(liveCount) LIVE NOW")
                         .font(.inter(10, .bold)).tracking(1)
                 }
                 .foregroundStyle(slate.live.isEmpty && !slate.mine.contains(where: \.isLive)
@@ -395,12 +499,12 @@ struct MobileLiveView: View {
             MobileLeagueMenuButton(league: league, isOpen: leagueMenuOpen) {
                 setLeagueMenu(!leagueMenuOpen)
             }
+            if league == .soccer { SoccerCompetitionFilter(selected: $soccerCompetition) }
             Spacer(minLength: 0)
             if !library.followedTeams.isEmpty { followedChip }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Self.inset)
         .frame(height: Self.leagueStripHeight)
-        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
         .sensoryFeedback(.selection, trigger: league)
         .sensoryFeedback(.selection, trigger: onlyFollowed)
     }
@@ -435,31 +539,38 @@ struct MobileLiveView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: onlyFollowed ? "star.fill" : "star")
-                    .font(.system(size: 12, weight: .semibold))
-                Text("My Teams").font(.inter(13, .semibold))
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                if league != .soccer { Text("My Teams") }
             }
-            .foregroundStyle(onlyFollowed ? LineupStyle.onHighlight : LineupStyle.secondary)
-            .padding(.horizontal, 13)
+            .lineupChip(onlyFollowed)
             .frame(height: 36)
-            .background(onlyFollowed ? LineupStyle.highlight : LineupStyle.raised, in: Capsule())
-            .overlay(Capsule().strokeBorder(onlyFollowed ? .clear : LineupStyle.line, lineWidth: 0.5))
-            .contentShape(Capsule())
         }
         .buttonStyle(MobileCardButtonStyle())
         .accessibilityLabel("My teams")
         .accessibilityAddTraits(onlyFollowed ? .isSelected : [])
     }
 
-    private func sectionTitle(_ title: String, detail: String) -> some View {
-        HStack {
-            Text(title).tracking(1.8)
-            Spacer()
-            Text(detail).tracking(1)
+    /// One part of the slate as a panel: icon, caption and count over a
+    /// hairline, then its games, each divided from the next by a hairline of
+    /// its own.
+    private func slatePanel(_ title: String, systemImage: String, detail: String,
+                            games: [SportsGame], showsDay: Bool = false) -> some View {
+        LineupPanel(title: title, systemImage: systemImage, padded: false) {
+            Text(detail.uppercased()).font(.inter(13, .heavy)).tracking(0.4)
+                .foregroundStyle(LineupPanelStyle.quiet)
+        } content: {
+            VStack(spacing: 0) {
+                ForEach(Array(games.enumerated()), id: \.element.id) { index, game in
+                    if index > 0 {
+                        Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                            .padding(.horizontal, LineupPanelStyle.inset)
+                    }
+                    matchup(game, showsDay: showsDay)
+                }
+            }
         }
-        .font(.inter(9, .heavy))
-        .foregroundStyle(LineupStyle.secondary)
-        .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 9)
-        .background(LineupStyle.background)
+        .padding(.horizontal, Self.inset)
+        .padding(.bottom, LineupPanelStyle.gap)
     }
 
     /// The list stays mounted underneath the player while it expands. Only the
@@ -469,48 +580,49 @@ struct MobileLiveView: View {
         ScrollView {
             // A refresh of the channels is said in the pop-up at the top of the
             // screen, not in a line of its own above the games.
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(spacing: 0) {
                 if let error = library.scheduleErrorMessage {
                     Label(error, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
                         .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                         .padding(16)
                 }
                 if !slate.mine.isEmpty {
-                    Section {
-                        ForEach(slate.mine) { matchup($0, showsDay: true) }
-                    } header: {
-                        let onNow = slate.mine.filter(\.isLive).count
-                        sectionTitle("MY TEAMS",
-                                     detail: onNow > 0 ? "\(onNow) LIVE" : "\(slate.mine.count) TODAY")
-                    }
+                    let onNow = slate.mine.filter(\.isLive).count
+                    slatePanel("My Teams", systemImage: "star",
+                               detail: onNow > 0 ? "\(onNow) live" : "\(slate.mine.count) today",
+                               games: slate.mine, showsDay: true)
                 }
                 if !slate.live.isEmpty {
-                    Section {
-                        ForEach(slate.live) { matchup($0) }
-                    } header: { sectionTitle("ON AIR", detail: "\(slate.live.count) LIVE") }
+                    slatePanel("On Air", systemImage: "dot.radiowaves.left.and.right",
+                               detail: "\(slate.live.count) live", games: slate.live)
                 }
                 ForEach(slate.days, id: \.day) { day, dayGames in
-                    Section {
-                        ForEach(dayGames) { matchup($0) }
-                    } header: {
-                        sectionTitle(
-                            Calendar.current.isDateInToday(day)
-                                ? "UP NEXT"
-                                : day.formatted(.dateTime.weekday(.wide)).uppercased(),
-                            detail: day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
-                    }
+                    let today = Calendar.current.isDateInToday(day)
+                    slatePanel(today ? "Up Next" : day.formatted(.dateTime.weekday(.wide)),
+                               systemImage: today ? "clock" : "calendar",
+                               detail: day.formatted(.dateTime.month(.abbreviated).day()),
+                               games: dayGames)
                 }
                 if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
-                    ContentUnavailableView("Nothing for your teams",
+                    LineupUnavailableView("Nothing for your teams",
                         systemImage: "star",
                         description: Text("None of the teams you follow are playing in this range. Tap My Teams again to see everything."))
                         .padding(.top, 40)
                 } else if slate.all.isEmpty && !library.isScheduleLoading {
-                    ContentUnavailableView(
+                    LineupUnavailableView(
                         library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
                         systemImage: "sportscourt",
                         description: Text("Pull down to refresh, or find your channels in Guide."))
                         .padding(.top, 40)
+                }
+                if MobileGameReplayPolicy.isVisible(myTeams: onlyFollowed, league: league) {
+                    MobileGameReplaysSection(library: library, store: gameReplays, enabled: isActive) { selection in
+                        cancelQualityCheck()
+                        closePreview()
+                        selectedGameReplay = selection
+                    }
+                    .padding(.horizontal, Self.inset)
+                    .padding(.top, LineupPanelStyle.gap)
                 }
             }
             .padding(.bottom, 16)
@@ -519,62 +631,145 @@ struct MobileLiveView: View {
     }
 
     private func matchup(_ game: SportsGame, showsDay: Bool = false) -> some View {
-        Button {
-            guard !game.isUpcoming else {
-                upcomingGame = game
-                return
+        MobileMatchupRow(game: game, showsDay: showsDay,
+                         isWatching: previewStream != nil && previewGame?.id == game.id)
+            .accessibilityElement(children: .combine)
+            .lineupHoldMenu(game.matchupLine, symbol: "sportscourt", press: .well,
+                            items: { gameMenuItems(game) },
+                            onPresent: { menu in loadCatchUpOption(for: game, menu: menu) }) {
+                guard !game.isUpcoming else {
+                    upcomingGame = game
+                    return
+                }
+                open(game)
             }
-            open(game)
-        } label: {
-            MobileMatchupRow(game: game, showsDay: showsDay,
-                             isWatching: previewStream != nil && previewGame?.id == game.id)
-        }
-        .buttonStyle(MobileMatchupButtonStyle())
-        .accessibilityElement(children: .combine)
-        .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
-        .contextMenu { gameMenu(game) }
+            .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
     }
 
     /// Touch and hold on any game: watch it or be reminded, another channel,
-    /// or follow either side.
-    @ViewBuilder
-    private func gameMenu(_ game: SportsGame) -> some View {
-        Section {
-            if game.isLive {
-                let watching = previewGame?.id == game.id && previewStream != nil
-                Button(watching ? "Watching" : "Watch", systemImage: "play.fill") { open(game) }
-                    .disabled(watching)
-            } else {
-                let on = reminders.reminds(game)
-                Button(on ? "Remove reminder" : "Remind me", systemImage: on ? "bell.slash" : "bell") {
-                    reminders.toggleGame(game)
+    /// or follow either side -- following happens here rather than on a
+    /// settings screen, because this is where the team is already in front
+    /// of the viewer.
+    private func gameMenuItems(_ game: SportsGame) -> [MobileMenuItem] {
+        var items: [MobileMenuItem] = []
+        if game.league.isRacing {
+            items.append(MobileMenuItem("Race Details", symbol: "flag.checkered") { racingDetails = game })
+        }
+        if game.isLive {
+            let watching = previewGame?.id == game.id && previewStream != nil
+            items.append(MobileMenuItem(watching ? "Watching" : "Watch", symbol: "play.circle",
+                                        isEnabled: !watching) { open(game) })
+            items.append(MobileMenuItem("Channels", symbol: "tv") { showingEventChannels = game })
+            // Beside the game already playing, rather than instead of it.
+            if previewStream != nil && !watching {
+                items.append(MobileMenuItem("Watch Side by Side", symbol: "rectangle.split.2x1") {
+                    watchSideBySide(game)
+                })
+            }
+        } else {
+            let on = reminders.reminds(game)
+            items.append(MobileMenuItem(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
+                reminders.toggleGame(game)
+            })
+        }
+        items.append(MobileMenuItem("Choose Another Channel", symbol: "list.bullet.rectangle") {
+            choosingChannel = game
+        })
+        for side in library.followableSides(of: game) {
+            let following = library.isFollowing(side.key)
+            items.append(MobileMenuItem(following ? "Remove \(side.name) from My Teams" : "Add \(side.name) to My Teams",
+                                        symbol: following ? "star.slash" : "star", id: "follow-\(side.id)") {
+                library.toggleFollow(side)
+            })
+        }
+        return items
+    }
+
+    private func loadCatchUpOption(for game: SportsGame, menu: MobileHoldMenu) {
+        catchUpLookup?.cancel()
+        guard game.isLive, let profile = library.activeProfile, !profile.isPlaylist,
+              let requestID = menu.request?.id else { return }
+        catchUpLookup = Task { @MainActor in
+            guard menu.request?.id == requestID else { return }
+            let matched = await library.eventChannels(for: game)
+            guard !Task.isCancelled, isActive, library.activeProfile?.id == profile.id,
+                  menu.request?.id == requestID else { return }
+            let current = library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+            let channels = MobileSportsCatchUpPolicy.channels(matched, live: current.isLive, playlist: profile.isPlaylist)
+            guard !channels.isEmpty else { return }
+            var items = gameMenuItems(current)
+            let catchUp = MobileMenuItem("Catch Up", symbol: "clock.arrow.circlepath", id: "catch-up") { [weak menu] in
+                guard let menu, library.activeProfile?.id == profile.id else { return }
+                if channels.count == 1, let stream = channels.first {
+                    chooseCatchUpChannel(stream, for: current, profileID: profile.id)
+                } else {
+                    menu.present("Catch Up Channels", symbol: "clock.arrow.circlepath", message: current.matchupLine,
+                        items: channels.map { stream in
+                            MobileMenuItem(stream.name, symbol: "tv", id: String(stream.id)) {
+                                chooseCatchUpChannel(stream, for: current, profileID: profile.id)
+                            }
+                        })
                 }
             }
-            Button("Choose another channel", systemImage: "list.bullet") { choosingChannel = game }
+            let position = items.firstIndex { $0.title == "Channels" }.map { $0 + 1 } ?? 0
+            items.insert(catchUp, at: position)
+            menu.updateItems(items, requestID: requestID)
         }
-        // Following happens here rather than on a settings screen: this is
-        // where the team is already in front of the viewer.
-        Section {
-            ForEach(library.followableSides(of: game)) { side in
-                let following = library.isFollowing(side.key)
-                Button(following ? "Remove \(side.name) from My Teams"
-                                 : "Add \(side.name) to My Teams",
-                       systemImage: following ? "star.slash" : "star") {
-                    library.toggleFollow(side)
-                }
-            }
+    }
+
+    private func chooseCatchUpChannel(_ selected: XtreamStream, for game: SportsGame, profileID: UUID) {
+        guard library.activeProfile?.id == profileID,
+              let stream = library.stream(withID: selected.id), stream.hasCatchUp,
+              library.isEventChannel(stream, verifiedFor: game) else { return }
+        catchUpChannel = MobileSportsCatchUpChannel(profileID: profileID, stream: stream)
+    }
+
+    private func sportsCatchUpSheet(_ channel: MobileSportsCatchUpChannel) -> some View {
+        MobileCatchUpSheet(stream: channel.stream) { program in
+            guard library.activeProfile?.id == channel.profileID else { catchUpChannel = nil; return }
+            pendingCatchUp = channel.selection(for: program)
+            catchUpChannel = nil
         }
+        .environmentObject(library).tint(LineupStyle.highlight).preferredColorScheme(.dark)
+    }
+
+    private func finishCatchUpSelection() {
+        guard let selection = pendingCatchUp else { return }
+        pendingCatchUp = nil
+        guard library.activeProfile?.id == selection.profileID,
+              let stream = library.stream(withID: selection.recording.stream.id), stream.hasCatchUp else { return }
+        cancelQualityCheck()
+        closePreview()
+        // Present only after the program sheet dismisses. The recording player
+        // retains the selected program for retries and never silently goes live.
+        selectedGameReplay = selection
     }
 
     /// One game, one decision. `PreferredChannel` is resolved entirely from
     /// saved preferences plus what the provider currently carries — see
     /// `TeamChannelPreferences.resolve`.
     private func open(_ game: SportsGame) {
+        cancelQualityCheck()
         switch library.preferredChannel(for: game) {
         case .syncing:
             showsChannelSyncMessage = true
-        case let .play(streamID, _):
-            if let stream = library.stream(withID: streamID) { showPreview(stream, for: game) }
+        case let .play(streamID, source):
+            if let stream = library.stream(withID: streamID) {
+                if source == .verified {
+                    playback.shutdown()
+                    previewStream = nil
+                    let request = UUID()
+                    qualityRequest = request
+                    qualityTask = Task { @MainActor in
+                        let chosen = await library.bestQualityStream(for: game, fallback: stream)
+                        guard !Task.isCancelled, qualityRequest == request, isActive else { return }
+                        qualityRequest = nil
+                        qualityTask = nil
+                        if let chosen { showPreview(chosen, for: game) }
+                        else { choosingChannel = game }
+                    }
+                } else { showPreview(stream, for: game) }
+            }
             else { choosingChannel = game }
         case let .chooseFeed(home, away):
             feedChoice = FeedChoice(game: game, home: home, away: away)
@@ -597,6 +792,7 @@ struct MobileLiveView: View {
     }
 
     private func showPreview(_ stream: XtreamStream, for game: SportsGame?) {
+        cancelQualityCheck()
         setExpanded(false)
         playback.shutdown()
         playback = MobilePlaybackController()
@@ -611,10 +807,17 @@ struct MobileLiveView: View {
         playback.loadCatchUpSource(for: stream, from: library)
     }
 
+    private func cancelQualityCheck() {
+        qualityTask?.cancel()
+        qualityTask = nil
+        qualityRequest = nil
+    }
+
     private func failoverContext(for game: SportsGame) -> MobilePlaybackController.FailoverContext {
         // Bound once, so the stored closures hold the library directly
         // rather than a copy of this view.
         let library = self.library
+        let automaticID = library.verifiedStream(for: game)?.id
         return MobilePlaybackController.FailoverContext(
             plan: { library.failoverPlan(for: game) },
             urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
@@ -624,6 +827,9 @@ struct MobileLiveView: View {
                 if let switched = library.stream(withID: channel.streamID) { previewStream = switched }
             },
             didPlay: { id in
+                // Normal automatic playback must not become a manual pin that
+                // overrides a later quality-ranked match. Keep chosen/recovery feeds.
+                guard id != automaticID else { return }
                 if let working = library.stream(withID: id) {
                     library.saveGameSelection(working, for: game)
                 }
@@ -689,6 +895,46 @@ struct MobileLiveView: View {
         playback.shutdown()
         previewStream = nil
         previewGame = nil
+        showsStats = false
+        gameStats.stop()
+    }
+
+    /// The game playing now and this one, side by side. This one's channel
+    /// is the one it would play on its own; without one, it is chosen.
+    private func watchSideBySide(_ game: SportsGame) {
+        guard let current = previewStream else { return }
+        let first = MobileMultiviewSession.Tile(stream: current, game: previewGame)
+        switch library.preferredChannel(for: game) {
+        case .syncing:
+            showsChannelSyncMessage = true
+        case let .play(streamID, _):
+            if let stream = library.stream(withID: streamID) {
+                launchMultiview([first, MobileMultiviewSession.Tile(stream: stream, game: game)])
+            } else {
+                multiviewFirst = first
+                multiviewPicking = game
+            }
+        case .chooseFeed, .pick:
+            multiviewFirst = first
+            multiviewPicking = game
+        }
+    }
+
+    private func launchMultiview(_ tiles: [MobileMultiviewSession.Tile]) {
+        cancelQualityCheck()
+        // Its connection goes before multiview opens two of its own.
+        closePreview()
+        multiview = MobileMultiviewSession(tiles: tiles)
+    }
+
+    private func toggleStats() {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { showsStats.toggle() }
+    }
+
+    /// The stats beside a full-screen picture: room for a box score, and
+    /// the picture still the larger part.
+    private static func statsWidth(_ viewport: GeometryProxy) -> CGFloat {
+        min(380, max(300, (viewport.size.width + viewport.safeAreaInsets.leading + viewport.safeAreaInsets.trailing) * 0.38))
     }
 
     /// Full screen is a layout state of the existing preview, not a new player.
@@ -705,6 +951,15 @@ struct MobileLiveView: View {
 
     /// A channel came back from the picker. Play it now, and ask whether it
     /// should stick to either team.
+    private func finishChannelSelection() {
+        // Scope prompts wait until the outgoing channel sheet is gone.
+        if let stream = pendingStream, let game = pendingGame {
+            pendingStream = nil
+            pendingGame = nil
+            applySelection(stream, for: game)
+        }
+    }
+
     private func applySelection(_ stream: XtreamStream, for game: SportsGame) {
         showPreview(stream, for: game)
         let sides = library.preferenceSides(for: game)
@@ -763,19 +1018,27 @@ private struct MobileMatchupRow: View {
                                 .font(.inter(.body, .semibold))
                                 .lineLimit(2).multilineTextAlignment(.leading)
                         }
+                        if let session = game.race?.title {
+                            Text(session).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.highlight)
+                        }
                         if let whereItIs { place(whereItIs) }
                     }
                 } else {
+                    if let competition = game.competition {
+                        Text(competition.name.uppercased()).font(.inter(10, .bold))
+                            .foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                    }
                     team(game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
                          record: game.awayRecord, score: game.awayScore, isAway: true)
                     team(game.homeTeam, logo: game.homeLogo, rank: game.homeRank,
                          record: game.homeRecord, score: game.homeScore, isAway: false)
                     if let whereItIs { place(whereItIs) }
+                    if let detail = game.soccer?.detail { place(detail) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             Rectangle().fill(LineupStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
-                MobileLeagueLogo(league: game.league, size: 23)
+                SportsMark(league: game.league, competition: game.competition, size: 26)
                 if game.isLive {
                     HStack(alignment: .center, spacing: 5) {
                         MobileLiveDot()
@@ -798,24 +1061,16 @@ private struct MobileMatchupRow: View {
                     Text(game.broadcast.uppercased()).font(.inter(9, .semibold)).tracking(0.5).lineLimit(2)
                         .foregroundStyle(LineupStyle.secondary)
                 }
-                Image(systemName: isWatching ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 10))
+                Image(systemName: isWatching ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 10, design: .rounded))
                     .padding(.top, 2).accessibilityHidden(true)
             }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 12).padding(.vertical, 12)
-        // The Guide's own cells: grey, squared off, a step lighter and edged
-        // in a faint red while the game is on.
-        .background(game.isLive ? LineupStyle.focused : LineupStyle.raised, in: Self.cell)
-        .overlay {
-            Self.cell.strokeBorder(game.isLive ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line,
-                                   lineWidth: game.isLive ? 1 : 0.5)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 3)
+        // A row of its section's panel: the panel draws the card and the
+        // hairlines between games, the live mark and status say it is on.
+        .padding(.horizontal, LineupPanelStyle.inset).padding(.vertical, 14)
         .contentShape(Rectangle())
     }
-
-    static let cell = RoundedRectangle(cornerRadius: 4, style: .continuous)
 
     /// One line, quiet, and only when there is something to say. The card
     /// earns its look by not filling every gap that could hold a fact.
@@ -855,13 +1110,6 @@ private struct MobileMatchupRow: View {
     }
 }
 
-private struct MobileMatchupButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.7 : 1)
-    }
-}
-
 /// On air, as a small flat red dot that breathes in and out. It had a halo
 /// and a glow; nothing in the app glows now but the pale rim that keeps a
 /// dark team badge readable.
@@ -892,9 +1140,7 @@ struct MobileLeagueLogo: View {
     let league: SportsLeague
     let size: CGFloat
     var body: some View {
-        Image("League-\(league.rawValue)")
-            .resizable().scaledToFit()
-            .frame(width: size, height: size)
+        SportsMark(league: league, size: size)
             .accessibilityLabel(league.shortName)
     }
 }

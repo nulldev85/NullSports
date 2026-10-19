@@ -1,86 +1,80 @@
 import SwiftUI
 
-/// Choosing the channel to watch a game on.
-///
-/// This used to open the Guide with a different title on it — the full EPG,
-/// its timeline, its filters and every channel a provider carries, when the
-/// question is only "which of these is showing this game". People got lost in
-/// it. This asks the one question: a search field, the app's own match at the
-/// top where it can be taken at a glance, and everything else a keystroke away.
+/// Channel/favorite publications refresh the catalog; unrelated sports-store
+/// publications and the search field's draft do not invalidate the results.
 struct MobileChannelPicker: View {
-    @EnvironmentObject private var library: SportsLibrary
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var searchFocused: Bool
-    @State private var query = ""
+    let library: SportsLibrary
     let game: SportsGame
     let onPick: (XtreamStream) -> Void
+    @StateObject private var search = MobileChannelSearch()
+    @State private var reloadTask: Task<Void, Never>?
 
-    /// The app's own match, and the channels the broadcast names, first. A
-    /// viewer who recognises one of these never has to type at all.
-    private var suggested: [XtreamStream] {
-        guard query.isEmpty else { return [] }
-        var seen: Set<Int> = []
-        var out: [XtreamStream] = []
-        if let matched = library.verifiedStream(for: game), seen.insert(matched.id).inserted {
-            out.append(matched)
-        }
-        for showing in library.tennisCoverage(for: game) where seen.insert(showing.id).inserted {
-            out.append(showing)
-        }
-        for favorite in library.guideStreams(categoryID: nil, favoritesOnly: true, query: "")
-        where seen.insert(favorite.id).inserted {
-            out.append(favorite)
-        }
-        return Array(out.prefix(6))
+    private func reloadChannels() {
+        let preferred = [library.verifiedStream(for: game)].compactMap { $0 }
+            + library.tennisCoverage(for: game)
+        // Resolve favorites in the background index instead of walking the
+        // full guide on the main actor, with a favorite-array scan per channel.
+        search.update(channels: library.streams, preferred: preferred, favoriteOrder: library.favoriteStreamOrder)
     }
 
-    private var results: [XtreamStream] {
-        let all = library.guideStreams(categoryID: nil, favoritesOnly: false, query: query)
-        guard query.isEmpty else { return all }
-        let shown = Set(suggested.map(\.id))
-        return all.filter { !shown.contains($0.id) }
+    private func scheduleReload() {
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor in
+            // Published emits before the new catalog/favorites are stored.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            reloadChannels()
+        }
     }
 
     var body: some View {
+        MobileChannelPickerContent(game: game, search: search, onPick: onPick)
+            .presentationDetents([.large])
+            .presentationBackground(LineupStyle.background)
+            .task { reloadChannels() }
+            .onReceive(library.$streams.dropFirst()) { _ in scheduleReload() }
+            .onReceive(library.$favoriteStreamOrder.dropFirst()) { _ in scheduleReload() }
+            .onDisappear { reloadTask?.cancel(); search.cancel() }
+    }
+}
+
+@MainActor
+struct MobileChannelPickerContent: View {
+    @Environment(\.dismiss) private var dismiss
+    let game: SportsGame
+    @ObservedObject var search: MobileChannelSearch
+    var automaticallyFocusSearch = true
+    let onPick: (XtreamStream) -> Void
+
+    var body: some View {
+        let page = search.page
         NavigationStack {
             ZStack {
                 LineupStyle.background.ignoresSafeArea()
                 VStack(spacing: 0) {
                     header
-                    searchField
-                    if results.isEmpty && suggested.isEmpty {
-                        ContentUnavailableView("No channels", systemImage: "magnifyingglass",
-                            description: Text(query.isEmpty
-                                ? "Refresh your guide to load this provider's channels."
-                                : "Nothing matched “\(query)”."))
-                            .frame(maxHeight: .infinity)
-                    } else {
-                        List {
-                            if !suggested.isEmpty {
-                                Section {
-                                    ForEach(suggested) { row($0, suggested: true) }
-                                } header: { sectionLabel("Suggested") }
-                                    .listRowBackground(LineupRowBackground())
+                    MobileChannelSearchField(search: search, automaticallyFocus: automaticallyFocusSearch)
+                    MobileChannelResults(search: search, matchup: "\(game.awayTeam) versus \(game.homeTeam)", onPick: onPick)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .overlay {
+                            if page.loading {
+                                ProgressView("Loading channels…")
+                            } else if page.results.isEmpty && page.suggested.isEmpty {
+                                LineupUnavailableView("No channels", systemImage: "magnifyingglass",
+                                    description: Text(page.query.isEmpty
+                                        ? "Refresh your guide to load this provider's channels."
+                                        : "Nothing matched “\(page.query)”."))
                             }
-                            Section {
-                                ForEach(results) { row($0, suggested: false) }
-                            } header: { sectionLabel(query.isEmpty ? "All channels" : "Results") }
-                                .listRowBackground(LineupRowBackground())
                         }
-                        .listStyle(.insetGrouped)
-                        .scrollContentBackground(.hidden)
-                        .scrollDismissesKeyboard(.interactively)
-                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                LineupToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle())
+                }
             }
         }
-        .presentationDetents([.large])
-        .presentationBackground(LineupStyle.background)
-        .task { searchFocused = true }
     }
 
     private var header: some View {
@@ -94,78 +88,23 @@ struct MobileChannelPicker: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20).padding(.bottom, 12)
     }
+}
 
-    private var searchField: some View {
+/// The native field owns its editing buffer. SwiftUI only observes completed
+/// results, so keystrokes do not invalidate the sheet or reset the editor.
+private struct MobileChannelSearchField: View {
+    let search: MobileChannelSearch
+    let automaticallyFocus: Bool
+
+    var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-            TextField("Search channels", text: $query)
-                .textFieldStyle(.plain)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .focused($searchFocused)
-                .submitLabel(.search)
-            if !query.isEmpty {
-                Button { query = "" } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
-                }.buttonStyle(.plain).accessibilityLabel("Clear search")
-            }
+            MobileChannelSearchInput(search: search, automaticallyFocus: automaticallyFocus)
         }
         .font(.inter(.body))
         .padding(.horizontal, 14).frame(height: 44)
-        .lineupLiquidGlass(Capsule(), fallback: LineupStyle.surface, border: LineupStyle.line)
-        .padding(.horizontal, 16).padding(.bottom, 12)
-    }
-
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.inter(.caption2, .bold)).tracking(1.4)
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
-    }
-
-    private func row(_ stream: XtreamStream, suggested: Bool) -> some View {
-        Button {
-            searchFocused = false
-            onPick(stream)
-        } label: {
-            HStack(spacing: 12) {
-                MobileChannelBadge(stream: stream)
-                Text(stream.name).font(.inter(.body, .semibold))
-                    .lineLimit(2).multilineTextAlignment(.leading)
-                Spacer(minLength: 8)
-                if library.isFavorite(stream) {
-                    Image(systemName: "star.fill").font(.caption2)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-                }
-                if suggested {
-                    Image(systemName: "sparkles").font(.caption2)
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Watch \(game.awayTeam) versus \(game.homeTeam) on \(stream.name)")
-    }
-}
-
-/// The channel's own logo where it has one, its name where it does not, at a
-/// size that keeps every row the same height either way.
-private struct MobileChannelBadge: View {
-    let stream: XtreamStream
-
-    var body: some View {
-        LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 44) { loaded in
-            if let image = loaded {
-                image.resizable().scaledToFit()
-            } else {
-                Text(stream.name.prefix(3).uppercased())
-                    .font(.inter(.caption2, .bold))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
-            }
-        }
-        .frame(width: 44, height: 30)
-        .accessibilityHidden(true)
+        .background(LineupPanelStyle.fill, in: Capsule())
+        .padding(.horizontal, LineupPanelStyle.margin).padding(.bottom, 12)
     }
 }

@@ -27,6 +27,15 @@ struct CatchUpProgramme: Identifiable, Hashable, Sendable {
 /// and comparing the two gives the server's time zone when it says nothing
 /// else about it.
 struct XtreamArchiveTable: Decodable, Sendable {
+    /// Sports replays require an explicit recorded flag on each completed
+    /// listing. A live channel's archive capability alone is not enough.
+    func confirmedGameRecordings(for stream: XtreamStream, now: Date = Date()) -> [CatchUpProgramme] {
+        guard stream.hasCatchUp else { return [] }
+        let oldest = stream.archiveDays > 0 ? now.addingTimeInterval(-Double(stream.archiveDays) * 86_400) : .distantPast
+        return listings.filter { $0.hasArchive && $0.end <= now && $0.start >= oldest }
+            .map { CatchUpProgramme(streamID: stream.id, title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) }
+    }
+
     struct Listing: Decodable, Sendable {
         let title: String
         let detail: String

@@ -20,7 +20,7 @@ struct GameAlert: Identifiable, Equatable, Sendable {
         // Tennis has no clock to run down: what a viewer is told is that one
         // set will settle it, and that one tiebreak will.
         case .closeLate: game.league.isTennis ? "Deciding set" : "Close game"
-        case .overtime: game.league.isTennis ? "Final-set tiebreak" : "Overtime"
+        case .overtime: game.league.isTennis ? "Final-set tiebreak" : (game.league == .soccer ? "Extra time" : "Overtime")
         }
     }
 }
@@ -68,6 +68,7 @@ enum GameAlertRules {
     /// Past regulation: overtime, a shootout, or extra innings.
     static func isOvertime(_ game: SportsGame) -> Bool {
         guard game.isLive, !game.isEvent else { return false }
+        if game.league == .soccer { return (3...4).contains(game.soccer?.period ?? 0) }
         if game.league.isTennis {
             guard let score = game.tennis, score.isDecidingSet, let set = score.current else { return false }
             return set.away >= 6 && set.home >= 6
@@ -84,6 +85,9 @@ enum GameAlertRules {
         guard game.isLive, !game.isEvent else { return false }
         if game.league.isTennis { return game.tennis?.isDecidingSet ?? false }
         guard let margin = margin(of: game) else { return false }
+        if game.league == .soccer {
+            return game.soccer?.period == 2 && (game.soccer?.clockSeconds ?? 0) >= 75 * 60 && margin <= 1
+        }
         let moment = moment(of: game.status)
         guard !moment.overtime, let period = moment.period else { return false }
         let late = moment.clockSeconds.map { $0 <= 5 * 60 } ?? false
@@ -92,7 +96,7 @@ enum GameAlertRules {
         case .nfl, .ncaaf: return period >= 4 && late && margin <= 8
         case .nhl: return period >= 3 && (moment.clockSeconds.map { $0 <= 10 * 60 } ?? false) && margin <= 1
         case .mlb: return period >= 8 && margin <= 2
-        case .ufc, .atp, .wta: return false
+        case .ufc, .atp, .wta, .soccer, .f1, .nascar: return false
         }
     }
 

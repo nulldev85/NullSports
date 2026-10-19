@@ -3,6 +3,33 @@ import XCTest
 
 /// The Library's rows in the viewer's order, as rows come and go.
 final class LibraryShelfOrderTests: XCTestCase {
+    @MainActor
+    func testCollectionsIsAnEditableRowAndItsPositionPersistsAndResets() throws {
+        let domain = "CollectionsShelfOrderTests-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let profile = MediaServerProfile(name: "Test", serverURL: "https://server.invalid",
+                                         username: "test", userID: "user")
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""))
+        let movie = MediaItem(id: "movie", name: "Movie", type: "Movie", overview: nil,
+                              productionYear: nil, primaryImageAspectRatio: nil, childCount: nil, serverID: profile.id)
+        media.setLocalFavorite(true, for: movie)
+        let original = media.libraryRows.map(\.id)
+        XCTAssertEqual(original.first, LibraryShelfOrder.collections)
+        XCTAssertTrue(original.contains(LibraryShelfOrder.favorites))
+        let index = try XCTUnwrap(original.firstIndex(of: LibraryShelfOrder.collections))
+        let moved = LibraryShelfOrder.move(original, from: index, by: original.count - 1)
+        media.saveShelfOrder(moved)
+        XCTAssertEqual(media.libraryRows.map(\.id), moved)
+        let restored = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""))
+        XCTAssertEqual(restored.libraryRows.map(\.id), moved)
+        restored.renameShelf(id: LibraryShelfOrder.collections, to: "My Collections")
+        XCTAssertEqual(restored.libraryRows.first { $0.id == LibraryShelfOrder.collections }?.title, "My Collections")
+        restored.resetShelfOrder()
+        XCTAssertEqual(restored.libraryRows.map(\.id), original)
+    }
+
     func testNoSavedOrderKeepsTheRowsAsTheyCome() {
         XCTAssertEqual(LibraryShelfOrder.arrange(["a", "b", "c"], by: []), ["a", "b", "c"])
     }

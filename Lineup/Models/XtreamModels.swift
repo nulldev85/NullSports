@@ -6,6 +6,9 @@ struct XtreamProfile: Codable, Identifiable, Equatable {
     var name: String
     var serverURL: String
     var username: String
+    /// Nil is the legacy Xtream connection; existing saved profiles still read.
+    var connectionKind: String? = nil
+    var isPlaylist: Bool { connectionKind == "m3u" }
 
     init(id: UUID = UUID(), name: String, serverURL: String, username: String) {
         self.id = id
@@ -211,6 +214,11 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     /// A tennis match's games, set by set. Every other sport has one number
     /// a side and leaves this empty.
     var tennis: TennisScore? = nil
+    var competition: SportsCompetition? = nil
+    var awayTeamID: String? = nil
+    var homeTeamID: String? = nil
+    var soccer: SoccerScore? = nil
+    var race: RacingSession? = nil
 
     // How long a game can run before an unchanged status is stale rather than late.
     static let longestPlausibleGame: TimeInterval = 6 * 60 * 60
@@ -231,7 +239,7 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         // A tennis match's time is when its court opens, not when it starts:
         // the third match on a court is listed at the first one's time and
         // goes on hours later. Only the feed can say it has begun.
-        guard !league.isTennis else { return false }
+        guard !league.requiresConfirmedLiveState else { return false }
         let now = Date()
         let duration = isNFLRedZone ? Self.nflRedZoneWindow
             : (league == .ufc ? 9 * 60 * 60 : Self.longestPlausibleGame)
@@ -242,18 +250,22 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         guard state == "pre" else { return false }
         // Still to come until the feed says otherwise, for as long as a day
         // of play could keep it waiting -- see `isLive`.
-        if league.isTennis { return Date() < start.addingTimeInterval(Self.longestPlausibleGame * 2) }
+        if league.requiresConfirmedLiveState { return Date() < start.addingTimeInterval(Self.longestPlausibleGame * 2) }
         return start > Date()
     }
 
     /// Between the two sides: a team plays at another's ground, a tennis
     /// player plays against someone.
-    var sidesWord: String { league.isTennis ? "vs" : "at" }
-    var sidesSymbol: String { league.isTennis ? "vs" : "@" }
+    var sidesWord: String { league.isTennis || league == .soccer ? "vs" : "at" }
+    var sidesSymbol: String { league.isTennis || league == .soccer ? "vs" : "@" }
     /// "Bruins at Rangers", "Jannik Sinner vs Carlos Alcaraz", or an
     /// event's own name.
     var matchupLine: String {
-        isEvent ? (eventName ?? league.shortName) : "\(awayTeam) \(sidesWord) \(homeTeam)"
+        if isEvent {
+            let name = eventName ?? league.shortName
+            return race.map { "\(name) · \($0.title)" } ?? name
+        }
+        return "\(awayTeam) \(sidesWord) \(homeTeam)"
     }
 
     /// Where a tennis tournament's card is played: "Shanghai", from
@@ -457,13 +469,15 @@ struct XtreamEnvelope: Codable {
 }
 
 enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
-    case nfl, nba, nhl, mlb, ncaaf, ufc, atp, wta
+    case nfl, nba, nhl, mlb, ncaaf, ufc, atp, wta, soccer, f1, nascar
 
     var id: String { rawValue }
-    var shortName: String { rawValue.uppercased() }
+    var shortName: String { self == .soccer ? "Soccer" : rawValue.uppercased() }
     /// The men's tour and the women's: one sport, two tabs, each under its
     /// own tour's mark the way every other league is under its own.
     var isTennis: Bool { self == .atp || self == .wta }
+    var isRacing: Bool { self == .f1 || self == .nascar }
+    var requiresConfirmedLiveState: Bool { isTennis || isRacing || self == .soccer }
     var fullName: String {
         switch self {
         case .nfl: "Football"
@@ -474,6 +488,9 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
         case .ufc: "Mixed Martial Arts"
         case .atp: "Men's Tennis"
         case .wta: "Women's Tennis"
+        case .soccer: "Soccer"
+        case .f1: "Formula 1"
+        case .nascar: "NASCAR Cup Series"
         }
     }
     /// The theme owns the set. These were five literals mixed against one
@@ -510,6 +527,12 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
             // Tennis channels carry both tours, so a channel for one is a
             // channel to look at for the other.
             return text.has(Self.tennisWords, Self.tennisPhrases)
+        case .soccer:
+            return text.has(Self.soccerWords, Self.soccerPhrases)
+        case .f1:
+            return text.has(Self.f1Words, Self.f1Phrases)
+        case .nascar:
+            return text.has(Self.nascarWords, Self.nascarPhrases)
         default:
             return text.words.contains(rawValue)
                 || text.has(Self.teamWords[self] ?? [], Self.teamPhrases[self] ?? [])
@@ -537,6 +560,14 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     private static let ufcPhrases = phrases(ufcTerms)
     private static let tennisWords = words(tennisTerms)
     private static let tennisPhrases = phrases(tennisTerms)
+    private static let soccerCatalogTerms = Array(Set(soccerTerms + SportsTeamDirectory.bundled.teams
+        .filter { $0.league == .soccer }.flatMap { [$0.name.lowercased(), ProfessionalChannelMatcher.normalize($0.name)] }))
+    private static let soccerWords = words(soccerCatalogTerms)
+    private static let soccerPhrases = phrases(soccerCatalogTerms)
+    private static let f1Words = words(f1Terms)
+    private static let f1Phrases = phrases(f1Terms)
+    private static let nascarWords = words(nascarTerms)
+    private static let nascarPhrases = phrases(nascarTerms)
     private static let teamWords: [SportsLeague: Set<String>] = teamTerms.mapValues { words($0) }
     private static let teamPhrases: [SportsLeague: [SportsPhrase]] = teamTerms.mapValues { phrases($0) }
 
@@ -547,6 +578,11 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     /// still not found on a channel until its players are.
     private static let tennisTerms = ["tennis", "atp", "wta", "wimbledon", "us open", "roland garros", "roland-garros", "french open", "australian open", "davis cup", "billie jean king cup", "laver cup", "united cup", "masters 1000", "tennis channel"]
     private static let ufcTerms = ["ufc", "ultimate fighting", "fight night", "mma", "pay per view", "pay-per-view", "ppv", "prelims", "early prelims", "contender series", "road to ufc", "fight pass"]
+    // Shared broadcasters are candidates only. Playback still requires the
+    // exact matchup/session in the current listing or a dedicated event feed.
+    private static let soccerTerms = ["soccer", "premier league", "epl", "la liga", "laliga", "bundesliga", "serie a", "ligue 1", "mls", "nwsl", "champions league", "europa league", "world cup", "copa america", "gold cup", "nations league", "afcon", "asian cup", "football", "futbol", "futebol", "bein", "tnt sports", "sky sports", "dazn", "espn", "usa network", "usa net", "peacock", "paramount", "univision", "telemundo", "universo", "apple tv"]
+    private static let f1Terms = ["f1", "formula 1", "formula one", "grand prix", "sky sports", "espn", "tsn", "rds", "f1 tv", "apple tv"]
+    private static let nascarTerms = ["nascar", "cup series", "motor racing", "fs1", "fs2", "fox sports", "nbc", "usa network", "usa net", "tnt sports", "tru tv", "trutv", "prime video"]
 
     // Stored, not computed. As a computed property every one of these arrays
     // was built again on every call, and the call happens once per league per

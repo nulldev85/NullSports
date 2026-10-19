@@ -77,7 +77,25 @@ struct JellyfinClient: Sendable {
 
     func items(userID: String, parentID: String,
                sortBy: String = "SortName", limit: Int = 40) async throws -> [MediaItem] {
-        let query = [
+        try await items(userID: userID, parentID: parentID, sortBy: sortBy, limit: limit, genre: nil)
+    }
+
+    func items(userID: String, parent: MediaItem, sortBy: String, limit: Int) async throws -> [MediaItem] {
+        var genre: String?
+        if parent.serverExtensions?.genreRequired == true {
+            let choices: JellyfinItemsResponse = try await send(try request(path: "genres", query: [
+                URLQueryItem(name: "ParentId", value: parent.id), URLQueryItem(name: "UserId", value: userID)]))
+            // "None" is the catalog's explicit all-genres value. Sending an
+            // invented "All" (or no genre) makes required-genre catalogs empty.
+            genre = choices.items.first { $0.name.caseInsensitiveCompare("None") == .orderedSame }?.id
+                ?? choices.items.first?.id
+            guard genre != nil else { return [] }
+        }
+        return try await items(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit, genre: genre)
+    }
+
+    private func items(userID: String, parentID: String, sortBy: String, limit: Int, genre: String?) async throws -> [MediaItem] {
+        var query = [
             URLQueryItem(name: "ParentId", value: parentID),
             URLQueryItem(name: "Fields", value: Self.fields),
             URLQueryItem(name: "ImageTypeLimit", value: "1"),
@@ -86,6 +104,7 @@ struct JellyfinClient: Sendable {
             URLQueryItem(name: "SortBy", value: sortBy),
             URLQueryItem(name: "SortOrder", value: "Ascending")
         ]
+        if let genre { query.append(URLQueryItem(name: "GenreIds", value: genre)) }
         let response: JellyfinItemsResponse = try await send(
             try request(path: "users/\(userID)/items", query: query))
         return response.items
@@ -384,19 +403,45 @@ struct JellyfinClient: Sendable {
     /// server that resolves streams through addons -- AIOStreams asking every
     /// one of its sources -- can take most of a minute to answer.
     func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo {
+        try await playbackInfo(itemID: itemID, options: MediaPlaybackRequest())
+    }
+
+    func playbackInfo(itemID: String, options: MediaPlaybackRequest) async throws -> MediaPlaybackInfo {
         // Emby works out which versions the user may play from the user it
         // is told; Jellyfin from the token.
         let query = software == .emby ? userID.map { [URLQueryItem(name: "UserId", value: $0)] } ?? [] : []
         var value = try request(path: "items/\(itemID)/playbackinfo", method: "POST", query: query, timeout: 60)
-        value.httpBody = Data("{}".utf8)
+        value.httpBody = try JSONSerialization.data(withJSONObject: options.body)
         return try await send(value)
     }
 
     func playbackURL(itemID: String, mediaSourceID: String?) -> URL? {
+        playbackURL(itemID: itemID, mediaSourceID: mediaSourceID, playSessionID: nil)
+    }
+
+    func playbackURL(itemID: String, mediaSourceID: String?, playSessionID: String?) -> URL? {
         var query = [URLQueryItem(name: "static", value: "true")]
         if let mediaSourceID { query.append(URLQueryItem(name: "MediaSourceId", value: mediaSourceID)) }
+        if let playSessionID, !playSessionID.isEmpty { query.append(URLQueryItem(name: "PlaySessionId", value: playSessionID)) }
         return authenticatedURL(path: "videos/\(itemID)/stream", query: query)
     }
+
+    #if os(iOS)
+    func seekPreview(userID: String, itemID: String, mediaSourceID: String) async throws -> MobileSeekPreviewSource? {
+        guard software == .jellyfin, MobileSeekPreviewSource.versionKey(itemID) != nil,
+              MobileSeekPreviewSource.versionKey(mediaSourceID) != nil else { return nil }
+        let metadata = try request(path: "users/\(userID)/items/\(itemID)",
+            query: [.init(name: "Fields", value: "Trickplay")], timeout: 6)
+        let (data, response) = try await session.data(for: metadata)
+        try Task.checkCancellation()
+        try Self.check(response)
+        guard let (version, info) = MobileSeekPreviewSource.select(data, mediaSourceID: mediaSourceID) else { return nil }
+        var tile = try request(path: "videos/\(itemID)/trickplay/\(info.width)/0.jpg",
+            query: [.init(name: "MediaSourceId", value: version)], timeout: 4)
+        tile.setValue("image/jpeg", forHTTPHeaderField: "Accept")
+        return MobileSeekPreviewSource(info: info, firstTile: tile)
+    }
+    #endif
 
     private func request(path: String, method: String = "GET", query: [URLQueryItem] = [],
                          timeout: TimeInterval = 20) throws -> URLRequest {

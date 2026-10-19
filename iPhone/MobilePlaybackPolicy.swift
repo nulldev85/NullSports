@@ -1,39 +1,51 @@
 import Foundation
 
-/// Which player opens a given stream URL.
-///
-/// Xtream publishes every channel twice: an HLS playlist (`.m3u8`) and a raw
-/// MPEG-TS stream (`.ts`). Only the HLS endpoint can be opened by AVPlayer, and
-/// only AVPlayer can drive `AVPictureInPictureController` — VLCKit renders into
-/// an opaque `UIView` through `drawable` and exposes no frame source that PiP
-/// can read. So the phone tries HLS first, which is deliberately the reverse of
-/// the Apple TV order, and keeps VLC as the fallback that still plays a channel
-/// whose HLS endpoint is missing, throttled, or broken.
-///
-/// Apple TV is untouched by this: it has no PiP and no background audio, and its
-/// transport-stream-first order remains the better one there.
-enum MobileStreamEngine: String, Equatable {
-    /// AVPlayer. Native Picture in Picture and background audio.
-    case system
-    /// VLCKit. Everything AVPlayer cannot open.
-    case vlc
+enum MobileRecordingSeekPolicy {
+    /// Provider URLs accept whole-minute starts. A short forward request must
+    /// never round back behind the picture and restart the same minute.
+    static func providerStart(target: Date, current: Date) -> Date? {
+        guard target.timeIntervalSince1970.isFinite, current.timeIntervalSince1970.isFinite else { return nil }
+        let minute = Date(timeIntervalSince1970: floor(target.timeIntervalSince1970 / 60) * 60)
+        if target >= current, minute <= current { return nil }
+        return minute
+    }
+}
+
+enum MobileStreamEngine: String, Hashable {
+    case system, aether, vlc
+    var title: String {
+        switch self { case .system: "AVPlayer"; case .aether: "AetherEngine"; case .vlc: "VLC" }
+    }
+    var supportsPictureInPicture: Bool { self != .vlc }
+}
+
+enum MobilePlaybackPreference: String, CaseIterable, Identifiable {
+    case automatic, aether, vlc
+    static let storageKey = "Lineup.mobile.playbackEngine.v1"
+    var id: String { rawValue }
+    var title: String {
+        switch self { case .automatic: "Automatic"; case .aether: "AetherEngine"; case .vlc: "VLC" }
+    }
+    static func selected(in defaults: UserDefaults = .standard) -> Self {
+        defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .automatic
+    }
 }
 
 enum MobileEngineSelection {
-    /// HLS playlists go to AVPlayer; everything else goes to VLC.
-    ///
-    /// Query strings are irrelevant here — some providers append tokens — so
-    /// this reads `pathExtension`, which already excludes the query.
-    ///
-    /// A channel's recording is addressed two ways, `…/timeshift/…/123.ts` and
-    /// `…/streaming/timeshift.php?…`, and both are transport streams whatever
-    /// the second one's name says. Neither is a playlist, so both fall to VLC
-    /// here, and `ordered` keeps the path form ahead of the script as given.
-    static func engine(for url: URL) -> MobileStreamEngine {
-        switch url.pathExtension.lowercased() {
-        case "m3u8", "m3u": return .system
-        default: return .vlc
+    /// Keep the existing HLS player; Aether handles other containers and
+    /// extensionless server routes with native or sample-buffer PiP. Failed
+    /// engines are skipped for this URL, so fallback cannot loop forever.
+    static func engine(for url: URL, preference: MobilePlaybackPreference = .automatic,
+                       failed: Set<MobileStreamEngine> = []) -> MobileStreamEngine? {
+        let order: [MobileStreamEngine]
+        switch preference {
+        case .automatic:
+            order = ["m3u8", "m3u"].contains(url.pathExtension.lowercased())
+                ? [.system, .aether, .vlc] : [.aether, .vlc]
+        case .aether: order = [.aether, .vlc]
+        case .vlc: order = [.vlc]
         }
+        return order.first { !failed.contains($0) }
     }
 
     /// Reorders candidates so PiP-capable URLs are tried first, preserving the
@@ -46,8 +58,8 @@ enum MobileEngineSelection {
 
     /// True when any candidate could drive Picture in Picture. Used to decide
     /// whether a PiP button is worth offering before a stream has opened.
-    static func canPictureInPicture(_ urls: [URL]) -> Bool {
-        urls.contains { engine(for: $0) == .system }
+    static func canPictureInPicture(_ urls: [URL], preference: MobilePlaybackPreference = .automatic) -> Bool {
+        urls.contains { engine(for: $0, preference: preference)?.supportsPictureInPicture == true }
     }
 }
 

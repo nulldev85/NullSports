@@ -1,0 +1,7373 @@
+{
+  "updatedAt": "2026-10-16",
+  "season": 2026,
+  "sources": [
+    "https://sports.core.api.espn.com/v2/sports/football/leagues/college-football/seasons/2026/types/2/groups/80/teams?limit=1000",
+    "https://sports.core.api.espn.com/v2/sports/football/leagues/college-football/seasons/2026/types/2/groups/81/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/football/nfl/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/football/college-football/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/ger.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/ita.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/fra.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.nwsl/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa.conf/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.wwc/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.euro/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/conmebol.america/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.gold/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/caf.nations/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/afc.asian.cup/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.nations/teams?limit=1000"
+  ],
+  "teams": [
+    {
+      "league": "nfl",
+      "espnID": "22",
+      "name": "Arizona Cardinals",
+      "abbreviation": "ARI",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/ari.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "1",
+      "name": "Atlanta Falcons",
+      "abbreviation": "ATL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/atl.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "33",
+      "name": "Baltimore Ravens",
+      "abbreviation": "BAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/bal.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "2",
+      "name": "Buffalo Bills",
+      "abbreviation": "BUF",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/buf.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "29",
+      "name": "Carolina Panthers",
+      "abbreviation": "CAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/car.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "3",
+      "name": "Chicago Bears",
+      "abbreviation": "CHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/chi.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "4",
+      "name": "Cincinnati Bengals",
+      "abbreviation": "CIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/cin.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "5",
+      "name": "Cleveland Browns",
+      "abbreviation": "CLE",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/cle.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "6",
+      "name": "Dallas Cowboys",
+      "abbreviation": "DAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/dal.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "7",
+      "name": "Denver Broncos",
+      "abbreviation": "DEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/den.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "8",
+      "name": "Detroit Lions",
+      "abbreviation": "DET",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/det.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "9",
+      "name": "Green Bay Packers",
+      "abbreviation": "GB",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/gb.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "34",
+      "name": "Houston Texans",
+      "abbreviation": "HOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/hou.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "11",
+      "name": "Indianapolis Colts",
+      "abbreviation": "IND",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/ind.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "30",
+      "name": "Jacksonville Jaguars",
+      "abbreviation": "JAX",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/jax.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "12",
+      "name": "Kansas City Chiefs",
+      "abbreviation": "KC",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/kc.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "13",
+      "name": "Las Vegas Raiders",
+      "abbreviation": "LV",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/lv.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "24",
+      "name": "Los Angeles Chargers",
+      "abbreviation": "LAC",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/lac.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "14",
+      "name": "Los Angeles Rams",
+      "abbreviation": "LAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/lar.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "15",
+      "name": "Miami Dolphins",
+      "abbreviation": "MIA",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/mia.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "16",
+      "name": "Minnesota Vikings",
+      "abbreviation": "MIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/min.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "17",
+      "name": "New England Patriots",
+      "abbreviation": "NE",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/ne.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "18",
+      "name": "New Orleans Saints",
+      "abbreviation": "NO",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/no.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "19",
+      "name": "New York Giants",
+      "abbreviation": "NYG",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/nyg.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "20",
+      "name": "New York Jets",
+      "abbreviation": "NYJ",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/nyj.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "21",
+      "name": "Philadelphia Eagles",
+      "abbreviation": "PHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/phi.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "23",
+      "name": "Pittsburgh Steelers",
+      "abbreviation": "PIT",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/pit.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "25",
+      "name": "San Francisco 49ers",
+      "abbreviation": "SF",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/sf.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "26",
+      "name": "Seattle Seahawks",
+      "abbreviation": "SEA",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/sea.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "27",
+      "name": "Tampa Bay Buccaneers",
+      "abbreviation": "TB",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/tb.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "10",
+      "name": "Tennessee Titans",
+      "abbreviation": "TEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/ten.png",
+      "division": null
+    },
+    {
+      "league": "nfl",
+      "espnID": "28",
+      "name": "Washington Commanders",
+      "abbreviation": "WSH",
+      "logo": "https://a.espncdn.com/i/teamlogos/nfl/500/wsh.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "1",
+      "name": "Atlanta Hawks",
+      "abbreviation": "ATL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/atl.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "2",
+      "name": "Boston Celtics",
+      "abbreviation": "BOS",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/bos.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "17",
+      "name": "Brooklyn Nets",
+      "abbreviation": "BKN",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/bkn.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "30",
+      "name": "Charlotte Hornets",
+      "abbreviation": "CHA",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/cha.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "4",
+      "name": "Chicago Bulls",
+      "abbreviation": "CHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/chi.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "5",
+      "name": "Cleveland Cavaliers",
+      "abbreviation": "CLE",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/cle.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "6",
+      "name": "Dallas Mavericks",
+      "abbreviation": "DAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/dal.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "7",
+      "name": "Denver Nuggets",
+      "abbreviation": "DEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/den.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "8",
+      "name": "Detroit Pistons",
+      "abbreviation": "DET",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/det.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "9",
+      "name": "Golden State Warriors",
+      "abbreviation": "GS",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/gs.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "10",
+      "name": "Houston Rockets",
+      "abbreviation": "HOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/hou.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "11",
+      "name": "Indiana Pacers",
+      "abbreviation": "IND",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/ind.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "12",
+      "name": "LA Clippers",
+      "abbreviation": "LAC",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/lac.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "13",
+      "name": "Los Angeles Lakers",
+      "abbreviation": "LAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/lal.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "29",
+      "name": "Memphis Grizzlies",
+      "abbreviation": "MEM",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/mem.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "14",
+      "name": "Miami Heat",
+      "abbreviation": "MIA",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/mia.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "15",
+      "name": "Milwaukee Bucks",
+      "abbreviation": "MIL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/mil.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "16",
+      "name": "Minnesota Timberwolves",
+      "abbreviation": "MIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/min.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "3",
+      "name": "New Orleans Pelicans",
+      "abbreviation": "NO",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/no.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "18",
+      "name": "New York Knicks",
+      "abbreviation": "NY",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/ny.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "25",
+      "name": "Oklahoma City Thunder",
+      "abbreviation": "OKC",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/okc.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "19",
+      "name": "Orlando Magic",
+      "abbreviation": "ORL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/orl.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "20",
+      "name": "Philadelphia 76ers",
+      "abbreviation": "PHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/phi.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "21",
+      "name": "Phoenix Suns",
+      "abbreviation": "PHX",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/phx.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "22",
+      "name": "Portland Trail Blazers",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/por.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "23",
+      "name": "Sacramento Kings",
+      "abbreviation": "SAC",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/sac.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "24",
+      "name": "San Antonio Spurs",
+      "abbreviation": "SA",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/sa.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "28",
+      "name": "Toronto Raptors",
+      "abbreviation": "TOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/tor.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "26",
+      "name": "Utah Jazz",
+      "abbreviation": "UTAH",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/utah.png",
+      "division": null
+    },
+    {
+      "league": "nba",
+      "espnID": "27",
+      "name": "Washington Wizards",
+      "abbreviation": "WSH",
+      "logo": "https://a.espncdn.com/i/teamlogos/nba/500/wsh.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "25",
+      "name": "Anaheim Ducks",
+      "abbreviation": "ANA",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/ana.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "1",
+      "name": "Boston Bruins",
+      "abbreviation": "BOS",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/bos.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "2",
+      "name": "Buffalo Sabres",
+      "abbreviation": "BUF",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/buf.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "3",
+      "name": "Calgary Flames",
+      "abbreviation": "CGY",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/cgy.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "7",
+      "name": "Carolina Hurricanes",
+      "abbreviation": "CAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/car.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "4",
+      "name": "Chicago Blackhawks",
+      "abbreviation": "CHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/chi.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "17",
+      "name": "Colorado Avalanche",
+      "abbreviation": "COL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/col.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "29",
+      "name": "Columbus Blue Jackets",
+      "abbreviation": "CBJ",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/cbj.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "9",
+      "name": "Dallas Stars",
+      "abbreviation": "DAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/dal.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "5",
+      "name": "Detroit Red Wings",
+      "abbreviation": "DET",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/det.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "6",
+      "name": "Edmonton Oilers",
+      "abbreviation": "EDM",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/edm.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "26",
+      "name": "Florida Panthers",
+      "abbreviation": "FLA",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/fla.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "8",
+      "name": "Los Angeles Kings",
+      "abbreviation": "LA",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/la.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "30",
+      "name": "Minnesota Wild",
+      "abbreviation": "MIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/min.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "10",
+      "name": "Montreal Canadiens",
+      "abbreviation": "MTL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/mtl.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "27",
+      "name": "Nashville Predators",
+      "abbreviation": "NSH",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/nsh.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "11",
+      "name": "New Jersey Devils",
+      "abbreviation": "NJ",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/nj.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "12",
+      "name": "New York Islanders",
+      "abbreviation": "NYI",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/nyi.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "13",
+      "name": "New York Rangers",
+      "abbreviation": "NYR",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/nyr.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "14",
+      "name": "Ottawa Senators",
+      "abbreviation": "OTT",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/ott.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "15",
+      "name": "Philadelphia Flyers",
+      "abbreviation": "PHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/phi.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "16",
+      "name": "Pittsburgh Penguins",
+      "abbreviation": "PIT",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/pit.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "18",
+      "name": "San Jose Sharks",
+      "abbreviation": "SJ",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/sj.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "124292",
+      "name": "Seattle Kraken",
+      "abbreviation": "SEA",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/sea.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "19",
+      "name": "St. Louis Blues",
+      "abbreviation": "STL",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/stl.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "20",
+      "name": "Tampa Bay Lightning",
+      "abbreviation": "TB",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/tb.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "21",
+      "name": "Toronto Maple Leafs",
+      "abbreviation": "TOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/tor.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "129764",
+      "name": "Utah Mammoth",
+      "abbreviation": "UTAH",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/utah.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "22",
+      "name": "Vancouver Canucks",
+      "abbreviation": "VAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/van.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "37",
+      "name": "Vegas Golden Knights",
+      "abbreviation": "VGK",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/vgk.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "23",
+      "name": "Washington Capitals",
+      "abbreviation": "WSH",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/wsh.png",
+      "division": null
+    },
+    {
+      "league": "nhl",
+      "espnID": "28",
+      "name": "Winnipeg Jets",
+      "abbreviation": "WPG",
+      "logo": "https://a.espncdn.com/i/teamlogos/nhl/500/wpg.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "29",
+      "name": "Arizona Diamondbacks",
+      "abbreviation": "ARI",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/ari.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "11",
+      "name": "Athletics",
+      "abbreviation": "ATH",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/ath.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "15",
+      "name": "Atlanta Braves",
+      "abbreviation": "ATL",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/atl.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "1",
+      "name": "Baltimore Orioles",
+      "abbreviation": "BAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/bal.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "2",
+      "name": "Boston Red Sox",
+      "abbreviation": "BOS",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/bos.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "16",
+      "name": "Chicago Cubs",
+      "abbreviation": "CHC",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/chc.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "4",
+      "name": "Chicago White Sox",
+      "abbreviation": "CHW",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/chw.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "17",
+      "name": "Cincinnati Reds",
+      "abbreviation": "CIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/cin.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "5",
+      "name": "Cleveland Guardians",
+      "abbreviation": "CLE",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/cle.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "27",
+      "name": "Colorado Rockies",
+      "abbreviation": "COL",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/col.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "6",
+      "name": "Detroit Tigers",
+      "abbreviation": "DET",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/det.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "18",
+      "name": "Houston Astros",
+      "abbreviation": "HOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/hou.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "7",
+      "name": "Kansas City Royals",
+      "abbreviation": "KC",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/kc.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "3",
+      "name": "Los Angeles Angels",
+      "abbreviation": "LAA",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/laa.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "19",
+      "name": "Los Angeles Dodgers",
+      "abbreviation": "LAD",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/lad.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "28",
+      "name": "Miami Marlins",
+      "abbreviation": "MIA",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/mia.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "8",
+      "name": "Milwaukee Brewers",
+      "abbreviation": "MIL",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/mil.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "9",
+      "name": "Minnesota Twins",
+      "abbreviation": "MIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/min.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "21",
+      "name": "New York Mets",
+      "abbreviation": "NYM",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/nym.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "10",
+      "name": "New York Yankees",
+      "abbreviation": "NYY",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/nyy.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "22",
+      "name": "Philadelphia Phillies",
+      "abbreviation": "PHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/phi.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "23",
+      "name": "Pittsburgh Pirates",
+      "abbreviation": "PIT",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/pit.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "25",
+      "name": "San Diego Padres",
+      "abbreviation": "SD",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/sd.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "26",
+      "name": "San Francisco Giants",
+      "abbreviation": "SF",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/sf.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "12",
+      "name": "Seattle Mariners",
+      "abbreviation": "SEA",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/sea.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "24",
+      "name": "St. Louis Cardinals",
+      "abbreviation": "STL",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/stl.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "30",
+      "name": "Tampa Bay Rays",
+      "abbreviation": "TB",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/tb.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "13",
+      "name": "Texas Rangers",
+      "abbreviation": "TEX",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/tex.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "14",
+      "name": "Toronto Blue Jays",
+      "abbreviation": "TOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/tor.png",
+      "division": null
+    },
+    {
+      "league": "mlb",
+      "espnID": "20",
+      "name": "Washington Nationals",
+      "abbreviation": "WSH",
+      "logo": "https://a.espncdn.com/i/teamlogos/mlb/500/wsh.png",
+      "division": null
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2000",
+      "name": "Abilene Christian Wildcats",
+      "abbreviation": "ACU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2000.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2005",
+      "name": "Air Force Falcons",
+      "abbreviation": "AF",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2005.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2006",
+      "name": "Akron Zips",
+      "abbreviation": "AKR",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2006.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2010",
+      "name": "Alabama A&M Bulldogs",
+      "abbreviation": "AAMU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2010.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "333",
+      "name": "Alabama Crimson Tide",
+      "abbreviation": "ALA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/333.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2011",
+      "name": "Alabama State Hornets",
+      "abbreviation": "ALST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2011.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2016",
+      "name": "Alcorn State Braves",
+      "abbreviation": "ALCN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2016.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2026",
+      "name": "App State Mountaineers",
+      "abbreviation": "APP",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2026.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "9",
+      "name": "Arizona State Sun Devils",
+      "abbreviation": "ASU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/9.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "12",
+      "name": "Arizona Wildcats",
+      "abbreviation": "ARIZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/12.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "8",
+      "name": "Arkansas Razorbacks",
+      "abbreviation": "ARK",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/8.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2032",
+      "name": "Arkansas State Red Wolves",
+      "abbreviation": "ARST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2032.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2029",
+      "name": "Arkansas-Pine Bluff Golden Lions",
+      "abbreviation": "UAPB",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2029.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "349",
+      "name": "Army Black Knights",
+      "abbreviation": "ARMY",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/349.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2",
+      "name": "Auburn Tigers",
+      "abbreviation": "AUB",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2046",
+      "name": "Austin Peay Governors",
+      "abbreviation": "APSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2046.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2050",
+      "name": "Ball State Cardinals",
+      "abbreviation": "BALL",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2050.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "239",
+      "name": "Baylor Bears",
+      "abbreviation": "BAY",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/239.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2065",
+      "name": "Bethune-Cookman Wildcats",
+      "abbreviation": "BCU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2065.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "68",
+      "name": "Boise State Broncos",
+      "abbreviation": "BOIS",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/68.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "103",
+      "name": "Boston College Eagles",
+      "abbreviation": "BC",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/103.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "189",
+      "name": "Bowling Green Falcons",
+      "abbreviation": "BGSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/189.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "225",
+      "name": "Brown Bears",
+      "abbreviation": "BRWN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/225.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2803",
+      "name": "Bryant Bulldogs",
+      "abbreviation": "BRY",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2803.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2083",
+      "name": "Bucknell Bison",
+      "abbreviation": "BUCK",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2083.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2084",
+      "name": "Buffalo Bulls",
+      "abbreviation": "BUF",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2084.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2086",
+      "name": "Butler Bulldogs",
+      "abbreviation": "BTLR",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2086.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "252",
+      "name": "BYU Cougars",
+      "abbreviation": "BYU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/252.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "13",
+      "name": "Cal Poly Mustangs",
+      "abbreviation": "CP",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/13.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "25",
+      "name": "California Golden Bears",
+      "abbreviation": "CAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/25.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2097",
+      "name": "Campbell Fighting Camels",
+      "abbreviation": "CAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2097.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2110",
+      "name": "Central Arkansas Bears",
+      "abbreviation": "CARK",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2110.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2115",
+      "name": "Central Connecticut Blue Devils",
+      "abbreviation": "CCSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2115.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2117",
+      "name": "Central Michigan Chippewas",
+      "abbreviation": "CMU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2117.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2127",
+      "name": "Charleston Southern Buccaneers",
+      "abbreviation": "CHSO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2127.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2429",
+      "name": "Charlotte 49ers",
+      "abbreviation": "CLT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2429.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "236",
+      "name": "Chattanooga Mocs",
+      "abbreviation": "UTC",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/236.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2130",
+      "name": "Chicago State Cougars",
+      "abbreviation": "CHST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2130.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2132",
+      "name": "Cincinnati Bearcats",
+      "abbreviation": "CIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2132.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "228",
+      "name": "Clemson Tigers",
+      "abbreviation": "CLEM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/228.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "324",
+      "name": "Coastal Carolina Chanticleers",
+      "abbreviation": "CCU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/324.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2142",
+      "name": "Colgate Raiders",
+      "abbreviation": "COLG",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2142.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "38",
+      "name": "Colorado Buffaloes",
+      "abbreviation": "COLO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/38.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "36",
+      "name": "Colorado State Rams",
+      "abbreviation": "CSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/36.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "171",
+      "name": "Columbia Lions",
+      "abbreviation": "COLU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/171.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "172",
+      "name": "Cornell Big Red",
+      "abbreviation": "COR",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/172.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "159",
+      "name": "Dartmouth Big Green",
+      "abbreviation": "DART",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/159.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2166",
+      "name": "Davidson Wildcats",
+      "abbreviation": "DAV",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2166.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2168",
+      "name": "Dayton Flyers",
+      "abbreviation": "DAY",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2168.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "48",
+      "name": "Delaware Blue Hens",
+      "abbreviation": "DEL",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/48.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2169",
+      "name": "Delaware State Hornets",
+      "abbreviation": "DSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2169.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2181",
+      "name": "Drake Bulldogs",
+      "abbreviation": "DRKE",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2181.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "150",
+      "name": "Duke Blue Devils",
+      "abbreviation": "DUKE",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/150.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2184",
+      "name": "Duquesne Dukes",
+      "abbreviation": "DUQ",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2184.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "151",
+      "name": "East Carolina Pirates",
+      "abbreviation": "ECU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/151.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2193",
+      "name": "East Tennessee State Buccaneers",
+      "abbreviation": "ETSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2193.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2837",
+      "name": "East Texas A&M Lions",
+      "abbreviation": "ETAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2837.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2197",
+      "name": "Eastern Illinois Panthers",
+      "abbreviation": "EIU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2197.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2198",
+      "name": "Eastern Kentucky Colonels",
+      "abbreviation": "EKU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2198.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2199",
+      "name": "Eastern Michigan Eagles",
+      "abbreviation": "EMU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2199.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "331",
+      "name": "Eastern Washington Eagles",
+      "abbreviation": "EWU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/331.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2210",
+      "name": "Elon Phoenix",
+      "abbreviation": "ELON",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2210.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "50",
+      "name": "Florida A&M Rattlers",
+      "abbreviation": "FAMU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/50.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2226",
+      "name": "Florida Atlantic Owls",
+      "abbreviation": "FAU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2226.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "57",
+      "name": "Florida Gators",
+      "abbreviation": "FLA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/57.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2229",
+      "name": "Florida International Panthers",
+      "abbreviation": "FIU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2229.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "52",
+      "name": "Florida State Seminoles",
+      "abbreviation": "FSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/52.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2230",
+      "name": "Fordham Rams",
+      "abbreviation": "FOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2230.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "278",
+      "name": "Fresno State Bulldogs",
+      "abbreviation": "FRES",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/278.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "231",
+      "name": "Furman Paladins",
+      "abbreviation": "FUR",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/231.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2241",
+      "name": "Gardner-Webb Runnin' Bulldogs",
+      "abbreviation": "GWEB",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2241.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "46",
+      "name": "Georgetown Hoyas",
+      "abbreviation": "GTWN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/46.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "61",
+      "name": "Georgia Bulldogs",
+      "abbreviation": "UGA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/61.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "290",
+      "name": "Georgia Southern Eagles",
+      "abbreviation": "GASO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/290.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2247",
+      "name": "Georgia State Panthers",
+      "abbreviation": "GAST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2247.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "59",
+      "name": "Georgia Tech Yellow Jackets",
+      "abbreviation": "GT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/59.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2755",
+      "name": "Grambling Tigers",
+      "abbreviation": "GRAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2755.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2261",
+      "name": "Hampton Pirates",
+      "abbreviation": "HAMP",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2261.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "108",
+      "name": "Harvard Crimson",
+      "abbreviation": "HARV",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/108.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "62",
+      "name": "Hawai'i Rainbow Warriors",
+      "abbreviation": "HAW",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/62.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "107",
+      "name": "Holy Cross Crusaders",
+      "abbreviation": "HC",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/107.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2277",
+      "name": "Houston Christian Huskies",
+      "abbreviation": "HCU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2277.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "248",
+      "name": "Houston Cougars",
+      "abbreviation": "HOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/248.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "47",
+      "name": "Howard Bison",
+      "abbreviation": "HOW",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/47.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "304",
+      "name": "Idaho State Bengals",
+      "abbreviation": "IDST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/304.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "70",
+      "name": "Idaho Vandals",
+      "abbreviation": "IDHO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/70.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "356",
+      "name": "Illinois Fighting Illini",
+      "abbreviation": "ILL",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/356.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2287",
+      "name": "Illinois State Redbirds",
+      "abbreviation": "ILST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2287.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2916",
+      "name": "Incarnate Word Cardinals",
+      "abbreviation": "UIW",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2916.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "84",
+      "name": "Indiana Hoosiers",
+      "abbreviation": "IU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/84.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "282",
+      "name": "Indiana State Sycamores",
+      "abbreviation": "INST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/282.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2294",
+      "name": "Iowa Hawkeyes",
+      "abbreviation": "IOWA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2294.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "66",
+      "name": "Iowa State Cyclones",
+      "abbreviation": "ISU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/66.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2296",
+      "name": "Jackson State Tigers",
+      "abbreviation": "JKST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2296.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "55",
+      "name": "Jacksonville State Gamecocks",
+      "abbreviation": "JXST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/55.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "256",
+      "name": "James Madison Dukes",
+      "abbreviation": "JMU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/256.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2305",
+      "name": "Kansas Jayhawks",
+      "abbreviation": "KU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2305.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2306",
+      "name": "Kansas State Wildcats",
+      "abbreviation": "KSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2306.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "338",
+      "name": "Kennesaw State Owls",
+      "abbreviation": "KENN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/338.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2309",
+      "name": "Kent State Golden Flashes",
+      "abbreviation": "KENT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2309.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "96",
+      "name": "Kentucky Wildcats",
+      "abbreviation": "UK",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/96.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "322",
+      "name": "Lafayette Leopards",
+      "abbreviation": "LAF",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/322.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2320",
+      "name": "Lamar Cardinals",
+      "abbreviation": "LAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2320.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2329",
+      "name": "Lehigh Mountain Hawks",
+      "abbreviation": "LEH",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2329.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2335",
+      "name": "Liberty Flames",
+      "abbreviation": "LIB",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2335.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2815",
+      "name": "Lindenwood Lions",
+      "abbreviation": "LIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2815.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2341",
+      "name": "Long Island University Sharks",
+      "abbreviation": "LIU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2341.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "309",
+      "name": "Louisiana Ragin' Cajuns",
+      "abbreviation": "UL",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/309.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2348",
+      "name": "Louisiana Tech Bulldogs",
+      "abbreviation": "LT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2348.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "97",
+      "name": "Louisville Cardinals",
+      "abbreviation": "LOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/97.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "99",
+      "name": "LSU Tigers",
+      "abbreviation": "LSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/99.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "311",
+      "name": "Maine Black Bears",
+      "abbreviation": "ME",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/311.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2368",
+      "name": "Marist Red Foxes",
+      "abbreviation": "MRST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2368.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "276",
+      "name": "Marshall Thundering Herd",
+      "abbreviation": "MRSH",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/276.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "120",
+      "name": "Maryland Terrapins",
+      "abbreviation": "MD",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/120.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "113",
+      "name": "Massachusetts Minutemen",
+      "abbreviation": "MASS",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/113.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2377",
+      "name": "McNeese Cowboys",
+      "abbreviation": "MCN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2377.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "235",
+      "name": "Memphis Tigers",
+      "abbreviation": "MEM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/235.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2382",
+      "name": "Mercer Bears",
+      "abbreviation": "MER",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2382.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2385",
+      "name": "Mercyhurst Lakers",
+      "abbreviation": "MERC",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2385.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2771",
+      "name": "Merrimack Warriors",
+      "abbreviation": "MRMK",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2771.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "193",
+      "name": "Miami (OH) RedHawks",
+      "abbreviation": "M-OH",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/193.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2390",
+      "name": "Miami Hurricanes",
+      "abbreviation": "MIA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2390.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "127",
+      "name": "Michigan State Spartans",
+      "abbreviation": "MSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/127.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "130",
+      "name": "Michigan Wolverines",
+      "abbreviation": "MICH",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/130.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2393",
+      "name": "Middle Tennessee Blue Raiders",
+      "abbreviation": "MTSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2393.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "135",
+      "name": "Minnesota Golden Gophers",
+      "abbreviation": "MINN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/135.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "344",
+      "name": "Mississippi State Bulldogs",
+      "abbreviation": "MSST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/344.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2400",
+      "name": "Mississippi Valley State Delta Devils",
+      "abbreviation": "MVSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2400.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2623",
+      "name": "Missouri State Bears",
+      "abbreviation": "MOST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2623.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "142",
+      "name": "Missouri Tigers",
+      "abbreviation": "MIZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/142.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2405",
+      "name": "Monmouth Hawks",
+      "abbreviation": "MONM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2405.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "149",
+      "name": "Montana Grizzlies",
+      "abbreviation": "MONT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/149.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "147",
+      "name": "Montana State Bobcats",
+      "abbreviation": "MTST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/147.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2413",
+      "name": "Morehead State Eagles",
+      "abbreviation": "MORE",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2413.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2415",
+      "name": "Morgan State Bears",
+      "abbreviation": "MORG",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2415.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "93",
+      "name": "Murray State Racers",
+      "abbreviation": "MUR",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/93.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2426",
+      "name": "Navy Midshipmen",
+      "abbreviation": "NAVY",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2426.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "152",
+      "name": "NC State Wolfpack",
+      "abbreviation": "NCSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/152.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "158",
+      "name": "Nebraska Cornhuskers",
+      "abbreviation": "NEB",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/158.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2440",
+      "name": "Nevada Wolf Pack",
+      "abbreviation": "NEV",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2440.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "160",
+      "name": "New Hampshire Wildcats",
+      "abbreviation": "UNH",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/160.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2441",
+      "name": "New Haven Chargers",
+      "abbreviation": "NHVN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2441.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "167",
+      "name": "New Mexico Lobos",
+      "abbreviation": "UNM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/167.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "166",
+      "name": "New Mexico State Aggies",
+      "abbreviation": "NMSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/166.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2447",
+      "name": "Nicholls Colonels",
+      "abbreviation": "NICH",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2447.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2450",
+      "name": "Norfolk State Spartans",
+      "abbreviation": "NORF",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2450.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2453",
+      "name": "North Alabama Lions",
+      "abbreviation": "UNA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2453.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2448",
+      "name": "North Carolina A&T Aggies",
+      "abbreviation": "NCAT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2448.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2428",
+      "name": "North Carolina Central Eagles",
+      "abbreviation": "NCCU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2428.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "153",
+      "name": "North Carolina Tar Heels",
+      "abbreviation": "UNC",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/153.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "155",
+      "name": "North Dakota Fighting Hawks",
+      "abbreviation": "UND",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/155.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2449",
+      "name": "North Dakota State Bison",
+      "abbreviation": "NDSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2449.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "249",
+      "name": "North Texas Mean Green",
+      "abbreviation": "UNT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/249.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2464",
+      "name": "Northern Arizona Lumberjacks",
+      "abbreviation": "NAU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2464.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2458",
+      "name": "Northern Colorado Bears",
+      "abbreviation": "UNCO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2458.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2459",
+      "name": "Northern Illinois Huskies",
+      "abbreviation": "NIU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2459.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2460",
+      "name": "Northern Iowa Panthers",
+      "abbreviation": "UNI",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2460.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2466",
+      "name": "Northwestern State Demons",
+      "abbreviation": "NWST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2466.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "77",
+      "name": "Northwestern Wildcats",
+      "abbreviation": "NU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/77.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "87",
+      "name": "Notre Dame Fighting Irish",
+      "abbreviation": "ND",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/87.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "195",
+      "name": "Ohio Bobcats",
+      "abbreviation": "OHIO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/195.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "194",
+      "name": "Ohio State Buckeyes",
+      "abbreviation": "OSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/194.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "201",
+      "name": "Oklahoma Sooners",
+      "abbreviation": "OU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/201.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "197",
+      "name": "Oklahoma State Cowboys",
+      "abbreviation": "OKST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/197.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "295",
+      "name": "Old Dominion Monarchs",
+      "abbreviation": "ODU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/295.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "145",
+      "name": "Ole Miss Rebels",
+      "abbreviation": "MISS",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/145.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2483",
+      "name": "Oregon Ducks",
+      "abbreviation": "ORE",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2483.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "204",
+      "name": "Oregon State Beavers",
+      "abbreviation": "ORST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/204.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "213",
+      "name": "Penn State Nittany Lions",
+      "abbreviation": "PSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/213.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "219",
+      "name": "Pennsylvania Quakers",
+      "abbreviation": "PENN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/219.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "221",
+      "name": "Pittsburgh Panthers",
+      "abbreviation": "PITT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/221.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2502",
+      "name": "Portland State Vikings",
+      "abbreviation": "PRST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2502.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2504",
+      "name": "Prairie View A&M Panthers",
+      "abbreviation": "PV",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2504.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2506",
+      "name": "Presbyterian Blue Hose",
+      "abbreviation": "PRES",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2506.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "163",
+      "name": "Princeton Tigers",
+      "abbreviation": "PRIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/163.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2509",
+      "name": "Purdue Boilermakers",
+      "abbreviation": "PUR",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2509.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "227",
+      "name": "Rhode Island Rams",
+      "abbreviation": "URI",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/227.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "242",
+      "name": "Rice Owls",
+      "abbreviation": "RICE",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/242.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "257",
+      "name": "Richmond Spiders",
+      "abbreviation": "RICH",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/257.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2523",
+      "name": "Robert Morris Colonials",
+      "abbreviation": "RMU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2523.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "164",
+      "name": "Rutgers Scarlet Knights",
+      "abbreviation": "RUTG",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/164.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "16",
+      "name": "Sacramento State Hornets",
+      "abbreviation": "SAC",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/16.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2529",
+      "name": "Sacred Heart Pioneers",
+      "abbreviation": "SHU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2529.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2534",
+      "name": "Sam Houston Bearkats",
+      "abbreviation": "SHSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2534.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2535",
+      "name": "Samford Bulldogs",
+      "abbreviation": "SAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2535.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "21",
+      "name": "San Diego State Aztecs",
+      "abbreviation": "SDSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/21.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "301",
+      "name": "San Diego Toreros",
+      "abbreviation": "USD",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/301.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "23",
+      "name": "San José State Spartans",
+      "abbreviation": "SJSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/23.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2545",
+      "name": "SE Louisiana Lions",
+      "abbreviation": "SELA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2545.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2567",
+      "name": "SMU Mustangs",
+      "abbreviation": "SMU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2567.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "6",
+      "name": "South Alabama Jaguars",
+      "abbreviation": "USA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/6.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2579",
+      "name": "South Carolina Gamecocks",
+      "abbreviation": "SC",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2579.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2569",
+      "name": "South Carolina State Bulldogs",
+      "abbreviation": "SCST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2569.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "233",
+      "name": "South Dakota Coyotes",
+      "abbreviation": "SDAK",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/233.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2571",
+      "name": "South Dakota State Jackrabbits",
+      "abbreviation": "SDST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2571.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "58",
+      "name": "South Florida Bulls",
+      "abbreviation": "USF",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/58.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2546",
+      "name": "Southeast Missouri State Redhawks",
+      "abbreviation": "SEMO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2546.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "79",
+      "name": "Southern Illinois Salukis",
+      "abbreviation": "SIU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/79.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2582",
+      "name": "Southern Jaguars",
+      "abbreviation": "SOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2582.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2572",
+      "name": "Southern Miss Golden Eagles",
+      "abbreviation": "USM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2572.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "253",
+      "name": "Southern Utah Thunderbirds",
+      "abbreviation": "SUU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/253.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2900",
+      "name": "St. Thomas Tommies",
+      "abbreviation": "STMN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2900.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "24",
+      "name": "Stanford Cardinal",
+      "abbreviation": "STAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/24.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2617",
+      "name": "Stephen F. Austin Lumberjacks",
+      "abbreviation": "SFA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2617.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "56",
+      "name": "Stetson Hatters",
+      "abbreviation": "STET",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/56.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "284",
+      "name": "Stonehill Skyhawks",
+      "abbreviation": "STO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/284.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2619",
+      "name": "Stony Brook Seawolves",
+      "abbreviation": "STBK",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2619.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "183",
+      "name": "Syracuse Orange",
+      "abbreviation": "SYR",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/183.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2627",
+      "name": "Tarleton State Texans",
+      "abbreviation": "TAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2627.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2628",
+      "name": "TCU Horned Frogs",
+      "abbreviation": "TCU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2628.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "218",
+      "name": "Temple Owls",
+      "abbreviation": "TEM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/218.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2634",
+      "name": "Tennessee State Tigers",
+      "abbreviation": "TNST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2634.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2635",
+      "name": "Tennessee Tech Golden Eagles",
+      "abbreviation": "TNTC",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2635.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2633",
+      "name": "Tennessee Volunteers",
+      "abbreviation": "TENN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2633.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "245",
+      "name": "Texas A&M Aggies",
+      "abbreviation": "TA&M",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/245.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "251",
+      "name": "Texas Longhorns",
+      "abbreviation": "TEX",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/251.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2640",
+      "name": "Texas Southern Tigers",
+      "abbreviation": "TXSO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2640.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "326",
+      "name": "Texas State Bobcats",
+      "abbreviation": "TXST",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/326.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2641",
+      "name": "Texas Tech Red Raiders",
+      "abbreviation": "TTU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2641.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2643",
+      "name": "The Citadel Bulldogs",
+      "abbreviation": "CIT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2643.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2649",
+      "name": "Toledo Rockets",
+      "abbreviation": "TOL",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2649.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "119",
+      "name": "Towson Tigers",
+      "abbreviation": "TOW",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/119.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2653",
+      "name": "Troy Trojans",
+      "abbreviation": "TROY",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2653.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2655",
+      "name": "Tulane Green Wave",
+      "abbreviation": "TULN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2655.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "202",
+      "name": "Tulsa Golden Hurricane",
+      "abbreviation": "TLSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/202.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "5",
+      "name": "UAB Blazers",
+      "abbreviation": "UAB",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/5.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "399",
+      "name": "UAlbany Great Danes",
+      "abbreviation": "UALB",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/399.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "302",
+      "name": "UC Davis Aggies",
+      "abbreviation": "UCD",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/302.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2116",
+      "name": "UCF Knights",
+      "abbreviation": "UCF",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2116.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "26",
+      "name": "UCLA Bruins",
+      "abbreviation": "UCLA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/26.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "41",
+      "name": "UConn Huskies",
+      "abbreviation": "CONN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/41.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2433",
+      "name": "UL Monroe Warhawks",
+      "abbreviation": "ULM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2433.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2439",
+      "name": "UNLV Rebels",
+      "abbreviation": "UNLV",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2439.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "30",
+      "name": "USC Trojans",
+      "abbreviation": "USC",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/30.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2630",
+      "name": "UT Martin Skyhawks",
+      "abbreviation": "UTM",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2630.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "328",
+      "name": "Utah State Aggies",
+      "abbreviation": "USU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/328.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "3101",
+      "name": "Utah Tech Trailblazers",
+      "abbreviation": "UTU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/3101.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "254",
+      "name": "Utah Utes",
+      "abbreviation": "UTAH",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/254.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2638",
+      "name": "UTEP Miners",
+      "abbreviation": "UTEP",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2638.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2636",
+      "name": "UTSA Roadrunners",
+      "abbreviation": "UTSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2636.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2674",
+      "name": "Valparaiso Beacons",
+      "abbreviation": "VAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2674.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "238",
+      "name": "Vanderbilt Commodores",
+      "abbreviation": "VAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/238.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "222",
+      "name": "Villanova Wildcats",
+      "abbreviation": "VILL",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/222.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "258",
+      "name": "Virginia Cavaliers",
+      "abbreviation": "UVA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/258.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "259",
+      "name": "Virginia Tech Hokies",
+      "abbreviation": "VT",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/259.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2678",
+      "name": "VMI Keydets",
+      "abbreviation": "VMI",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2678.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2681",
+      "name": "Wagner Seahawks",
+      "abbreviation": "WAG",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2681.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "154",
+      "name": "Wake Forest Demon Deacons",
+      "abbreviation": "WAKE",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/154.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "264",
+      "name": "Washington Huskies",
+      "abbreviation": "WASH",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/264.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "265",
+      "name": "Washington State Cougars",
+      "abbreviation": "WSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/265.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2692",
+      "name": "Weber State Wildcats",
+      "abbreviation": "WEB",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2692.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "110242",
+      "name": "West Florida Argonauts",
+      "abbreviation": "UWF",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/110242.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2698",
+      "name": "West Georgia Wolves",
+      "abbreviation": "WGA",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2698.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "277",
+      "name": "West Virginia Mountaineers",
+      "abbreviation": "WVU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/277.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2717",
+      "name": "Western Carolina Catamounts",
+      "abbreviation": "WCU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2717.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2710",
+      "name": "Western Illinois Leathernecks",
+      "abbreviation": "WIU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2710.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "98",
+      "name": "Western Kentucky Hilltoppers",
+      "abbreviation": "WKU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/98.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2711",
+      "name": "Western Michigan Broncos",
+      "abbreviation": "WMU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2711.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2729",
+      "name": "William & Mary Tribe",
+      "abbreviation": "W&M",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2729.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "275",
+      "name": "Wisconsin Badgers",
+      "abbreviation": "WIS",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/275.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2747",
+      "name": "Wofford Terriers",
+      "abbreviation": "WOF",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2747.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2751",
+      "name": "Wyoming Cowboys",
+      "abbreviation": "WYO",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2751.png",
+      "division": "FBS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "43",
+      "name": "Yale Bulldogs",
+      "abbreviation": "YALE",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/43.png",
+      "division": "FCS"
+    },
+    {
+      "league": "ncaaf",
+      "espnID": "2754",
+      "name": "Youngstown State Penguins",
+      "abbreviation": "YSU",
+      "logo": "https://a.espncdn.com/i/teamlogos/ncaa/500/2754.png",
+      "division": "FCS"
+    },
+    {
+      "league": "soccer",
+      "espnID": "598",
+      "name": "1. FC Union Berlin",
+      "abbreviation": "FCU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/598.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "103",
+      "name": "AC Milan",
+      "abbreviation": "MIL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/103.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "887",
+      "name": "AEK Athens",
+      "abbreviation": "AEK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/887.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "349",
+      "name": "AFC Bournemouth",
+      "abbreviation": "BOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/349.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7853",
+      "name": "AGF",
+      "abbreviation": "AGF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7853.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "172",
+      "name": "AJ Auxerre",
+      "abbreviation": "AUX",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/172.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "139",
+      "name": "Ajax Amsterdam",
+      "abbreviation": "AJA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/139.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "96",
+      "name": "Alavés",
+      "abbreviation": "ALA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/96.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "585",
+      "name": "Albania",
+      "abbreviation": "ALB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/alb.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "624",
+      "name": "Algeria",
+      "abbreviation": "ALG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/alg.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "441",
+      "name": "Anderlecht",
+      "abbreviation": "AND",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/441.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "587",
+      "name": "Andorra",
+      "abbreviation": "AND",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/and.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21422",
+      "name": "Angel City FC",
+      "abbreviation": "LA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21422.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7868",
+      "name": "Angers",
+      "abbreviation": "ANG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7868.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "653",
+      "name": "Angola",
+      "abbreviation": "ANG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ang.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20024",
+      "name": "Ararat-Armenia",
+      "abbreviation": "ARA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20024.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "202",
+      "name": "Argentina",
+      "abbreviation": "ARG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/arg.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2750",
+      "name": "Argentina",
+      "abbreviation": "ARG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/arg.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "579",
+      "name": "Armenia",
+      "abbreviation": "ARM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fifa.armenia.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "359",
+      "name": "Arsenal",
+      "abbreviation": "ARS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/359.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "174",
+      "name": "AS Monaco",
+      "abbreviation": "MON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/174.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "104",
+      "name": "AS Roma",
+      "abbreviation": "ROMA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/104.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "362",
+      "name": "Aston Villa",
+      "abbreviation": "AVL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/362.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "105",
+      "name": "Atalanta",
+      "abbreviation": "ATA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/105.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "93",
+      "name": "Athletic Club",
+      "abbreviation": "ATH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/93.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18418",
+      "name": "Atlanta United FC",
+      "abbreviation": "ATL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18418.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1068",
+      "name": "Atlético Madrid",
+      "abbreviation": "ATM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1068.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20906",
+      "name": "Austin FC",
+      "abbreviation": "ATX",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20906.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "628",
+      "name": "Australia",
+      "abbreviation": "AUS",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/aus.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2751",
+      "name": "Australia",
+      "abbreviation": "AUS",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/aus.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "474",
+      "name": "Austria",
+      "abbreviation": "AUT",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/aut.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "140",
+      "name": "AZ Alkmaar",
+      "abbreviation": "AZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/140.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "581",
+      "name": "Azerbaijan",
+      "abbreviation": "AZE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/aze.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4381",
+      "name": "Bahrain",
+      "abbreviation": "BHR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bhr.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "83",
+      "name": "Barcelona",
+      "abbreviation": "BAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/83.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22187",
+      "name": "Bay FC",
+      "abbreviation": "BAY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/22187.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131",
+      "name": "Bayer Leverkusen",
+      "abbreviation": "B04",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/131.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "132",
+      "name": "Bayern Munich",
+      "abbreviation": "MUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/132.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "583",
+      "name": "Belarus",
+      "abbreviation": "BLR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/blr.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "459",
+      "name": "Belgium",
+      "abbreviation": "BEL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bel.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1929",
+      "name": "Benfica",
+      "abbreviation": "SLB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1929.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2844",
+      "name": "Benin",
+      "abbreviation": "BEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ben.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1895",
+      "name": "Besiktas",
+      "abbreviation": "BES",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1895.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2980",
+      "name": "Bodo/Glimt",
+      "abbreviation": "BODO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2980.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "204",
+      "name": "Bolivia",
+      "abbreviation": "BOL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bol.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "107",
+      "name": "Bologna",
+      "abbreviation": "BOL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/107.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20710",
+      "name": "Borac Banja Luka",
+      "abbreviation": "BBL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20710.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "124",
+      "name": "Borussia Dortmund",
+      "abbreviation": "DOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/124.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "268",
+      "name": "Borussia Mönchengladbach",
+      "abbreviation": "BMG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/268.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "452",
+      "name": "Bosnia-Herzegovina",
+      "abbreviation": "BIH",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bih.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131562",
+      "name": "Boston Legacy FC",
+      "abbreviation": "BOS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/131562.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4245",
+      "name": "Botswana",
+      "abbreviation": "BOT",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bot.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2994",
+      "name": "Braga",
+      "abbreviation": "SCB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2994.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "205",
+      "name": "Brazil",
+      "abbreviation": "BRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bra.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2752",
+      "name": "Brazil",
+      "abbreviation": "BRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bra.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "337",
+      "name": "Brentford",
+      "abbreviation": "BRE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/337.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6997",
+      "name": "Brest",
+      "abbreviation": "BRE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/6997.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "331",
+      "name": "Brighton & Hove Albion",
+      "abbreviation": "BHA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/331.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "462",
+      "name": "Bulgaria",
+      "abbreviation": "BUL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bul.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2845",
+      "name": "Burkina Faso",
+      "abbreviation": "BKA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/bka.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2925",
+      "name": "Cagliari",
+      "abbreviation": "CAG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2925.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "656",
+      "name": "Cameroon",
+      "abbreviation": "CMR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/crm.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "206",
+      "name": "Canada",
+      "abbreviation": "CAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/can.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2753",
+      "name": "Canada",
+      "abbreviation": "CAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/can.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2597",
+      "name": "Cape Verde",
+      "abbreviation": "CPV",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/cpv.png",
+      "division": null,
+      "competitions": [
+        "fifa.world"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "85",
+      "name": "Celta Vigo",
+      "abbreviation": "CEL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/85.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "256",
+      "name": "Celtic",
+      "abbreviation": "CEL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/256.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9720",
+      "name": "CF Montréal",
+      "abbreviation": "MTL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9720.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21300",
+      "name": "Charlotte FC",
+      "abbreviation": "CLT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21300.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "363",
+      "name": "Chelsea",
+      "abbreviation": "CHE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/363.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "182",
+      "name": "Chicago Fire FC",
+      "abbreviation": "CHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/182.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15360",
+      "name": "Chicago Stars FC",
+      "abbreviation": "CHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15360.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "207",
+      "name": "Chile",
+      "abbreviation": "CHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/chi.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2754",
+      "name": "China",
+      "abbreviation": "CHN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/chn.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "658",
+      "name": "China",
+      "abbreviation": "CHN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/chn.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "570",
+      "name": "Club Brugge",
+      "abbreviation": "BRU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/570.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "208",
+      "name": "Colombia",
+      "abbreviation": "COL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/col.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11337",
+      "name": "Colombia",
+      "abbreviation": "COL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/col.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "184",
+      "name": "Colorado Rapids",
+      "abbreviation": "COL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/184.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "183",
+      "name": "Columbus Crew",
+      "abbreviation": "CLB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/183.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2572",
+      "name": "Como",
+      "abbreviation": "COMO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2572.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8601",
+      "name": "Comoros",
+      "abbreviation": "COM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/com.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2850",
+      "name": "Congo DR",
+      "abbreviation": "COD",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/rdc.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2894",
+      "name": "Costa Rica",
+      "abbreviation": "CRC",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/crc.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "214",
+      "name": "Costa Rica",
+      "abbreviation": "CRC",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/crc.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "388",
+      "name": "Coventry City",
+      "abbreviation": "COV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/388.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "477",
+      "name": "Croatia",
+      "abbreviation": "CRO",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/cro.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "384",
+      "name": "Crystal Palace",
+      "abbreviation": "CRY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/384.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "10834",
+      "name": "CSKA Sofia",
+      "abbreviation": "CSKA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/10834.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8089",
+      "name": "CSU Craiova",
+      "abbreviation": "UCRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/8089.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11678",
+      "name": "Curaçao",
+      "abbreviation": "CUW",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/11678.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "445",
+      "name": "Cyprus",
+      "abbreviation": "CYP",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/cyp.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "450",
+      "name": "Czechia",
+      "abbreviation": "CZE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/cze.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "193",
+      "name": "D.C. United",
+      "abbreviation": "DC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/193.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2896",
+      "name": "Denmark",
+      "abbreviation": "DEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/den.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "479",
+      "name": "Denmark",
+      "abbreviation": "DEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/den.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131563",
+      "name": "Denver Summit FC",
+      "abbreviation": "DEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/131563.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "90",
+      "name": "Deportivo",
+      "abbreviation": "DEP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/90.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "597",
+      "name": "Dinamo Zagreb",
+      "abbreviation": "DZG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/597.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2649",
+      "name": "Dominican Republic",
+      "abbreviation": "DOM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/dom.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "209",
+      "name": "Ecuador",
+      "abbreviation": "ECU",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ecu.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21943",
+      "name": "Egnatia",
+      "abbreviation": "EGN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21943.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2620",
+      "name": "Egypt",
+      "abbreviation": "EGY",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/egy.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "125",
+      "name": "Eintracht Frankfurt",
+      "abbreviation": "SGE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/125.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2650",
+      "name": "El Salvador",
+      "abbreviation": "SLV",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/slv.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3751",
+      "name": "Elche",
+      "abbreviation": "ELC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3751.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "448",
+      "name": "England",
+      "abbreviation": "ENG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/eng.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5159",
+      "name": "England",
+      "abbreviation": "ENG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/eng.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8938",
+      "name": "Equatorial Guinea",
+      "abbreviation": "EQG",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/eqg.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "88",
+      "name": "Espanyol",
+      "abbreviation": "ESP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/88.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "444",
+      "name": "Estonia",
+      "abbreviation": "EST",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/est.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "368",
+      "name": "Everton",
+      "abbreviation": "EVE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/368.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "909",
+      "name": "F.C. København",
+      "abbreviation": "KBH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/909.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "447",
+      "name": "Faroe Islands",
+      "abbreviation": "FRO",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fro.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3841",
+      "name": "FC Augsburg",
+      "abbreviation": "FCA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3841.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18267",
+      "name": "FC Cincinnati",
+      "abbreviation": "CIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18267.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "122",
+      "name": "FC Cologne",
+      "abbreviation": "KOE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/122.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "185",
+      "name": "FC Dallas",
+      "abbreviation": "DAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/185.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7672",
+      "name": "FC Lugano",
+      "abbreviation": "LUG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7672.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "572",
+      "name": "FC Midtjylland",
+      "abbreviation": "MID",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/572.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3101",
+      "name": "FC Nordsjælland",
+      "abbreviation": "FCN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3101.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "437",
+      "name": "FC Porto",
+      "abbreviation": "FCP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/437.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3024",
+      "name": "FC Thun",
+      "abbreviation": "THUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3024.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "152",
+      "name": "FC Twente",
+      "abbreviation": "TWE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/152.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "436",
+      "name": "Fenerbahce",
+      "abbreviation": "FEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/436.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "622",
+      "name": "Ferencvaros",
+      "abbreviation": "FER",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/622.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "142",
+      "name": "Feyenoord Rotterdam",
+      "abbreviation": "FEY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/142.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "458",
+      "name": "Finland",
+      "abbreviation": "FIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fin.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "109",
+      "name": "Fiorentina",
+      "abbreviation": "FIO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/109.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "478",
+      "name": "France",
+      "abbreviation": "FRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fra.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2755",
+      "name": "France",
+      "abbreviation": "FRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/fra.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4057",
+      "name": "Frosinone",
+      "abbreviation": "FRO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4057.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "370",
+      "name": "Fulham",
+      "abbreviation": "FUL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/370.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4231",
+      "name": "Gabon",
+      "abbreviation": "GAB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gab.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "432",
+      "name": "Galatasaray",
+      "abbreviation": "GAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/432.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3263",
+      "name": "Genoa",
+      "abbreviation": "GEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3263.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "584",
+      "name": "Georgia",
+      "abbreviation": "GEO",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/geo.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "481",
+      "name": "Germany",
+      "abbreviation": "GER",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ger.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2756",
+      "name": "Germany",
+      "abbreviation": "GER",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ger.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2922",
+      "name": "Getafe",
+      "abbreviation": "GET",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2922.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4469",
+      "name": "Ghana",
+      "abbreviation": "GHA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gha.png",
+      "division": null,
+      "competitions": [
+        "fifa.world"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "16721",
+      "name": "Gibraltar",
+      "abbreviation": "GIB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gib.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15364",
+      "name": "Gotham FC",
+      "abbreviation": "GFC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15364.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "455",
+      "name": "Greece",
+      "abbreviation": "GRE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gre.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7657",
+      "name": "Guadeloupe",
+      "abbreviation": "GDL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gdl.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2652",
+      "name": "Guatemala",
+      "abbreviation": "GUA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/gua.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2654",
+      "name": "Haiti",
+      "abbreviation": "HAI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/hai.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2891",
+      "name": "Haiti",
+      "abbreviation": "HAI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/hai.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "489",
+      "name": "Hajduk Split",
+      "abbreviation": "HAJ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/489.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "127",
+      "name": "Hamburg SV",
+      "abbreviation": "HSV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/127.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "13083",
+      "name": "Hapoel Be'er",
+      "abbreviation": "HBE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/13083.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "262",
+      "name": "Heart of Midlothian",
+      "abbreviation": "HOM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/262.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "215",
+      "name": "Honduras",
+      "abbreviation": "HON",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/hon.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17346",
+      "name": "Houston Dash",
+      "abbreviation": "HOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17346.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6077",
+      "name": "Houston Dynamo FC",
+      "abbreviation": "HOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/6077.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "306",
+      "name": "Hull City",
+      "abbreviation": "HUL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/306.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "480",
+      "name": "Hungary",
+      "abbreviation": "HUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/hun.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20025",
+      "name": "Iberia 1999",
+      "abbreviation": "IBE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20025.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "470",
+      "name": "Iceland",
+      "abbreviation": "ISL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/isl.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4895",
+      "name": "Indonesia",
+      "abbreviation": "IDN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/idn.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20703",
+      "name": "Inter D'Escaldes",
+      "abbreviation": "IDE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20703.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20232",
+      "name": "Inter Miami CF",
+      "abbreviation": "MIA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20232.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "110",
+      "name": "Internazionale",
+      "abbreviation": "INT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/110.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "373",
+      "name": "Ipswich Town",
+      "abbreviation": "IPS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/373.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "469",
+      "name": "Iran",
+      "abbreviation": "IRN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/irn.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4375",
+      "name": "Iraq",
+      "abbreviation": "IRQ",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/irq.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "461",
+      "name": "Israel",
+      "abbreviation": "ISR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/isr.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2792",
+      "name": "Italy",
+      "abbreviation": "ITA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ita.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "162",
+      "name": "Italy",
+      "abbreviation": "ITA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ita.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4789",
+      "name": "Ivory Coast",
+      "abbreviation": "CIV",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/civ.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7922",
+      "name": "Jablonec",
+      "abbreviation": "JABL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7922.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11505",
+      "name": "Jagiellonia Bialystok",
+      "abbreviation": "JAG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/11505.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2893",
+      "name": "Jamaica",
+      "abbreviation": "JAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jam.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1038",
+      "name": "Jamaica",
+      "abbreviation": "JAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jam.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "627",
+      "name": "Japan",
+      "abbreviation": "JPN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jpn.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2758",
+      "name": "Japan",
+      "abbreviation": "JPN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jpn.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2917",
+      "name": "Jordan",
+      "abbreviation": "JOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/jor.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "111",
+      "name": "Juventus",
+      "abbreviation": "JUV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/111.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3611",
+      "name": "KAA Gent",
+      "abbreviation": "GENT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3611.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2528",
+      "name": "Kairat Almaty",
+      "abbreviation": "KAI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2528.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20907",
+      "name": "Kansas City Current",
+      "abbreviation": "KC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20907.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20028",
+      "name": "Kauno Zalgiris",
+      "abbreviation": "ZAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20028.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2619",
+      "name": "Kazakhstan",
+      "abbreviation": "KAZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kaz.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18272",
+      "name": "Kosovo",
+      "abbreviation": "KOS",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kosovo.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8169",
+      "name": "KuPS Kuopio",
+      "abbreviation": "KUPS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/8169.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "841",
+      "name": "Kuwait",
+      "abbreviation": "KUW",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kuw.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6724",
+      "name": "Kyrgyz Republic",
+      "abbreviation": "KGZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kgz.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "187",
+      "name": "LA Galaxy",
+      "abbreviation": "LA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/187.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18966",
+      "name": "LAFC",
+      "abbreviation": "LAFC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18966.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4411",
+      "name": "LASK Linz",
+      "abbreviation": "LAS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4411.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "456",
+      "name": "Latvia",
+      "abbreviation": "LVA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/lva.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "112",
+      "name": "Lazio",
+      "abbreviation": "LAZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/112.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3236",
+      "name": "Le Havre AC",
+      "abbreviation": "HAC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3236.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2697",
+      "name": "Le Mans",
+      "abbreviation": "MNS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2697.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "113",
+      "name": "Lecce",
+      "abbreviation": "LEC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/113.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2990",
+      "name": "Lech Poznan",
+      "abbreviation": "LECH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2990.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "357",
+      "name": "Leeds United",
+      "abbreviation": "LEE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/357.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "175",
+      "name": "Lens",
+      "abbreviation": "RCL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/175.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1538",
+      "name": "Levante",
+      "abbreviation": "LEV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1538.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "490",
+      "name": "Levski Sofia",
+      "abbreviation": "LEV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/490.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "589",
+      "name": "Liechtenstein",
+      "abbreviation": "LIE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/lie.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "166",
+      "name": "Lille",
+      "abbreviation": "LILL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/166.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "987",
+      "name": "Lillestrom",
+      "abbreviation": "LSK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/987.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17856",
+      "name": "Lincoln Red Imps",
+      "abbreviation": "LRI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17856.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "460",
+      "name": "Lithuania",
+      "abbreviation": "LTU",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ltu.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "364",
+      "name": "Liverpool",
+      "abbreviation": "LIV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/364.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "273",
+      "name": "Lorient",
+      "abbreviation": "LOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/273.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "582",
+      "name": "Luxembourg",
+      "abbreviation": "LUX",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/lux.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "167",
+      "name": "Lyon",
+      "abbreviation": "LYON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/167.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2950",
+      "name": "Mainz",
+      "abbreviation": "M05",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2950.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2849",
+      "name": "Mali",
+      "abbreviation": "MLI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mli.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "453",
+      "name": "Malta",
+      "abbreviation": "MLT",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mlt.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "382",
+      "name": "Manchester City",
+      "abbreviation": "MNC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/382.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "360",
+      "name": "Manchester United",
+      "abbreviation": "MAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/360.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "176",
+      "name": "Marseille",
+      "abbreviation": "OLM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/176.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "203",
+      "name": "Mexico",
+      "abbreviation": "MEX",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mex.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17362",
+      "name": "Minnesota United FC",
+      "abbreviation": "MIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17362.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20301",
+      "name": "Mjällby AIF",
+      "abbreviation": "MJA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20301.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "483",
+      "name": "Moldova",
+      "abbreviation": "MDA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mda.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6775",
+      "name": "Montenegro",
+      "abbreviation": "MNE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mtg.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4007",
+      "name": "Monza",
+      "abbreviation": "MON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4007.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2869",
+      "name": "Morocco",
+      "abbreviation": "MAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mar.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18221",
+      "name": "Morocco",
+      "abbreviation": "MAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mor.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8939",
+      "name": "Mozambique",
+      "abbreviation": "MOZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/moz.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "99",
+      "name": "Málaga",
+      "abbreviation": "MCF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/99.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "114",
+      "name": "Napoli",
+      "abbreviation": "NAP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/114.png",
+      "division": null,
+      "competitions": [
+        "ita.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18986",
+      "name": "Nashville SC",
+      "abbreviation": "NSH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18986.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "147",
+      "name": "NEC Nijmegen",
+      "abbreviation": "NEC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/147.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "449",
+      "name": "Netherlands",
+      "abbreviation": "NED",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ned.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7151",
+      "name": "Netherlands",
+      "abbreviation": "NED",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ned.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "189",
+      "name": "New England Revolution",
+      "abbreviation": "NE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/189.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17606",
+      "name": "New York City FC",
+      "abbreviation": "NYC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17606.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2666",
+      "name": "New Zealand",
+      "abbreviation": "NZL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nzl.png",
+      "division": null,
+      "competitions": [
+        "fifa.world"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4153",
+      "name": "New Zealand",
+      "abbreviation": "NZL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nzl.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "361",
+      "name": "Newcastle United",
+      "abbreviation": "NEW",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/361.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2502",
+      "name": "Nice",
+      "abbreviation": "NICE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2502.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2761",
+      "name": "Nigeria",
+      "abbreviation": "NGA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nga.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "657",
+      "name": "Nigeria",
+      "abbreviation": "NGA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nga.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3362",
+      "name": "NK Celje",
+      "abbreviation": "NKC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3362.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15366",
+      "name": "North Carolina Courage",
+      "abbreviation": "NC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15366.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4860",
+      "name": "North Korea",
+      "abbreviation": "PRK",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/korn.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "463",
+      "name": "North Macedonia",
+      "abbreviation": "MKD",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/mkd.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "586",
+      "name": "Northern Ireland",
+      "abbreviation": "NIR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nir.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "464",
+      "name": "Norway",
+      "abbreviation": "NOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nor.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2762",
+      "name": "Norway",
+      "abbreviation": "NOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/nor.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "393",
+      "name": "Nottingham Forest",
+      "abbreviation": "NFO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/393.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "1010",
+      "name": "OFI Crete",
+      "abbreviation": "OFI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1010.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "435",
+      "name": "Olympiacos",
+      "abbreviation": "OLY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/435.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2841",
+      "name": "Oman",
+      "abbreviation": "OMA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/oma.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "617",
+      "name": "Omonia Nicosia",
+      "abbreviation": "OMON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/617.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "12011",
+      "name": "Orlando City SC",
+      "abbreviation": "ORL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/12011.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18206",
+      "name": "Orlando Pride",
+      "abbreviation": "ORL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/18206.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "97",
+      "name": "Osasuna",
+      "abbreviation": "OSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/97.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22281",
+      "name": "Pafos",
+      "abbreviation": "PAF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/22281.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6167",
+      "name": "Palestine",
+      "abbreviation": "PLE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/pal.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2659",
+      "name": "Panama",
+      "abbreviation": "PAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/pan.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2895",
+      "name": "Panama",
+      "abbreviation": "PAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/pan.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "443",
+      "name": "Panathinaikos",
+      "abbreviation": "PAO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/443.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "210",
+      "name": "Paraguay",
+      "abbreviation": "PAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/par.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6851",
+      "name": "Paris FC",
+      "abbreviation": "PAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/6851.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "160",
+      "name": "Paris Saint-Germain",
+      "abbreviation": "PSG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/160.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "115",
+      "name": "Parma",
+      "abbreviation": "PAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/115.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "211",
+      "name": "Peru",
+      "abbreviation": "PER",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/per.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "10739",
+      "name": "Philadelphia Union",
+      "abbreviation": "PHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/10739.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21546",
+      "name": "Philippines",
+      "abbreviation": "PHI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/phi.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "471",
+      "name": "Poland",
+      "abbreviation": "POL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/pol.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15362",
+      "name": "Portland Thorns FC",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15362.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9723",
+      "name": "Portland Timbers",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9723.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "482",
+      "name": "Portugal",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/por.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9531",
+      "name": "Portugal",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/por.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "148",
+      "name": "PSV Eindhoven",
+      "abbreviation": "PSV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/148.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4398",
+      "name": "Qatar",
+      "abbreviation": "QAT",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/qat.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20905",
+      "name": "Racing Louisville FC",
+      "abbreviation": "LOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20905.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "87",
+      "name": "Racing Santander",
+      "abbreviation": "RAC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/87.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "101",
+      "name": "Rayo Vallecano",
+      "abbreviation": "RAY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/101.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11420",
+      "name": "RB Leipzig",
+      "abbreviation": "RBL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/11420.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2790",
+      "name": "RB Salzburg",
+      "abbreviation": "SLZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2790.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "244",
+      "name": "Real Betis",
+      "abbreviation": "BET",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/244.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "86",
+      "name": "Real Madrid",
+      "abbreviation": "RMA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/86.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4771",
+      "name": "Real Salt Lake",
+      "abbreviation": "RSL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4771.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "89",
+      "name": "Real Sociedad",
+      "abbreviation": "RSO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/89.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "190",
+      "name": "Red Bull New York",
+      "abbreviation": "RBNY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/190.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2290",
+      "name": "Red Star Belgrade",
+      "abbreviation": "RSB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2290.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4178",
+      "name": "Republic of Ireland",
+      "abbreviation": "IRL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/irl.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "476",
+      "name": "Republic of Ireland",
+      "abbreviation": "IRL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/irl.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "19246",
+      "name": "Riga FC",
+      "abbreviation": "RIG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/19246.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "473",
+      "name": "Romania",
+      "abbreviation": "ROU",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/rom.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21922",
+      "name": "Sabah FK",
+      "abbreviation": "SAB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21922.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22529",
+      "name": "San Diego FC",
+      "abbreviation": "SD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/22529.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21423",
+      "name": "San Diego Wave FC",
+      "abbreviation": "SD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21423.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "191",
+      "name": "San Jose Earthquakes",
+      "abbreviation": "SJ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/191.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "588",
+      "name": "San Marino",
+      "abbreviation": "SMR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/smr.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3997",
+      "name": "Sassuolo",
+      "abbreviation": "SAS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3997.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "655",
+      "name": "Saudi Arabia",
+      "abbreviation": "KSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ksa.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "concacaf.gold",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "126",
+      "name": "SC Freiburg",
+      "abbreviation": "SCF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/126.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3307",
+      "name": "SC Paderborn 07",
+      "abbreviation": "SCP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3307.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133",
+      "name": "Schalke 04",
+      "abbreviation": "S04",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/133.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "580",
+      "name": "Scotland",
+      "abbreviation": "SCO",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sco.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15363",
+      "name": "Seattle Reign FC",
+      "abbreviation": "SEA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15363.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9726",
+      "name": "Seattle Sounders FC",
+      "abbreviation": "SEA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9726.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "654",
+      "name": "Senegal",
+      "abbreviation": "SEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sen.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6757",
+      "name": "Serbia",
+      "abbreviation": "SRB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sba.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "243",
+      "name": "Sevilla",
+      "abbreviation": "SEV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/243.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "493",
+      "name": "Shakhtar Donetsk",
+      "abbreviation": "SHK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/493.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4384",
+      "name": "Singapore",
+      "abbreviation": "SIN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sin.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "936",
+      "name": "Sint-Truidense",
+      "abbreviation": "STVV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/936.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "620",
+      "name": "SK Brann",
+      "abbreviation": "SKBR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/620.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3746",
+      "name": "SK Sturm Graz",
+      "abbreviation": "STG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3746.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "494",
+      "name": "Slavia Prague",
+      "abbreviation": "SLP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/494.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "468",
+      "name": "Slovakia",
+      "abbreviation": "SVK",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/svk.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "521",
+      "name": "Slovan Bratislava",
+      "abbreviation": "SLB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/521.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "472",
+      "name": "Slovenia",
+      "abbreviation": "SVN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/svn.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "467",
+      "name": "South Africa",
+      "abbreviation": "RSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/rsa.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "13313",
+      "name": "South Africa",
+      "abbreviation": "RSA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/rsa.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "451",
+      "name": "South Korea",
+      "abbreviation": "KOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kors.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17639",
+      "name": "South Korea",
+      "abbreviation": "KOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/kors.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "164",
+      "name": "Spain",
+      "abbreviation": "ESP",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/esp.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17640",
+      "name": "Spain",
+      "abbreviation": "ESP",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/esp.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "433",
+      "name": "Sparta Prague",
+      "abbreviation": "SPP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/433.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2250",
+      "name": "Sporting CP",
+      "abbreviation": "SCP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2250.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "186",
+      "name": "Sporting Kansas City",
+      "abbreviation": "SKC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/186.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21812",
+      "name": "St. Louis CITY SC",
+      "abbreviation": "STL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21812.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "169",
+      "name": "Stade Rennais",
+      "abbreviation": "REN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/169.png",
+      "division": null,
+      "competitions": [
+        "fra.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "180",
+      "name": "Strasbourg",
+      "abbreviation": "STR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/180.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4319",
+      "name": "Sudan",
+      "abbreviation": "SUD",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sud.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "366",
+      "name": "Sunderland",
+      "abbreviation": "SUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/366.png",
+      "division": null,
+      "competitions": [
+        "eng.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2664",
+      "name": "Suriname",
+      "abbreviation": "SUR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sur.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "10388",
+      "name": "SV Elversberg",
+      "abbreviation": "ELV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/10388.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "466",
+      "name": "Sweden",
+      "abbreviation": "SWE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/swe.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2764",
+      "name": "Sweden",
+      "abbreviation": "SWE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/swe.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "475",
+      "name": "Switzerland",
+      "abbreviation": "SUI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sui.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17641",
+      "name": "Switzerland",
+      "abbreviation": "SUI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/sui.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4380",
+      "name": "Syria",
+      "abbreviation": "SYR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/syr.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6723",
+      "name": "Tajikistan",
+      "abbreviation": "TJK",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tjk.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5778",
+      "name": "Tanzania",
+      "abbreviation": "TAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tan.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4396",
+      "name": "Thailand",
+      "abbreviation": "THA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tha.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "239",
+      "name": "Torino",
+      "abbreviation": "TOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/239.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7318",
+      "name": "Toronto FC",
+      "abbreviation": "TOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7318.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21615",
+      "name": "Torreense",
+      "abbreviation": "TOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/21615.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "367",
+      "name": "Tottenham Hotspur",
+      "abbreviation": "TOT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/367.png",
+      "division": null,
+      "competitions": [
+        "eng.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "179",
+      "name": "Toulouse",
+      "abbreviation": "TOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/179.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "997",
+      "name": "Trabzonspor",
+      "abbreviation": "TRAB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/997.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2627",
+      "name": "Trinidad and Tobago",
+      "abbreviation": "TRI",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tri.png",
+      "division": null,
+      "competitions": [
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "170",
+      "name": "Troyes",
+      "abbreviation": "TRY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/170.png",
+      "division": null,
+      "competitions": [
+        "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7911",
+      "name": "TSG Hoffenheim",
+      "abbreviation": "TSG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7911.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "659",
+      "name": "Tunisia",
+      "abbreviation": "TUN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tun.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "465",
+      "name": "Türkiye",
+      "abbreviation": "TUR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/tur.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "118",
+      "name": "Udinese",
+      "abbreviation": "UDI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/118.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4211",
+      "name": "Uganda",
+      "abbreviation": "UGA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/uga.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "457",
+      "name": "Ukraine",
+      "abbreviation": "UKR",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ukr.png",
+      "division": null,
+      "competitions": [
+        "uefa.euro",
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5807",
+      "name": "Union St.-Gilloise",
+      "abbreviation": "USG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/5807.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4397",
+      "name": "United Arab Emirates",
+      "abbreviation": "UAE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/uae.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "660",
+      "name": "United States",
+      "abbreviation": "USA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/usa.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america",
+        "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2765",
+      "name": "United States",
+      "abbreviation": "USA",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/usa.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "212",
+      "name": "Uruguay",
+      "abbreviation": "URU",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/uru.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "19141",
+      "name": "Utah Royals",
+      "abbreviation": "UTA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/19141.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2570",
+      "name": "Uzbekistan",
+      "abbreviation": "UZB",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/uzb.png",
+      "division": null,
+      "competitions": [
+        "fifa.world",
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "94",
+      "name": "Valencia",
+      "abbreviation": "VAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/94.png",
+      "division": null,
+      "competitions": [
+        "esp.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9727",
+      "name": "Vancouver Whitecaps",
+      "abbreviation": "VAN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9727.png",
+      "division": null,
+      "competitions": [
+        "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17530",
+      "name": "Venezia",
+      "abbreviation": "VEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17530.png",
+      "division": null,
+      "competitions": [
+        "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "213",
+      "name": "Venezuela",
+      "abbreviation": "VEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/ven.png",
+      "division": null,
+      "competitions": [
+        "conmebol.america"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "134",
+      "name": "VfB Stuttgart",
+      "abbreviation": "VFB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/134.png",
+      "division": null,
+      "competitions": [
+        "ger.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17815",
+      "name": "Vietnam",
+      "abbreviation": "VIE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/vie.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7349",
+      "name": "Vietnam",
+      "abbreviation": "VIE",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/vie.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "510",
+      "name": "VIKING FK",
+      "abbreviation": "Viking FK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/510.png",
+      "division": null,
+      "competitions": [
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11706",
+      "name": "Viktoria Plzen",
+      "abbreviation": "PLZ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/11706.png",
+      "division": null,
+      "competitions": [
+        "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "102",
+      "name": "Villarreal",
+      "abbreviation": "VIL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/102.png",
+      "division": null,
+      "competitions": [
+        "esp.1",
+        "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "578",
+      "name": "Wales",
+      "abbreviation": "WAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/wal.png",
+      "division": null,
+      "competitions": [
+        "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "15365",
+      "name": "Washington Spirit",
+      "abbreviation": "WAS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/15365.png",
+      "division": null,
+      "competitions": [
+        "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "137",
+      "name": "Werder Bremen",
+      "abbreviation": "SVW",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/137.png",
+      "division": null,
+      "competitions": [
+        "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6014",
+      "name": "Yemen",
+      "abbreviation": "YEM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/yem.png",
+      "division": null,
+      "competitions": [
+        "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20795",
+      "name": "Zambia",
+      "abbreviation": "ZAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/zam.png",
+      "division": null,
+      "competitions": [
+        "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4277",
+      "name": "Zambia",
+      "abbreviation": "ZAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/countries/500/zam.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4214",
+      "name": "Zimbabwe",
+      "abbreviation": "ZIM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4214.png",
+      "division": null,
+      "competitions": [
+        "caf.nations"
+      ]
+    }
+  ]
+}

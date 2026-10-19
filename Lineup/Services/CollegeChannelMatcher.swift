@@ -124,7 +124,7 @@ enum CollegeChannelMatcher {
         score(candidate: Candidate(id: 0, name: channel, listings: listings), game: game, now: now, allowNetworkFallback: allowNetworkFallback)
     }
 
-    private static func score(candidate: Candidate, game: Matchup, now: Date, allowNetworkFallback: Bool) -> Int? {
+    static func score(candidate: Candidate, game: Matchup, now: Date, allowNetworkFallback: Bool) -> Int? {
         let name = candidate.normalizedName
         let listings = candidate.listings
         // Settled when the candidate was built, not here.

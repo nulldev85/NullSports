@@ -53,7 +53,7 @@ struct MobileDismissGesture: ViewModifier {
                                 exitOffset = 0
                             }
                         }
-                    }, including: enabled ? .all : .none
+                    }, including: enabled ? .all : .subviews
             )
             .accessibilityAction(.escape) { if enabled { onDismiss() } }
             .onChange(of: enabled) { _, active in

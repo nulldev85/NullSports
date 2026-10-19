@@ -10,20 +10,32 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
-    timeout-minutes: 30
+    # AetherEngine 7.36.0 is built and tested with Swift 6.4 / Xcode 27.
+    runs-on: xcode-27
+    timeout-minutes: 45
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
+      - name: Configure Library metadata services
+        env:
+          LINEUP_TMDB_TOKEN: ${{ secrets.LINEUP_TMDB_TOKEN }}
+          LINEUP_TVDB_API_KEY: ${{ secrets.LINEUP_TVDB_API_KEY }}
+        run: python3 -B Tools/configure-metadata.py
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: "27.0"
+      - name: Check Swift syntax and shared source membership
+        run: |
+          set -euo pipefail
+          python3 -B Tests/SharedSourceMembershipChecks.py
+          find Lineup iPhone AetherPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
 
       - name: Check college channel matching policy
         run: |
           set -euo pipefail
+          python3 -B Tests/TeamDirectoryChecks.py
           swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/lineup-matcher-checks
           /tmp/lineup-matcher-checks
 
@@ -47,7 +59,7 @@ jobs:
           set -euo pipefail
           swiftc Lineup/Services/LivePlaybackHealth.swift Tests/LivePlaybackHealthChecks.swift -o /tmp/lineup-playback-health-checks
           /tmp/lineup-playback-health-checks
-          swiftc Lineup/Services/ProfessionalChannelMatcher.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/lineup-professional-match-checks
+          swiftc Lineup/Services/ProfessionalChannelMatcher.swift Lineup/Services/EventChannelEvidence.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/lineup-professional-match-checks
           /tmp/lineup-professional-match-checks
           swiftc Lineup/Services/ProviderRefreshPolicy.swift Tests/ProviderRefreshPolicyChecks.swift -o /tmp/lineup-provider-refresh-checks
           /tmp/lineup-provider-refresh-checks
@@ -56,6 +68,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 Tools/check-tv-focus.py
+
+      - name: Generate playback integration fixture
+        run: |
+          set -euo pipefail
+          command -v ffmpeg >/dev/null || brew install ffmpeg
+          bash Tools/make-tv-playback-fixture.sh
 
       # The icon layers are committed artwork. They used to be rebuilt here from
       # a source bitmap on every run, which meant a new icon was overwritten by
@@ -68,6 +86,7 @@ jobs:
           test ! -e 'Lineup/Assets.xcassets/App Icon & Top Shelf Image.brandassets'
           grep -q 'ASSETCATALOG_COMPILER_APPICON_NAME: "Lineup App Icon & Top Shelf Image"' project.yml
           xcodegen generate
+          python3 -B Tools/check-aether-bundle.py --project Lineup.xcodeproj/project.pbxproj
 
       - name: Build unsigned app
         run: |
@@ -89,6 +108,7 @@ jobs:
           # app looks the way it did before Inter. So the bundle is the thing
           # to check, not the code.
           app="build/Build/Products/Release-appletvos/Lineup.app"
+          python3 -B Tools/check-metadata-bundle.py "$app"
           test -d "$app"
           missing=0
           for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
@@ -114,24 +134,52 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "Lineup"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports"
 
-      - name: Build for tvOS Simulator
+      - name: Check AetherEngine isolation and packaged dependencies
         run: |
           set -euo pipefail
+          app="build/Build/Products/Release-appletvos/Lineup.app"
+          python3 -B Tests/AetherBundleChecks.py
+          python3 Tools/check-aether-bundle.py "$app"
+
+      - name: Run tvOS playback and Library regression tests
+        run: |
+          set -euo pipefail
+          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]))')
           xcodebuild \
             -project Lineup.xcodeproj \
             -scheme Lineup \
             -configuration Debug \
-            -destination 'platform=tvOS Simulator,name=Apple TV' \
+            -destination "platform=tvOS Simulator,id=$device" \
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD \
-            build
+            test
+
+      - name: Export playback proof screenshots
+        if: always()
+        run: |
+          result=$(find build-sim/Logs/Test -maxdepth 1 -name '*.xcresult' -print -quit 2>/dev/null || true)
+          if [ -n "$result" ]; then
+            xcrun xcresulttool export attachments --path "$result" --output-path playback-previews || echo "::warning::Could not export playback screenshots"
+          fi
+
+      - name: Upload playback proof screenshots
+        if: always()
+        # Screenshots are supplementary. A storage/upload outage must not stop
+        # the launch smoke test or IPA packaging; tests and IPA upload still fail.
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lineup-tvOS-playback-previews
+          path: playback-previews
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Smoke test app launch in tvOS Simulator
         run: |
           set -euo pipefail
-          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]))')
-          xcrun simctl boot "$device"
+          read -r device device_state < <(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); v=next(v for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]); print(v["udid"], v["state"])')
+          if [ "$device_state" != "Booted" ]; then xcrun simctl boot "$device"; fi
           # `simctl boot` returns once booting has started, not once FrontBoard
           # is ready to discover and launch installed apps. Wait for the
           # television home screen instead of racing it on a busy runner.
@@ -170,4 +218,4 @@ jobs:
           name: Lineup-tvOS-unsigned-IPA
           path: Lineup-unsigned.ipa
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 7 }}

@@ -1,11 +1,13 @@
 import SwiftUI
 import UIKit
-import VLCKitSPM
+import LineupAetherPlayback
 
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
+    @Environment(\.scenePhase) private var scenePhase
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
+    @State private var soccerCompetition: String?
     /// What is full screen. One value carries the channel, the game and the
     /// preview's player together: read from state of their own inside the
     /// cover, the game and the player could come through as they were a
@@ -19,6 +21,8 @@ struct LiveView: View {
     @State private var previewGameID: String?
     @State private var previewWasManuallySelected = false
     @State private var playbackTransitionID: UUID?
+    @State private var qualityTask: Task<Void, Never>?
+    @State private var qualityRequest: UUID?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var manualSelectionStartsMultiview = false
@@ -31,7 +35,13 @@ struct LiveView: View {
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
-    private var events: [SportsGame] { library.games(for: selectedLeague).filter { $0.isLive || ($0.start >= dayStart && $0.start < horizon) } }
+    private var events: [SportsGame] {
+        library.games(for: selectedLeague).filter {
+            let end = $0.league.isRacing ? (Calendar.current.date(byAdding: .day, value: 14, to: dayStart) ?? horizon) : horizon
+            return ($0.isLive || ($0.start >= dayStart && $0.start < end))
+                && (selectedLeague != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
+        }
+    }
     private var tickerEvents: [SportsGame] { library.scoreTickerGames() }
     private var liveEvents: [SportsGame] { events.filter { $0.isLive } }
     private var upcomingEvents: [SportsGame] { events.filter { $0.isUpcoming } }
@@ -43,8 +53,9 @@ struct LiveView: View {
                     LiveScreen(
                         events: events,
                         selectedLeague: $selectedLeague,
+                        soccerCompetition: $soccerCompetition,
                         previewStream: previewStream,
-                        previewGame: events.first { $0.id == previewGameID },
+                        previewGame: library.gamesByLeague.values.lazy.flatMap { $0 }.first { $0.id == previewGameID },
                         previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
                         multiviewPrimaryID: multiviewPrimary?.id,
                         multiviewTitle: multiviewPrimary?.name,
@@ -69,7 +80,7 @@ struct LiveView: View {
                 // The ticker belongs to the full-height Live layout, outside
                 // NavigationStack's independently inset content area.
                 LiveTicker(events: tickerEvents)
-                    .frame(height: 38)
+                    .frame(height: LiveTicker.height)
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
             .background(LiveCanvas())
@@ -95,30 +106,27 @@ struct LiveView: View {
             }
             // Both teams have a saved channel and they disagree -- the one
             // case where a preference cannot answer on its own.
-            .confirmationDialog("Which feed?", isPresented: presenting($feedChoice),
-                                titleVisibility: .visible, presenting: feedChoice) { choice in
-                Button(choice.home.channelName) { startFeed(choice.home, of: choice) }
-                Button(choice.away.channelName) { startFeed(choice.away, of: choice) }
-                Button("Choose Another Channel") {
-                    let game = choice.game
-                    let multiview = choice.startsMultiview
-                    feedChoice = nil
-                    // The dialog has to be gone before the picker comes up.
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(400))
+            .tvChoices("Which feed?", symbol: "tv", isPresented: presenting($feedChoice),
+                       message: feedChoice.map {
+                           "\($0.home.team) prefers \($0.home.channelName). \($0.away.team) prefers \($0.away.channelName)."
+                       }) {
+                guard let choice = feedChoice else { return [] }
+                return [
+                    TVChoice(choice.home.channelName, id: "home") { startFeed(choice.home, of: choice) },
+                    TVChoice(choice.away.channelName, id: "away") { startFeed(choice.away, of: choice) },
+                    // Run once the sheet has gone, so the picker can come up.
+                    TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle", id: "other") {
+                        let game = choice.game
+                        let multiview = choice.startsMultiview
+                        feedChoice = nil
                         chooseChannel(for: game, startsMultiview: multiview)
                     }
-                }
-                Button("Cancel", role: .cancel) { feedChoice = nil }
-            } message: { choice in
-                Text("\(choice.home.team) prefers \(choice.home.channelName). \(choice.away.team) prefers \(choice.away.channelName).")
-            }
+                ]
+            } onCancel: { feedChoice = nil }
             .channelScopePrompt($scopingChannel)
-            .alert("Channels are still syncing", isPresented: $showsChannelSyncMessage) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("Please wait for channel syncing to finish, then select the game again.").foregroundColor(LineupStyle.lightPurple)
-            }
+            .tvChoices("Channels are still syncing", symbol: "arrow.clockwise", isPresented: $showsChannelSyncMessage,
+                       message: "Please wait for channel syncing to finish, then select the game again.",
+                       cancelTitle: "OK") { [] }
             .fullScreenCover(item: $multiviewSession) { session in
                 MultiviewView(
                     primary: session.primary,
@@ -141,6 +149,11 @@ struct LiveView: View {
             .onChange(of: isActive) { _, active in
                 if !active { stopPreview() }
             }
+            .overlay(alignment: .top) {
+                if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
+            }
+            .onDisappear { cancelQualityCheck() }
+            .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .background(LineupStyle.background.ignoresSafeArea())
@@ -173,12 +186,25 @@ struct LiveView: View {
     /// carrying the game, then Lineup's own match -- and the picker when none
     /// of those answers. `TeamChannelPreferences.resolve` decides.
     private func open(_ game: SportsGame, startsMultiview: Bool) {
+        cancelQualityCheck()
         switch library.preferredChannel(for: game) {
         case .syncing:
             showsChannelSyncMessage = true
-        case let .play(streamID, _):
+        case let .play(streamID, source):
             if let stream = library.stream(withID: streamID) {
-                start(game, on: stream, startsMultiview: startsMultiview)
+                TVPreviewHandoff.stopPreviews()
+                let request = UUID()
+                if source == .verified {
+                    qualityRequest = request
+                    qualityTask = Task { @MainActor in
+                        let chosen = await library.bestQualityStream(for: game, fallback: stream)
+                        guard !Task.isCancelled, qualityRequest == request, isActive else { return }
+                        qualityRequest = nil
+                        qualityTask = nil
+                        if let chosen { start(game, on: chosen, startsMultiview: startsMultiview) }
+                        else { chooseChannel(for: game, startsMultiview: startsMultiview) }
+                    }
+                } else { start(game, on: stream, startsMultiview: startsMultiview) }
             } else {
                 chooseChannel(for: game, startsMultiview: startsMultiview)
             }
@@ -191,6 +217,7 @@ struct LiveView: View {
 
     private func start(_ game: SportsGame, on stream: XtreamStream, startsMultiview: Bool,
                        manuallySelected: Bool = false) {
+        cancelQualityCheck()
         if startsMultiview {
             stopPreview()
             multiviewPrimary = stream
@@ -271,10 +298,17 @@ struct LiveView: View {
     }
 
     private func stopPreview() {
+        cancelQualityCheck()
         playbackTransitionID = nil
         previewStream = nil
         previewGameID = nil
         previewWasManuallySelected = false
+    }
+
+    private func cancelQualityCheck() {
+        qualityTask?.cancel()
+        qualityTask = nil
+        qualityRequest = nil
     }
 }
 
@@ -303,19 +337,19 @@ private struct TVChannelScopePrompt: ViewModifier {
     @Binding var picked: TVPickedChannel?
 
     func body(content: Content) -> some View {
-        content.confirmationDialog("Use this channel for…",
-                                   isPresented: Binding(get: { picked != nil },
-                                                        set: { if !$0 { picked = nil } }),
-                                   titleVisibility: .visible, presenting: picked) { choice in
-            Button("Just This Game") { picked = nil }
-            ForEach(library.preferenceSides(for: choice.game)) { side in
-                Button("Always for the \(side.role) (\(side.team))") {
+        content.tvChoices("Use this channel for…", symbol: "star.square.on.square",
+                          isPresented: Binding(get: { picked != nil }, set: { if !$0 { picked = nil } }),
+                          message: picked.map {
+                              "\($0.stream.name) is on now. Lineup can remember it for either team's games."
+                          }) {
+            guard let choice = picked else { return [] }
+            let sides = library.preferenceSides(for: choice.game).map { side in
+                TVChoice("Always for the \(side.role) (\(side.team))", symbol: "star", id: "side-\(side.id)") {
                     library.savePreference(choice.stream, for: side.key, teamName: side.team)
                     picked = nil
                 }
             }
-        } message: { choice in
-            Text("\(choice.stream.name) is on now. Lineup can remember it for either team's games.")
+            return [TVChoice("Just This Game", symbol: "sportscourt", id: "game") { picked = nil }] + sides
         }
     }
 }
@@ -400,7 +434,7 @@ private struct ManualGameChannelPicker: View {
         HStack(alignment: .center, spacing: 28) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("CHOOSE A CHANNEL")
-                    .font(.inter(16, .bold)).tracking(1.8).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(16, .heavy)).tracking(0.6).foregroundStyle(LineupStyle.secondary)
                 Text("\(game.awayTeam) vs. \(game.homeTeam)")
                     .font(.inter(40, .semibold)).foregroundStyle(LineupStyle.text)
                     .lineLimit(1).minimumScaleFactor(0.7)
@@ -453,7 +487,7 @@ private struct ManualGameChannelPicker: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title.uppercased())
-                    .font(.inter(16, .bold)).tracking(1.6).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(16, .heavy)).tracking(0.6).foregroundStyle(LineupStyle.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 16)
                 Text(streams.count == 1 ? "1 channel" : "\(streams.count.formatted()) channels")
@@ -463,7 +497,7 @@ private struct ManualGameChannelPicker: View {
             if streams.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: searching ? "magnifyingglass" : "tv")
-                        .font(.system(size: 44)).foregroundStyle(LineupStyle.secondary)
+                        .font(.system(size: 44, design: .rounded)).foregroundStyle(LineupStyle.secondary)
                     Text(searching ? "Nothing matched \u{201C}\(query)\u{201D}" : "No channels here")
                         .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
                     Text(searching ? "Try another name, or browse a category on the left."
@@ -513,7 +547,7 @@ private struct ManualGameChannelPicker: View {
                 }
                 if library.isFavorite(stream) {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 18)).foregroundStyle(LineupStyle.secondary)
+                        .font(.system(size: 18, design: .rounded)).foregroundStyle(LineupStyle.secondary)
                 }
             }
             .padding(.horizontal, 20)
@@ -636,12 +670,12 @@ private struct TVCatchUpScreen: View {
         } else if programmes.isEmpty {
             VStack(spacing: 14) {
                 Image(systemName: failed ? "wifi.exclamationmark" : "clock.arrow.circlepath")
-                    .font(.system(size: 44, weight: .regular))
+                    .font(.system(size: 44, weight: .regular, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
                 Text(failed ? "The provider didn't answer" : "Nothing kept yet")
                     .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
                 Text(failed ? "Try again in a moment."
-                            : "Programmes from this channel will show here once the provider has kept them.")
+                            : "Programs from this channel will show here once the provider has kept them.")
                     .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 520)
             }
@@ -686,14 +720,14 @@ private struct TVCatchUpDetail: View {
                 ChannelLogo(url: stream.streamIcon, width: 96, height: 64)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("CATCH UP").font(.inter(13, .bold)).tracking(2.2)
+                    Text("CATCH UP").font(.inter(13, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(stream.name).font(.inter(30, .bold)).foregroundStyle(LineupStyle.text)
                         .lineLimit(2).minimumScaleFactor(0.8)
                 }
             }
             if programmeCount > 0 {
-                Text("\(programmeCount) programmes over \(dayCount == 1 ? "1 day" : "\(dayCount) days")")
+                Text("\(programmeCount) programs over \(dayCount == 1 ? "1 day" : "\(dayCount) days")")
                     .font(.inter(16, .medium)).foregroundStyle(LineupStyle.secondary)
                     .padding(.top, 14)
             }
@@ -703,7 +737,7 @@ private struct TVCatchUpDetail: View {
             if let programme {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(TVCatchUpFormat.when(programme))
-                        .font(.inter(15, .bold)).tracking(1.6)
+                        .font(.inter(15, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(programme.title)
                         .font(.inter(40, .bold)).foregroundStyle(LineupStyle.text)
@@ -714,7 +748,7 @@ private struct TVCatchUpDetail: View {
                         if programme.isOnNow { TVCatchUpOnNow() }
                     }
                     if programme.isOnNow {
-                        TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 5)
+                        TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 10)
                             .frame(maxWidth: 420)
                     }
                     if !programme.detail.isEmpty {
@@ -752,13 +786,13 @@ private struct TVCatchUpDayHeader: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(TVCatchUpFormat.dayTitle(day))
-                .font(.inter(16, .bold)).tracking(1.8)
+                .font(.inter(16, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.text)
             Text(day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
-                .font(.inter(14, .semibold)).tracking(1.4)
+                .font(.inter(14, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.secondary)
             Spacer(minLength: 0)
-            Text(count == 1 ? "1 programme" : "\(count) programmes")
+            Text(count == 1 ? "1 program" : "\(count) programs")
                 .font(.inter(14, .medium))
                 .foregroundStyle(LineupStyle.secondary)
         }
@@ -803,7 +837,7 @@ private struct TVCatchUpRow: View {
                         .lineLimit(1)
                 }
                 if programme.isOnNow {
-                    TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 3)
+                    TVCatchUpProgress(fraction: TVCatchUpFormat.elapsedFraction(programme), height: 6)
                         .padding(.top, 4)
                 }
             }
@@ -822,7 +856,7 @@ private struct TVCatchUpOnNow: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(LineupStyle.liveDot).frame(width: 8, height: 8)
-            Text("ON NOW").font(.inter(13, .bold)).tracking(1.4)
+            Text("ON NOW").font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.liveStatus)
         }
     }
@@ -840,20 +874,13 @@ private struct TVCatchUpChip: View {
     }
 }
 
-/// How far a programme still on has got, on a quiet track.
+/// How far a programme still on has got: the app's progress bar.
 private struct TVCatchUpProgress: View {
     let fraction: Double
     let height: CGFloat
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(LineupStyle.text.opacity(0.14))
-                Capsule().fill(LineupStyle.liveDot)
-                    .frame(width: max(height, proxy.size.width * fraction))
-            }
-        }
-        .frame(height: height)
+        LineupProgressBar(value: fraction, height: height)
     }
 }
 
@@ -903,8 +930,8 @@ private struct LiveBoardRail: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("EXPLORE").foregroundColor(LineupStyle.lightPurple).font(.inter(12, .bold)).tracking(3)
-                .foregroundStyle(LiveBoardStyle.muted).padding(.bottom, 8)
+            Text("EXPLORE").font(.inter(16, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                .foregroundStyle(LineupPanelStyle.caption).padding(.bottom, 8)
             LiveBoardLeagueButton(title: "All sports", league: nil, selected: selectedLeague == nil,
                 onEnterGames: onEnterGames) { selectedLeague = nil; onChoose() }
             ForEach(SportsLeague.allCases) { league in
@@ -952,7 +979,7 @@ private struct LiveBoardLeagueButton: View {
         }
         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .focusable().focused($focused).focusEffectDisabled()
-        .onTapGesture(perform: action)
+        .tvSelectAction(action)
         .accessibilityAddTraits(.isButton)
         .onMoveCommand { if $0 == .right { onEnterGames() } }
         .accessibilityLabel(title)
@@ -1068,7 +1095,7 @@ private enum LiveMetrics {
     /// Clear space around anything focusable inside a scroller, which clips:
     /// a focused card's lift and shadow grow into it.
     static let liftRoom: CGFloat = 18
-    static let monitorRadius: CGFloat = 24
+    static let monitorRadius: CGFloat = LineupPanelStyle.radius
 }
 
 /// Which game the screen is describing.
@@ -1108,6 +1135,7 @@ private struct LiveScreen: View {
     @EnvironmentObject private var library: SportsLibrary
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
+    @Binding var soccerCompetition: String?
     let previewStream: XtreamStream?
     let previewGame: SportsGame?
     let previewURLs: [URL]
@@ -1132,6 +1160,7 @@ private struct LiveScreen: View {
         VStack(spacing: 14) {
             stage
             LiveMatchupBoard(events: events, selectedLeague: $selectedLeague, spotlight: spotlight,
+                             soccerCompetition: $soccerCompetition,
                              previewGameID: previewGame?.id, multiviewPrimaryID: multiviewPrimaryID,
                              multiviewTitle: multiviewTitle, isScheduleLoading: isScheduleLoading,
                              isScheduleAvailable: isScheduleAvailable,
@@ -1260,13 +1289,8 @@ private struct LiveMonitor: View {
             }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: game?.id)
+        // A panel like the rest: its fill and corners, no rim of light.
         .clipShape(shape)
-        .overlay {
-            shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.2), .white.opacity(0.05)],
-                                              startPoint: .top, endPoint: .bottom), lineWidth: 1)
-                .allowsHitTesting(false)
-        }
-        .lineupShadow(.overlay)
         .accessibilityLabel(previewStream == nil ? "Matchup slate" : "TV preview")
     }
 }
@@ -1326,19 +1350,20 @@ private struct LiveSlate: View {
     /// right a red LIVE tag, or when it starts.
     private var header: some View {
         HStack(spacing: 14) {
-            LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 32)
-            Text(game.league.shortName).font(.inter(17, .bold)).tracking(2.4)
+            if game.competition != nil { SportsMark(league: game.league, competition: game.competition, size: 32) }
+            else { LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 32) }
+            Text(game.competition?.shortName ?? game.league.shortName).font(.inter(17, .heavy)).tracking(0.6)
                 .foregroundStyle(LivePalette.text)
             if let network = nonempty(game.broadcast) {
                 Rectangle().fill(LivePalette.secondary.opacity(0.5)).frame(width: 1, height: 18)
-                Text(network.uppercased()).font(.inter(17, .bold)).tracking(1.6)
+                Text(network.uppercased()).font(.inter(17, .heavy)).tracking(0.6)
                     .foregroundStyle(LivePalette.secondary).lineLimit(1)
             }
             Spacer(minLength: 20)
             if game.isLive {
                 LiveOnAirTag()
             } else {
-                Text(liveDayLabel(game.start)).font(.inter(15, .bold)).tracking(2.4)
+                Text(liveDayLabel(game.start)).font(.inter(15, .heavy)).tracking(0.6)
                     .foregroundStyle(LivePalette.secondary)
             }
         }
@@ -1359,13 +1384,16 @@ private struct LiveSlate: View {
                 .lineLimit(1).minimumScaleFactor(0.5)
                 .contentTransition(.numericText())
                 LiveStatusCapsule(status: game.status)
+                if let detail = game.soccer?.detail {
+                    Text(detail).font(.inter(18, .semibold)).foregroundStyle(LivePalette.secondary)
+                }
             }
         } else if game.isLive {
             LiveStatusCapsule(status: game.status)
         } else {
             let parts = liveTimeParts(game.start)
             VStack(spacing: 4) {
-                Text(liveStartWord(game.league)).font(.inter(15, .bold)).tracking(3.2)
+                Text(liveStartWord(game.league)).font(.inter(15, .heavy)).tracking(0.6)
                     .foregroundStyle(LivePalette.secondary)
                 (Text(parts.time).font(.interDigits(84, .semibold)).foregroundColor(LivePalette.text)
                  + Text(parts.period.map { " " + $0 } ?? "").font(.inter(32, .semibold))
@@ -1380,14 +1408,14 @@ private struct LiveSlate: View {
     private var event: some View {
         VStack(spacing: 18) {
             LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 92)
-            Text(game.eventName ?? game.league.shortName)
+            Text(game.matchupLine)
                 .font(.inter(46, .bold)).foregroundStyle(LivePalette.text)
                 .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.6)
                 .frame(maxWidth: 900)
             if game.isLive {
                 LiveStatusCapsule(status: game.status)
             } else {
-                Text("\(liveStartWord(game.league))  ·  \(game.startLabel.uppercased())")
+                Text("\(game.race?.title.uppercased() ?? liveStartWord(game.league))  ·  \(game.startLabel.uppercased())")
                     .font(.interDigits(20, .bold)).tracking(2)
                     .foregroundStyle(LivePalette.secondary)
             }
@@ -1401,7 +1429,7 @@ private struct LiveSlate: View {
         HStack(alignment: .center, spacing: 20) {
             HStack(spacing: 8) {
                 if let place = game.placeLine {
-                    Image(systemName: "mappin").font(.system(size: 15, weight: .semibold))
+                    Image(systemName: "mappin").font(.system(size: 15, weight: .semibold, design: .rounded))
                     Text(place).lineLimit(1)
                 }
             }
@@ -1409,7 +1437,7 @@ private struct LiveSlate: View {
             LiveActionHint(hint: hint)
             HStack(spacing: 8) {
                 if let channel {
-                    Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 15, weight: .semibold))
+                    Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 15, weight: .semibold, design: .rounded))
                     Text(channel).lineLimit(1)
                 }
             }
@@ -1431,11 +1459,12 @@ private struct LiveSlateBackdrop: View {
         GeometryReader { proxy in
             let size = proxy.size
             ZStack {
-                LinearGradient(colors: [Color(white: 0.085), .black], startPoint: .top, endPoint: .bottom)
+                // The panels' flat fill: no gradient or vignette, as on the
+                // phone. The court lines stay, faint, as the slate's mark.
+                LineupPanelStyle.fill
                 LiveCourtLines()
-                RadialGradient(colors: [.clear, .black.opacity(0.55)], center: .center,
-                               startRadius: size.height * 0.45, endRadius: size.width * 0.62)
             }
+            .frame(width: size.width, height: size.height)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -1529,10 +1558,10 @@ private struct LiveCrest: View {
 private struct LiveOnAirTag: View {
     var body: some View {
         HStack(spacing: 7) {
-            Circle().fill(.white).frame(width: 7, height: 7)
-            Text("LIVE").font(.inter(14, .heavy)).tracking(2)
+            Circle().fill(LineupStyle.onLive).frame(width: 7, height: 7)
+            Text("LIVE").font(.inter(14, .heavy)).tracking(0.6)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(LineupStyle.onLive)
         .padding(.horizontal, 12).frame(height: 30)
         .background(LivePalette.onAir, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
         .accessibilityHidden(true)
@@ -1547,7 +1576,7 @@ private struct LiveStatusCapsule: View {
         HStack(spacing: 11) {
             PulsingLiveDot(size: 9)
             Text(status.isEmpty ? "LIVE" : status.uppercased())
-                .font(.inter(18, .bold)).tracking(1.8)
+                .font(.inter(18, .heavy)).tracking(0.6)
                 .lineLimit(1).minimumScaleFactor(0.7)
         }
         .foregroundStyle(LivePalette.text)
@@ -1566,9 +1595,9 @@ private struct LiveActionHint: View {
         if hint != .refreshing {
             HStack(spacing: 10) {
                 Image(systemName: hint == .secondGame ? "rectangle.split.2x1.fill" : "play.fill")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                 Text(hint == .secondGame ? "SELECT TO WATCH SIDE BY SIDE" : "SELECT TO PREVIEW")
-                    .font(.inter(15, .bold)).tracking(2.2)
+                    .font(.inter(15, .heavy)).tracking(0.6)
             }
             .foregroundStyle(LivePalette.text)
             .padding(.horizontal, 22).frame(height: 44)
@@ -1590,7 +1619,7 @@ private struct LiveEmptySlate: View {
             LiveSlateBackdrop()
             VStack(spacing: 18) {
                 Image(systemName: isLoading ? "antenna.radiowaves.left.and.right" : "sportscourt")
-                    .font(.system(size: 52, weight: .ultraLight))
+                    .font(.system(size: 52, weight: .ultraLight, design: .rounded))
                     .foregroundStyle(LivePalette.secondary)
                 Text(isLoading ? "Setting the board." :
                      (isAvailable ? "A moment between games." : "The schedule is unavailable."))
@@ -1649,7 +1678,7 @@ private struct LiveFlank: View {
                 VStack(spacing: 12) {
                     LiveCrest(url: isHome ? game.homeLogo : game.awayLogo, fallback: abbreviation,
                               size: min(92, proxy.size.width * 0.5))
-                    Text(abbreviation).font(.inter(20, .bold)).tracking(1.6)
+                    Text(abbreviation).font(.inter(20, .heavy)).tracking(0.6)
                         .foregroundStyle(LivePalette.secondary)
                     if game.isLive, !score.isEmpty {
                         Text(score).font(.interDigits(56, .bold))
@@ -1671,7 +1700,7 @@ private struct LiveTallyChip: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(LivePalette.onAir).frame(width: 8, height: 8)
-            Text("PREVIEW").font(.inter(13, .bold)).tracking(2)
+            Text("PREVIEW").font(.inter(13, .heavy)).tracking(0.6)
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 12).frame(height: 30)
@@ -1745,7 +1774,7 @@ private struct LiveMyTeamsHideButton: View {
         let focused = focus.wrappedValue == .hide
         let shape = Capsule()
         HStack(spacing: 7) {
-            Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold))
+            Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold, design: .rounded))
             Text("Hide").font(.inter(15, .semibold))
         }
         .foregroundStyle(LivePalette.text)
@@ -1759,7 +1788,7 @@ private struct LiveMyTeamsHideButton: View {
         .focusable()
         .focused(focus, equals: .hide)
         .focusEffectDisabled()
-        .onTapGesture(perform: action)
+        .tvSelectAction(action)
         .accessibilityLabel("Hide My Teams")
         .accessibilityAddTraits(.isButton)
     }
@@ -1775,8 +1804,8 @@ private struct LiveMyTeamsTab: View {
         let focused = focus.wrappedValue == .show
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         VStack(spacing: 10) {
-            Image(systemName: "star.fill").font(.system(size: 16, weight: .semibold))
-            Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold))
+            Image(systemName: "star.fill").font(.system(size: 16, weight: .semibold, design: .rounded))
+            Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold, design: .rounded))
         }
         .foregroundStyle(LivePalette.text)
         .frame(width: 48, height: 116)
@@ -1789,7 +1818,7 @@ private struct LiveMyTeamsTab: View {
         .focusable()
         .focused(focus, equals: .show)
         .focusEffectDisabled()
-        .onTapGesture(perform: action)
+        .tvSelectAction(action)
         .accessibilityLabel("Show My Teams")
         .accessibilityAddTraits(.isButton)
     }
@@ -1803,17 +1832,18 @@ private struct LiveEyebrow: View {
 
     var body: some View {
         HStack(spacing: 9) {
-            Text(title).font(.inter(15, .bold)).tracking(2.6).foregroundStyle(LivePalette.secondary)
+            Text(title.uppercased()).font(.inter(20, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                .foregroundStyle(LineupPanelStyle.caption)
             Spacer(minLength: 10)
             if live > 0 {
                 Circle().fill(LivePalette.onAir).frame(width: 7, height: 7)
-                Text("\(live) LIVE").font(.inter(14, .bold)).tracking(1.4)
+                Text("\(live) LIVE").font(.inter(14, .heavy)).tracking(0.6)
                     .foregroundStyle(LineupStyle.liveStatus)
             } else if let detail {
-                Text(detail).font(.inter(14, .bold)).tracking(1.4).foregroundStyle(LivePalette.secondary)
+                Text(detail).font(.inter(14, .heavy)).tracking(0.6).foregroundStyle(LivePalette.secondary)
             }
         }
-        .frame(height: 26)
+        .frame(height: 30)
     }
 }
 
@@ -1828,15 +1858,14 @@ private struct LiveMyTeamsEmpty: View {
             ZStack {
                 Circle().fill(LivePalette.accent.opacity(0.16))
                 Image(systemName: teams.isEmpty ? "star" : "moon.zzz")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
                     .foregroundStyle(LivePalette.accent)
             }
             .frame(width: 58, height: 58)
             Text(teams.isEmpty ? "Follow your teams" : "Your teams are off")
                 .font(.inter(26, .bold)).foregroundStyle(LivePalette.text)
             Text(teams.isEmpty
-                 ? (hasGames ? "Hold Select on any game below and add a team. Its games will wait for you here."
-                             : "Follow a team from any matchup once games load.")
+                 ? "Choose your teams in Settings > My Teams, or hold Select on a game to add one."
                  : "None of your teams play in this range.")
                 .font(.inter(18)).foregroundStyle(LivePalette.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1844,11 +1873,15 @@ private struct LiveMyTeamsEmpty: View {
                 VStack(spacing: 0) {
                     ForEach(Array(teams.prefix(5))) { team in
                         HStack(spacing: 12) {
-                            TeamBadge(url: team.logo, fallback: team.abbreviation, size: 30)
+                            if let league = SportsLeague(rawValue: team.league.lowercased()), league.isRacing {
+                                SportsMark(league: league, size: 30)
+                            } else {
+                                TeamBadge(url: team.logo, fallback: team.abbreviation, size: 30)
+                            }
                             Text(team.name).font(.inter(17, .semibold))
                                 .foregroundStyle(LivePalette.text).lineLimit(1)
                             Spacer(minLength: 8)
-                            Text("NO GAME").font(.inter(12, .bold)).tracking(1.4)
+                            Text("NO GAME").font(.inter(12, .heavy)).tracking(0.6)
                                 .foregroundStyle(LivePalette.secondary)
                         }
                         .padding(.vertical, 10)
@@ -1882,7 +1915,7 @@ private struct LiveTeamRow: View {
             if game.isEvent {
                 HStack(spacing: 12) {
                     LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 30)
-                    Text(game.eventName ?? game.league.shortName).font(.inter(19, .semibold))
+                    Text(game.matchupLine).font(.inter(19, .semibold))
                         .foregroundStyle(LivePalette.text).lineLimit(2).minimumScaleFactor(0.8)
                 }
             } else {
@@ -1916,7 +1949,7 @@ private struct LiveTeamRow: View {
         .lineupFocusLayer(focused, in: shape)
         .contentShape(shape)
         .focusable().focused($focused).focusEffectDisabled()
-        .onTapGesture(perform: onPlay)
+        .tvSelectAction(onPlay)
         .onChange(of: focused) { _, value in if value { onFocus() } }
         .modifier(LiveGameMenu(game: game, isPrimary: isPrimary, onStartMultiview: onStartMultiview))
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
@@ -1957,18 +1990,10 @@ private struct LiveCardSurface: View {
     let isLive: Bool
     var tally: Tally = .top
 
+    // The panels' flat fill. A game that is on says so in its status line,
+    // in red, as on the phone; a stripe across the top said it twice.
     var body: some View {
-        ZStack(alignment: tally == .top ? .top : .leading) {
-            LivePalette.card
-            if isLive {
-                if tally == .top {
-                    LivePalette.onAir.frame(height: 3)
-                } else {
-                    LivePalette.onAir.frame(width: 3)
-                }
-            }
-        }
-        .clipShape(shape)
+        LivePalette.card.clipShape(shape)
     }
 }
 
@@ -1981,12 +2006,12 @@ private struct LiveTag: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: symbol).font(.system(size: 11, weight: .bold))
+            Image(systemName: symbol).font(.system(size: 11, weight: .bold, design: .rounded))
             if !compact {
-                Text(title).font(.inter(12, .heavy)).tracking(1.4)
+                Text(title).font(.inter(12, .heavy)).tracking(0.6)
             }
         }
-        .foregroundStyle(LineupStyle.background)
+        .foregroundStyle(LineupStyle.onHighlight)
         .padding(.horizontal, 9).frame(height: 24)
         .background(LivePalette.accent, in: Capsule())
         .fixedSize()
@@ -2001,36 +2026,42 @@ private struct LiveGameMenu: ViewModifier {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.liveChooseChannel) private var chooseChannel
+    @State private var showingRaceDetails = false
     let game: SportsGame
     let isPrimary: Bool
     let onStartMultiview: () -> Void
 
     func body(content: Content) -> some View {
-        content.contextMenu {
+        content.tvHoldMenu(game.matchupLine, symbol: "sportscourt") {
+            var items: [TVChoice] = []
+            if game.league.isRacing {
+                items.append(TVChoice("Race Details", symbol: "flag.checkered") { showingRaceDetails = true })
+            }
             if game.isUpcoming {
-                Button(reminders.reminds(game) ? "Remove Reminder" : "Remind Me",
-                       systemImage: reminders.reminds(game) ? "bell.slash" : "bell") {
+                let on = reminders.reminds(game)
+                items.append(TVChoice(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
                     reminders.toggleGame(game)
-                }
+                })
             }
             // A channel of the viewer's own for this game, and whether to
             // keep it for either team, as on iPhone.
             if let chooseChannel {
-                Button("Choose Another Channel", systemImage: "list.bullet") { chooseChannel(game) }
+                items.append(TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle") { chooseChannel(game) })
             }
-            ForEach(library.followableSides(of: game)) { team in
+            for team in library.followableSides(of: game) {
                 let following = library.isFollowing(team.key)
-                Button(following ? "Remove \(team.name) from My Teams"
-                                 : "Add \(team.name) to My Teams",
-                       systemImage: following ? "star.slash" : "star") {
+                items.append(TVChoice(following ? "Remove \(team.name) from My Teams" : "Add \(team.name) to My Teams",
+                                      symbol: following ? "star.slash" : "star", id: "follow-\(team.id)") {
                     library.toggleFollow(team)
-                }
+                })
             }
             if library.stream(for: game) != nil {
-                Button("Start Multiview", systemImage: "rectangle.split.2x1", action: onStartMultiview)
-                    .disabled(isPrimary)
+                items.append(TVChoice("Start Multiview", symbol: "rectangle.split.2x1", isEnabled: !isPrimary,
+                                      action: onStartMultiview))
             }
+            return items
         }
+        .fullScreenCover(isPresented: $showingRaceDetails) { RacingSessionDetails(game: game) }
     }
 }
 
@@ -2044,6 +2075,7 @@ private struct LiveMatchupBoard: View {
     let events: [SportsGame]
     @Binding var selectedLeague: SportsLeague?
     let spotlight: LiveSpotlight
+    @Binding var soccerCompetition: String?
     let previewGameID: String?
     let multiviewPrimaryID: Int?
     let multiviewTitle: String?
@@ -2081,6 +2113,8 @@ private struct LiveMatchupBoard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            // The panels' hairline under the header.
+            Rectangle().fill(LineupStyle.line).frame(height: 1)
             if events.isEmpty {
                 emptyLane
             } else {
@@ -2097,13 +2131,21 @@ private struct LiveMatchupBoard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Choose a second game").font(.inter(26, .bold)).foregroundStyle(LivePalette.text)
                     Text("MULTIVIEW  ·  FIRST GAME  \((firstGame.map(liveHeadline) ?? multiviewTitle).uppercased())")
-                        .font(.inter(13, .bold)).tracking(1.6)
+                        .font(.inter(13, .heavy)).tracking(0.6)
                         .foregroundStyle(LivePalette.secondary).lineLimit(1)
                 }
             } else {
+                // The panels' header: icon and heavy caption in light grey.
                 HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    Text("Matchups").font(.inter(26, .bold)).foregroundStyle(LivePalette.text)
-                    LiveBoardCount(total: events.count, live: events.filter(\.isLive).count)
+                    HStack(spacing: 12) {
+                        LineupIconTile(symbol: "sportscourt", size: LineupPanelStyle.headerSize * 1.6)
+                        Text(selectedLeague?.isRacing == true ? "EVENTS" : "MATCHUPS")
+                            .font(.inter(LineupPanelStyle.headerSize + 2, .heavy))
+                            .tracking(LineupPanelStyle.headerTracking)
+                    }
+                    .foregroundStyle(LineupPanelStyle.caption)
+                    LiveBoardCount(total: events.count, live: events.filter(\.isLive).count,
+                                   noun: selectedLeague?.isRacing == true ? "EVENT" : "GAME")
                 }
             }
             Spacer(minLength: 20)
@@ -2113,6 +2155,7 @@ private struct LiveMatchupBoard: View {
                     LiveChipLabel(symbol: "xmark", title: "Cancel multiview")
                 }
             } else {
+                if selectedLeague == .soccer { SoccerCompetitionFilter(selected: $soccerCompetition) }
                 LiveLeagueFilter(selectedLeague: $selectedLeague)
             }
         }
@@ -2128,7 +2171,7 @@ private struct LiveEmptyLane: View {
 
     var body: some View {
         HStack(spacing: 18) {
-            Image(systemName: "calendar").font(.system(size: 28, weight: .light))
+            Image(systemName: "calendar").font(.system(size: 28, weight: .light, design: .rounded))
                 .foregroundStyle(LivePalette.secondary)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.inter(22, .semibold)).foregroundStyle(LivePalette.text)
@@ -2149,16 +2192,17 @@ private struct LiveEmptyLane: View {
 private struct LiveBoardCount: View {
     let total: Int
     let live: Int
+    var noun = "GAME"
 
     var body: some View {
         HStack(spacing: 10) {
-            Text("\(total) \(total == 1 ? "GAME" : "GAMES")")
+            Text("\(total) \(noun)\(total == 1 ? "" : "S")")
             if live > 0 {
                 Circle().fill(LivePalette.onAir).frame(width: 7, height: 7)
                 Text("\(live) LIVE").foregroundStyle(LineupStyle.liveStatus)
             }
         }
-        .font(.inter(14, .bold)).tracking(1.5)
+        .font(.inter(14, .heavy)).tracking(0.6)
         .foregroundStyle(LivePalette.secondary)
     }
 }
@@ -2207,11 +2251,13 @@ private struct LiveLeagueFilter: View {
             LiveChipLabel(symbol: "line.3.horizontal.decrease", title: title,
                           league: selectedLeague, trailing: "chevron.down")
         }
-        .confirmationDialog("Show which sport?", isPresented: $choosing, titleVisibility: .visible) {
-            Button("All sports") { selectedLeague = nil }
-            ForEach(SportsLeague.allCases) { league in
-                Button(liveLeagueName(league)) { selectedLeague = league }
-            }
+        .tvChoices("Show which sport?", symbol: "sportscourt", isPresented: $choosing) {
+            [TVChoice("All Sports", id: "all", isSelected: selectedLeague == nil) { selectedLeague = nil }]
+                + SportsLeague.allCases.map { league in
+                    TVChoice(liveLeagueName(league), id: league.rawValue, isSelected: selectedLeague == league) {
+                        selectedLeague = league
+                    }
+                }
         }
         .accessibilityLabel("Filter by sport")
     }
@@ -2231,17 +2277,17 @@ private struct LiveChipLabel: View {
             if let league {
                 LeagueLogo(league: league, size: 24)
             } else {
-                Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
+                LineupIconTile(symbol: symbol, size: 30)
             }
             Text(title).font(.inter(17, .semibold)).lineLimit(1)
             if let trailing {
-                Image(systemName: trailing).font(.system(size: 13, weight: .bold)).opacity(0.7)
+                Image(systemName: trailing).font(.system(size: 13, weight: .bold, design: .rounded)).opacity(0.7)
             }
         }
         .foregroundStyle(LivePalette.text)
-        .padding(.horizontal, 20).frame(height: 46)
+        .padding(.leading, league == nil ? 8 : 20).padding(.trailing, 20).frame(height: 46)
+        // The phone's pill: the panels' fill, no outline.
         .background(LivePalette.card, in: Capsule())
-        .overlay(Capsule().strokeBorder(LivePalette.rule, lineWidth: 1))
         .lineupFocusLayer(focused, in: Capsule())
         .lineupShadow(.lifted, on: focused)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
@@ -2330,7 +2376,7 @@ private struct LiveMatchupCard: View {
     let onStartMultiview: () -> Void
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
         let isPrimary = multiviewPrimaryID != nil && multiviewPrimaryID == library.stream(for: game)?.id
         VStack(alignment: .leading, spacing: 0) {
             topLine
@@ -2338,10 +2384,15 @@ private struct LiveMatchupCard: View {
             if game.isEvent {
                 HStack(spacing: 16) {
                     LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 56)
-                    Text(game.eventName ?? game.league.shortName)
-                        .font(.inter(22, .semibold)).foregroundStyle(LivePalette.text)
-                        .lineLimit(3).minimumScaleFactor(0.75)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(game.eventName ?? game.league.shortName)
+                            .font(.inter(22, .semibold)).foregroundStyle(LivePalette.text)
+                            .lineLimit(2).minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if let session = game.race?.title {
+                            Text(session).font(.inter(16, .bold)).foregroundStyle(LineupStyle.highlight).lineLimit(1)
+                        }
+                    }
                 }
             } else {
                 let lead = liveLeader(game)
@@ -2351,6 +2402,10 @@ private struct LiveMatchupCard: View {
                     team(game.homeTeam, game.homeAbbreviation, game.homeLogo, game.homeRecord, game.homeScore,
                          dim: lead == .away, isAway: false)
                 }
+                if let detail = game.soccer?.detail {
+                    Text(detail).font(.inter(13, .semibold)).foregroundStyle(LivePalette.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             footer(isPrimary: isPrimary)
@@ -2358,13 +2413,14 @@ private struct LiveMatchupCard: View {
         .padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background { LiveCardSurface(shape: shape, isLive: game.isLive) }
+        // Only multiview's first game is edged; the rest are plain panels.
         .overlay {
-            shape.strokeBorder(isPrimary ? LivePalette.rim : LivePalette.rule, lineWidth: isPrimary ? 2 : 1)
+            if isPrimary { shape.strokeBorder(LivePalette.rim, lineWidth: 2) }
         }
         .lineupFocusLayer(focused, in: shape)
         .contentShape(shape)
         .focusable().focused($focused).focusEffectDisabled()
-        .onTapGesture(perform: onPlay)
+        .tvSelectAction(onPlay)
         .onChange(of: focused) { _, value in if value { onFocus() } }
         .modifier(LiveGameMenu(game: game, isPrimary: isPrimary, onStartMultiview: onStartMultiview))
         .scaleEffect(focused ? LineupStyle.cardLift : 1)
@@ -2378,8 +2434,12 @@ private struct LiveMatchupCard: View {
 
     private var topLine: some View {
         HStack(spacing: 10) {
-            LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
-            Text(game.league.shortName).font(.inter(15, .bold)).tracking(1.6)
+            if game.competition != nil || game.league.isRacing {
+                SportsMark(league: game.league, competition: game.competition, size: 26)
+            } else {
+                LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
+            }
+            Text(game.competition?.shortName ?? game.league.shortName).font(.inter(15, .heavy)).tracking(0.6)
                 .foregroundStyle(LivePalette.secondary)
             Spacer(minLength: 0)
         }
@@ -2458,7 +2518,7 @@ private struct LiveMatchupCard: View {
             }
             if let hint {
                 HStack(spacing: 7) {
-                    Image(systemName: hint.symbol).font(.system(size: 12, weight: .bold))
+                    Image(systemName: hint.symbol).font(.system(size: 12, weight: .bold, design: .rounded))
                     Text(hint.title).lineLimit(1)
                 }
                 .layoutPriority(1)
@@ -2466,7 +2526,7 @@ private struct LiveMatchupCard: View {
             Spacer(minLength: 8)
             clock.layoutPriority(2)
         }
-        .font(.inter(13, .bold)).tracking(1.4)
+        .font(.inter(13, .heavy)).tracking(0.6)
         .foregroundStyle(LivePalette.text)
         .frame(height: 24)
     }
@@ -2509,6 +2569,9 @@ private func liveStartWord(_ league: SportsLeague) -> String {
     case .mlb: "FIRST PITCH"
     case .ufc: "MAIN CARD"
     case .atp, .wta: "FIRST SERVE"
+    case .soccer: "KICKOFF"
+    case .f1: "LIGHTS OUT"
+    case .nascar: "GREEN FLAG"
     }
 }
 
@@ -2519,7 +2582,7 @@ private func liveLeagueName(_ league: SportsLeague) -> String {
 
 /// The matchup in a line: "BOS 3 – NYY 5", "BOS @ MIL", or an event's name.
 private func liveHeadline(_ game: SportsGame) -> String {
-    if game.isEvent { return game.eventName ?? game.league.shortName }
+    if game.isEvent { return game.matchupLine }
     if game.isLive && !game.awayScore.isEmpty && !game.homeScore.isEmpty {
         return "\(game.awayAbbreviation) \(game.awayScore)  –  \(game.homeAbbreviation) \(game.homeScore)"
     }
@@ -2527,7 +2590,7 @@ private func liveHeadline(_ game: SportsGame) -> String {
 }
 
 private func liveAccessibilityLabel(_ game: SportsGame) -> String {
-    let matchup = game.isEvent ? (game.eventName ?? game.league.shortName) : game.matchupLine
+    let matchup = game.matchupLine
     guard game.isLive else { return "\(matchup), \(game.start.formatted(date: .abbreviated, time: .shortened))" }
     let score = game.awayScore.isEmpty || game.homeScore.isEmpty ? "" : ", \(game.awayScore) to \(game.homeScore)"
     return "\(matchup)\(score), \(game.status.isEmpty ? "live" : game.status)"
@@ -2535,7 +2598,7 @@ private func liveAccessibilityLabel(_ game: SportsGame) -> String {
 
 private struct LiveSelectedPreview: View {
     @EnvironmentObject private var library: SportsLibrary
-    @StateObject private var controller = VLCPlaybackController()
+    @StateObject private var controller = TVPlaybackController()
     @State private var choosingGame: SportsGame?
     @State private var pickedChannel: TVPickedChannel?
     @State private var scopingChannel: TVPickedChannel?
@@ -2544,7 +2607,9 @@ private struct LiveSelectedPreview: View {
     let urls: [URL]
 
     var body: some View {
-        VLCHostedSurface(controller: controller).overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
+        TVHostedSurface(controller: controller)
+            .overlay(alignment: .bottomLeading) { TVPreviewFormatBadges(controller: controller) }
+            .overlay { TVPlaybackStatus(controller: controller) }.background(Color.black)
         .onAppear {
             // Back from full screen, where it played on: nothing to open.
             guard !controller.isOpen else { return }
@@ -2620,15 +2685,26 @@ private struct PulsingLiveDot: View {
 }
 
 private struct LiveTicker: View {
+    /// The strip keeps its height; its words fill more of it, to be read
+    /// from the couch.
+    static let height: CGFloat = 38
+
     let events: [SportsGame]
     @State private var displayedEvents: [SportsGame] = []
-    private let speed: Double = 54
-    private let cardWidth: CGFloat = 620
+    /// Points a second: with each score's column wider for its larger
+    /// words, a score stays in view as long as it did before.
+    private let speed: Double = 67
+    private let cardWidth: CGFloat = 766
+    /// As tall as the strip has room for with the scores beside it; a wide
+    /// mark has more room across.
+    private let logoSize: CGFloat = 34
+    private let logoWidth: CGFloat = 58
     private let cardSpacing: CGFloat = 38
     private let loopSpacing: CGFloat = 72
+    private let emptyWidth: CGFloat = 520
 
     private func cycleWidth(for count: Int) -> CGFloat {
-        count == 0 ? 400 + loopSpacing : CGFloat(count) * (cardWidth + cardSpacing) - cardSpacing + loopSpacing
+        count == 0 ? emptyWidth + loopSpacing : CGFloat(count) * (cardWidth + cardSpacing) - cardSpacing + loopSpacing
     }
 
     var body: some View {
@@ -2636,11 +2712,11 @@ private struct LiveTicker: View {
             // The crawl's bug, in the theme's own colour, the way a broadcast
             // brands the corner its scores come in from.
             Text("SCORES")
-                .font(.inter(13, .heavy)).tracking(2.4)
-                .foregroundStyle(LineupStyle.background)
-                .padding(.horizontal, 12).frame(height: 26)
-                .background(LineupStyle.highlight, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .padding(.bottom, 5)
+                .font(.inter(17, .heavy)).tracking(0.7)
+                .foregroundStyle(LineupStyle.onHighlight)
+                .padding(.horizontal, 14).frame(height: 31)
+                .background(LineupStyle.highlight, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .padding(.bottom, 3)
             GeometryReader { viewport in
                 let cycle = cycleWidth(for: displayedEvents.count)
                 let copies = max(2, Int(ceil(viewport.size.width / cycle)) + 1)
@@ -2673,7 +2749,7 @@ private struct LiveTicker: View {
             }
         }
         .padding(.horizontal, LiveMetrics.margin).padding(.bottom, 2)
-        .background(Color.black.ignoresSafeArea(edges: .bottom))
+        .background(LineupStyle.surface.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
         .transaction { $0.animation = nil }
         .allowsHitTesting(false)
@@ -2691,35 +2767,38 @@ private struct LiveTicker: View {
         HStack(spacing: cardSpacing) {
             if displayedEvents.isEmpty {
                 Text("NO LIVE OR FINAL SCORES YET")
-                    .font(.inter(16, .bold)).tracking(2.2)
+                    .font(.inter(21, .heavy)).tracking(0.7)
                     .foregroundStyle(LineupStyle.secondary).lineLimit(1)
-                    .frame(width: 400, alignment: .leading)
+                    .frame(width: emptyWidth, alignment: .leading)
             } else {
                 // Every column keeps its fixed width: the scroll arithmetic
                 // above counts in whole items of `cardWidth`.
                 ForEach(displayedEvents) { game in
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(game.league.shortName)
-                            .font(.inter(14, .bold)).tracking(1.6)
-                            .foregroundStyle(LineupStyle.secondary)
-                            .frame(width: 62, alignment: .leading)
+                        // The league's own mark, as the board shows it,
+                        // centred on the team codes' capitals.
+                        LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league,
+                                   size: logoSize, width: logoWidth)
+                            .frame(width: logoWidth + 8, alignment: .leading)
+                            .alignmentGuide(.firstTextBaseline) { $0.height / 2 + 10 }
+                            .accessibilityLabel(game.league.shortName)
                         Text(game.awayAbbreviation)
-                            .font(.inter(21, .bold))
+                            .font(.inter(28, .bold))
                             .foregroundStyle(sportsReadableTeamColor(game.awayColor) ?? LineupStyle.text)
-                            .frame(width: 72, alignment: .leading)
+                            .frame(width: 92, alignment: .leading)
                         Text(game.awayScore)
-                            .font(.interDigits(22, .bold)).foregroundStyle(LineupStyle.text)
-                            .frame(width: 48, alignment: .trailing)
-                        Text("–").font(.inter(19, .medium)).foregroundStyle(LineupStyle.secondary)
+                            .font(.interDigits(30, .bold)).foregroundStyle(LineupStyle.text)
+                            .frame(width: 62, alignment: .trailing)
+                        Text("–").font(.inter(24, .medium)).foregroundStyle(LineupStyle.secondary)
                         Text(game.homeAbbreviation)
-                            .font(.inter(21, .bold))
+                            .font(.inter(28, .bold))
                             .foregroundStyle(sportsReadableTeamColor(game.homeColor) ?? LineupStyle.text)
-                            .frame(width: 72, alignment: .leading)
+                            .frame(width: 92, alignment: .leading)
                         Text(game.homeScore)
-                            .font(.interDigits(22, .bold)).foregroundStyle(LineupStyle.text)
-                            .frame(width: 48, alignment: .trailing)
+                            .font(.interDigits(30, .bold)).foregroundStyle(LineupStyle.text)
+                            .frame(width: 62, alignment: .trailing)
                         Text(game.isLive ? game.status.uppercased() : "FINAL")
-                            .font(.inter(14, .bold)).tracking(1.4)
+                            .font(.inter(18, .heavy)).tracking(0.7)
                             .foregroundStyle(game.isLive ? LineupStyle.liveStatus : LineupStyle.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -2772,12 +2851,17 @@ private func sportsSymbol(_ league: SportsLeague) -> String {
     case .mlb: "baseball.fill"
     case .ufc: "figure.martial.arts"
     case .atp, .wta: "tennisball.fill"
+    case .soccer: "soccerball"
+    case .f1, .nascar: "flag.checkered"
     }
 }
 
 private struct LeagueLogo: View {
     let league: SportsLeague
     let size: CGFloat
+    /// Room across for a mark wider than it is tall -- UFC's, the tennis
+    /// tours' -- which a square would shrink. Square by default.
+    var width: CGFloat?
 
     private var logoURL: URL? {
         guard league != .ncaaf && league != .ufc && !league.isTennis else { return nil }
@@ -2786,7 +2870,11 @@ private struct LeagueLogo: View {
 
     var body: some View {
         Group {
-            if league == .ufc || league.isTennis {
+            // ESPN has no league mark for these: UFC, the NCAA's and the
+            // tennis tours' come with the app.
+            if league == .soccer || league.isRacing {
+                SportsMark(league: league, size: size)
+            } else if league == .ufc || league == .ncaaf || league.isTennis {
                 Image("League-\(league.rawValue)").resizable().scaledToFit()
             } else {
                 LineupArtView(url: logoURL, width: size) { loaded in
@@ -2802,7 +2890,7 @@ private struct LeagueLogo: View {
             }
         }
         .transaction { $0.animation = nil }
-        .frame(width: size, height: size)
+        .frame(width: width ?? size, height: size)
         .clipped()
     }
 }
@@ -2818,7 +2906,7 @@ private struct LiveFilterButton: View {
             .background(selected ? LineupStyle.lightPurple.opacity(0.10) : Color.clear)
             .clipShape(Capsule()).nullGlass(cornerRadius: 22)
             .overlay(alignment: .bottom) { if selected { Capsule().fill(LineupStyle.field).frame(width: 28, height: 3).offset(y: -4) } }
-            .contentShape(Capsule()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
+            .contentShape(Capsule()).focusable().focused($isFocused).focusEffectDisabled().tvSelectAction(action)
             .focusLift(isFocused, scale: LineupStyle.controlLift)
     }
 }
@@ -2834,7 +2922,7 @@ private struct ScheduleSection: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 if title == "Live now" { Circle().fill(LineupStyle.text).frame(width: 9, height: 9) }
-                Text(title.uppercased()).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).tracking(1.5)
+                Text(title.uppercased()).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .heavy)).tracking(0.6)
                     .foregroundStyle(title == "Live now" ? LineupStyle.text : LineupStyle.secondary)
                 Text("(\(events.count))").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
                 Rectangle().fill(LineupStyle.line).frame(height: 1)
@@ -2896,7 +2984,7 @@ private struct GameEventCard: View {
                 MatchupArtwork(event: event)
                 VStack(alignment: .leading, spacing: 8) {
                     if event.isEvent {
-                        Text(event.eventName ?? "")
+                        Text(event.matchupLine)
                             .font(.inter(20, .semibold)).foregroundStyle(LineupStyle.text)
                             .lineLimit(2).minimumScaleFactor(0.75)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -2953,34 +3041,34 @@ private struct GameEventCard: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous).inset(by: 2).stroke(LineupStyle.liveSelectionBorder.opacity(0.8), lineWidth: 3)
             }
         }
-        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: onPlay)
-        .contextMenu {
+        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().tvSelectAction(onPlay)
+        .tvHoldMenu(event.matchupLine, symbol: "sportscourt") {
+            var items: [TVChoice] = []
             if event.isUpcoming {
-                Button(reminders.reminds(event) ? "Remove Reminder" : "Remind Me",
-                       systemImage: reminders.reminds(event) ? "bell.slash" : "bell") {
+                let on = reminders.reminds(event)
+                items.append(TVChoice(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
                     reminders.toggleGame(event)
-                }
+                })
             }
             if let chooseChannel {
-                Button("Choose Another Channel", systemImage: "list.bullet") { chooseChannel(event) }
+                items.append(TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle") { chooseChannel(event) })
             }
             // Following is offered wherever a game is, not only in the rail.
             // The rail is empty until somebody is followed, so a follow action
             // that lived only there could never be reached from a fresh install.
-            ForEach(library.followableSides(of: event)) { team in
+            for team in library.followableSides(of: event) {
                 let following = library.isFollowing(team.key)
-                Button(following ? "Remove \(team.name) from My Teams"
-                                 : "Add \(team.name) to My Teams",
-                       systemImage: following ? "star.slash" : "star") {
+                items.append(TVChoice(following ? "Remove \(team.name) from My Teams" : "Add \(team.name) to My Teams",
+                                      symbol: following ? "star.slash" : "star", id: "follow-\(team.id)") {
                     library.toggleFollow(team)
-                }
+                })
             }
             if stream != nil {
-                Button(multiviewPrimaryID == stream?.id ? "First Multiview Game" : "Start Multiview", systemImage: "rectangle.split.2x1") {
-                    onStartMultiview()
-                }
-                .disabled(multiviewPrimaryID == stream?.id)
+                let first = multiviewPrimaryID == stream?.id
+                items.append(TVChoice(first ? "First Multiview Game" : "Start Multiview", symbol: "rectangle.split.2x1",
+                                      isEnabled: !first) { onStartMultiview() })
             }
+            return items
         }
         .focusLift(isFocused)
         .animation(.easeOut(duration: 0.18), value: isFocused)
@@ -3059,7 +3147,7 @@ private struct ChannelLogo: View {
     var body: some View {
         LineupArtView(url: URL(string: url ?? ""), width: width) { loaded in
             if let image = loaded { image.resizable().scaledToFit().colorMultiply(LineupStyle.lightPurple) }
-            else { Image(systemName: "tv").font(.caption).foregroundStyle(LineupStyle.secondary) }
+            else { Image(systemName: "tv").font(.inter(.caption)).foregroundStyle(LineupStyle.secondary) }
         }
         .transaction { $0.animation = nil }
         .padding(4).frame(width: width, height: height).background(LineupStyle.raised)
@@ -3081,12 +3169,7 @@ private enum GuidePalette {
     /// with a faint red edge -- the phone's Guide, cell for cell.
     static var card: Color { LineupStyle.raised }
     static var cardNow: Color { LineupStyle.focused }
-    static var edgeNow: Color { LineupStyle.liveDot.opacity(0.34) }
-    /// How much of the programme on now has gone, washed over its cell.
-    static var elapsed: Color { LineupStyle.text.opacity(0.10) }
-    /// How far the programme on now has run, on its track.
-    static var progress: Color { LineupStyle.text }
-    static var track: Color { LineupStyle.text.opacity(0.14) }
+    static var edgeNow: Color { LineupStyle.liveDot.opacity(0.5) }
 }
 
 struct GuideView: View {
@@ -3132,7 +3215,7 @@ struct GuideView: View {
     /// The preview's one player, kept for as long as the Guide is. Resting
     /// on a channel opens it there and moving on stops it; nothing is built
     /// or torn down as the remote moves (see `GuidePreviewVideo`).
-    @StateObject private var previewPlayer = VLCPlaybackController()
+    @StateObject private var previewPlayer = TVPlaybackController()
     @State private var previewHidden = false
     @State private var sidebarVisible = false
     @State private var reorderingFavorites = false
@@ -3160,25 +3243,27 @@ struct GuideView: View {
         previewPlaybackStream == nil ? previewItem : pinnedPreviewItem
     }
 
+    private var controlBar: GuideControlBar {
+        GuideControlBar(
+            title: selectedTitle,
+            channelCount: filtered.count,
+            searchActive: $searchActive,
+            query: $query,
+            multiviewTitle: multiviewPrimary?.name,
+            now: guideNow,
+            onCancelMultiview: { multiviewPrimary = nil }
+        )
+    }
+
     var body: some View {
         GeometryReader { container in
             let layout = GuideLayout(width: container.size.width - 2 * GuideLayout.margin)
             NavigationStack {
                 VStack(alignment: .leading, spacing: 18) {
-                    GuideControlBar(
-                        title: selectedTitle,
-                        channelCount: filtered.count,
-                        searchActive: $searchActive,
-                        query: $query,
-                        multiviewTitle: multiviewPrimary?.name,
-                        now: guideNow,
-                        onCancelMultiview: { multiviewPrimary = nil }
-                    )
-                    .padding(.horizontal, GuideLayout.inset)
-
                     if !previewHidden, let previewItem = displayedPreviewItem {
                         GuidePreviewPanel(
                             player: previewPlayer,
+                            controls: controlBar,
                             item: previewItem,
                             categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
                             quality: guideQuality(previewItem.stream),
@@ -3186,9 +3271,14 @@ struct GuideView: View {
                             audible: previewAudible,
                             now: guideNow
                         )
-                        .frame(height: 216)
-                        .padding(.horizontal, GuideLayout.inset)
+                        .frame(height: GuidePreviewPanel.height)
+                        // The video reaches the screen's left edge; the info
+                        // pane keeps the Guide's readable inset on the right.
+                        .padding(.leading, -GuideLayout.margin)
+                        .padding(.trailing, GuideLayout.inset)
                         .transition(.opacity.combined(with: .move(edge: .top)))
+                    } else {
+                        controlBar.padding(.horizontal, GuideLayout.inset)
                     }
 
                     ZStack(alignment: .topLeading) {
@@ -3602,22 +3692,20 @@ private struct GuideControlBar: View {
             } else if searchActive {
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
                         .foregroundStyle(GuidePalette.secondary)
                     TextField("Search channels", text: $query)
                         .textFieldStyle(.plain).focusEffectDisabled()
                         .font(.inter(22, .medium))
                 }
                 .padding(.horizontal, 18).frame(maxWidth: 620, minHeight: 52)
-                .background(GuidePalette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(GuidePalette.line, lineWidth: 1))
+                .background(GuidePalette.surface, in: Capsule())
             } else {
                 GuideTitleBlock(eyebrow: "TV GUIDE", title: title)
             }
             Spacer(minLength: 12)
             Text("\(channelCount) CHANNELS")
-                .font(.inter(13, .bold)).tracking(1.6)
+                .font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(GuidePalette.secondary)
             Rectangle().fill(GuidePalette.line).frame(width: 1, height: 26)
             Text(now.formatted(date: .omitted, time: .shortened))
@@ -3644,8 +3732,8 @@ private struct GuideTitleBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(eyebrow)
-                .font(.inter(13, .bold)).tracking(2.2)
-                .foregroundStyle(GuidePalette.secondary).lineLimit(1)
+                .font(.inter(15, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                .foregroundStyle(LineupPanelStyle.caption).lineLimit(1)
             Text(title)
                 .font(.inter(32, .bold))
                 .foregroundStyle(GuidePalette.text).lineLimit(1)
@@ -3653,10 +3741,15 @@ private struct GuideTitleBlock: View {
     }
 }
 
-/// What the remote is on, larger: the picture or the channel's mark, and the
-/// programme under it, in type that reads from the sofa.
+/// The picture fills the left of the Guide's upper section, with its heading
+/// and programme information together on the right.
 private struct GuidePreviewPanel: View {
-    let player: VLCPlaybackController
+    /// The whole room previously split between the 64pt heading, an 18pt gap,
+    /// and the 216pt preview. The channel grid stays at the same height.
+    static let height: CGFloat = 298
+
+    let player: TVPlaybackController
+    let controls: GuideControlBar
     let item: GuideFocusItem
     let categoryName: String
     let quality: String?
@@ -3680,8 +3773,8 @@ private struct GuidePreviewPanel: View {
     }
 
     var body: some View {
-        let frame = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        HStack(alignment: .center, spacing: 34) {
+        let frame = RoundedRectangle(cornerRadius: 22, style: .continuous)
+        HStack(alignment: .top, spacing: 20) {
             Group {
                 if let previewURLs {
                     GuidePreviewVideo(controller: player, channelID: item.stream.id,
@@ -3690,62 +3783,72 @@ private struct GuidePreviewPanel: View {
                     GuidePreviewArtwork(stream: item.stream)
                 }
             }
-            .frame(width: 352, height: 198)
+            .frame(width: Self.height * 16 / 9, height: Self.height)
             .clipShape(frame)
-            .overlay(frame.strokeBorder(GuidePalette.line, lineWidth: 1))
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    if item.program.isLive { GuideLiveTag() }
-                    Text(item.stream.name.uppercased())
-                        .font(.inter(14, .bold)).tracking(1.6)
-                        .foregroundStyle(GuidePalette.text).lineLimit(1)
-                    Text(categoryName.uppercased())
-                        .font(.inter(14, .bold)).tracking(1.6)
-                        .foregroundStyle(GuidePalette.secondary).lineLimit(1)
-                    if let quality { GuideTinyBadge(title: quality) }
-                    if item.program.isNew == true { GuideTinyBadge(title: "NEW") }
-                }
-                Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
-                    .font(.inter(38, .bold))
-                    .foregroundStyle(GuidePalette.text)
-                    .lineLimit(1).minimumScaleFactor(0.8)
-                HStack(spacing: 16) {
-                    Text(guideTimeRange(item.program))
-                        .font(.interDigits(18, .semibold))
-                        .foregroundStyle(GuidePalette.secondary)
-                    if item.program.isLive {
-                        GuideProgressBar(progress: progress).frame(width: 220, height: 4)
-                        if let remaining {
-                            Text(remaining)
-                                .font(.inter(13, .bold)).tracking(1.4)
-                                .foregroundStyle(GuidePalette.secondary)
-                        }
+            VStack(alignment: .leading, spacing: 12) {
+                controls
+                programInfo
+                Spacer(minLength: 0)
+                playbackHints.frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var programInfo: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                if item.program.isLive { GuideLiveTag() }
+                Text(item.stream.name.uppercased())
+                    .font(.inter(14, .heavy)).tracking(0.6)
+                    .foregroundStyle(GuidePalette.text).lineLimit(1)
+                Text(categoryName.uppercased())
+                    .font(.inter(14, .heavy)).tracking(0.6)
+                    .foregroundStyle(GuidePalette.secondary).lineLimit(1)
+                if let quality { GuideTinyBadge(title: quality) }
+                if item.program.isNew == true { GuideTinyBadge(title: "NEW") }
+            }
+            Text(item.program.title.isEmpty ? "Untitled" : item.program.title)
+                .font(.inter(38, .bold))
+                .foregroundStyle(GuidePalette.text)
+                .lineLimit(1).minimumScaleFactor(0.8)
+            HStack(spacing: 16) {
+                Text(guideTimeRange(item.program))
+                    .font(.interDigits(18, .semibold))
+                    .foregroundStyle(GuidePalette.secondary)
+                if item.program.isLive {
+                    GuideProgressBar(progress: progress).frame(width: 220)
+                    if let remaining {
+                        Text(remaining)
+                            .font(.inter(13, .heavy)).tracking(0.6)
+                            .foregroundStyle(GuidePalette.secondary)
                     }
                 }
-                Text(item.program.detail.isEmpty ? "No description for this program." : item.program.detail)
-                    .font(.inter(19))
-                    .foregroundStyle(GuidePalette.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: 980, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Beside the picture, never over it: what Select does next.
-            VStack(alignment: .trailing, spacing: 6) {
-                if previewURLs != nil {
-                    Label(audible ? "SELECT FOR FULL SCREEN" : "SELECT FOR SOUND",
-                          systemImage: audible ? "arrow.up.left.and.arrow.down.right" : "speaker.slash.fill")
-                        .foregroundStyle(GuidePalette.text.opacity(0.85))
-                }
-                Text("MENU HIDES THE PREVIEW")
-                    .foregroundStyle(GuidePalette.secondary.opacity(0.8))
-            }
-            .font(.inter(12, .bold)).tracking(1.6)
-            .fixedSize()
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            .padding(.bottom, 8)
+            Text(item.program.detail.isEmpty ? "No description for this program." : item.program.detail)
+                .font(.inter(19))
+                .foregroundStyle(GuidePalette.secondary)
+                .lineLimit(2)
+                .frame(maxWidth: 980, alignment: .leading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Beside the picture, never over it: what Select does next.
+    private var playbackHints: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            if previewURLs != nil {
+                Label(audible ? "SELECT FOR FULL SCREEN" : "SELECT FOR SOUND",
+                      systemImage: audible ? "arrow.up.left.and.arrow.down.right" : "speaker.slash.fill")
+                    .foregroundStyle(GuidePalette.text.opacity(0.85))
+            }
+            Text("MENU HIDES THE PREVIEW")
+                .foregroundStyle(GuidePalette.secondary.opacity(0.8))
+        }
+        .font(.inter(12, .heavy)).tracking(0.6)
+        .fixedSize()
+        .padding(.bottom, 8)
     }
 }
 
@@ -3759,14 +3862,16 @@ private struct GuidePreviewPanel: View {
 /// slow stream held the whole Guide still for a second or two. One player
 /// that changes channel is never thrown away mid-close.
 private struct GuidePreviewVideo: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     let channelID: Int
     let urls: [URL]
     /// Silent while the remote only rests on the channel; on once chosen.
     let audible: Bool
 
     var body: some View {
-        VLCHostedSurface(controller: controller).overlay { TVPlaybackStatus(controller: controller) }
+        TVHostedSurface(controller: controller)
+            .overlay(alignment: .bottomLeading) { TVPreviewFormatBadges(controller: controller) }
+            .overlay { TVPlaybackStatus(controller: controller) }
             .background(Color.black)
             .onAppear { open() }
             .onChange(of: channelID) { _, _ in open() }
@@ -3806,7 +3911,7 @@ private struct GuidePreviewArtwork: View {
                     image.resizable().scaledToFit().padding(40)
                 } else {
                     VStack(spacing: 12) {
-                        Image(systemName: "tv").font(.system(size: 38, weight: .light))
+                        Image(systemName: "tv").font(.system(size: 38, weight: .light, design: .rounded))
                         Text(stream.name).font(.inter(18, .semibold))
                             .lineLimit(2).multilineTextAlignment(.center)
                     }
@@ -3897,9 +4002,9 @@ private struct GuideSidebarHeading: View {
     let title: String
 
     var body: some View {
-        Text(title)
-            .font(.inter(13, .bold)).tracking(2.2)
-            .foregroundStyle(GuidePalette.secondary)
+        Text(title.uppercased())
+            .font(.inter(16, .heavy)).tracking(LineupPanelStyle.headerTracking)
+            .foregroundStyle(LineupPanelStyle.caption)
             .lineLimit(1)
             .padding(.leading, 16)
             .frame(height: 40, alignment: .bottomLeading)
@@ -3921,9 +4026,7 @@ private struct GuideSidebarButton: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         HStack(spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 17, weight: .semibold))
-                .frame(width: 24)
+            LineupIconTile(symbol: symbol, size: 32)
             Text(title)
                 .font(.inter(21, selected ? .semibold : .medium))
                 .lineLimit(2)
@@ -3941,7 +4044,7 @@ private struct GuideSidebarButton: View {
             }
         }
         .lineupFocusLayer(isFocused, in: shape)
-        .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().onTapGesture(perform: action)
+        .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().tvSelectAction(action)
         .animation(.easeOut(duration: 0.16), value: isFocused)
     }
 }
@@ -3954,14 +4057,13 @@ private struct GuideHeaderButton: View {
     let action: () -> Void
     var body: some View {
         let shape = Capsule()
-        Label(title, systemImage: symbol)
+        LineupTileLabel(title: title, symbol: symbol, tileSize: 32)
             .font(.inter(18, .semibold))
             .foregroundStyle(GuidePalette.text)
-            .padding(.horizontal, 22).frame(height: 48)
+            .padding(.leading, 8).padding(.trailing, 22).frame(height: 48)
             .background(GuidePalette.surface, in: shape)
-            .overlay(shape.strokeBorder(GuidePalette.line, lineWidth: 1))
             .lineupFocusLayer(isFocused, in: shape)
-            .contentShape(shape).focusable().focused($isFocused).focusEffectDisabled().onTapGesture(perform: action)
+            .contentShape(shape).focusable().focused($isFocused).focusEffectDisabled().tvSelectAction(action)
             .focusLift(isFocused, scale: LineupStyle.controlLift)
             .onMoveCommand { direction in if direction == .down { onMoveDown?() } }
     }
@@ -3979,7 +4081,7 @@ private struct GuideTimelineHeader: View {
             // has it. There is no line down the grid for it: how far each
             // programme on now has run is washed across its own cell.
             VStack(spacing: 2) {
-                Text("NOW").font(.inter(12, .bold)).tracking(1.4)
+                Text("NOW").font(.inter(12, .heavy)).tracking(0.6)
                     .foregroundStyle(GuidePalette.secondary)
                 Text(now.formatted(date: .omitted, time: .shortened))
                     .font(.interDigits(17, .semibold))
@@ -4020,8 +4122,8 @@ private struct GuideLayout {
     /// The grid scales as a whole to fill it, cells and rows in proportion,
     /// so nothing is stretched.
     static let margin: CGFloat = 6
-    /// A row's own padding either side, which the header and the preview
-    /// above take too, so everything lines up with the logos.
+    /// A row's own padding either side, which the standalone header takes
+    /// too, so it lines up with the logos.
     static let inset: CGFloat = 14
     let width: CGFloat
     var slotWidth: CGFloat { max(1, width - 2 * Self.inset) / CGFloat(guideVisibleSlotCount + 1) }
@@ -4164,28 +4266,37 @@ private struct GuideChannelRow: View {
             }
         }
         .contentShape(Rectangle())
-        .contextMenu {
+        .tvHoldMenu(stream.name, symbol: "tv") {
+            var items: [TVChoice] = []
             if stream.hasCatchUp {
-                Button("Start Over", systemImage: "backward.end.fill") { onStartOver() }
-                Button("Catch Up", systemImage: "clock.arrow.circlepath") { onCatchUp() }
+                items.append(TVChoice("Start Over", symbol: "backward.end") { onStartOver() })
+                items.append(TVChoice("Catch Up", symbol: "clock.arrow.circlepath") { onCatchUp() })
             }
-            Button(multiviewPrimaryID == stream.id ? "First Multiview Channel" : "Start Multiview", systemImage: "rectangle.split.2x1") {
-                onStartMultiview()
-            }
-            .disabled(multiviewPrimaryID == stream.id)
+            let first = multiviewPrimaryID == stream.id
+            items.append(TVChoice(first ? "First Multiview Channel" : "Start Multiview", symbol: "rectangle.split.2x1",
+                                  isEnabled: !first) { onStartMultiview() })
             if favoritesMode {
-                Button("Reorder Favorites", systemImage: "arrow.up.arrow.down") { onReorderFavorites() }
-                Button("Move Up", systemImage: "arrow.up") { library.moveFavorite(stream, offset: -1) }
-                    .disabled(!library.canMoveFavorite(stream, offset: -1))
-                Button("Move Down", systemImage: "arrow.down") { library.moveFavorite(stream, offset: 1) }
-                    .disabled(!library.canMoveFavorite(stream, offset: 1))
-                Button("Remove from Favorites", systemImage: "star.slash", role: .destructive) { library.removeFavorite(stream) }
+                items.append(TVChoice("Reorder Favorites", symbol: "arrow.up.arrow.down") { onReorderFavorites() })
+                items.append(TVChoice("Move Up", symbol: "arrow.up",
+                                      isEnabled: library.canMoveFavorite(stream, offset: -1)) {
+                    library.moveFavorite(stream, offset: -1)
+                })
+                items.append(TVChoice("Move Down", symbol: "arrow.down",
+                                      isEnabled: library.canMoveFavorite(stream, offset: 1)) {
+                    library.moveFavorite(stream, offset: 1)
+                })
+                items.append(TVChoice("Remove from Favorites", symbol: "star.slash", isDestructive: true) {
+                    library.removeFavorite(stream)
+                })
             } else if library.isFavorite(stream) {
-                Button("Reorder Favorites", systemImage: "arrow.up.arrow.down") { onReorderFavorites() }
-                Button("Remove from Favorites", systemImage: "star.slash", role: .destructive) { library.removeFavorite(stream) }
+                items.append(TVChoice("Reorder Favorites", symbol: "arrow.up.arrow.down") { onReorderFavorites() })
+                items.append(TVChoice("Remove from Favorites", symbol: "star.slash", isDestructive: true) {
+                    library.removeFavorite(stream)
+                })
             } else {
-                Button("Add to Favorites", systemImage: "star") { library.addFavorite(stream) }
+                items.append(TVChoice("Add to Favorites", symbol: "star") { library.addFavorite(stream) })
             }
+            return items
         }
     }
 }
@@ -4205,7 +4316,7 @@ private struct GuideChannelArtwork: View {
                     image.resizable().scaledToFit()
                 } else {
                     Image(systemName: "tv")
-                        .font(.system(size: 20, weight: .regular))
+                        .font(.system(size: 20, weight: .regular, design: .rounded))
                         .foregroundStyle(GuidePalette.secondary)
                 }
             }
@@ -4223,7 +4334,7 @@ private struct GuideChannelArtwork: View {
         .overlay(alignment: .topTrailing) {
             if isFavorite {
                 Image(systemName: "star.fill")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(GuidePalette.text)
                     .padding(9)
             }
@@ -4252,7 +4363,7 @@ private struct TVFavoritesOrderView: View {
                 HStack(alignment: .center, spacing: 32) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("YOUR CHANNELS")
-                            .font(.inter(13, .bold)).tracking(2.2)
+                            .font(.inter(13, .heavy)).tracking(0.6)
                             .foregroundStyle(LineupStyle.secondary)
                         Text("Arrange Favorites")
                             .font(.inter(46, .bold))
@@ -4273,7 +4384,7 @@ private struct TVFavoritesOrderView: View {
 
                 Group {
                     if favorites.isEmpty {
-                        ContentUnavailableView("No favorites", systemImage: "star",
+                        LineupUnavailableView("No favorites", systemImage: "star",
                             description: Text("Add channels to Favorites from the TV Guide."))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
@@ -4427,7 +4538,7 @@ private struct TVReorderDoneButton: View {
             .lineupFocusLayer(focused, in: Capsule())
             .contentShape(Capsule())
             .focusable().focused($focused).focusEffectDisabled()
-            .onTapGesture(perform: action)
+            .tvSelectAction(action)
             .focusLift(focused, scale: LineupStyle.controlLift)
     }
 }
@@ -4472,8 +4583,8 @@ private struct GuideProgramCell: View {
     var body: some View {
         // The phone's Guide, at television size: flat grey cells squared off
         // at four points, the one on now a step lighter with a faint red
-        // edge, the time it has run washed across it, and LIVE in red.
-        let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
+        // edge, the app's progress bar along its foot, and LIVE in red.
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         VStack(alignment: .leading, spacing: 6) {
             if let program {
                 HStack(spacing: 8) {
@@ -4517,20 +4628,28 @@ private struct GuideProgramCell: View {
                             visibleStart: guideTimelineAnchor(now),
                             pointsPerSecond: Double(layout.slotWidth) / 1800,
                             cellWidth: Double(geometry.size.width))
-                        Rectangle().fill(GuidePalette.elapsed).frame(width: CGFloat(played))
+                        // Inset in the cell, its fill still ending where the
+                        // timeline says now is.
+                        let inset: CGFloat = 14
+                        let span = max(1, geometry.size.width - inset * 2)
+                        LineupProgressBar(value: Double((CGFloat(played) - inset) / span), height: 6)
+                            .padding(.horizontal, inset)
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                            .padding(.bottom, 10)
                     }
                 }
             }
             .clipShape(shape)
         }
+        // Panels, as on the phone: softer corners and no outline, told
+        // apart by the gap between them. Only what is on now is edged.
         .overlay {
-            shape.strokeBorder(isOnNow ? GuidePalette.edgeNow : GuidePalette.line,
-                               lineWidth: isOnNow ? 1.5 : 1)
+            if isOnNow { shape.strokeBorder(GuidePalette.edgeNow, lineWidth: 1.5) }
         }
         .lineupFocusLayer(isFocused, in: shape)
         .zIndex(isFocused ? 2 : 0)
         .animation(.easeOut(duration: 0.14), value: isFocused)
-        .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().onTapGesture(perform: onPlay)
+        .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().tvSelectAction(onPlay)
         .onMoveCommand(perform: onMove)
         .accessibilityValue(isOnNow ? "On now" : "")
         // Keep the focused block in timeline coordinates so its fill stays aligned.
@@ -4553,7 +4672,7 @@ private struct GuideLiveTag: View {
         HStack(spacing: 7) {
             GuideLiveDot(size: 10)
             Text("LIVE")
-                .font(.inter(14, .heavy)).tracking(1.6)
+                .font(.inter(14, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.liveStatus)
         }
     }
@@ -4563,13 +4682,7 @@ private struct GuideProgressBar: View {
     let progress: CGFloat
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(GuidePalette.track)
-                Capsule().fill(GuidePalette.progress)
-                    .frame(width: proxy.size.width * min(max(progress, 0), 1))
-            }
-        }
+        LineupProgressBar(value: Double(progress), height: 10)
     }
 }
 
@@ -4586,9 +4699,18 @@ struct AccountView: View {
     @EnvironmentObject private var media: MediaLibrary
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var addingProvider = false
+    @State private var choosingProvider = false
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
     @State private var managingTeamChannels = false
+    @State private var managingTeams = false
+    @State private var choosingAccent = false
+    @State private var choosingPlaybackEngine = false
+    @AppStorage(TVPlaybackEngine.storageKey) private var playbackEngine = TVPlaybackEngine.vlc.rawValue
+    @State private var pendingAccent: String?
+    /// The accent, chosen here too: iCloud brings the phone's choice over
+    /// once it is switched on, and until then the two are set by hand.
+    @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
 
     private let columnWidth: CGFloat = 1400
     private let gutter: CGFloat = 24
@@ -4598,10 +4720,15 @@ struct AccountView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 56) {
                     header
-                    sources
-                    libraryAndCatalogs
-                    diagnostics
-                    about
+                    // Each section a panel, as on the phone: the header
+                    // and its hairline inside, the cards a step lighter.
+                    sources.modifier(TVSettingsPanel())
+                    teamsSettings.modifier(TVSettingsPanel())
+                    libraryAndCatalogs.modifier(TVSettingsPanel())
+                    appearance.modifier(TVSettingsPanel())
+                    playbackSettings.modifier(TVSettingsPanel())
+                    diagnostics.modifier(TVSettingsPanel())
+                    about.modifier(TVSettingsPanel())
                 }
                 .frame(width: columnWidth, alignment: .topLeading)
                 .frame(maxWidth: .infinity)
@@ -4616,6 +4743,23 @@ struct AccountView: View {
                 media.loadMDBListIntegrationIfNeeded()
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
+            .tvChoices("Playback Engine", symbol: "play.rectangle", isPresented: $choosingPlaybackEngine,
+                       message: "Used for the next stream you open, including previews and Multiview.") {
+                TVPlaybackEngine.allCases.map { engine in
+                    TVChoice(engine.title, symbol: "play.rectangle", isSelected: playbackEngine == engine.rawValue) {
+                        playbackEngine = engine.rawValue
+                    }
+                }
+            }
+            .tvChoices("Live TV Sources", symbol: "antenna.radiowaves.left.and.right", isPresented: $choosingProvider,
+                       message: "Your provider supplies the streams. Connect its Xtream login or add an EPGenius / M3U playlist.") {
+                library.profiles.map { profile in
+                    TVChoice(profile.name, symbol: profile.isPlaylist ? "list.bullet.rectangle" : "server.rack",
+                             id: profile.id.uuidString, isSelected: library.activeProfile?.id == profile.id) {
+                        Task { await library.selectProfile(profile) }
+                    }
+                } + [TVChoice("Add TV Source", symbol: "plus", id: "add-provider") { addingProvider = true }]
+            }
             .sheet(isPresented: $addingProvider) {
                 ProfileSetupView().environmentObject(library)
             }
@@ -4628,13 +4772,24 @@ struct AccountView: View {
             .sheet(isPresented: $managingTeamChannels) {
                 TVPreferredChannelsView().environmentObject(library)
             }
+            .fullScreenCover(isPresented: $managingTeams) {
+                SportsTeamsSettingsView().environmentObject(library)
+            }
+            .fullScreenCover(isPresented: $choosingAccent, onDismiss: {
+                if let hex = pendingAccent {
+                    pendingAccent = nil
+                    choose(hex)
+                }
+            }) {
+                TVAccentPicker(hex: accentHex) { pendingAccent = $0 }
+            }
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("LINEUP")
-                .font(.inter(13, .bold)).tracking(2.2)
+                .font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.secondary)
             Text("Settings")
                 .font(.inter(52, .bold))
@@ -4656,6 +4811,7 @@ struct AccountView: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             if library.activeProfile != nil {
+                providersRow
                 preferredChannelsRow
             }
             // Every server feeds the Library at once, so with more than one
@@ -4670,11 +4826,36 @@ struct AccountView: View {
                         AccountServerRow(profile: profile)
                     }
                 }
-                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(LineupStyle.line, lineWidth: 1))
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
         }
+    }
+
+    /// Adding a provider remains available after first setup. New connections
+    /// are saved alongside the active one and can be selected from this menu.
+    private var providersRow: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return TVSelectable(scale: 1.01, fillRadius: 18, action: { choosingProvider = true }) {
+            HStack(spacing: 20) {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.text)
+                    .frame(width: 52)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Live TV Sources").font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text)
+                    Text("Add an EPGenius / M3U playlist or switch saved connections")
+                        .font(.inter(18)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 16)
+                Text("\(library.profiles.count) saved")
+                    .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
+            }
+            .padding(.horizontal, 30)
+            .frame(height: 96)
+            .background(LineupPanelStyle.well, in: shape)
+        }
+        .disabled(library.isSwitchingProfile)
     }
 
     /// The channels saved for teams, one press from their list.
@@ -4684,7 +4865,7 @@ struct AccountView: View {
         return TVSelectable(scale: 1.01, fillRadius: 18, action: { managingTeamChannels = true }) {
             HStack(spacing: 20) {
                 Image(systemName: "star.square.on.square")
-                    .font(.system(size: 28, weight: .semibold)).foregroundStyle(LineupStyle.text)
+                    .font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.text)
                     .frame(width: 52)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Preferred Channels").font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text)
@@ -4695,12 +4876,11 @@ struct AccountView: View {
                 }
                 Spacer(minLength: 16)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 20, weight: .semibold)).foregroundStyle(LineupStyle.secondary)
+                    .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
             }
             .padding(.horizontal, 30)
             .frame(height: 96)
-            .background(LineupStyle.surface, in: shape)
-            .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
+            .background(LineupPanelStyle.well, in: shape)
         }
     }
 
@@ -4708,7 +4888,7 @@ struct AccountView: View {
         if let profile = library.activeProfile {
             AccountSourceCard(
                 symbol: "antenna.radiowaves.left.and.right",
-                kind: "IPTV PROVIDER",
+                kind: profile.isPlaylist ? "PLAYLIST & GUIDE" : "IPTV PROVIDER",
                 title: profile.name,
                 subtitle: "\(profile.username) · \(URL(string: profile.serverURL)?.host ?? profile.serverURL)",
                 status: library.channelsAreSyncing ? .busy("Updating")
@@ -4732,13 +4912,13 @@ struct AccountView: View {
         } else {
             AccountEmptySource(
                 symbol: "antenna.radiowaves.left.and.right",
-                kind: "IPTV PROVIDER",
-                title: "No provider",
-                detail: "Add your IPTV login to fill Live and the guide."
+                kind: "LIVE TV SOURCE",
+                title: "No TV source",
+                detail: "Connect your provider or add an EPGenius / M3U playlist."
             ) {
                 // The first-run screen is the only other place to sign in, and
                 // it never returns once a media server is saved.
-                AccountButton(title: "Add IPTV Provider", symbol: "plus", prominent: true) {
+                AccountButton(title: "Add TV Source", symbol: "plus", prominent: true) {
                     addingProvider = true
                 }
             }
@@ -4790,6 +4970,28 @@ struct AccountView: View {
         }
     }
 
+    private var teamsSettings: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("MY TEAMS")
+            TVSelectable(scale: 1.01, fillRadius: 18, action: { managingTeams = true }) {
+                HStack(spacing: 20) {
+                    LineupIconTile(symbol: "star.fill", size: 48)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Follow Your Teams").font(.inter(24, .semibold))
+                        Text("NFL, NBA, NHL, MLB, and college football")
+                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    }
+                    Spacer()
+                    Text("\(library.followedTeams.count) following")
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                    Image(systemName: "chevron.right").font(.inter(20, .semibold))
+                }
+                .padding(24)
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+    }
+
     // MARK: Library
 
     private var libraryAndCatalogs: some View {
@@ -4811,6 +5013,13 @@ struct AccountView: View {
                 catalogs
             }
             .fixedSize(horizontal: false, vertical: true)
+            AccountLinkCard(
+                symbol: "text.book.closed", kind: "LIBRARY", title: "Metadata",
+                detail: "Movie and show metadata: \(media.metadataSource.title) · Episode data: \(media.episodeDataSource.title)",
+                action: "Choose Sources", actionSymbol: "slider.horizontal.3"
+            ) {
+                LibraryMetadataSettingsView().environmentObject(media)
+            }
         }
     }
 
@@ -4869,6 +5078,60 @@ struct AccountView: View {
         }
     }
 
+    // MARK: Appearance
+
+    private var playbackSettings: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("PLAYBACK")
+            TVSelectable(scale: 1.015, fillRadius: 18, action: { choosingPlaybackEngine = true }) {
+                HStack(spacing: 20) {
+                    LineupIconTile(symbol: "play.rectangle", size: 48)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Playback Engine").font(.inter(24, .semibold))
+                        Text("Live TV, movies, shows, and Multiview")
+                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    }
+                    Spacer()
+                    Text((TVPlaybackEngine(rawValue: playbackEngine) ?? .vlc).title)
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                    Image(systemName: "chevron.right").font(.inter(20, .semibold))
+                }
+                .padding(24)
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+    }
+
+    /// Opens the same preset, custom and saved color choices as the phone.
+    private var appearance: some View {
+        let chosen = LineupAccent.accent(forHex: accentHex)
+        return VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("APPEARANCE")
+            TVSelectable(scale: 1.015, fillRadius: 18, action: { choosingAccent = true }) {
+                HStack(spacing: 20) {
+                    Circle().fill(chosen.color).frame(width: 48, height: 48)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Accent Color").font(.inter(24, .semibold))
+                        Text("Presets, custom colors, and My Colors")
+                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    }
+                    Spacer()
+                    Text(chosen.isPreset ? chosen.name : "#\(chosen.hex)")
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                    Image(systemName: "chevron.right").font(.inter(20, .semibold))
+                }
+                .padding(24)
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+        }
+    }
+
+    private func choose(_ hex: String) {
+        guard hex != accentHex else { return }
+        accentHex = hex
+        CloudSettingsSync.shared.localSettingsChanged()
+    }
+
     private var about: some View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("ABOUT")
@@ -4877,21 +5140,46 @@ struct AccountView: View {
                 AccountRow(label: "Version",
                            value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
             }
+            AccountTile(title: "Playback acknowledgements", detail: "AetherEngine and decoder licenses",
+                        symbol: "doc.text") { TVPlaybackLicensesView() }
             .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
 
-/// A section's name, small and spaced, with a hairline running out from it.
+/// A Settings section as a panel: the panels' fill and corners round its
+/// header and everything under it.
+private struct TVSettingsPanel: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(LineupPanelStyle.inset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: LineupPanelStyle.radius,
+                                                                  style: .continuous))
+    }
+}
+
 private struct AccountSectionHeading: View {
     let title: String
     init(_ title: String) { self.title = title }
 
+    /// Each section's icon, by its name.
+    private var symbol: String {
+        switch title {
+        case "SOURCES": "antenna.radiowaves.left.and.right"
+        case "LIBRARY": "rectangle.stack"
+        case "DIAGNOSTICS": "waveform.path.ecg"
+        case "APPEARANCE": "paintpalette"
+        case "PLAYBACK": "play.rectangle"
+        default: "info.circle"
+        }
+    }
+
+    // The panels' header: icon and heavy caption in light grey, a hairline
+    // under them.
     var body: some View {
-        HStack(spacing: 18) {
-            Text(title)
-                .font(.inter(13, .bold)).tracking(2.4)
-                .foregroundStyle(LineupStyle.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            LineupPanelHeader(title, systemImage: symbol)
             Rectangle().fill(LineupStyle.line).frame(height: 1)
         }
     }
@@ -4937,7 +5225,7 @@ private struct AccountStatusMark: View {
                 ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 9, height: 9)
             }
             Text(status.title.uppercased())
-                .font(.inter(13, .bold)).tracking(1.6)
+                .font(.inter(13, .heavy)).tracking(0.6)
         }
         .foregroundStyle(tint)
         .fixedSize()
@@ -4969,7 +5257,7 @@ private struct AccountSourceCard<Actions: View>: View {
                 AccountGlyph(symbol: symbol, brand: brand)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
-                        .font(.inter(12, .bold)).tracking(2)
+                        .font(.inter(12, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(title)
                         .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
@@ -4991,7 +5279,7 @@ private struct AccountSourceCard<Actions: View>: View {
                             .font(.interDigits(34, .bold)).foregroundStyle(LineupStyle.text)
                             .lineLimit(1).minimumScaleFactor(0.7)
                         Text(stat.label.uppercased())
-                            .font(.inter(12, .bold)).tracking(1.6)
+                            .font(.inter(12, .heavy)).tracking(0.6)
                             .foregroundStyle(LineupStyle.secondary)
                             .lineLimit(1)
                     }
@@ -5031,7 +5319,7 @@ private struct AccountEmptySource<Action: View>: View {
                 AccountGlyph(symbol: symbol, brand: brand)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
-                        .font(.inter(12, .bold)).tracking(2)
+                        .font(.inter(12, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(title)
                         .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
@@ -5058,18 +5346,13 @@ private struct AccountGlyph: View {
     /// A media server's own mark, drawn in the same plate instead.
     var brand: MediaServerBrand? = nil
 
+    // The coloured tile the phone's Settings rows carry, at television size.
     var body: some View {
-        Group {
-            if let brand {
-                MediaServerLogo(brand: brand).frame(width: 36, height: 36)
-            } else {
-                Image(systemName: symbol)
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(LineupStyle.text)
-            }
+        if let brand {
+            MediaServerLogoTile(brand: brand, size: 64)
+        } else {
+            LineupIconTile(symbol: symbol, size: 64)
         }
-        .frame(width: 64, height: 64)
-        .background(LineupStyle.raised, in: Circle())
     }
 }
 
@@ -5135,7 +5418,7 @@ private struct AccountTile<Destination: View>: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
             }
             .padding(28)
@@ -5198,24 +5481,18 @@ private struct TVPreferredChannelsView: View {
             .padding(.vertical, 56)
         }
         .background(LineupStyle.background.ignoresSafeArea())
-        .confirmationDialog("Forget this channel?",
-                            isPresented: Binding(get: { forgetting != nil },
-                                                 set: { if !$0 { forgetting = nil } }),
-                            titleVisibility: .visible, presenting: forgetting) { entry in
-            Button("Forget", role: .destructive) {
+        .tvChoices("Forget this channel?", symbol: "trash",
+                   isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
+                   message: forgetting.map { "\(name(of: $0)) games will open on Lineup's own match again." }) {
+            guard let entry = forgetting else { return [] }
+            return [TVChoice("Forget", isDestructive: true) {
                 library.removePreference(for: entry.key)
                 forgetting = nil
-            }
-            Button("Cancel", role: .cancel) { forgetting = nil }
-        } message: { entry in
-            Text("\(name(of: entry)) games will open on Lineup's own match again.")
-        }
-        .confirmationDialog("Remove every preferred channel?", isPresented: $clearingAll,
-                            titleVisibility: .visible) {
-            Button("Remove All", role: .destructive) { library.removeAllPreferences() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.")
+            }]
+        } onCancel: { forgetting = nil }
+        .tvChoices("Remove every preferred channel?", symbol: "trash", isPresented: $clearingAll,
+                   message: "This clears the saved channels for \(library.activeProfile?.name ?? "this provider") only.") {
+            [TVChoice("Remove All", isDestructive: true) { library.removeAllPreferences() }]
         }
     }
 
@@ -5246,7 +5523,7 @@ private struct TVPreferredChannelsView: View {
             Text(entry.key.league.uppercased())
                 .font(.inter(16, .bold)).tracking(1.2).foregroundStyle(LineupStyle.secondary)
             Image(systemName: "trash")
-                .font(.system(size: 20, weight: .semibold)).foregroundStyle(LineupStyle.secondary)
+                .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
         }
         .padding(.horizontal, 28)
         .frame(height: 96)
@@ -5311,15 +5588,16 @@ private struct AccountButtonFace: View {
 
     var body: some View {
         let shape = Capsule()
-        HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+        HStack(spacing: 12) {
+            LineupIconTile(symbol: symbol, size: 34)
             Text(title).font(.inter(18, .semibold))
                 .lineLimit(1).minimumScaleFactor(0.75)
         }
         .foregroundStyle(quiet && !focused ? LineupStyle.secondary : LineupStyle.text)
-        .padding(.horizontal, 24).frame(height: 56)
+        .padding(.leading, 11).padding(.trailing, 24).frame(height: 56)
         .frame(maxWidth: .infinity)
-        .background(quiet ? Color.clear : LineupStyle.raised, in: shape)
+        // On a card, a step lighter than the card, as a pressed row is.
+        .background(quiet ? Color.clear : LineupPanelStyle.well, in: shape)
         .overlay(shape.strokeBorder(prominent ? LineupStyle.text.opacity(0.7) : LineupStyle.line,
                                     lineWidth: prominent ? 1.5 : 1))
         .lineupFocusLayer(focused, in: shape)
@@ -5345,7 +5623,7 @@ private struct AccountLinkCard<Destination: View>: View {
                 AccountGlyph(symbol: symbol)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
-                        .font(.inter(12, .bold)).tracking(2)
+                        .font(.inter(12, .heavy)).tracking(0.6)
                         .foregroundStyle(LineupStyle.secondary)
                     Text(title)
                         .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
@@ -5378,7 +5656,7 @@ private struct TVStartupTraceView: View {
     var body: some View {
         ScrollView {
             Text(trace.report)
-                .font(.system(size: 21, design: .monospaced))
+                .font(.interDigits(21))
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(40)
@@ -5410,7 +5688,7 @@ private struct TVPlaybackJournalView: View {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(journal.days) { day in
                         Text(day.name.uppercased())
-                            .font(.inter(13, .bold)).tracking(2.2)
+                            .font(.inter(13, .heavy)).tracking(0.6)
                             .foregroundStyle(LineupStyle.secondary)
                             .padding(.top, 18)
                         ForEach(Array(day.entries.enumerated()), id: \.offset) { _, entry in
@@ -5531,7 +5809,7 @@ private struct AccountRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 24) {
             Text(label.uppercased())
-                .font(.inter(13, .bold)).tracking(1.8)
+                .font(.inter(13, .heavy)).tracking(0.6)
                 .foregroundStyle(LineupStyle.secondary)
             Spacer(minLength: 12)
             Text(value)
@@ -5576,7 +5854,7 @@ private enum MultiviewLayout: String {
 /// the arrangement around it.
 @MainActor
 private final class MultiviewPlayers: ObservableObject {
-    let tiles = [VLCPlaybackController(), VLCPlaybackController()]
+    let tiles = [TVPlaybackController(primaryOutput: true), TVPlaybackController(primaryOutput: false)]
 }
 
 /// A game whose stream failed everywhere, waiting for a channel to be chosen.
@@ -5690,7 +5968,6 @@ private struct MultiviewView: View {
         return MultiviewTile(controller: controller,
                              game: currentGame(index),
                              fallbackTitle: chosenTitles[index] ?? stream(index).name,
-                             renderSize: screen,
                              size: frame.size,
                              audible: audibleTile == index,
                              fullScreen: fullScreenTile == index,
@@ -5701,9 +5978,11 @@ private struct MultiviewView: View {
             .focusable(shown)
             .focused($focusedTile, equals: index)
             .focusEffectDisabled()
-            .onTapGesture { select(index) }
+            .tvSelectAction { select(index) }
             .onMoveCommand(perform: flip(from: index))
-            .contextMenu { menu(for: index) }
+            .tvHoldMenu(currentGame(index)?.matchupLine ?? stream(index).name, symbol: "rectangle.split.2x1") {
+                menuItems(for: index)
+            }
             .position(x: frame.midX, y: frame.midY)
             .opacity(shown ? 1 : 0)
             .zIndex(zIndex(index))
@@ -5720,31 +5999,25 @@ private struct MultiviewView: View {
     }
 
     /// Held on a picture: the arrangement, the stream, and the way out.
-    @ViewBuilder
-    private func menu(for index: Int) -> some View {
+    private func menuItems(for index: Int) -> [TVChoice] {
+        var items: [TVChoice] = []
         if fullScreenTile == nil {
-            Button(layout.other.title, systemImage: layout.other.symbol) { switchLayout() }
-                .lineupFlatButton()
+            items.append(TVChoice(layout.other.title, symbol: layout.other.symbol) { switchLayout() })
             if layout == .bigAndSmall {
-                Button("Swap Screens", systemImage: "arrow.left.arrow.right") { swapPictures() }
-                    .lineupFlatButton()
+                items.append(TVChoice("Swap Screens", symbol: "arrow.left.arrow.right") { swapPictures() })
             }
-            Button("Full Screen", systemImage: "arrow.up.left.and.arrow.down.right") { showFullScreen(index) }
-                .lineupFlatButton()
+            items.append(TVChoice("Full Screen", symbol: "arrow.up.left.and.arrow.down.right") { showFullScreen(index) })
         } else {
-            Button("Back to Multiview", systemImage: "arrow.down.right.and.arrow.up.left") { leaveFullScreen() }
-                .lineupFlatButton()
+            items.append(TVChoice("Back to Multiview", symbol: "arrow.down.right.and.arrow.up.left") { leaveFullScreen() })
         }
-        Button("Retry Stream", systemImage: "arrow.clockwise") { players.tiles[index].retry() }
-            .lineupFlatButton()
+        items.append(TVChoice("Retry Stream", symbol: "arrow.clockwise") { players.tiles[index].retry() })
         if let game = currentGame(index), players.tiles[index].failover != nil {
-            Button("Choose Another Channel", systemImage: "list.bullet") {
+            items.append(TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle") {
                 choosingChannel = MultiviewChannelChoice(tile: index, game: game)
-            }
-            .lineupFlatButton()
+            })
         }
-        Button("Exit Multiview", systemImage: "xmark", role: .destructive) { dismiss() }
-            .lineupFlatButton()
+        items.append(TVChoice("Exit Multiview", symbol: "xmark", isDestructive: true) { dismiss() })
+        return items
     }
 
     // MARK: Arrangement
@@ -5982,10 +6255,9 @@ private struct MultiviewView: View {
 /// full screen never resizes what VLC draws into -- the move is a transform,
 /// and the picture plays straight through it.
 private struct MultiviewTile: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     let game: SportsGame?
     let fallbackTitle: String
-    let renderSize: CGSize
     let size: CGSize
     let audible: Bool
     let fullScreen: Bool
@@ -5994,7 +6266,7 @@ private struct MultiviewTile: View {
     var body: some View {
         let radius: CGFloat = fullScreen ? 0 : 14
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        ScaledVLCVideoSurface(player: controller.player, renderSize: renderSize)
+        TVHostedSurface(controller: controller, fullScreen: true)
             .frame(width: size.width, height: size.height)
             .overlay { MultiviewStatus(controller: controller) }
             .overlay(alignment: .bottomLeading) { label }
@@ -6008,7 +6280,7 @@ private struct MultiviewTile: View {
             .shadow(color: .black.opacity(audible && !fullScreen ? 0.55 : 0), radius: 26, y: 12)
             .animation(.easeOut(duration: 0.2), value: audible)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(title + (audible ? ", playing sound" : ""))
+            .accessibilityLabel(title + ", " + controller.engineTitle + (audible ? ", playing sound" : ""))
     }
 
     private var title: String {
@@ -6025,13 +6297,20 @@ private struct MultiviewTile: View {
     private var label: some View {
         HStack(spacing: 12) {
             Image(systemName: audible ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
                 .frame(width: 24)
                 .opacity(audible ? 1 : 0.6)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.inter(19, .semibold)).lineLimit(1)
                 if let detail {
                     Text(detail).font(.inter(14, .medium)).opacity(0.7).lineLimit(1)
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                TVPlaybackEngineBadge(engine: controller.engineKind)
+                PlaybackBadgeFlow {
+                    if controller.videoHeight > 0 { PlaybackFormatBadge(text: controller.qualityLabel) }
+                    ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
                 }
             }
             Spacer(minLength: 0)
@@ -6049,12 +6328,12 @@ private struct MultiviewTile: View {
 /// selecting the picture retries a stream that failed, and holding it offers
 /// the rest.
 private struct MultiviewStatus: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
 
     var body: some View {
         if controller.error != nil {
             VStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 26, weight: .semibold))
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 26, weight: .semibold, design: .rounded))
                 Text("Stream unavailable").font(.inter(18, .semibold))
                 Text("Select to retry  ·  Hold for more").font(.inter(14)).opacity(0.72)
             }
@@ -6092,10 +6371,10 @@ private struct MultiviewControlLabel: View {
     var body: some View {
         let shape = Capsule()
         HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .bold)).frame(width: 22)
+            Image(systemName: symbol).font(.system(size: 17, weight: .bold, design: .rounded)).frame(width: 22)
             Text(title).font(.inter(18, .semibold)).fixedSize()
             if selected {
-                Image(systemName: "checkmark").font(.system(size: 13, weight: .heavy))
+                Image(systemName: "checkmark").font(.system(size: 13, weight: .heavy, design: .rounded))
             }
         }
         .foregroundStyle(LineupStyle.lightPurple)
@@ -6116,6 +6395,126 @@ struct TVPlayerSynopsis {
     let detail: String?
 }
 
+/// The episode after the one playing, offered in the player's last half
+/// minute. Choosing it plays it at once, on the best stream there is.
+struct TVNextEpisodeOffer {
+    /// Its season and number, as S02E05.
+    let code: String?
+    let title: String
+    let play: () -> Void
+}
+
+/// Next Episode, in the bottom corner over the picture: a panel with the
+/// panels' header, the episode's number and name, and Play Now. The whole
+/// card is the button; Back sends it away.
+private struct TVNextEpisodeCard: View {
+    let offer: TVNextEpisodeOffer
+    var focused: FocusState<Bool>.Binding
+    let play: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: LineupPanelStyle.radius, style: .continuous)
+        VStack(alignment: .leading, spacing: 0) {
+            LineupPanelHeader("Next Episode", systemImage: "forward.end.fill")
+                .padding(.bottom, 14)
+            Rectangle().fill(LineupStyle.line).frame(height: 1)
+            VStack(alignment: .leading, spacing: 6) {
+                if let code = offer.code {
+                    Text(code).font(.interDigits(18, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                        .foregroundStyle(LineupPanelStyle.quiet)
+                }
+                Text(offer.title).font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
+                    .lineLimit(2)
+            }
+            .padding(.top, 16)
+            HStack(spacing: 10) {
+                Image(systemName: "play.fill").font(.system(size: 20, weight: .bold, design: .rounded))
+                Text("Play Now").font(.inter(22, .bold))
+            }
+            .foregroundStyle(LineupStyle.onHighlight)
+            .padding(.horizontal, 26).frame(height: 56)
+            .background(LineupStyle.highlight, in: Capsule())
+            .padding(.top, 20)
+        }
+        .padding(LineupPanelStyle.inset)
+        .frame(width: 520, alignment: .leading)
+        .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
+        .lineupFocusLayer(focused.wrappedValue, in: shape)
+        .scaleEffect(focused.wrappedValue ? LineupStyle.cardLift : 1)
+        .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
+        .contentShape(shape)
+        .focusable()
+        .focused(focused)
+        .focusEffectDisabled()
+        .onTapGesture(perform: play)
+        .onExitCommand(perform: decline)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Next episode, \(offer.code.map { $0 + ", " } ?? "")\(offer.title)")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// What Skip does: the end of the recap or the intro the picture is in.
+private struct TVSkipAction: Equatable {
+    enum Kind: Hashable { case intro, recap }
+    let kind: Kind
+    let destination: Double
+    var title: String { kind == .recap ? "Skip Recap" : "Skip Intro" }
+}
+
+/// Skip Intro or Skip Recap, in the bottom corner over the picture: the
+/// panels' fill, the icon on its tile, and the words. Select skips; Back
+/// sends it away for the rest of that segment.
+private struct TVSkipSegmentButton: View {
+    let action: TVSkipAction
+    var focused: FocusState<Bool>.Binding
+    let skip: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        let shape = Capsule()
+        HStack(spacing: 14) {
+            LineupIconTile(symbol: "forward.end.fill", size: 38)
+            Text(action.title).font(.inter(24, .bold)).foregroundStyle(LineupStyle.text)
+        }
+        .padding(.leading, 12).padding(.trailing, 30)
+        .frame(height: 66)
+        .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .lineupFocusLayer(focused.wrappedValue, in: shape)
+        .scaleEffect(focused.wrappedValue ? LineupStyle.cardLift : 1)
+        .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
+        .contentShape(shape)
+        .focusable()
+        .focused(focused)
+        .focusEffectDisabled()
+        .onTapGesture(perform: skip)
+        .onExitCommand(perform: decline)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(action.title)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// A film's credits, with a scene after them: said in the corner, and
+/// gone when the scene begins.
+private struct TVPostCreditsNotice: View {
+    var body: some View {
+        let shape = Capsule()
+        HStack(spacing: 12) {
+            LineupIconTile(symbol: "film.stack", size: 32)
+            Text("Post-credit scene ahead").font(.inter(20, .semibold)).foregroundStyle(LineupStyle.text)
+        }
+        .padding(.leading, 10).padding(.trailing, 24)
+        .frame(height: 54)
+        .background(LineupPanelStyle.fill.opacity(0.94), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var library: SportsLibrary
@@ -6124,6 +6523,7 @@ struct PlayerView: View {
     var program: CurrentProgram? = nil
     var isLive = true
     var initialPosition: TimeInterval? = nil
+    var expectedDuration: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     var game: SportsGame? = nil
     var channelID: Int? = nil
@@ -6137,7 +6537,15 @@ struct PlayerView: View {
     /// Told when the viewer moves to another channel, so the screen beneath
     /// can show that channel when full screen closes.
     var onChannelChange: ((XtreamStream) -> Void)? = nil
-    @StateObject private var controller: VLCPlaybackController
+    /// An episode's next one, offered in the last half minute.
+    var nextEpisode: TVNextEpisodeOffer? = nil
+    /// Told when the title played to its end, before the player closes, so
+    /// the screen beneath can lead on from it.
+    var onReachedEnd: (() -> Void)? = nil
+    /// A Library title's intro, recap and credits from IntroDB, as the
+    /// phone's player has them.
+    var segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil
+    @StateObject private var controller: TVPlaybackController
     @ObservedObject private var alerts = GameAlertCenter.shared
     /// The channel on screen, which Up and Down change.
     @State private var currentChannel: XtreamStream?
@@ -6162,7 +6570,7 @@ struct PlayerView: View {
     /// preview still playing rather than stopping it.
     @State private var continuesPreview: Bool
     /// What the preview does when its channel fails, put back with it.
-    @State private var previewFailover: VLCPlaybackController.FailoverContext? = nil
+    @State private var previewFailover: TVPlaybackController.FailoverContext? = nil
     @State private var choosingGame: SportsGame? = nil
     @State private var pickedChannel: TVPickedChannel? = nil
     @State private var scopingChannel: TVPickedChannel? = nil
@@ -6175,6 +6583,24 @@ struct PlayerView: View {
     @State private var chooserOpen = false
     @FocusState private var focusedControl: TVPlayerControl?
     @FocusState private var surfaceFocused: Bool
+    /// In the last half minute of an episode with one after it.
+    @State private var nextEpisodeDue = false
+    /// The viewer pressed Back on Next Episode: it stays away.
+    @State private var nextEpisodeDeclined = false
+    @FocusState private var nextEpisodeFocused: Bool
+    /// The title's intro, recap and credits, once IntroDB has answered.
+    @State private var segments: MobilePlaybackSegments?
+    /// Skip Intro or Skip Recap, while the picture is inside one.
+    @State private var skipAction: TVSkipAction?
+    /// The segments the viewer pressed Back on: their prompts stay away.
+    @State private var declinedSkips: Set<TVSkipAction.Kind> = []
+    @FocusState private var skipFocused: Bool
+    /// The credits of a film with a scene after them.
+    @State private var postCreditsAhead = false
+    @AppStorage("Lineup.library.introDB.v1") private var introEnabled = true
+    @AppStorage("Lineup.library.skipRecaps.v1") private var recapEnabled = true
+    @AppStorage("Lineup.library.creditsPrompt.v1") private var creditsEnabled = true
+    @AppStorage("Lineup.library.postCreditsNotice.v1") private var postCreditsEnabled = true
     @State private var lastReportedPosition: TimeInterval = 0
     /// The player is closing because the viewer or the film said so. Any other
     /// way of going -- the screens around it torn down -- is noted in the log
@@ -6182,24 +6608,31 @@ struct PlayerView: View {
     @State private var closing = false
 
     init(urls: [URL], title: String = "Live TV", program: CurrentProgram? = nil, isLive: Bool = true,
-         initialPosition: TimeInterval? = nil, onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
+         initialPosition: TimeInterval? = nil, expectedDuration: TimeInterval? = nil,
+         onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
          game: SportsGame? = nil, channelID: Int? = nil, synopsis: TVPlayerSynopsis? = nil,
          channel: XtreamStream? = nil, lineup: [XtreamStream] = [],
          recording: CatchUpProgramme? = nil, startsOver: Bool = false,
          onChannelChange: ((XtreamStream) -> Void)? = nil,
-         continuing preview: TVPreviewHandoff? = nil) {
+         nextEpisode: TVNextEpisodeOffer? = nil, onReachedEnd: (() -> Void)? = nil,
+         segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil,
+         continuing preview: TVPreviewHandoff? = nil, playbackController: TVPlaybackController? = nil) {
         self.urls = urls
         self.title = title
         self.program = program
         self.isLive = isLive
         self.initialPosition = initialPosition
+        self.expectedDuration = expectedDuration
         self.onProgress = onProgress
         self.game = game
         self.channelID = channelID
         self.synopsis = synopsis
         self.lineup = lineup
         self.onChannelChange = onChannelChange
-        _controller = StateObject(wrappedValue: preview?.controller ?? VLCPlaybackController())
+        self.nextEpisode = nextEpisode
+        self.onReachedEnd = onReachedEnd
+        self.segmentsLookup = segmentsLookup
+        _controller = StateObject(wrappedValue: preview?.controller ?? playbackController ?? TVPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
         _currentChannel = State(initialValue: channel)
         _channelProgram = State(initialValue: program)
@@ -6224,7 +6657,7 @@ struct PlayerView: View {
 
     var body: some View {
         ZStack {
-            VLCHostedSurface(controller: controller, fullScreen: true)
+            TVHostedSurface(controller: controller, fullScreen: true)
                 .overlay { TVPlaybackStatus(controller: controller) }
                 .background(Color.black).ignoresSafeArea()
             // Hiding the chrome removes every focusable view, and the remote
@@ -6280,6 +6713,30 @@ struct PlayerView: View {
                     .allowsHitTesting(false)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            if showsNextEpisode, let nextEpisode {
+                TVNextEpisodeCard(offer: nextEpisode, focused: $nextEpisodeFocused,
+                                  play: { playNext(nextEpisode) },
+                                  decline: declineNextEpisode)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(.trailing, 80).padding(.bottom, 72)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+            if let skipAction, showsSkip {
+                TVSkipSegmentButton(action: skipAction, focused: $skipFocused,
+                                    skip: { skip(skipAction) },
+                                    decline: { declineSkip(skipAction) })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    // Above the seek bar and buttons while they are up.
+                    .padding(.trailing, 80).padding(.bottom, controlsVisible ? 360 : 72)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+            if postCreditsAhead && controller.error == nil && !controller.isScrubbing {
+                TVPostCreditsNotice()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.trailing, 80).padding(.top, 56)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
             if urls.isEmpty {
                 Text("This stream is unavailable").font(.inter(.title2))
                     .foregroundStyle(LineupStyle.mediaText).padding(60)
@@ -6327,7 +6784,7 @@ struct PlayerView: View {
             } else {
                 PlaybackJournal.shared.note(openingNote)
                 controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
-                                 channelID: channelID, isLive: isLive)
+                                 channelID: channelID, isLive: isLive, expectedDuration: expectedDuration)
             }
             if isLive, let currentChannel { library.recordRecentChannel(currentChannel) }
             if continuesPreview { controller.lentToFullScreen = true }
@@ -6338,6 +6795,7 @@ struct PlayerView: View {
                 PlaybackJournal.shared.note("Closed by the app, not by Back or the end of the title"
                     + (isLive ? "" : " (at \(PlaybackJournal.clock(controller.elapsed)))"))
             }
+            controller.finishScrubbing(resume: false)
             reportProgress(force: true)
             hideControlsTask?.cancel()
             bannerTask?.cancel()
@@ -6368,13 +6826,41 @@ struct PlayerView: View {
                 do { try await Task.sleep(for: .seconds(45)) } catch { return }
             }
         }
-        .onReceive(controller.clock.$elapsed) { position in reportProgress(at: position) }
+        .onReceive(controller.clock.$elapsed) { position in
+            reportProgress(at: position)
+            updateNextEpisode(at: position)
+            updateSegments(at: position)
+        }
+        // IntroDB's answer for this title; nothing is shown until it comes.
+        .task(id: urls) {
+            segments = nil
+            guard !isLive, let segmentsLookup else { return }
+            let found = await segmentsLookup()
+            guard !Task.isCancelled else { return }
+            segments = found
+        }
+        // Skip takes the remote when it appears over a bare picture, so one
+        // press of Select skips; with the controls up it waits above them.
+        .onChange(of: showsSkip) { _, shown in
+            if shown, !controlsVisible { skipFocused = true }
+            else if !shown, skipFocused { surfaceFocused = true }
+        }
+        .animation(.easeInOut(duration: 0.3), value: showsSkip)
+        .animation(.easeInOut(duration: 0.3), value: postCreditsAhead)
         // A film or an episode played to its end is saved as watched and the
-        // player closes, as it would on the remote's Menu button.
+        // player closes, as it would on the remote's Menu button; the screen
+        // beneath is told first, so it can lead on to what comes next.
         .onChange(of: controller.finished) { _, finished in
             guard finished else { return }
+            onReachedEnd?()
             close(because: "Reached the end")
         }
+        // Next Episode takes the remote when it appears over the picture, so
+        // one press of Select plays it.
+        .onChange(of: showsNextEpisode) { _, shown in
+            if shown { nextEpisodeFocused = true }
+        }
+        .animation(.easeInOut(duration: 0.3), value: showsNextEpisode)
         .onChange(of: controller.isPlaying) { _, playing in
             if playing { scheduleAutoHide() }
             else { hideControlsTask?.cancel(); controlsVisible = true }
@@ -6494,12 +6980,86 @@ struct PlayerView: View {
         controlsVisible = false
         Task { @MainActor in
             await Task.yield()
-            surfaceFocused = true
+            focusPicture()
         }
+    }
+
+    /// Where the remote lands as the controls go: Skip when it is up, so
+    /// one press skips, else the picture itself.
+    private func focusPicture() {
+        if showsSkip { skipFocused = true } else { surfaceFocused = true }
+    }
+
+    /// Next Episode is up: the last half minute of an episode with one after
+    /// it, with the controls away. They share the bottom of the screen, so
+    /// the card waits while the viewer is using them.
+    private var showsNextEpisode: Bool {
+        nextEpisode != nil && nextEpisodeDue && !nextEpisodeDeclined && !controlsVisible
+            && controller.error == nil
+    }
+
+    private func updateNextEpisode(at position: TimeInterval) {
+        guard nextEpisode != nil, !isLive else { return }
+        let duration = controller.duration
+        // From the credits when IntroDB knows where they start, as on the
+        // phone; otherwise the last half minute.
+        let due = position < duration
+            && (segments ?? MobilePlaybackSegments()).offersNext(at: position, duration: duration,
+                                                                 creditsEnabled: creditsEnabled)
+        if due != nextEpisodeDue { nextEpisodeDue = due }
+    }
+
+    /// Skip Intro or Skip Recap while the picture is inside one, and the
+    /// post-credits notice while a film's credits run.
+    private func updateSegments(at position: TimeInterval) {
+        let duration = controller.duration
+        var action: TVSkipAction?
+        if !isLive, let segments, duration > 0 {
+            if recapEnabled, let to = segments.recap?.destination(at: position, duration: duration) {
+                action = TVSkipAction(kind: .recap, destination: to)
+            } else if introEnabled, let to = segments.intro?.destination(at: position, duration: duration) {
+                action = TVSkipAction(kind: .intro, destination: to)
+            }
+        }
+        if action != skipAction { skipAction = action }
+        let credits = !isLive && postCreditsEnabled
+            && segments?.hasPostCreditsAhead(at: position, duration: duration) == true
+        if credits != postCreditsAhead { postCreditsAhead = credits }
+    }
+
+    /// Skip is up: inside an intro or recap the viewer hasn't sent away,
+    /// while nothing else holds the bottom corner.
+    private var showsSkip: Bool {
+        guard let skipAction else { return false }
+        return !declinedSkips.contains(skipAction.kind) && controller.error == nil
+            && !controller.isScrubbing && !showsNextEpisode
+    }
+
+    private func skip(_ action: TVSkipAction) {
+        PlaybackJournal.shared.note(action.title + " to " + PlaybackJournal.clock(action.destination))
+        controller.seek(to: action.destination)
+        skipAction = nil
+        surfaceFocused = true
+    }
+
+    private func declineSkip(_ action: TVSkipAction) {
+        declinedSkips.insert(action.kind)
+        surfaceFocused = true
+    }
+
+    private func playNext(_ offer: TVNextEpisodeOffer) {
+        offer.play()
+        close(because: "Next episode")
+    }
+
+    private func declineNextEpisode() {
+        nextEpisodeDeclined = true
+        surfaceFocused = true
     }
 
     private func close(because reason: String) {
         closing = true
+        controller.finishScrubbing(resume: false)
         PlaybackJournal.shared.note("Closed: " + reason
             + (isLive ? "" : " at \(PlaybackJournal.clock(controller.elapsed))"))
         reportProgress(force: true)
@@ -6550,7 +7110,7 @@ struct PlayerView: View {
     }
 
     private func reportProgress(force: Bool = false, at position: TimeInterval? = nil) {
-        guard !isLive, controller.duration > 0 else { return }
+        guard !isLive, !controller.isScrubbing, controller.duration > 0 else { return }
         let position = position ?? controller.elapsed
         guard force || abs(position - lastReportedPosition) >= 5 else { return }
         lastReportedPosition = position
@@ -6559,16 +7119,16 @@ struct PlayerView: View {
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
-        guard controller.isPlaying, !chooserOpen else { return }
+        guard controller.isPlaying, !chooserOpen, !controller.isScrubbing else { return }
         // Counted from the last press, not from when the controls appeared.
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !controller.isScrubbing else { return }
             controlsVisible = false
             // Hand focus to the video surface as the chrome leaves, so the next
             // press on the remote has somewhere to arrive.
             await Task.yield()
-            surfaceFocused = true
+            focusPicture()
         }
     }
 }
@@ -6586,7 +7146,7 @@ private struct TVPlayerChrome: View {
     let program: CurrentProgram?
     let synopsis: TVPlayerSynopsis?
     let isLive: Bool
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     let focusedControl: FocusState<TVPlayerControl?>.Binding
     /// The channel Last Channel goes back to, when there is one.
     let lastChannelName: String?
@@ -6654,7 +7214,7 @@ private struct TVPlayerChrome: View {
                             if isLive && controller.catchUp == nil { PulsingLiveDot(size: 8) }
                             PlaybackClockReader(clock: controller.clock) {
                                 Text(stateLabel)
-                                    .font(.inter(15, .bold)).tracking(1.5)
+                                    .font(.inter(15, .heavy)).tracking(0.6)
                                     .foregroundStyle(isLive && controller.catchUp == nil
                                                      ? LineupStyle.liveStatus : LineupStyle.mediaText)
                             }
@@ -6673,17 +7233,27 @@ private struct TVPlayerChrome: View {
             // Lighter than it was: glass shows what is behind it, and over a
             // band of near-black there was nothing behind it to show.
             LinearGradient(colors: [.clear, .black.opacity(0.22), .black.opacity(0.62)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 270)
+                .frame(height: 340)
                 .overlay(alignment: .bottom) {
                     LineupGlassGroup {
                     VStack(alignment: .leading, spacing: 26) {
-                    if !isLive && controller.duration > 0 {
-                        TVSeekBar(controller: controller, clock: controller.clock, focus: focusedControl,
-                                  onInteraction: onInteraction)
-                    }
-                    if showsTimeline {
-                        TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
-                                     onInteraction: onInteraction)
+                    // What is playing and how -- the engine, the picture's
+                    // size, its formats -- sat on the bar they describe,
+                    // large enough to read from the couch.
+                    VStack(alignment: .leading, spacing: 14) {
+                        PlaybackBadgeFlow(spacing: 10) {
+                            TVPlaybackEngineBadge(engine: controller.engineKind, large: true)
+                            if controller.videoHeight > 0 { PlaybackFormatBadge(text: controller.qualityLabel, large: true) }
+                            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0, large: true) }
+                        }
+                        if !isLive && controller.duration > 0 {
+                            TVSeekBar(controller: controller, clock: controller.clock, focus: focusedControl,
+                                      onInteraction: onInteraction)
+                        }
+                        if showsTimeline {
+                            TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
+                                         onInteraction: onInteraction)
+                        }
                     }
                     HStack(spacing: 14) {
                         TVPlayerButton(title: controller.isPlaying ? "Pause" : "Play",
@@ -6728,16 +7298,15 @@ private struct TVPlayerChrome: View {
                                                   focused: focusedControl.wrappedValue == .subtitles)
                             }
                             .focused(focusedControl, equals: .subtitles)
-                            .confirmationDialog("Subtitles", isPresented: $showingSubtitles,
-                                                titleVisibility: .visible) {
-                                ForEach(controller.subtitleTracks) { track in
-                                    Button(track.title + (track.id == controller.selectedSubtitleID ? "  ✓" : "")) {
+                            .tvChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles) {
+                                controller.subtitleTracks.map { track in
+                                    TVChoice(track.title, id: "\(track.id)",
+                                             isSelected: track.id == controller.selectedSubtitleID) {
                                         controller.selectSubtitle(track)
                                         onInteraction()
                                     }
                                 }
-                                Button("Cancel", role: .cancel) { onInteraction() }
-                            }
+                            } onCancel: { onInteraction() }
                         }
                         // A file with more than one audio stream -- languages,
                         // commentary, a stereo mix beside the surround one.
@@ -6748,16 +7317,15 @@ private struct TVPlayerChrome: View {
                                                   focused: focusedControl.wrappedValue == .audio)
                             }
                             .focused(focusedControl, equals: .audio)
-                            .confirmationDialog("Audio", isPresented: $showingAudio,
-                                                titleVisibility: .visible) {
-                                ForEach(controller.audioTracks) { track in
-                                    Button(track.title + (track.id == controller.selectedAudioTrackID ? "  ✓" : "")) {
+                            .tvChoices("Audio", symbol: "waveform", isPresented: $showingAudio) {
+                                controller.audioTracks.map { track in
+                                    TVChoice(track.title, id: "\(track.id)",
+                                             isSelected: track.id == controller.selectedAudioTrackID) {
                                         controller.selectAudioTrack(track)
                                         onInteraction()
                                     }
                                 }
-                                Button("Cancel", role: .cancel) { onInteraction() }
-                            }
+                            } onCancel: { onInteraction() }
                         }
                         // And one with more than one video stream.
                         if !isLive && controller.videoTracks.count > 1 {
@@ -6767,16 +7335,15 @@ private struct TVPlayerChrome: View {
                                                   focused: focusedControl.wrappedValue == .video)
                             }
                             .focused(focusedControl, equals: .video)
-                            .confirmationDialog("Video", isPresented: $showingVideo,
-                                                titleVisibility: .visible) {
-                                ForEach(controller.videoTracks) { track in
-                                    Button(track.title + (track.id == controller.selectedVideoTrackID ? "  ✓" : "")) {
+                            .tvChoices("Video", symbol: "film", isPresented: $showingVideo) {
+                                controller.videoTracks.map { track in
+                                    TVChoice(track.title, id: "\(track.id)",
+                                             isSelected: track.id == controller.selectedVideoTrackID) {
                                         controller.selectVideoTrack(track)
                                         onInteraction()
                                     }
                                 }
-                                Button("Cancel", role: .cancel) { onInteraction() }
-                            }
+                            } onCancel: { onInteraction() }
                         }
                         // A Menu renders through tvOS's own chrome, so this is a
                         // plain selectable with a dialog, like every other control.
@@ -6786,13 +7353,11 @@ private struct TVPlayerChrome: View {
                                               focused: focusedControl.wrappedValue == .quality)
                         }
                         .focused(focusedControl, equals: .quality)
-                        .confirmationDialog("Quality · \(controller.qualityLabel)",
-                                            isPresented: $showingQuality, titleVisibility: .visible) {
-                            Button(isLive ? "Refresh stream" : "Restart playback") {
+                        .tvChoices("Quality · \(controller.qualityLabel)", symbol: "gearshape", isPresented: $showingQuality) {
+                            [TVChoice(isLive ? "Refresh Stream" : "Restart Playback", symbol: "arrow.clockwise") {
                                 controller.goLive(); onInteraction()
-                            }
-                            Button("Cancel", role: .cancel) { onInteraction() }
-                        }
+                            }]
+                        } onCancel: { onInteraction() }
                         Spacer(minLength: 0)
                     }
                     }
@@ -6815,7 +7380,7 @@ private struct TVPlayerChrome: View {
 /// the recording, and on through a recording that reaches the present goes
 /// back to live. Up and down hand focus back to the controls.
 private struct TVCatchUpBar: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     @ObservedObject var clock: PlaybackClock
     let focus: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
@@ -6856,18 +7421,11 @@ private struct TVCatchUpBar: View {
         let reached = fraction(now, in: span)
         let place = controller.catchUp == nil ? reached : fraction(position, in: span)
         let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        VStack(spacing: 10) {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(LineupStyle.lightPurple.opacity(0.14))
-                    // As far as the broadcast has got: the part that can be played.
-                    Capsule().fill(LineupStyle.lightPurple.opacity(0.32))
-                        .frame(width: max(0, geometry.size.width * reached))
-                    Capsule().fill(LineupStyle.lightPurple)
-                        .frame(width: max(0, geometry.size.width * place))
-                }
-            }
-            .frame(height: selected ? 10 : 6)
+        VStack(spacing: 12) {
+            // As far as the broadcast has got, the part that can be played,
+            // in the softer accent; where the picture is, in the accent.
+            LineupProgressBar(value: place, reach: reached,
+                              height: selected ? 16 : LineupProgressBar.standardHeight)
             HStack {
                 Text(span.start.formatted(date: .omitted, time: .shortened))
                 Spacer(minLength: 0)
@@ -6896,7 +7454,7 @@ private struct TVCatchUpBar: View {
             onInteraction()
         }
         .animation(.easeOut(duration: 0.18), value: selected)
-        .accessibilityLabel("Programme timeline")
+        .accessibilityLabel("Program timeline")
         .accessibilityValue(caption(position: position, now: now))
     }
 }
@@ -6913,7 +7471,7 @@ private struct TVChannelBanner: View {
                 if let loaded {
                     loaded.resizable().scaledToFit()
                 } else {
-                    Image(systemName: "tv").font(.system(size: 26, weight: .light)).opacity(0.6)
+                    Image(systemName: "tv").font(.system(size: 26, weight: .light, design: .rounded)).opacity(0.6)
                 }
             }
             .frame(width: 84, height: 56)
@@ -6949,7 +7507,7 @@ private struct TVGameAlertBanner: View {
 
     /// "BOS @ NYY", or an event's name.
     static func matchup(_ game: SportsGame) -> String {
-        game.isEvent ? (game.eventName ?? game.league.shortName)
+        game.isEvent ? game.matchupLine
             : "\(game.awayAbbreviation) \(game.sidesSymbol) \(game.homeAbbreviation)"
     }
 
@@ -6967,7 +7525,7 @@ private struct TVGameAlertBanner: View {
             HStack(spacing: 10) {
                 Circle().fill(LineupStyle.liveDot).frame(width: 8, height: 8)
                 Text(alert.headline.uppercased())
-                    .font(.inter(14, .bold)).tracking(1.4)
+                    .font(.inter(14, .heavy)).tracking(0.6)
                     .foregroundStyle(LineupStyle.liveStatus)
                 if !game.status.isEmpty {
                     Text(game.status.uppercased())
@@ -6994,37 +7552,33 @@ private struct TVGameAlertBanner: View {
 
 /// A minimal transport bar for recorded media.
 ///
-/// Left and right step ten seconds, and because tvOS repeats a held
-/// direction the same press scrubs continuously. Down hands focus back to the
-/// controls explicitly: onMoveCommand consumes the press, so without that the
-/// bar would keep focus and trap the viewer on it.
+/// A press steps ten seconds; a held left/right press moves a local destination
+/// at display cadence and accelerates. Decoder previews are coalesced separately.
 private struct TVSeekBar: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     @ObservedObject var clock: PlaybackClock
     let focus: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
+    @State private var target: Double?
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var shown: Double { target ?? controller.elapsed }
 
     private var progress: Double {
         guard controller.duration > 0 else { return 0 }
-        return min(max(controller.elapsed / controller.duration, 0), 1)
+        return min(max(shown / controller.duration, 0), 1)
     }
 
     var body: some View {
         let selected = focus.wrappedValue == .scrubber
         let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        VStack(spacing: 10) {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(LineupStyle.lightPurple.opacity(0.18))
-                    Capsule().fill(LineupStyle.lightPurple)
-                        .frame(width: max(0, geometry.size.width * progress))
-                }
-            }
-            .frame(height: selected ? 10 : 6)
+        VStack(spacing: 12) {
+            LineupProgressBar(value: progress,
+                              height: selected ? 16 : LineupProgressBar.standardHeight)
             HStack {
-                Text(Self.clock(controller.elapsed))
+                Text(Self.clock(shown))
                 Spacer(minLength: 0)
-                Text("-" + Self.clock(max(0, controller.duration - controller.elapsed)))
+                Text("-" + Self.clock(max(0, controller.duration - shown)))
             }
             .font(.interDigits(15, .semibold))
             .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
@@ -7036,18 +7590,49 @@ private struct TVSeekBar: View {
         .focusable()
         .focused(focus, equals: .scrubber)
         .focusEffectDisabled()
+        .background(TVSeekRemoteInput(active: selected && scenePhase == .active, onBegin: { direction in
+            controller.beginScrubbing()
+            guard controller.isScrubbing else { return }
+            target = PlaybackSeekPolicy.clamped(controller.elapsed + direction * 10, duration: controller.duration)
+            controller.previewScrubbing(at: target ?? controller.elapsed)
+            onInteraction()
+        }, onFrame: { direction, heldFor, delta in
+            guard let target else { return }
+            let next = PlaybackSeekPolicy.clamped(target + direction * PlaybackSeekPolicy.rate(heldFor: heldFor) * delta,
+                                                   duration: controller.duration)
+            guard abs(next - target) > 0.001 else { return }
+            self.target = next
+            controller.previewScrubbing(at: next)
+        }, onEnd: { finishScrubbing() }).frame(width: 0, height: 0))
         .onMoveCommand { direction in
             switch direction {
-            case .left: controller.seek(by: -10)
-            case .right: controller.seek(by: 10)
-            case .down, .up: focus.wrappedValue = .playPause
+            // Swipes/keyboard focus moves remain usable too. Physical held
+            // presses are owned by the native press session above.
+            case .left where target == nil: controller.seek(by: -10)
+            case .right where target == nil: controller.seek(by: 10)
+            case .down, .up:
+                finishScrubbing()
+                focus.wrappedValue = .playPause
             default: break
             }
             onInteraction()
         }
-        .animation(.easeOut(duration: 0.18), value: selected)
+        .onChange(of: selected) { _, active in if !active { finishScrubbing() } }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { finishScrubbing() } }
+        .onDisappear {
+            controller.finishScrubbing(resume: false)
+            target = nil
+        }
+        .transaction { if target != nil { $0.animation = nil } }
         .accessibilityLabel("Playback position")
-        .accessibilityValue(Self.clock(controller.elapsed) + " of " + Self.clock(controller.duration))
+        .accessibilityValue(Self.clock(shown) + " of " + Self.clock(controller.duration))
+    }
+
+    private func finishScrubbing() {
+        guard let target else { return }
+        controller.endScrubbing(at: target)
+        self.target = nil
+        onInteraction()
     }
 
     private static func clock(_ seconds: TimeInterval) -> String {
@@ -7074,13 +7659,13 @@ private struct TVPlayerButton: View {
         let selected = focus.wrappedValue == id
         let shape = Capsule()
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 if badge { Circle().fill(LineupStyle.lightPurple).frame(width: 7, height: 7) }
-                Image(systemName: symbol).font(.system(size: 18, weight: .bold)).frame(width: 22)
+                LineupIconTile(symbol: symbol, size: 32)
                 Text(title).font(.inter(18, .semibold)).fixedSize()
             }
             .foregroundStyle(LineupStyle.lightPurple)
-            .padding(.horizontal, 22).frame(height: 52)
+            .padding(.leading, badge ? 16 : 10).padding(.trailing, 22).frame(height: 52)
             .lineupLiquidGlass(shape, fallback: prominent ? LineupStyle.raised : LineupStyle.surface.opacity(0.88),
                                border: LineupStyle.line, prominent: prominent)
             .lineupFocusLayer(selected, in: shape)
@@ -7100,13 +7685,13 @@ private struct TVPlayerMenuLabel: View {
     let symbol: String
     let focused: Bool
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .bold))
+        HStack(spacing: 12) {
+            LineupIconTile(symbol: symbol, size: 32)
             Text(title).font(.inter(18, .semibold)).fixedSize()
-            Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold)).opacity(0.72)
+            Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold, design: .rounded)).opacity(0.72)
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .padding(.horizontal, 22).frame(height: 52)
+        .padding(.leading, 10).padding(.trailing, 22).frame(height: 52)
         .lineupLiquidGlass(Capsule(), fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
         .lineupFocusLayer(focused, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
@@ -7115,7 +7700,7 @@ private struct TVPlayerMenuLabel: View {
 }
 
 /// Where playback has got to, for the views that show it and nothing else.
-@MainActor private final class PlaybackClock: ObservableObject {
+@MainActor final class PlaybackClock: ObservableObject {
     @Published var elapsed: TimeInterval = 0
 }
 
@@ -7126,18 +7711,60 @@ private struct PlaybackClockReader<Content: View>: View {
     var body: some View { content() }
 }
 
-@MainActor private final class VLCPlaybackController: ObservableObject {
-    let player = VLCMediaPlayer()
-    /// The view VLC draws into, for as long as this player lives. It is
+@MainActor final class TVPlaybackController: ObservableObject {
+    @Published private(set) var engineKind: TVPlaybackEngine
+    private var backend: any TVPlaybackBackend
+    private let defaults: UserDefaults
+    private let backendFactory: @MainActor (TVPlaybackEngine) -> any TVPlaybackBackend
+    private let primaryOutput: Bool
+    private let uptime: @MainActor () -> TimeInterval
+    private let connectionCooldown: TimeInterval
+    private var sourceIsRecording = false
+
+    init(defaults: UserDefaults = .standard, primaryOutput: Bool = true,
+         uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         connectionCooldown: TimeInterval = 1,
+         backendFactory: @escaping @MainActor (TVPlaybackEngine) -> any TVPlaybackBackend = makeTVPlaybackBackend) {
+        self.defaults = defaults
+        self.primaryOutput = primaryOutput
+        self.uptime = uptime
+        self.connectionCooldown = connectionCooldown
+        self.backendFactory = backendFactory
+        let selected = TVPlaybackEngine.selected(in: defaults)
+        let initial = backendFactory(selected)
+        backend = initial
+        engineKind = initial.kind
+        mountBackend()
+    }
+
+    private func mountBackend() {
+        surface.subviews.forEach { $0.removeFromSuperview() }
+        let picture = backend.surface
+        picture.frame = surface.bounds
+        picture.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        surface.addSubview(picture)
+    }
+
+    private func selectConfiguredBackend() {
+        let selected = TVPlaybackEngine.selected(in: defaults)
+        guard selected != backend.kind else { return }
+        backend.stop()
+        backend = backendFactory(selected)
+        engineKind = backend.kind
+        mountBackend()
+    }
+
+    var engineTitle: String { engineKind.title }
+    /// The view the selected engine draws into, for as long as this player lives. It is
     /// drawn at the television's size and moved, never resized, between the
-    /// places it is shown; see `VLCHostedSurface`.
+    /// places it is shown; see `TVHostedSurface`.
     let surface: UIView = {
         let view = UIView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
         view.backgroundColor = .black
         return view
     }()
     /// Every place showing this player, oldest first.
-    private var hosts: [VLCSurfaceHost] = []
+    private var hosts: [TVSurfaceHost] = []
     /// The channel a Guide preview last opened on this player, so the
     /// preview can tell its own stream from one already moved on.
     var previewChannelID: Int?
@@ -7151,6 +7778,7 @@ private struct PlaybackClockReader<Content: View>: View {
     @Published private(set) var isPlaying = false
     @Published private(set) var isMuted = false
     @Published private(set) var videoHeight = 0
+    @Published private(set) var mediaInfo = PlaybackMediaInfo()
     @Published private(set) var activeChannelName: String?
     @Published private(set) var failoverNotice: String?
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
@@ -7193,6 +7821,11 @@ private struct PlaybackClockReader<Content: View>: View {
     private var urlIndex = 0
     private var muted = false
     private var pausedByUser = false
+    private(set) var isScrubbing = false
+    private var resumeAfterScrubbing = false
+    private var scrubDestination: Double?
+    private let scrubSeeks = PlaybackSeekCoalescer()
+    private var seekLanding = PlaybackSeekLanding()
     private var requestedInitialPosition: TimeInterval?
     private var appliedInitialPosition = false
     /// A channel, or a film or an episode. A channel that stops is
@@ -7237,7 +7870,7 @@ private struct PlaybackClockReader<Content: View>: View {
     /// reopened file lists them.
     private var chosenAudioTrack: Int?
     private var chosenVideoTrack: Int?
-    private var chosenSubtitleIndex: Int32?
+    private var chosenSubtitle: PlaybackSubtitleTrack?
     /// What the log last said the stream was doing, so it notes changes
     /// rather than ticks.
     private var loggedCondition: String?
@@ -7252,9 +7885,6 @@ private struct PlaybackClockReader<Content: View>: View {
         // A player let go without being stopped gives up its hold too.
         let id = ObjectIdentifier(self)
         Task { @MainActor in TVScreenAwake.release(id) }
-        // Its last release tears VLC down, which is not for the main thread:
-        // a preview is let go in the middle of the viewer changing tabs.
-        VLCPlayerDisposal.release(player)
     }
 
     var isAtLiveEdge: Bool { isPlaying && !pausedByUser && catchUp == nil }
@@ -7263,17 +7893,14 @@ private struct PlaybackClockReader<Content: View>: View {
     /// Whether a preview is still there to show the picture.
     var isShownOutsideFullScreen: Bool { hosts.contains { !$0.fullScreen } }
 
-    func show(in host: VLCSurfaceHost) {
+    fileprivate func show(in host: TVSurfaceHost) {
         host.owner = self
         hosts.removeAll { $0 === host }
         hosts.append(host)
-        // Set before anything plays, and never changed after: VLC stops
-        // drawing when it is given another view mid-stream.
-        if player.drawable as? UIView !== surface { player.drawable = surface }
         placeSurface()
     }
 
-    func stopShowing(in host: VLCSurfaceHost) {
+    fileprivate func stopShowing(in host: TVSurfaceHost) {
         hosts.removeAll { $0 === host }
         placeSurface()
     }
@@ -7311,21 +7938,26 @@ private struct PlaybackClockReader<Content: View>: View {
 
     func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil,
                channelID: Int? = nil, resetFailover: Bool = true, isLive: Bool = true,
-               keepTrackChoices: Bool = false) {
+               keepTrackChoices: Bool = false, expectedDuration: TimeInterval? = nil, recording: Bool = false) {
+        let previousDuration = duration
         restarting = true
         stop()
         restarting = false
+        selectConfiguredBackend()
+        sourceIsRecording = recording
         self.urls = Array(urls.reversed())
         // A picture turned down to nothing stays muted whatever it is
         // reopened with: a retry or a change of channel passes on the mute
         // as it stood, which partway through fading out was still off.
         self.muted = muted || targetVolume == 0
         self.isLive = isLive
+        let durationHint = expectedDuration ?? (keepTrackChoices && previousDuration > 0 ? previousDuration : nil)
+        if !isLive, let durationHint, durationHint.isFinite, durationHint > 0 { duration = durationHint }
         finished = false
         if !keepTrackChoices {
             chosenAudioTrack = nil
             chosenVideoTrack = nil
-            chosenSubtitleIndex = nil
+            chosenSubtitle = nil
         }
         currentChannelID = channelID
         if resetFailover {
@@ -7347,9 +7979,10 @@ private struct PlaybackClockReader<Content: View>: View {
         // failed. The new one waits until the old has had a second to go. A
         // player reopening its own stream needs no wait: VLC finishes closing
         // a player's last stream before it opens that player's next.
-        let now = ProcessInfo.processInfo.systemUptime
-        if let closed = Self.lastStreamClosed, closed.by != ObjectIdentifier(self), now - closed.at < 1 {
-            retryAt = closed.at + 1
+        let now = uptime()
+        if connectionCooldown > 0, let closed = Self.lastStreamClosed,
+           closed.by != ObjectIdentifier(self), now - closed.at < connectionCooldown {
+            retryAt = closed.at + connectionCooldown
             health = freshHealth()
         } else {
             openCurrent()
@@ -7364,41 +7997,27 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     private func openCurrent() {
-        player.stop()
+        backend.stop()
+        mediaInfo = PlaybackMediaInfo()
+        videoHeight = 0
         resetSubtitles()
         sawPicture = false
         loggedCondition = nil
-        let media = VLCMedia(url: urls[urlIndex])
-        // Five seconds of buffer, for a film as for a channel. Two got a film
-        // started a moment sooner, but a remux fetched from a debrid service
-        // or a news server arrives unevenly, and VLC drops whatever sound is
-        // late when its buffer runs dry: the sound cut out while the picture
-        // carried on.
-        media.addOption(":network-caching=5000")
-        if isLive {
-            media.addOption(":live-caching=5000")
-            // A broadcast can carry a second language -- Spanish, most often
-            // -- and VLC otherwise plays whichever track comes first.
-            media.addOption(":audio-language=en")
-        } else if let place = openingPlace {
-            // Opened at its place -- where it was left off, or where it was
-            // when it dropped -- rather than at its beginning and then moved,
-            // which buffered it twice.
-            media.addOption(":start-time=\(place)")
-        }
-        let transport = urls.count > 1 ? " over " + urls[urlIndex].pathExtension.uppercased() : ""
         let place = isLive ? nil : openingPlace
-        log((retries.attempts == 0 ? "Opening" : "Reopening") + " the stream" + transport
+        log((retries.attempts == 0 ? "Opening" : "Reopening") + " the stream with " + engineTitle
             + (place.map { " at " + PlaybackJournal.clock($0) } ?? ""))
-        media.addOption(":http-reconnect=true")
-        player.media = media
+        let fullscreen: Bool
+        if case .fullScreen? = watched { fullscreen = true } else { fullscreen = false }
+        backend.load(url: urls[urlIndex], startPosition: place, isLive: isLive && !sourceIsRecording,
+                     expectedDuration: !isLive && duration > 0 ? duration : nil,
+                     primary: fullscreen || (watched != nil && primaryOutput), matchContent: fullscreen)
         health = freshHealth()
         retryAt = nil
         setMuted(muted)
-        player.audio?.volume = targetVolume
-        player.play()
+        backend.volume = targetVolume
+        backend.play()
         setMuted(muted)
-        player.audio?.volume = targetVolume
+        backend.volume = targetVolume
     }
 
     /// Where a recorded title's stream is opened: back where it was after a
@@ -7421,21 +8040,23 @@ private struct PlaybackClockReader<Content: View>: View {
     /// Position has to keep updating while paused too, so the bar still reads
     /// correctly after a seek that the viewer makes without resuming.
     private func updateProgress() {
-        let length = Double(player.media?.length.intValue ?? 0) / 1000
-        if length > 0, length != duration { duration = length }
-        let time = Double(player.time.intValue) / 1000
+        guard !isScrubbing else { return }
+        let length = backend.duration
+        if length.isFinite, length > 0, length != duration { duration = length }
+        let time = backend.time
+        guard time.isFinite else { return }
         if let reopenPosition {
             // Until the reopened stream is back where it was, its clock reads
             // from nothing, and showing or saving that would lose the
             // viewer's place. The last good position stands in meanwhile.
             // Only the reopened stream is judged: until it is playing, the
             // stopped one is still the player's media.
-            guard retryAt == nil, player.isPlaying, length > 0, time > 0 else { return }
+            guard retryAt == nil, backend.isPlaying, length > 0, time > 0 else { return }
             let target = min(max(reopenPosition, 0), max(duration - 1, 0))
             if opened(at: target, time: time) {
                 elapsed = time
             } else {
-                player.position = Float(target / duration)
+                backend.seek(to: target)
                 elapsed = target
             }
             self.reopenPosition = nil
@@ -7445,12 +8066,12 @@ private struct PlaybackClockReader<Content: View>: View {
            requestedInitialPosition >= 10, requestedInitialPosition < duration - 30 {
             // The place it was left off holds the bar until the picture is
             // there, rather than a zero that jumps.
-            guard player.isPlaying, time > 0 else { elapsed = requestedInitialPosition; return }
+            guard backend.isPlaying, time > 0 else { elapsed = requestedInitialPosition; return }
             let target = min(max(requestedInitialPosition, 0), duration - 1)
             if opened(at: target, time: time) {
                 elapsed = time
             } else {
-                player.position = Float(target / duration)
+                backend.seek(to: target)
                 elapsed = target
             }
             appliedInitialPosition = true
@@ -7460,23 +8081,65 @@ private struct PlaybackClockReader<Content: View>: View {
         // was playing stands until it plays again, so neither the bar, nor
         // the place saved, nor the place it is reopened at is lost with it:
         // reopening "where it was" from a zero started films over.
-        if time <= 0, !player.isPlaying, elapsed > 0 { return }
+        if time <= 0, !backend.isPlaying, elapsed > 0 { return }
+        guard seekLanding.accepts(time, now: uptime()) else { return }
         elapsed = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
     }
 
-    /// Steps by `seconds` and clamps inside the item. Uses `position` rather
-    /// than a time jump because it is the one seek API this VLCKit exposes
-    /// consistently.
-    func seek(by seconds: TimeInterval) {
-        guard duration > 0 else { return }
-        let target = min(max(elapsed + seconds, 0), max(duration - 1, 0))
-        player.position = Float(target / duration)
+    func beginScrubbing() {
+        guard !isLive, duration.isFinite, duration > 0, !isScrubbing else { return }
+        isScrubbing = true
+        scrubDestination = elapsed
+        scrubSeeks.cancel()
+        resumeAfterScrubbing = !pausedByUser
+        if resumeAfterScrubbing { togglePlayback() }
+    }
+
+    func previewScrubbing(at seconds: Double) {
+        guard isScrubbing, seconds.isFinite else { return }
+        let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
+        scrubDestination = target
+        scrubSeeks.preview(target) { [weak self] in self?.backend.seek(to: $0) }
+    }
+
+    func endScrubbing(at seconds: Double) {
+        guard isScrubbing else { return }
+        isScrubbing = false
+        scrubDestination = nil
+        seek(to: seconds)
+        if resumeAfterScrubbing { togglePlayback() }
+        resumeAfterScrubbing = false
+    }
+
+    func finishScrubbing(resume: Bool = true) {
+        guard isScrubbing else { return }
+        if !resume { resumeAfterScrubbing = false }
+        endScrubbing(at: scrubDestination ?? elapsed)
+    }
+
+    func seek(to seconds: Double) {
+        guard duration > 0, seconds.isFinite else { return }
+        let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
+        appliedInitialPosition = true
+        reopenPosition = nil
+        seekLanding.expect(target, now: uptime())
+        scrubSeeks.commit(target) { [weak self] in self?.backend.seek(to: $0) }
         elapsed = target
     }
 
-    private func checkPlayback() {
+    /// Steps by `seconds` and clamps inside the item through the active engine.
+    func seek(by seconds: TimeInterval) {
+        guard duration > 0 else { return }
+        seek(to: elapsed + seconds)
+    }
+
+    func checkPlayback() {
+        let nextMediaInfo = backend.mediaInfo
+        if mediaInfo != nextMediaInfo { mediaInfo = nextMediaInfo }
+        guard !isScrubbing else { return }
         holdAudioLevel()
         updateProgress()
+        if seekLanding.isWaiting(now: uptime()) { health = freshHealth(); return }
         followRecordingIntoNextProgramme()
         refreshSubtitleTracks()
         refreshStreamTracks()
@@ -7484,7 +8147,7 @@ private struct PlaybackClockReader<Content: View>: View {
         holdScreenAwake()
         noteCondition()
         guard !pausedByUser, error == nil, !urls.isEmpty else { return }
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = uptime()
         guard UIApplication.shared.applicationState == .active else {
             health = freshHealth()
             return
@@ -7498,23 +8161,25 @@ private struct PlaybackClockReader<Content: View>: View {
         // A channel has only stopped or ended once it has played since it was
         // opened, or once it has had long enough to; before that it is judged
         // by whether a picture comes at all.
-        let state = player.state
+        let state = backend.state
         let failed = state == .error
             || ((state == .ended || state == .stopped)
                 && (!isLive || health.hasShownPicture || health.age(now: now) >= 8))
         // A film or an episode that stops at its end has finished. The same
         // stop anywhere earlier is a dropped stream, reopened below.
-        if !isLive, failed, reopenPosition == nil, duration > 0,
-           elapsed >= duration - 15 || player.position >= 0.99 {
+        if !isLive, reopenPosition == nil,
+           LocalMediaTrackingPolicy.reachedEnd(ended: state == .ended, failed: failed,
+               hasPlayed: sawPicture, position: elapsed, duration: duration, fraction: duration > 0 ? elapsed / duration : 0) {
             log("Reached the end at \(PlaybackJournal.clock(elapsed)) of \(PlaybackJournal.clock(duration))")
             finish()
             return
         }
         // What has been read from the server tells a feed VLC is catching up
         // on from one that has stopped coming.
-        let recover = health.observe(now: now, playing: player.isPlaying, video: player.hasVideoOut,
-            time: player.time.intValue, frames: player.media?.numberOfDisplayedPictures,
-            bytes: player.media?.numberOfReadBytesOnInput, failed: failed)
+        let recover = health.observe(now: now, playing: backend.isPlaying, video: backend.hasVideoOut,
+            time: backend.time.isFinite ? Int32(clamping: Int64(min(max(backend.time * 1000, 0), Double(Int32.max)))) : 0,
+            frames: backend.frames,
+            bytes: backend.bytes, failed: failed)
         if health.isStable(now: now) {
             retries.reset()
             if let id = pendingWorkingChannelID, id == currentChannelID {
@@ -7522,11 +8187,11 @@ private struct PlaybackClockReader<Content: View>: View {
                 failover?.didPlay(id)
             }
         }
-        if isPlaying != player.isPlaying { isPlaying = player.isPlaying }
-        if player.isPlaying && player.hasVideoOut {
+        if isPlaying != backend.isPlaying { isPlaying = backend.isPlaying }
+        if backend.isPlaying && backend.hasVideoOut {
             if reconnecting { reconnecting = false }
             sawPicture = true
-            let height = Int(player.videoSize.height)
+            let height = Int(backend.videoSize.height)
             if height > 0, height != videoHeight { videoHeight = height }
         }
         guard recover else { return }
@@ -7539,14 +8204,14 @@ private struct PlaybackClockReader<Content: View>: View {
         case .neverPlayed:
             reason = "No picture came within 30 seconds"
         case .failed, nil:
-            reason = "VLC reported the stream " + Self.describe(state)
+            reason = engineTitle + " reported the stream " + Self.describe(state)
         }
         // A channel the server closed while it played is opened again at once
         // on the same address, as other players do. Waiting, then trying the
         // other address, turned a moment's drop into a long "Reconnecting".
         let droppedWhilePlaying = isLive && health.stall == .failed && state != .error && health.hasShownPicture
         let neverPlayed = !health.hasShownPicture
-        player.stop()
+        backend.stop()
         // A recorded title goes back to where it was, not to its beginning:
         // reconnecting a film used to start it over.
         if !isLive, reopenPosition == nil, elapsed > 0 {
@@ -7598,7 +8263,7 @@ private struct PlaybackClockReader<Content: View>: View {
     func setMuted(_ muted: Bool) {
         self.muted = muted
         isMuted = muted
-        player.audio?.isMuted = muted
+        backend.isMuted = muted
     }
 
     /// Bring this picture's sound in or out over a moment instead of cutting
@@ -7612,12 +8277,12 @@ private struct PlaybackClockReader<Content: View>: View {
         targetVolume = target
         if audible && muted {
             // Up from silence, never from wherever the level was left.
-            player.audio?.volume = 0
+            backend.volume = 0
             setMuted(false)
         }
-        let start = muted ? 0 : max(0, player.audio?.volume ?? target)
+        let start = muted ? 0 : max(0, backend.volume)
         guard duration > 0, start != target else {
-            player.audio?.volume = target
+            backend.volume = target
             if !audible { setMuted(true) }
             return
         }
@@ -7629,7 +8294,7 @@ private struct PlaybackClockReader<Content: View>: View {
                 // Eased at both ends, so the change has no audible corner.
                 let t = Double(step) / Double(steps)
                 let eased = t * t * (3 - 2 * t)
-                self.player.audio?.volume = Int32((Double(start) + Double(target - start) * eased).rounded())
+                self.backend.volume = Int32((Double(start) + Double(target - start) * eased).rounded())
             }
             guard let self, !Task.isCancelled else { return }
             if !audible { self.setMuted(true) }
@@ -7646,12 +8311,11 @@ private struct PlaybackClockReader<Content: View>: View {
     /// the same mute twice a second -- while paused too -- kept restarting
     /// the sound under a playing picture.
     private func holdAudioLevel() {
-        guard let audio = player.audio else { return }
         // Turned down to nothing and not fading: muted, however it got here.
         if fadeTask == nil, targetVolume == 0, !muted { setMuted(true) }
-        if audio.isMuted != muted { audio.isMuted = muted }
-        guard fadeTask == nil, audio.volume != targetVolume else { return }
-        audio.volume = targetVolume
+        if backend.isMuted != muted { backend.isMuted = muted }
+        guard fadeTask == nil, backend.volume != targetVolume else { return }
+        backend.volume = targetVolume
     }
     func toggleMute() { setMuted(!muted) }
     func retry() {
@@ -7659,7 +8323,7 @@ private struct PlaybackClockReader<Content: View>: View {
         log("Retry chosen")
         // Asked for before the stream opens, so it opens there.
         start(urls: Array(urls.reversed()), muted: muted, initialPosition: place,
-              channelID: currentChannelID, isLive: isLive, keepTrackChoices: true)
+              channelID: currentChannelID, isLive: isLive, keepTrackChoices: true, recording: sourceIsRecording)
     }
     /// A channel reconnects at its live edge; a film or an episode starts over
     /// from its beginning -- and stays a film. Restart used to reopen it as a
@@ -7684,7 +8348,7 @@ private struct PlaybackClockReader<Content: View>: View {
     func togglePlayback() {
         pausedByUser.toggle()
         if pausedByUser {
-            player.pause()
+            backend.pause()
             // A channel the provider records picks up from here, however
             // long the pause: the broadcast doesn't wait, but its recording
             // does.
@@ -7698,9 +8362,9 @@ private struct PlaybackClockReader<Content: View>: View {
         } else {
             pausedAt = nil
             health = freshHealth()
-            if retryAt == nil { player.play() }
+            if retryAt == nil { backend.play() }
         }
-        isPlaying = player.isPlaying
+        isPlaying = backend.isPlaying
         holdScreenAwake()
     }
 
@@ -7769,8 +8433,8 @@ private struct PlaybackClockReader<Content: View>: View {
         }
         // Within the open stream, when the server lets it be moved through.
         let offset = target.timeIntervalSince(catchUp.streamStart)
-        if skipTarget == nil, player.isSeekable, offset >= 0, offset <= max(elapsed, 0) + 60 {
-            player.time = VLCTime(int: Int32(offset * 1000))
+        if skipTarget == nil, backend.isSeekable, offset >= 0, offset <= max(elapsed, 0) + 60 {
+            backend.seek(to: offset)
             elapsed = offset
             return
         }
@@ -7813,7 +8477,7 @@ private struct PlaybackClockReader<Content: View>: View {
         pausedAt = nil
         // `start` tries the last address first, as it does a channel's two.
         start(urls: Array(addresses.reversed()), muted: muted, channelID: source.stream.id,
-              resetFailover: false, isLive: true, keepTrackChoices: true)
+              resetFailover: false, isLive: true, keepTrackChoices: true, recording: true)
         catchUp = CatchUpTimeline(programmeStart: programmeStart, programmeEnd: programmeEnd,
                                   title: title, streamStart: begin)
     }
@@ -7825,7 +8489,7 @@ private struct PlaybackClockReader<Content: View>: View {
         guard let catchUp, let source = catchUpSource else { return false }
         let position = catchUp.position(playedSeconds: elapsed)
         if recordingEndsWithProgramme, position >= catchUp.programmeEnd.addingTimeInterval(-30) {
-            log("The recording reached the end of the programme")
+            log("The recording reached the end of the program")
             finish()
             return true
         }
@@ -7858,22 +8522,15 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func selectSubtitle(_ track: PlaybackSubtitleTrack) {
-        player.currentVideoSubTitleIndex = Int32(track.engineIndex ?? -1)
+        backend.selectSubtitle(index: track.engineIndex)
         selectedSubtitleID = track.id
-        chosenSubtitleIndex = Int32(track.engineIndex ?? -1)
+        chosenSubtitle = track
     }
 
-    /// VLCKit discovers tracks only after the container starts parsing. The
-    /// playback monitor is already the one place sampled on that cadence, so
-    /// refresh here and publish only when the list or selection actually
-    /// changes. No second timer and no UI churn while a film is playing.
     private func refreshSubtitleTracks() {
-        let names = (player.videoSubTitlesNames as? [String]) ?? []
-        let indexes = ((player.videoSubTitlesIndexes as? [NSNumber]) ?? []).map(\.intValue)
-        let discovered = PlaybackSubtitleTrack.vlcTracks(names: names, indexes: indexes)
+        let discovered = backend.subtitles
         if discovered != subtitleTracks { subtitleTracks = discovered }
-        let current = Int(player.currentVideoSubTitleIndex)
-        let selected = discovered.first(where: { $0.engineIndex == current })?.id
+        let selected = discovered.first { $0.engineIndex == backend.selectedSubtitleIndex }?.id
             ?? PlaybackSubtitleTrack.off.id
         if selected != selectedSubtitleID { selectedSubtitleID = selected }
     }
@@ -7888,59 +8545,48 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func selectAudioTrack(_ track: PlaybackStreamTrack) {
-        player.currentAudioTrackIndex = Int32(track.id)
+        backend.selectAudio(index: track.id)
         selectedAudioTrackID = track.id
         chosenAudioTrack = track.id
     }
 
     func selectVideoTrack(_ track: PlaybackStreamTrack) {
-        player.currentVideoTrackIndex = Int32(track.id)
+        backend.selectVideo(index: track.id)
         selectedVideoTrackID = track.id
         chosenVideoTrack = track.id
     }
 
-    /// The viewer's tracks put back on a reopened file, once it lists them:
-    /// the same file numbers its tracks the same way.
     private func restoreTrackChoices() {
         if let chosen = chosenAudioTrack, audioTracks.contains(where: { $0.id == chosen }),
-           Int(player.currentAudioTrackIndex) != chosen {
-            player.currentAudioTrackIndex = Int32(chosen)
+           backend.selectedAudioIndex != chosen {
+            backend.selectAudio(index: chosen)
             log("Put the chosen audio track back")
         }
         if let chosen = chosenVideoTrack, videoTracks.contains(where: { $0.id == chosen }),
-           Int(player.currentVideoTrackIndex) != chosen {
-            player.currentVideoTrackIndex = Int32(chosen)
-        }
-        if let chosen = chosenSubtitleIndex, player.currentVideoSubTitleIndex != chosen,
-           chosen < 0 || subtitleTracks.contains(where: { $0.engineIndex == Int(chosen) }) {
-            player.currentVideoSubTitleIndex = chosen
+           backend.selectedVideoIndex != chosen { backend.selectVideo(index: chosen) }
+        if let chosen = chosenSubtitle, backend.selectedSubtitleIndex != chosen.engineIndex,
+           chosen.engineIndex == nil || subtitleTracks.contains(where: { $0.engineIndex == chosen.engineIndex }) {
+            backend.selectSubtitle(index: chosen.engineIndex)
         }
     }
 
-    /// The file's audio and video streams, read on the same cadence as its
-    /// subtitles and published only when something changed, so a film that
-    /// is simply playing causes no redraw.
     private func refreshStreamTracks() {
-        let audio = PlaybackStreamTrack.vlcTracks(
-            names: (player.audioTrackNames as? [String]) ?? [],
-            indexes: ((player.audioTrackIndexes as? [NSNumber]) ?? []).map(\.intValue),
-            kind: "Audio")
+        let audio = backend.audioTracks
         if audio != audioTracks { audioTracks = audio }
-        let audioIndex = Int(player.currentAudioTrackIndex)
-        let audioID: Int? = audio.contains(where: { $0.id == audioIndex }) ? audioIndex : nil
+        let audioID = backend.selectedAudioIndex.flatMap { index in audio.first { $0.id == index }?.id }
         if audioID != selectedAudioTrackID { selectedAudioTrackID = audioID }
-
-        let video = PlaybackStreamTrack.vlcTracks(
-            names: (player.videoTrackNames as? [String]) ?? [],
-            indexes: ((player.videoTrackIndexes as? [NSNumber]) ?? []).map(\.intValue),
-            kind: "Video")
+        let video = backend.videoTracks
         if video != videoTracks { videoTracks = video }
-        let videoIndex = Int(player.currentVideoTrackIndex)
-        let videoID: Int? = video.contains(where: { $0.id == videoIndex }) ? videoIndex : nil
+        let videoID = backend.selectedVideoIndex.flatMap { index in video.first { $0.id == index }?.id }
         if videoID != selectedVideoTrackID { selectedVideoTrackID = videoID }
     }
 
     func stop() {
+        isScrubbing = false
+        resumeAfterScrubbing = false
+        scrubDestination = nil
+        scrubSeeks.cancel()
+        seekLanding.reset()
         monitor?.cancel()
         monitor = nil
         fadeTask?.cancel()
@@ -7955,14 +8601,14 @@ private struct PlaybackClockReader<Content: View>: View {
         reconnecting = false
         isPlaying = false
         videoHeight = 0
+        mediaInfo = PlaybackMediaInfo()
         duration = 0
         elapsed = 0
         resetSubtitles()
-        if player.media != nil {
-            Self.lastStreamClosed = (ProcessInfo.processInfo.systemUptime, ObjectIdentifier(self))
+        if backend.isOpen {
+            Self.lastStreamClosed = (uptime(), ObjectIdentifier(self))
         }
-        player.stop()
-        player.media = nil
+        backend.stop()
         if !restarting {
             skipTask?.cancel()
             skipTarget = nil
@@ -7980,7 +8626,7 @@ private struct PlaybackClockReader<Content: View>: View {
     /// gone. A film on a slow link can buffer for longer and come back by
     /// itself, and reopening it costs the buffer it was filling.
     private func freshHealth() -> LivePlaybackHealth {
-        LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+        LivePlaybackHealth(now: uptime(), stallLimit: isLive ? 12 : 30)
     }
 
     /// The end of a film or an episode: the monitor stops, and the position
@@ -7991,7 +8637,7 @@ private struct PlaybackClockReader<Content: View>: View {
         retryAt = nil
         reconnecting = false
         isPlaying = false
-        elapsed = duration
+        if duration > 0 { elapsed = duration }
         finished = true
         holdScreenAwake()
     }
@@ -8012,10 +8658,10 @@ private struct PlaybackClockReader<Content: View>: View {
     private func noteCondition() {
         guard watched != nil else { return }
         let condition: String?
-        switch player.state {
-        case .playing where player.hasVideoOut: condition = "Playing"
+        switch backend.state {
+        case .playing where backend.hasVideoOut: condition = "Playing"
         case .paused: condition = pausedByUser ? "Paused" : nil
-        case .ended, .error, .stopped: condition = retryAt == nil ? "Stream " + Self.describe(player.state) : nil
+        case .ended, .error, .stopped: condition = retryAt == nil ? "Stream " + Self.describe(backend.state) : nil
         default: condition = nil
         }
         guard let condition, condition != loggedCondition else { return }
@@ -8032,7 +8678,7 @@ private struct PlaybackClockReader<Content: View>: View {
         }
     }
 
-    private static func describe(_ state: VLCMediaPlayerState) -> String {
+    private static func describe(_ state: TVPlaybackState) -> String {
         switch state {
         case .ended: "ended"
         case .error: "failed"
@@ -8073,13 +8719,53 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 }
 
-@MainActor private func configureGameFailover(_ controller: VLCPlaybackController,
+private struct TVPlaybackEngineBadge: View {
+    let engine: TVPlaybackEngine
+    /// Full screen, read from across the room.
+    var large = false
+    var body: some View {
+        Text(engine.title)
+            .font(.inter(large ? 21 : 13, .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, large ? 12 : 8).padding(.vertical, large ? 7 : 4)
+            .background(LineupPanelStyle.fill.opacity(0.9), in: RoundedRectangle(cornerRadius: large ? 9 : 6))
+            .accessibilityLabel("Playback engine: \(engine.title)")
+            .accessibilityIdentifier("lineup.playback.activeEngine")
+            .allowsHitTesting(false)
+    }
+}
+
+/// Preview metadata appears briefly on tune/format changes, then leaves the
+/// picture clear. Fullscreen uses the existing controls' visibility instead.
+private struct TVPreviewFormatBadges: View {
+    @ObservedObject var controller: TVPlaybackController
+    @State private var visible = true
+    var body: some View {
+        PlaybackBadgeFlow {
+            TVPlaybackEngineBadge(engine: controller.engineKind)
+            if controller.videoHeight > 0 { PlaybackFormatBadge(text: controller.qualityLabel) }
+            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
+        }
+        .padding(10)
+        .opacity(visible && controller.isPlaying && controller.error == nil ? 1 : 0)
+        .allowsHitTesting(false)
+        .task(id: controller.mediaInfo.badges + [controller.engineTitle, controller.qualityLabel, String(controller.isPlaying)]) {
+            visible = true
+            do { try await Task.sleep(for: .seconds(4)) } catch { return }
+            withAnimation(.easeOut(duration: 0.2)) { visible = false }
+        }
+    }
+}
+
+@MainActor private func configureGameFailover(_ controller: TVPlaybackController,
                                                game: SportsGame, library: SportsLibrary,
                                                chooseChannel: @escaping @MainActor () -> Void) {
-    controller.failover = VLCPlaybackController.FailoverContext(
+    let automaticID = library.verifiedStream(for: game)?.id
+    controller.failover = TVPlaybackController.FailoverContext(
         plan: { library.failoverPlan(for: game) },
         urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
         didPlay: { id in
+            guard id != automaticID else { return }
             if let working = library.stream(withID: id) {
                 library.saveGameSelection(working, for: game)
             }
@@ -8088,7 +8774,7 @@ private struct PlaybackClockReader<Content: View>: View {
 }
 
 private struct TVPlaybackStatus: View {
-    @ObservedObject var controller: VLCPlaybackController
+    @ObservedObject var controller: TVPlaybackController
     var body: some View {
         if let error = controller.error {
             VStack(spacing: 16) {
@@ -8124,27 +8810,27 @@ private struct TVPlaybackStatus: View {
 /// reopened or rebuffered, and the picture carries straight on. Handing VLC
 /// a new view to draw into instead stops the picture while the sound plays
 /// on.
-private struct VLCHostedSurface: UIViewRepresentable {
-    let controller: VLCPlaybackController
+private struct TVHostedSurface: UIViewRepresentable {
+    let controller: TVPlaybackController
     /// Full screen comes in front of the preview it was opened from.
     var fullScreen = false
 
-    func makeUIView(context: Context) -> VLCSurfaceHost {
-        let host = VLCSurfaceHost(fullScreen: fullScreen)
+    func makeUIView(context: Context) -> TVSurfaceHost {
+        let host = TVSurfaceHost(fullScreen: fullScreen)
         controller.show(in: host)
         return host
     }
 
-    func updateUIView(_ host: VLCSurfaceHost, context: Context) {}
+    func updateUIView(_ host: TVSurfaceHost, context: Context) {}
 
-    static func dismantleUIView(_ host: VLCSurfaceHost, coordinator: ()) {
+    static func dismantleUIView(_ host: TVSurfaceHost, coordinator: ()) {
         host.owner?.stopShowing(in: host)
     }
 }
 
-private final class VLCSurfaceHost: UIView {
+private final class TVSurfaceHost: UIView {
     let fullScreen: Bool
-    weak var owner: VLCPlaybackController?
+    weak var owner: TVPlaybackController?
 
     init(fullScreen: Bool) {
         self.fullScreen = fullScreen
@@ -8201,13 +8887,13 @@ private struct TVFullScreenItem: Identifiable {
 /// game picking up a few seconds on. The preview's own player now goes full
 /// screen, and comes back to the preview after, without a break.
 final class TVPreviewHandoff {
-    fileprivate let controller: VLCPlaybackController
-    fileprivate init(_ controller: VLCPlaybackController) { self.controller = controller }
+    fileprivate let controller: TVPlaybackController
+    fileprivate init(_ controller: TVPlaybackController) { self.controller = controller }
 
     private final class Entry {
         let channelID: Int
-        weak var controller: VLCPlaybackController?
-        init(channelID: Int, controller: VLCPlaybackController) {
+        weak var controller: TVPlaybackController?
+        init(channelID: Int, controller: TVPlaybackController) {
             self.channelID = channelID
             self.controller = controller
         }
@@ -8216,14 +8902,14 @@ final class TVPreviewHandoff {
     @MainActor private static var previews: [Entry] = []
 
     /// A preview has opened this channel.
-    @MainActor fileprivate static func previewing(_ channelID: Int, in controller: VLCPlaybackController) {
+    @MainActor fileprivate static func previewing(_ channelID: Int, in controller: TVPlaybackController) {
         previews.removeAll { $0.controller == nil || $0.controller === controller }
         previews.append(Entry(channelID: channelID, controller: controller))
     }
 
     /// Stops every preview but this player. A preview covered by full screen
     /// opens again when it is uncovered.
-    @MainActor fileprivate static func stopPreviews(except kept: VLCPlaybackController) {
+    @MainActor static func stopPreviews(except kept: TVPlaybackController? = nil) {
         for entry in previews {
             guard let controller = entry.controller, controller !== kept, controller.isOpen else { continue }
             controller.lentToFullScreen = false
@@ -8239,55 +8925,5 @@ final class TVPreviewHandoff {
               controller.isOpen else { return nil }
         controller.lentToFullScreen = true
         return TVPreviewHandoff(controller)
-    }
-}
-
-/// A video surface that VLC draws into at one fixed size, scaled to fit
-/// whatever size it is shown at.
-///
-/// Resizing the view VLC draws into makes it rebuild its output, which is a
-/// hitch in the picture. Here the drawn-into view keeps its size and only its
-/// transform changes, so a picture can grow, shrink and move while it plays.
-private struct ScaledVLCVideoSurface: UIViewRepresentable {
-    let player: VLCMediaPlayer
-    let renderSize: CGSize
-
-    func makeUIView(context: Context) -> ScaledVideoContainer {
-        let view = ScaledVideoContainer()
-        view.renderSize = renderSize
-        player.drawable = view.surface
-        return view
-    }
-
-    func updateUIView(_ view: ScaledVideoContainer, context: Context) {
-        view.renderSize = renderSize
-        if player.drawable == nil { player.drawable = view.surface }
-    }
-}
-
-private final class ScaledVideoContainer: UIView {
-    let surface = UIView()
-    var renderSize: CGSize = .zero {
-        didSet { if renderSize != oldValue { setNeedsLayout() } }
-    }
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .black
-        clipsToBounds = true
-        surface.backgroundColor = .black
-        addSubview(surface)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let drawn = renderSize.width > 0 && renderSize.height > 0 ? renderSize : bounds.size
-        guard drawn.width > 0, drawn.height > 0 else { return }
-        let scale = min(bounds.width / drawn.width, bounds.height / drawn.height)
-        if surface.bounds.size != drawn { surface.bounds = CGRect(origin: .zero, size: drawn) }
-        surface.center = CGPoint(x: bounds.midX, y: bounds.midY)
-        surface.transform = CGAffineTransform(scaleX: scale, y: scale)
     }
 }

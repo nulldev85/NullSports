@@ -1,0 +1,10 @@
+{
+  "f1": {
+    "source": "https://a.espncdn.com/i/teamlogos/leagues/500/f1.png",
+    "sha256": "3fd43a828b37387bda7234b4f6e231ad645042871c1b1356ea81586b2994c070"
+  },
+  "nascar": {
+    "source": "https://rf.nascar.com/static/images/NASCAR-logo-300.png",
+    "sha256": "a1b9417caef0527f6a650f8731a60a54d7510d31d1a3e593003dfe6e47496078"
+  }
+}

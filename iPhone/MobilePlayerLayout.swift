@@ -1,6 +1,9 @@
 import CoreGraphics
 
 enum MobilePlayerLayout {
+    /// The compact replay timeline sits below the picture, clear of both
+    /// the centered transport and its bottom metadata badges.
+    static let inlineTimelineHeight: CGFloat = 64
     /// Height of the full-screen player, measured so it doesn't depend on how
     /// much of the screen chrome currently claims.
     ///

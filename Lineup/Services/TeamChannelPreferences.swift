@@ -11,6 +11,11 @@ struct TeamChannelKey: Hashable, Codable, Sendable {
     let league: String
     let team: String
 
+    init(league: String, identity: String) {
+        self.league = league.uppercased()
+        self.team = identity
+    }
+
     init(league: String, abbreviation: String, name: String) {
         self.league = league.uppercased()
         let abbreviation = abbreviation.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -57,12 +62,16 @@ struct TeamChannelGame: Equatable, Sendable {
     let homeAbbreviation: String
     let awayTeam: String
     let awayAbbreviation: String
+    var homeIdentity: String? = nil
+    var awayIdentity: String? = nil
 
     var homeKey: TeamChannelKey {
-        TeamChannelKey(league: league, abbreviation: homeAbbreviation, name: homeTeam)
+        if let homeIdentity { return TeamChannelKey(league: league, identity: homeIdentity) }
+        return TeamChannelKey(league: league, abbreviation: homeAbbreviation, name: homeTeam)
     }
     var awayKey: TeamChannelKey {
-        TeamChannelKey(league: league, abbreviation: awayAbbreviation, name: awayTeam)
+        if let awayIdentity { return TeamChannelKey(league: league, identity: awayIdentity) }
+        return TeamChannelKey(league: league, abbreviation: awayAbbreviation, name: awayTeam)
     }
 }
 

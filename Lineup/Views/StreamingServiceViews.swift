@@ -7,21 +7,67 @@ import SwiftUI
 struct StreamingServicePoster: View {
     let service: StreamingService
 
+    /// Each service as a flat card in its own colour, the way the rest of
+    /// the app's panels are flat: no gradient, no glow, the logo clean on
+    /// it in the one colour the service sets it in on that ground.
+    private enum LogoInk { case white, black, original }
+
+    private struct Brand {
+        let fill: Color
+        let ink: LogoInk
+    }
+
+    private static func hex(_ value: UInt32) -> Color {
+        Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255,
+              blue: Double(value & 0xFF) / 255)
+    }
+
+    private static func brand(_ id: String) -> Brand {
+        switch id {
+        case "netflix": Brand(fill: hex(0xE50914), ink: .white)
+        case "prime": Brand(fill: hex(0x1A98FF), ink: .white)
+        case "disney": Brand(fill: hex(0x0063E5), ink: .white)
+        case "hbomax": Brand(fill: hex(0x002BE7), ink: .white)
+        // Apple's own black would vanish into the panel it sits on; its
+        // graphite keeps the card a card.
+        case "appletv": Brand(fill: hex(0x3A3A3C), ink: .white)
+        case "paramount": Brand(fill: hex(0x0064FF), ink: .white)
+        // Hulu sets its mark in black on its green.
+        case "hulu": Brand(fill: hex(0x1CE783), ink: .black)
+        // Peacock is black, and its feathers keep their colours.
+        case "peacock": Brand(fill: hex(0x000000), ink: .original)
+        default: Brand(fill: LineupPanelStyle.well, ink: .white)
+        }
+    }
+
+    @ViewBuilder
+    private func logo(_ ink: LogoInk) -> some View {
+        switch ink {
+        case .original:
+            Image(service.logoAsset).resizable().interpolation(.high)
+        case .white:
+            Image(service.logoAsset).renderingMode(.template).resizable().interpolation(.high)
+                .foregroundStyle(.white)
+        case .black:
+            Image(service.logoAsset).renderingMode(.template).resizable().interpolation(.high)
+                .foregroundStyle(Color(red: 0.016, green: 0.016, blue: 0.02))
+        }
+    }
+
     var body: some View {
         GeometryReader { proxy in
+            let brand = Self.brand(service.id)
             ZStack {
-                LineupStyle.raised
+                brand.fill
                 if UIImage(named: service.logoAsset) != nil {
-                    Image(service.logoAsset)
-                        .resizable()
-                        .interpolation(.high)
+                    logo(brand.ink)
                         .scaledToFit()
                         .frame(maxWidth: proxy.size.width * 0.7, maxHeight: proxy.size.height * 0.24)
                 } else {
                     // A mark not yet in the catalog: its name, set plainly.
                     Text(service.name)
-                        .font(.inter(proxy.size.width * 0.12, .bold))
-                        .foregroundStyle(LineupStyle.text)
+                        .font(.inter(proxy.size.width * 0.12, .heavy))
+                        .foregroundStyle(brand.ink == .black ? Color.black : Color.white)
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.6)
                         .padding(.horizontal, proxy.size.width * 0.1)
@@ -46,10 +92,10 @@ struct StreamingServiceScreen: View {
     @State private var order = StreamingOrderMemo()
     @AppStorage("Lineup.streamingSort.movie") private var movieSort: StreamingSort = .popular
     @AppStorage("Lineup.streamingSort.show") private var showSort: StreamingSort = .popular
+    @State private var choosingSort = false
     #if os(tvOS)
     // tvOS pushes by hand: its cards are not NavigationLinks.
     @State private var pushed: MediaItem?
-    @State private var choosingSort = false
     #endif
 
     private var titles: StreamingServiceTitles { media.streamingTitles(for: service) }
@@ -76,7 +122,7 @@ struct StreamingServiceScreen: View {
     var body: some View {
         Group {
             if titles.isEmpty {
-                ContentUnavailableView("Nothing to Play Yet", systemImage: "play.slash",
+                LineupUnavailableView("Nothing to Play Yet", systemImage: "play.slash",
                     description: Text("None of what \(service.name) has on right now is on your servers or your IPTV provider."))
                     .mediaFocusAnchor()
             } else {
@@ -92,12 +138,13 @@ struct StreamingServiceScreen: View {
         }
         #if os(tvOS)
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
-        .confirmationDialog("Sort \(kind == .movie ? "Movies" : "TV Shows")", isPresented: $choosingSort,
-                            titleVisibility: .visible) {
-            ForEach(StreamingSort.allCases) { option in
-                Button(option == sort ? "\(option.label) ✓" : option.label) { sortBinding.wrappedValue = option }
+        .tvChoices("Sort \(kind == .movie ? "Movies" : "TV Shows")", symbol: "arrow.up.arrow.down",
+                   isPresented: $choosingSort) {
+            StreamingSort.allCases.map { option in
+                TVChoice(option.label, symbol: option.symbol, id: option.id, isSelected: option == sort) {
+                    sortBinding.wrappedValue = option
+                }
             }
-            Button("Cancel", role: .cancel) { }
         }
         #else
         .navigationTitle(service.name)
@@ -110,6 +157,14 @@ struct StreamingServiceScreen: View {
             }
         }
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
+        .lineupChoices("Sort \(kind == .movie ? "Movies" : "TV Shows")", symbol: "arrow.up.arrow.down",
+                       isPresented: $choosingSort) {
+            StreamingSort.allCases.map { option in
+                MobileMenuItem(option.label, symbol: option.symbol, id: option.id, isSelected: option == sort) {
+                    sortBinding.wrappedValue = option
+                }
+            }
+        }
         #endif
     }
 
@@ -196,15 +251,12 @@ struct StreamingServiceScreen: View {
             StreamingSortLabel(sort: sort)
         }
         #else
-        Menu {
-            Picker("Sort By", selection: sortBinding) {
-                ForEach(StreamingSort.allCases) { option in
-                    Label(option.label, systemImage: option.symbol).tag(option)
-                }
-            }
-        } label: {
+        // The app's own sheet of choices rather than the system's menu,
+        // which draws in its own glass and type.
+        Button { choosingSort = true } label: {
             StreamingSortLabel(sort: sort)
         }
+        .buttonStyle(.plain)
         .accessibilityLabel("Sort by \(sort.label)")
         #endif
     }
@@ -236,7 +288,7 @@ struct StreamingServicesScreen: View {
     var body: some View {
         Group {
             if services.isEmpty {
-                ContentUnavailableView("Nothing to Play Yet", systemImage: "play.slash",
+                LineupUnavailableView("Nothing to Play Yet", systemImage: "play.slash",
                     description: Text("None of what the streaming services have on right now is on your servers or your IPTV provider."))
                     .mediaFocusAnchor()
             } else {
@@ -293,34 +345,19 @@ private struct StreamingChip: View {
             Text(title).font(.inter(Metrics.chipSize, .bold))
             Text("\(count)").font(.interDigits(Metrics.chipSize, .bold)).opacity(0.55)
         }
-        .foregroundStyle(active ? activeText : LineupStyle.text)
         .padding(.horizontal, Metrics.chipPadding)
         .frame(height: Metrics.chipHeight)
-        .background(Capsule().fill(active ? activeFill : LineupStyle.surface))
-        .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: active ? 0 : 1))
+        // Filled with the accent when chosen, its outline otherwise, on the
+        // phone and the television alike.
+        .foregroundStyle(active ? LineupStyle.onHighlight : LineupStyle.highlight)
+        .background(Capsule().fill(active ? LineupStyle.highlight : Color.clear))
+        .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
         #if os(tvOS)
-        .lineupFocusLayer(focused && !active, in: Capsule())
+        .lineupFocusLayer(focused, in: Capsule())
         #endif
         .contentShape(Capsule())
         .animation(.easeOut(duration: 0.18), value: active)
         .accessibilityAddTraits(active ? [.isButton, .isSelected] : .isButton)
-    }
-
-    /// The phone's chosen accent, the television's white.
-    private var activeFill: Color {
-        #if os(tvOS)
-        .white
-        #else
-        LineupStyle.highlight
-        #endif
-    }
-
-    private var activeText: Color {
-        #if os(tvOS)
-        LineupStyle.background
-        #else
-        LineupStyle.onHighlight
-        #endif
     }
 }
 
@@ -334,11 +371,11 @@ private struct StreamingSortLabel: View {
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: "arrow.up.arrow.down")
-                .font(.system(size: Metrics.chipSize - 3, weight: .bold))
+                .font(.system(size: Metrics.chipSize - 3, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.secondary)
             Text(sort.label).font(.inter(Metrics.chipSize, .semibold)).lineLimit(1)
             Image(systemName: "chevron.down")
-                .font(.system(size: Metrics.chipSize - 5, weight: .bold))
+                .font(.system(size: Metrics.chipSize - 5, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.secondary)
         }
         .foregroundStyle(LineupStyle.text)

@@ -11,6 +11,7 @@ import SwiftUI
 struct AppSearchView: View {
     @EnvironmentObject private var library: SportsLibrary
     @EnvironmentObject private var media: MediaLibrary
+    @Environment(\.scenePhase) private var scenePhase
     #if !os(tvOS)
     /// Plays a channel full screen. On the phone the player belongs to the
     /// view that owns the tabs.
@@ -25,6 +26,11 @@ struct AppSearchView: View {
     @State private var searchingServers = false
     @State private var serverProblem: String?
     @State private var pushed: MediaItem?
+    @State private var qualityTask: Task<Void, Never>?
+    @State private var qualityRequest: UUID?
+    #if !os(tvOS)
+    @State private var homeRevision = 0
+    #endif
     #if os(tvOS)
     @Environment(\.tvTabBar) private var tabBar
     #endif
@@ -59,19 +65,35 @@ struct AppSearchView: View {
                         prompt: "Movies, shows, channels, games")
             #endif
         }
+        #if !os(tvOS)
+        .id(homeRevision)
+        .mobileTabHome(.search) {
+            pushed = nil
+            homeRevision &+= 1
+        }
+        #endif
         .task(id: query) { await search(query) }
-        .confirmationDialog(choice.map(choiceTitle) ?? "", isPresented: Binding(
-            get: { choice != nil }, set: { if !$0 { choice = nil } }
-        ), titleVisibility: .visible, presenting: choice) { hit in
+        #if os(tvOS)
+        .tvChoices(choice.map(choiceTitle) ?? "", symbol: "calendar",
+                   isPresented: Binding(get: { choice != nil }, set: { if !$0 { choice = nil } }),
+                   message: choice.map(choiceMessage)) {
             // Only what is not on yet is asked about, so the channel is tuned
             // for what it shows now rather than for the game.
-            if let station = channel(of: hit) {
-                Button("Watch \(station.name) Now") { tune(station, game: nil) }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: { hit in
-            Text(choiceMessage(hit))
+            guard let hit = choice, let station = channel(of: hit) else { return [] }
+            return [TVChoice("Watch \(station.name) Now", symbol: "play.rectangle") { tune(station, game: nil) }]
         }
+        #else
+        .lineupChoices(choice.map(choiceTitle) ?? "", symbol: "calendar",
+                       isPresented: Binding(get: { choice != nil }, set: { if !$0 { choice = nil } }),
+                       message: choice.map(choiceMessage)) {
+            // Only what is not on yet is asked about, so the channel is tuned
+            // for what it shows now rather than for the game.
+            guard let hit = choice, let station = channel(of: hit) else { return [] }
+            return [MobileMenuItem("Watch \(station.name) Now", symbol: "play.rectangle") {
+                tune(station, game: nil)
+            }]
+        }
+        #endif
         #if os(tvOS)
         .fullScreenCover(item: $playback) { playback in
             PlayerView(urls: library.playbackURLs(for: playback.channel),
@@ -83,6 +105,11 @@ struct AppSearchView: View {
                        lineup: library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""))
         }
         #endif
+        .overlay(alignment: .top) {
+            if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
+        }
+        .onDisappear { cancelQualityCheck() }
+        .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
     }
 
     // MARK: Searching
@@ -143,6 +170,7 @@ struct AppSearchView: View {
     // MARK: Choosing
 
     private func open(_ hit: AppSearchHit) {
+        cancelQualityCheck()
         switch hit.kind {
         case .title(let item, _), .vod(let item, _):
             pushed = item
@@ -154,7 +182,21 @@ struct AppSearchView: View {
             // The channel the Live tab would play: one chosen for this game
             // before, or the match it has checked; else the one the row names.
             if game.isLive, let station = library.resolvedStream(for: game) ?? channel {
-                tune(station, game: game)
+                if case .play(_, .verified) = library.preferredChannel(for: game) {
+                    #if os(tvOS)
+                    TVPreviewHandoff.stopPreviews()
+                    #endif
+                    let request = UUID()
+                    qualityRequest = request
+                    qualityTask = Task { @MainActor in
+                        let chosen = await library.bestQualityStream(for: game, fallback: station)
+                        guard !Task.isCancelled, qualityRequest == request else { return }
+                        qualityRequest = nil
+                        qualityTask = nil
+                        if let chosen { tune(chosen, game: game) }
+                        else { choice = hit }
+                    }
+                } else { tune(station, game: game) }
             } else {
                 choice = hit
             }
@@ -162,12 +204,19 @@ struct AppSearchView: View {
     }
 
     private func tune(_ channel: XtreamStream, game: SportsGame?) {
+        cancelQualityCheck()
         choice = nil
         #if os(tvOS)
         playback = AppSearchPlayback(channel: channel, game: game)
         #else
         play(channel)
         #endif
+    }
+
+    private func cancelQualityCheck() {
+        qualityTask?.cancel()
+        qualityTask = nil
+        qualityRequest = nil
     }
 
     private func channel(of hit: AppSearchHit) -> XtreamStream? {
@@ -256,12 +305,13 @@ struct AppSearchView: View {
             let hits = results.hits(in: kind)
             if !hits.isEmpty {
                 VStack(alignment: .leading, spacing: Metrics.headerGap) {
-                    sectionHeader(kind.title, count: hits.count, seeAll: kind)
+                    sectionHeader(kind.title, symbol: kind.symbol, count: hits.count, seeAll: kind)
                     switch kind {
                     case .movies, .shows, .vod: posterShelf(hits)
                     case .live: liveList(Array(hits.prefix(Metrics.liveInAll)))
                     }
                 }
+                .modifier(AppSearchPanel())
             }
         }
         if searchingServers {
@@ -322,8 +372,11 @@ struct AppSearchView: View {
         return names.isEmpty ? "your servers" : ListFormatter.localizedString(byJoining: names)
     }
 
-    private func sectionHeader(_ title: String, count: Int, seeAll kind: AppSearchCategory?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+    private func sectionHeader(_ title: String, symbol: String, count: Int,
+                               seeAll kind: AppSearchCategory?) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            LineupIconTile(symbol: symbol, size: Metrics.headerSize * 1.6)
+                .padding(.trailing, -4)
             Text(title.uppercased())
                 .font(.inter(Metrics.headerSize, .heavy)).tracking(Metrics.headerTracking)
             Text("\(count)")
@@ -341,8 +394,18 @@ struct AppSearchView: View {
                 #endif
             }
         }
-        .foregroundStyle(LineupStyle.secondary)
+        #if os(tvOS)
+        .foregroundStyle(LineupPanelStyle.caption)
+        .padding(.bottom, 16)
+        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
         .padding(.horizontal, Metrics.inset)
+        #else
+        // A panel's header: light grey caption over the panel's hairline.
+        .foregroundStyle(LineupPanelStyle.caption)
+        .padding(.top, 15).padding(.bottom, 11)
+        .overlay(alignment: .bottom) { Rectangle().fill(LineupPanelStyle.divider).frame(height: 1) }
+        .padding(.horizontal, Metrics.inset)
+        #endif
     }
 
     private func posterShelf(_ hits: [AppSearchHit]) -> some View {
@@ -355,7 +418,9 @@ struct AppSearchView: View {
             .padding(.vertical, Metrics.shelfLift)
         }
         .contentMargins(.horizontal, Metrics.inset, for: .scrollContent)
+        #if os(tvOS)
         .scrollClipDisabled()
+        #endif
         .lineupFocusRegion()
     }
 
@@ -390,21 +455,24 @@ struct AppSearchView: View {
         let airings = hits.filter { if case .airing = $0.kind { true } else { false } }
         if !games.isEmpty {
             VStack(alignment: .leading, spacing: Metrics.headerGap) {
-                sectionHeader("Games", count: games.count, seeAll: nil)
+                sectionHeader("Games", symbol: "sportscourt", count: games.count, seeAll: nil)
                 liveList(games)
             }
+            .modifier(AppSearchPanel())
         }
         if !channels.isEmpty {
             VStack(alignment: .leading, spacing: Metrics.headerGap) {
-                sectionHeader("Channels", count: channels.count, seeAll: nil)
+                sectionHeader("Channels", symbol: "tv", count: channels.count, seeAll: nil)
                 liveList(channels)
             }
+            .modifier(AppSearchPanel())
         }
         if !airings.isEmpty {
             VStack(alignment: .leading, spacing: Metrics.headerGap) {
-                sectionHeader("On the TV Guide", count: airings.count, seeAll: nil)
+                sectionHeader("On the TV Guide", symbol: "calendar", count: airings.count, seeAll: nil)
                 liveList(airings)
             }
+            .modifier(AppSearchPanel())
         }
     }
 
@@ -458,20 +526,22 @@ private struct AppSearchChip: View {
                 .font(.inter(Metrics.chipSize, .bold))
             if waiting {
                 ProgressView().controlSize(.small)
-                    .tint(active ? LineupStyle.background : LineupStyle.text)
+                    .tint(active ? LineupStyle.onHighlight : LineupStyle.highlight)
             } else {
                 Text("\(count)")
                     .font(.interDigits(Metrics.chipSize, .bold))
                     .opacity(0.55)
             }
         }
-        .foregroundStyle(active ? LineupStyle.background : LineupStyle.text)
+        // The app's chips, on the phone and the television alike: filled
+        // with the accent when chosen, drawn in its outline otherwise.
+        .foregroundStyle(active ? LineupStyle.onHighlight : LineupStyle.highlight)
         .padding(.horizontal, Metrics.chipPadding)
         .frame(height: Metrics.chipHeight)
-        .background(Capsule().fill(active ? Color.white : LineupStyle.surface))
-        .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: active ? 0 : 1))
+        .background(Capsule().fill(active ? LineupStyle.highlight : Color.clear))
+        .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
         #if os(tvOS)
-        .lineupFocusLayer(focused && !active, in: Capsule())
+        .lineupFocusLayer(focused, in: Capsule())
         #endif
         .animation(.easeOut(duration: 0.18), value: active)
     }
@@ -481,14 +551,22 @@ private struct AppSearchSeeAll: View {
     var body: some View {
         HStack(spacing: 6) {
             Text("See All")
-            Image(systemName: "chevron.right").font(.system(size: AppSearchMetrics.headerSize - 2, weight: .bold))
+            Image(systemName: "chevron.right").font(.system(size: AppSearchMetrics.headerSize - 2, weight: .bold, design: .rounded))
         }
+        #if os(tvOS)
         .font(.inter(AppSearchMetrics.headerSize + 1, .semibold))
         .foregroundStyle(LineupStyle.text)
         .padding(.horizontal, AppSearchMetrics.seeAllPadding)
         .frame(height: AppSearchMetrics.seeAllHeight)
         .background(Capsule().fill(LineupStyle.surface))
         .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 1))
+        #else
+        .font(.inter(14, .bold))
+        .foregroundStyle(LineupStyle.highlight)
+        .textCase(nil)
+        .frame(height: AppSearchMetrics.seeAllHeight)
+        .contentShape(Rectangle())
+        #endif
     }
 }
 
@@ -499,7 +577,7 @@ private struct AppSearchPlace: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: place.symbol)
-                .font(.system(size: AppSearchMetrics.placeSize - 1, weight: .semibold))
+                .font(.system(size: AppSearchMetrics.placeSize - 1, weight: .semibold, design: .rounded))
             Text(place.path.joined(separator: " › "))
                 .font(.inter(AppSearchMetrics.placeSize, .semibold))
                 .lineLimit(1)
@@ -560,7 +638,7 @@ private struct AppSearchLiveRow: View {
                     Image(systemName: "square.stack")
                     Text("+\(more)").font(.interDigits(Metrics.rowDetailSize, .bold))
                 }
-                .font(.system(size: Metrics.rowDetailSize, weight: .semibold))
+                .font(.system(size: Metrics.rowDetailSize, weight: .semibold, design: .rounded))
                 .foregroundStyle(LineupStyle.text.opacity(0.8))
                 .padding(.horizontal, 14)
                 .frame(height: Metrics.moreHeight)
@@ -570,8 +648,8 @@ private struct AppSearchLiveRow: View {
         }
         .padding(Metrics.rowPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupStyle.surface, in: shape)
-        .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
+        // A row inside its section's panel: a step lighter than the panel.
+        .background(LineupPanelStyle.well, in: shape)
         .foregroundStyle(LineupStyle.text)
         .accessibilityElement(children: .combine)
     }
@@ -604,13 +682,8 @@ private struct AppSearchLiveArt: View {
         .frame(width: Metrics.artWidth, height: Metrics.artHeight)
         .overlay(alignment: .bottom) {
             if let fraction = AppSearchFormat.progress(of: hit) {
-                GeometryReader { proxy in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.25))
-                        Capsule().fill(Color.white).frame(width: max(4, proxy.size.width * CGFloat(fraction)))
-                    }
-                }
-                .frame(height: Metrics.progressHeight)
+                LineupProgressBar(value: fraction, height: Metrics.progressHeight,
+                                  track: .white.opacity(0.3))
                 .padding(.horizontal, Metrics.progressInset)
                 .padding(.bottom, Metrics.progressInset)
             }
@@ -624,7 +697,7 @@ private struct AppSearchLiveArt: View {
             if let image {
                 image.resizable().scaledToFit()
             } else {
-                Image(systemName: "shield.lefthalf.filled").font(.system(size: Metrics.crestSize / 2))
+                Image(systemName: "shield.lefthalf.filled").font(.system(size: Metrics.crestSize / 2, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
             }
         }
@@ -672,7 +745,7 @@ private struct AppSearchPrompt: View {
                 ProgressView().controlSize(.large)
             } else {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: AppSearchMetrics.promptSymbol, weight: .semibold))
+                    .font(.system(size: AppSearchMetrics.promptSymbol, weight: .semibold, design: .rounded))
                     .foregroundStyle(LineupStyle.secondary)
                 Text("Search everything")
                     .font(.inter(AppSearchMetrics.promptTitle, .bold))
@@ -716,7 +789,7 @@ private struct AppSearchEmpty: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: AppSearchMetrics.promptSymbol * 0.7, weight: .semibold))
+                .font(.system(size: AppSearchMetrics.promptSymbol * 0.7, weight: .semibold, design: .rounded))
                 .foregroundStyle(LineupStyle.secondary)
             Text(title).font(.inter(AppSearchMetrics.rowTitleSize, .bold))
                 .multilineTextAlignment(.center)
@@ -863,8 +936,8 @@ private enum AppSearchMetrics {
     static let bottomInset: CGFloat = 80
     static let sectionGap: CGFloat = 54
     static let headerGap: CGFloat = 18
-    static let headerSize: CGFloat = 16
-    static let headerTracking: CGFloat = 2.2
+    static let headerSize: CGFloat = 22
+    static let headerTracking: CGFloat = 0.6
     static let chipGap: CGFloat = 16
     static let chipSize: CGFloat = 22
     static let chipHeight: CGFloat = 56
@@ -907,13 +980,13 @@ private enum AppSearchMetrics {
     static let promptWidth: CGFloat = 900
     static let promptChipGap: CGFloat = 34
     #else
-    static let inset: CGFloat = 16
+    static let inset: CGFloat = LineupPanelStyle.inset
     static let topInset: CGFloat = 4
     static let bottomInset: CGFloat = 32
-    static let sectionGap: CGFloat = 28
-    static let headerGap: CGFloat = 12
-    static let headerSize: CGFloat = 13
-    static let headerTracking: CGFloat = 1.4
+    static let sectionGap: CGFloat = LineupPanelStyle.gap
+    static let headerGap: CGFloat = 16
+    static let headerSize: CGFloat = 15
+    static let headerTracking: CGFloat = 0.4
     static let chipGap: CGFloat = 10
     static let chipSize: CGFloat = 16
     static let chipHeight: CGFloat = 40
@@ -956,4 +1029,27 @@ private enum AppSearchMetrics {
     static let promptWidth: CGFloat = 340
     static let promptChipGap: CGFloat = 14
     #endif
+}
+
+/// A section of results as a panel, like the Library's shelves.
+private struct AppSearchPanel: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        // Drawn behind, held in from the rows' own margin, so a focused
+        // poster can still rise past the panel's edge.
+        content
+            .padding(.top, 28).padding(.bottom, 30)
+            .background {
+                RoundedRectangle(cornerRadius: LineupPanelStyle.radius, style: .continuous)
+                    .fill(LineupPanelStyle.fill)
+                    .padding(.horizontal, AppSearchMetrics.inset - LineupPanelStyle.inset)
+            }
+        #else
+        content
+            .padding(.bottom, 18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+            .padding(.horizontal, LineupPanelStyle.margin)
+        #endif
+    }
 }

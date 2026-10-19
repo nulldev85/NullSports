@@ -15,18 +15,18 @@ struct MobileLeagueMenuButton: View {
                 // icon: the words say it, and the pill stays small.
                 if let league { MobileLeagueLogo(league: league, size: 22) }
                 Text(MobileLeagueMenu.title(league))
-                    .font(.inter(15, .semibold))
+                    .font(.inter(15, .bold))
                     .foregroundStyle(LineupStyle.text)
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .foregroundStyle(LineupPanelStyle.quiet)
                     .rotationEffect(.degrees(isOpen ? -180 : 0))
             }
             .padding(.leading, league == nil ? 14 : 10).padding(.trailing, 12)
             .frame(height: 36)
-            .background(isOpen ? LineupStyle.focused : LineupStyle.raised, in: Capsule())
-            .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 0.5))
+            // A panel's own fill, a step lighter while its list is open.
+            .background(isOpen ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(MobileCardButtonStyle())
@@ -54,11 +54,13 @@ struct MobileLeagueMenu: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
 
-    static let rowHeight: CGFloat = 52
+    static let rowHeight: CGFloat = 54
     /// Wide enough for "12 GAMES" and "1 EVENT", so every count ends on the
     /// same line and the names keep the rest.
-    private static let tallyWidth: CGFloat = 78
-    private static let inset: CGFloat = 6
+    private static let tallyWidth: CGFloat = 82
+    private static let inset: CGFloat = 8
+    /// The panel's header and its hairline, above the list.
+    private static let headerHeight: CGFloat = 46
 
     static func title(_ league: SportsLeague?) -> String {
         guard let league else { return "All Sports" }
@@ -71,33 +73,44 @@ struct MobileLeagueMenu: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        let shape = LineupPanelStyle.shape
         let content = CGFloat(entries.count) * Self.rowHeight + Self.inset * 2 + 9
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                    row(entry)
-                        .opacity(shown ? 1 : 0)
-                        .offset(y: shown || reduceMotion ? 0 : -6)
-                        .animation(shown ? (reduceMotion ? .easeOut(duration: 0.15)
-                                   : .spring(response: 0.32, dampingFraction: 0.88).delay(Double(index) * 0.015))
-                                   : nil, value: shown)
-                    // Every league, then each of them.
-                    if index == 0 {
-                        Rectangle().fill(LineupStyle.line).frame(height: 0.5)
-                            .padding(.horizontal, 10).padding(.vertical, 4)
+        // A panel like every other: its header and hairline inside it, then
+        // the leagues.
+        VStack(spacing: 0) {
+            LineupPanelHeader("Sports", systemImage: "sportscourt")
+                .padding(.horizontal, LineupPanelStyle.inset)
+                .frame(height: Self.headerHeight - 1)
+            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                .padding(.horizontal, LineupPanelStyle.inset)
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                        row(entry)
+                            .opacity(shown ? 1 : 0)
+                            .offset(y: shown || reduceMotion ? 0 : -6)
+                            .animation(shown ? (reduceMotion ? .easeOut(duration: 0.15)
+                                       : .spring(response: 0.32, dampingFraction: 0.88).delay(Double(index) * 0.015))
+                                       : nil, value: shown)
+                        // Every league, then each of them.
+                        if index == 0 {
+                            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                                .padding(.horizontal, 12).padding(.vertical, 4)
+                        }
                     }
                 }
+                .padding(Self.inset)
             }
-            .padding(Self.inset)
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.hidden)
+            .frame(height: min(content, max(0, maxHeight - Self.headerHeight)))
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollIndicators(.hidden)
-        .frame(height: min(content, maxHeight))
-        .background(LineupStyle.raised, in: shape)
-        .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
+        .background(LineupPanelStyle.fill, in: shape)
+        // It floats over panels of its own colour, so it takes a hairline
+        // of light round its edge and a deep shadow under it.
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
         .clipShape(shape)
-        .shadow(color: .black.opacity(0.5), radius: 30, y: 16)
+        .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
         .onAppear { shown = true }
         .accessibilityAddTraits(.isModal)
     }
@@ -117,9 +130,9 @@ struct MobileLeagueMenu: View {
                 .frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(Self.title(entry.league))
-                        .font(.inter(15, .semibold)).foregroundStyle(LineupStyle.text)
+                        .font(.inter(16, .bold)).foregroundStyle(LineupStyle.text)
                     Text(Self.subtitle(entry.league))
-                        .font(.inter(11, .medium)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(12, .medium)).foregroundStyle(LineupPanelStyle.quiet)
                 }
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
@@ -130,15 +143,15 @@ struct MobileLeagueMenu: View {
                     .fixedSize()
                     .frame(width: Self.tallyWidth, alignment: .trailing)
                 Image(systemName: "checkmark")
-                    .font(.system(size: 13, weight: .bold))
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
                     .foregroundStyle(LineupStyle.highlight)
                     .opacity(isSelected ? 1 : 0)
                     .frame(width: 16)
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 10)
             .frame(height: Self.rowHeight)
-            .background(isSelected ? LineupStyle.focused : .clear,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(isSelected ? LineupPanelStyle.well : .clear,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .contentShape(Rectangle())
             .opacity(quiet ? 0.45 : 1)
         }
@@ -154,20 +167,20 @@ struct MobileLeagueMenu: View {
         if entry.live > 0 {
             HStack(spacing: 5) {
                 MobileLiveDot()
-                Text("\(entry.live) LIVE").font(.inter(10, .bold)).tracking(0.8)
+                Text("\(entry.live) LIVE").font(.inter(11, .heavy)).tracking(0.4)
             }
             .foregroundStyle(LineupStyle.liveStatus)
         } else {
             Text(entry.games == 0 ? "NONE" : "\(entry.games) \(noun(entry, entry.games))")
-                .font(.inter(10, .bold)).tracking(0.8)
-                .foregroundStyle(LineupStyle.secondary)
+                .font(.inter(11, .heavy)).tracking(0.4)
+                .foregroundStyle(LineupPanelStyle.quiet)
         }
     }
 
     private func noun(_ entry: Entry, _ count: Int) -> String {
         let one: String
         // A tennis tab lists tournaments, as UFC lists fight nights.
-        if entry.league?.isTennis == true || entry.league == .ufc { one = "EVENT" }
+        if entry.league?.isTennis == true || entry.league == .ufc || entry.league?.isRacing == true { one = "EVENT" }
         else { one = "GAME" }
         return count == 1 ? one : one + "S"
     }
@@ -182,8 +195,8 @@ struct MobileLeagueMenu: View {
 private struct MobileLeagueRowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? LineupStyle.focused.opacity(0.7) : .clear,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(configuration.isPressed ? LineupPanelStyle.well.opacity(0.8) : .clear,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)
     }

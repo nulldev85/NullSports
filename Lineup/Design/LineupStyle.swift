@@ -43,35 +43,7 @@ fileprivate struct LineupPalette {
     let leagues: LeagueColors
 }
 
-#if os(tvOS)
-fileprivate extension LineupPalette {
-    /// The television's only look: charcoal, light grey and white.
-    ///
-    /// The four themes are the phone's now. Across a room, colour in the
-    /// chrome competes with the picture, so the set gets one neutral room:
-    /// a charcoal ground, panels a step or two lighter, light grey for what is
-    /// secondary and white for what matters. The games and their teams bring
-    /// the colour, and red is kept for the one thing that is live.
-    static let television = LineupPalette(
-        accent: rgb(0xF5F5F7), background: rgb(0x1A1A1C), surface: rgb(0x242427),
-        raised: rgb(0x2E2E32), sidebar: rgb(0x151517), selected: rgb(0x29292C),
-        focused: rgb(0x3A3A3E), warning: rgb(0xC7C7CC),
-        highlight: rgb(0xFFFFFF), highlightSoft: rgb(0xD1D1D6),
-        selectionBorder: rgb(0xFFFFFF),
-        positive: rgb(0xF5F5F7), logoPlate: rgb(0xF2F2F7),
-        line: rgb(0xFFFFFF).opacity(0.1),
-        // One grey for every league: a league is named in words on the
-        // television, never told apart by a colour that is not the theme's.
-        leagues: LeagueColors(
-            football: rgb(0xC7C7CC), college: rgb(0xC7C7CC), basketball: rgb(0xC7C7CC),
-            hockey: rgb(0xC7C7CC), baseball: rgb(0xC7C7CC), combat: rgb(0xC7C7CC),
-            tennis: rgb(0xC7C7CC)
-        )
-    )
-}
-#endif
 
-#if !os(tvOS)
 fileprivate extension LineupPalette {
     /// The phone's only look. It was one of four themes, Signal, and the one
     /// the app opened in; the others are gone, and with them the setting.
@@ -92,19 +64,21 @@ fileprivate extension LineupPalette {
         // reads as navy on a television -- most sets run a cool picture
         // and a dark grey with any blue in it is where that shows. The
         // colour in this theme is the accent's job and nothing else's.
-        accent: rgb(0xFFFFFF), background: rgb(0x1C1C1E), surface: rgb(0x252528),
-        raised: rgb(0x343438), sidebar: rgb(0x161618), selected: rgb(0x2C2C30),
+        // The reference app's Settings, measured: a dark grey ground, cards a
+        // step lighter, and a step lighter again for what is chosen, pressed
+        // or in focus. Nothing in the app sits on black but a picture.
+        accent: rgb(0xFFFFFF), background: rgb(0x1C1C1E), surface: rgb(0x2C2C2E),
+        raised: rgb(0x2C2C2E), sidebar: rgb(0x232325), selected: rgb(0x3A3A3C),
         // Focus is a step up in the same grey. It used to lean towards
         // the accent, which is a good idea on paper and another source
         // of navy in a room; the accent's border and glow around a
         // focused thing say it far more clearly than its fill ever did.
-        focused: rgb(0x3A3A3F), warning: rgb(0xFFB224),
+        focused: rgb(0x3A3A3C), warning: rgb(0xFFB224),
         highlight: rgb(0xFF3347), highlightSoft: rgb(0xFF8A95),
         selectionBorder: rgb(0xFF3347),
         positive: rgb(0x3DDC84), logoPlate: rgb(0xEDF1F6),
-        // A charcoal ground is lighter than carbon, so a hairline needs
-        // a little more to draw on it than it did on near-black.
-        line: rgb(0xFFFFFF).opacity(0.14),
+        // On a card this lands on the panel's own divider grey, #404043.
+        line: rgb(0xFFFFFF).opacity(0.09),
         // A league chip in the accent's own colour reads as the app
         // talking rather than as the league it stands for. Combat's is
         // the deeper red of its own posters, not the accent's.
@@ -115,7 +89,6 @@ fileprivate extension LineupPalette {
         )
     )
 }
-#endif
 
 private func rgb(_ value: UInt32) -> Color {
     Color(
@@ -125,23 +98,343 @@ private func rgb(_ value: UInt32) -> Color {
     )
 }
 
-enum LineupStyle {
+/// The panels: a dark grey ground with cards a step lighter, big soft corners,
+/// and a header inside each card -- an icon and a heavy rounded caption in
+/// light grey, over a hairline. Measured off a reference screen, not picked
+/// by eye, so every screen that uses them agrees to the point. The television
+/// takes the same look at the size it is read at, across a room.
+enum LineupPanelStyle {
     #if os(tvOS)
-    private static var palette: LineupPalette { .television }
+    static let radius: CGFloat = 32
+    static let margin: CGFloat = 80
+    static let inset: CGFloat = 30
+    static let gap: CGFloat = 28
+    /// The header's caption and icon.
+    static let headerSize: CGFloat = 22
+    static let headerTracking: CGFloat = 0.6
     #else
-    private static var palette: LineupPalette { .phone }
+    static let radius: CGFloat = 24
+    /// Card edge to screen edge.
+    static let margin: CGFloat = 20
+    /// Card edge to what is in it, the header and its hairline included.
+    static let inset: CGFloat = 20
+    /// Card to card.
+    static let gap: CGFloat = 14
+    static let headerSize: CGFloat = 15
+    static let headerTracking: CGFloat = 0.4
     #endif
+    static let fill = rgb(0x2C2C2E)
+    /// Inside a card: a bar's empty track, a pressed row, a chosen one.
+    static let well = rgb(0x3A3A3C)
+    static let divider = rgb(0x404043)
+    /// Headers and body copy. White is kept for the numbers and names a card
+    /// is about, so they stand out from the words around them.
+    static let caption = rgb(0xCCCCCC)
+    static let quiet = rgb(0x9E9EA5)
+    static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
+
+    // Settings and the lists under it, as the reference app draws its own:
+    // a dark grey ground with its rows a step lighter, hairlines between
+    // them, and values in a quiet grey.
+    static let listGround = rgb(0x1C1C1E)
+    static let listCard = rgb(0x2C2C2E)
+    static let listSeparator = rgb(0x404043)
+    static let listValue = rgb(0x9E9EA5)
+    static let listChevron = rgb(0x656569)
+    /// Under a server's own mark, as an app icon's dark ground.
+    static let listLogoTile = rgb(0x1F1F1F)
+}
+
+/// A symbol on a small square of colour, the way Settings draws its rows --
+/// and, so the app reads as one, every panel's header too. Each symbol
+/// keeps one colour wherever it appears.
+struct LineupIconTile: View {
+    let symbol: String
+    var size: CGFloat = 30
+    var tint: Color? = nil
+
+    var body: some View {
+        let style = Self.style(for: symbol)
+        Image(systemName: style.symbol)
+            .font(.system(size: size * 0.5, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(tint ?? style.color, in: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous))
+            .accessibilityHidden(true)
+    }
+
+    // The system's own colours, as its Settings uses them.
+    static let blue = rgb(0x0A84FF)
+    static let green = rgb(0x30D158)
+    static let red = rgb(0xFF453A)
+    static let orange = rgb(0xFF9F0A)
+    static let yellow = rgb(0xFFCC00)
+    static let pink = rgb(0xFF375F)
+    static let purple = rgb(0xBF5AF2)
+    static let indigo = rgb(0x5E5CE6)
+    static let teal = rgb(0x30B0C7)
+    static let gray = rgb(0x8E8E93)
+
+    /// The symbol drawn, filled where it has a filled form, and its colour.
+    static func style(for symbol: String) -> (symbol: String, color: Color) {
+        switch symbol {
+        case "flame": ("flame.fill", orange)
+        case "play.circle": ("play.circle.fill", blue)
+        case "heart", "heart.fill": ("heart.fill", pink)
+        case "eye.fill": ("eye.fill", blue)
+        case "shuffle": ("shuffle", purple)
+        case "play.fill": ("play.fill", green)
+        case "list.bullet": ("list.bullet", teal)
+        case "square.grid.2x2": ("square.grid.2x2.fill", indigo)
+        case "link": ("link", blue)
+        case "point.3.connected.trianglepath.dotted": ("point.3.connected.trianglepath.dotted", teal)
+        case "speedometer": ("speedometer", orange)
+        case "list.bullet.rectangle.portrait": ("list.bullet.rectangle.portrait.fill", green)
+        case "captions.bubble.fill": ("captions.bubble.fill", blue)
+        case "gearshape.fill": ("gearshape.fill", gray)
+        case "sportscourt.fill": ("sportscourt.fill", green)
+        case "rectangle.on.rectangle": ("rectangle.on.rectangle", purple)
+        case "arrow.left.arrow.right": ("arrow.left.arrow.right", blue)
+        case "line.3.horizontal.decrease": ("line.3.horizontal.decrease", teal)
+        case "heart.text.square": ("heart.text.square.fill", pink)
+        case "tv": ("tv.fill", purple)
+        case "list.star": ("list.star", teal)
+        case "rectangle.stack": ("rectangle.stack.fill", indigo)
+        case "dot.radiowaves.left.and.right": ("dot.radiowaves.left.and.right", red)
+        case "clock": ("clock.fill", blue)
+        case "calendar": ("calendar", red)
+        case "star": ("star.fill", yellow)
+        case "sportscourt": ("sportscourt.fill", green)
+        case "film": ("film.fill", indigo)
+        case "play.rectangle": ("play.rectangle.fill", red)
+        case "play.rectangle.on.rectangle": ("play.rectangle.on.rectangle.fill", purple)
+        case "person.2": ("person.2.fill", blue)
+        case "square.stack": ("square.stack.fill", indigo)
+        case "list.number": ("list.number", teal)
+        case "paintpalette": ("paintpalette.fill", pink)
+        case "slider.horizontal.3": ("slider.horizontal.3", gray)
+        case "bookmark": ("bookmark.fill", orange)
+        case "antenna.radiowaves.left.and.right": ("antenna.radiowaves.left.and.right", blue)
+        case "play.square.stack", "play.square.stack.fill": ("play.square.stack.fill", purple)
+        case "waveform.path.ecg": ("waveform.path.ecg", teal)
+        case "info.circle": ("info.circle.fill", gray)
+        case "forward.end.fill": ("forward.end.fill", blue)
+        case "magnifyingglass": ("magnifyingglass", gray)
+        case "sparkles.rectangle.stack": ("sparkles.rectangle.stack.fill", purple)
+        case "star.square.on.square": ("star.square.on.square.fill", yellow)
+        case "plus": ("plus", green)
+        case "icloud": ("icloud.fill", blue)
+        case "number": ("number", gray)
+        case "trash": ("trash.fill", red)
+        case "rectangle.stack.badge.play": ("rectangle.stack.badge.play.fill", teal)
+        case "plus.rectangle.on.rectangle": ("plus.rectangle.on.rectangle", green)
+        case "minus.rectangle": ("minus.rectangle.fill", red)
+        case "arrow.up.arrow.down": ("arrow.up.arrow.down", orange)
+        case "arrow.clockwise": ("arrow.clockwise", teal)
+        case "externaldrive.badge.plus": ("externaldrive.fill.badge.plus", indigo)
+        case "bell": ("bell.fill", red)
+        case "rectangle.stack.badge.plus": ("rectangle.stack.fill.badge.plus", indigo)
+        case "chart.line.uptrend.xyaxis": ("chart.line.uptrend.xyaxis", green)
+        case "film.stack": ("film.stack.fill", indigo)
+        case "play.slash": ("play.slash.fill", gray)
+        case "wifi.exclamationmark": ("wifi.exclamationmark", orange)
+        case "pencil": ("pencil", orange)
+        case "sparkles.tv": ("sparkles.tv.fill", purple)
+        case "rectangle.split.2x1": ("rectangle.split.2x1.fill", purple)
+        case "waveform": ("waveform", blue)
+        case "gearshape": ("gearshape.fill", gray)
+        case "checkmark": ("checkmark", green)
+        case "arrow.uturn.backward": ("arrow.uturn.backward", blue)
+        case "rectangle.stack.badge.minus": ("rectangle.stack.fill.badge.minus", red)
+        case "eye": ("eye.fill", blue)
+        case "eye.slash": ("eye.slash.fill", gray)
+        case "heart.slash": ("heart.slash.fill", gray)
+        case "star.slash": ("star.slash.fill", gray)
+        case "arrow.up": ("arrow.up", blue)
+        case "arrow.down": ("arrow.down", blue)
+        case "backward.end": ("backward.end.fill", indigo)
+        case "bell.slash": ("bell.slash.fill", gray)
+        case "captions.bubble": ("captions.bubble.fill", blue)
+        case "exclamationmark.triangle": ("exclamationmark.triangle.fill", orange)
+        case "doc.text": ("doc.text.fill", orange)
+        case "timer": ("timer", blue)
+        case "list.bullet.rectangle": ("list.bullet.rectangle.fill", green)
+        case "clock.arrow.circlepath": ("clock.arrow.circlepath", orange)
+        case "chart.bar", "chart.bar.fill": ("chart.bar.fill", green)
+        case "tablecells": ("tablecells.fill", indigo)
+        default: (symbol, gray)
+        }
+    }
+}
+
+/// The progress bar every player draws, the way the reference app draws its
+/// own: a thick, fully rounded track in a quiet grey, filled from the left in
+/// the viewer's accent. No knob and no gloss -- and a new accent repaints it
+/// with everything else.
+struct LineupProgressBar: View {
+    /// How far along, from 0 to 1.
+    let value: Double
+    /// Further along than `value`, in a softer accent: how far a broadcast
+    /// has got, which is the part of it that can be played.
+    var reach: Double? = nil
+    var height: CGFloat = Self.standardHeight
+    /// A touch brighter over artwork, which is lighter than a panel.
+    var track: Color = Self.track
+
+    #if os(tvOS)
+    static let standardHeight: CGFloat = 12
+    #else
+    static let standardHeight: CGFloat = 8
+    #endif
+    /// Reads as the same grey track over a dark panel and over a picture.
+    static let track = Color.white.opacity(0.16)
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(track)
+                if let reach {
+                    Capsule().fill(LineupStyle.highlight.opacity(0.38))
+                        .frame(width: fill(reach, of: width))
+                }
+                Capsule().fill(LineupStyle.highlight)
+                    .frame(width: fill(value, of: width))
+            }
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+
+    /// Never narrower than the bar is tall once it has started, so its end
+    /// stays round instead of pinching into a sliver.
+    private func fill(_ fraction: Double, of width: CGFloat) -> CGFloat {
+        let clamped = min(max(fraction.isFinite ? fraction : 0, 0), 1)
+        guard clamped > 0 else { return 0 }
+        return min(width, max(height, width * clamped))
+    }
+}
+
+/// A screen with nothing to show yet, in the reference app's manner rather
+/// than the system's: the subject's tile, large; what it is, in white; what
+/// to do about it, quietly; and the action that fixes it, if there is one.
+struct LineupUnavailableView<Actions: View>: View {
+    let title: String
+    let symbol: String
+    var description: Text?
+    @ViewBuilder var actions: Actions
+
+    #if os(tvOS)
+    private static var tile: CGFloat { 96 }
+    private static var titleSize: CGFloat { 34 }
+    private static var bodySize: CGFloat { 22 }
+    private static var width: CGFloat { 900 }
+    #else
+    private static var tile: CGFloat { 64 }
+    private static var titleSize: CGFloat { 20 }
+    private static var bodySize: CGFloat { 15 }
+    private static var width: CGFloat { 420 }
+    #endif
+
+    var body: some View {
+        VStack(spacing: 14) {
+            LineupIconTile(symbol: symbol, size: Self.tile)
+                .padding(.bottom, 4)
+            Text(title)
+                .font(.inter(Self.titleSize, .bold))
+                .foregroundStyle(LineupStyle.text)
+                .multilineTextAlignment(.center)
+            if let description {
+                description
+                    .font(.inter(Self.bodySize))
+                    .foregroundStyle(LineupPanelStyle.quiet)
+                    .multilineTextAlignment(.center)
+            }
+            actions.padding(.top, 6)
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: Self.width)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension LineupUnavailableView where Actions == EmptyView {
+    init(_ title: String, systemImage: String, description: Text? = nil) {
+        self.init(title: title, symbol: systemImage, description: description) { EmptyView() }
+    }
+}
+
+/// An icon and its words the way the reference app sets them: the icon on its
+/// coloured tile, the words beside it. Every labelled control uses it, so a
+/// button and a Settings row read as one family.
+struct LineupTileLabel: View {
+    let title: String
+    let symbol: String
+    var tileSize: CGFloat = 26
+    var tint: Color? = nil
+
+    var body: some View {
+        HStack(spacing: tileSize * 0.42) {
+            LineupIconTile(symbol: symbol, size: tileSize, tint: tint)
+            Text(title).lineLimit(1)
+        }
+    }
+}
+
+/// The one action a message is waiting on, such as Retry: the accent, filled,
+/// in a capsule, its words in the colour that reads on it.
+struct LineupProminentButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.inter(17, .bold))
+            .foregroundStyle(LineupStyle.onHighlight)
+            .padding(.horizontal, 22).frame(minHeight: 46)
+            .background(LineupStyle.highlight, in: Capsule())
+            .opacity(configuration.isPressed ? 0.8 : 1)
+    }
+}
+
+/// A panel's own header: icon, upper-case title, and whatever the panel puts
+/// on the right, such as See All.
+struct LineupPanelHeader<Accessory: View>: View {
+    let title: String
+    var systemImage: String?
+    @ViewBuilder var accessory: () -> Accessory
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let systemImage {
+                LineupIconTile(symbol: systemImage, size: LineupPanelStyle.headerSize * 1.6)
+            }
+            Text(title.uppercased())
+                .font(.inter(LineupPanelStyle.headerSize, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                .lineLimit(1)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            accessory()
+        }
+        .foregroundStyle(LineupPanelStyle.caption)
+    }
+}
+
+extension LineupPanelHeader where Accessory == EmptyView {
+    init(_ title: String, systemImage: String? = nil) {
+        self.init(title: title, systemImage: systemImage) { EmptyView() }
+    }
+}
+
+enum LineupStyle {
+    /// One palette for the phone and the television, so the two apps are
+    /// the same colours: the same ground, panels and greys, the viewer's
+    /// accent for what is chosen and live, the same colour for each league.
+    private static var palette: LineupPalette { .phone }
     /// The theme's text tint. Named for Velvet's lilac, which is no longer the
     /// only thing it can be.
     static var lightPurple: Color { palette.accent }
     /// The frame on a selected Live card: the one place a theme is allowed its
     /// brightest edge.
     static var liveSelectionBorder: Color {
-        #if os(tvOS)
-        return palette.selectionBorder
-        #else
         return LineupAccent.current.color
-        #endif
     }
     static var background: Color { palette.background }
     static var surface: Color { palette.surface }
@@ -150,83 +443,56 @@ enum LineupStyle {
     static var selected: Color { palette.selected }
     static var focused: Color { palette.focused }
     static var liveSurface: Color { palette.selected }
-    /// The phone's is the accent its viewer chose; the television keeps
-    /// its white.
+    /// The accent the viewer chose, on the phone and the television alike.
     static var highlight: Color {
-        #if os(tvOS)
-        return palette.highlight
-        #else
         return LineupAccent.current.color
-        #endif
     }
     static var highlightSoft: Color {
-        #if os(tvOS)
-        return palette.highlightSoft
-        #else
         return LineupAccent.current.soft
-        #endif
     }
     /// Type set on the highlight, legible whatever accent was chosen.
     static var onHighlight: Color {
-        #if os(tvOS)
-        return palette.background
-        #else
         return LineupAccent.current.onAccent
-        #endif
     }
     static var liveBorder: Color { highlight.opacity(0.72) }
     static var line: Color { palette.line }
     static var text: Color { palette.accent }
     static var secondary: Color {
-        #if os(tvOS)
-        // The light grey: a solid colour rather than white at an opacity, so
-        // it reads the same over a card, a row or the picture.
-        return rgb(0xA1A1A6)
-        #else
         return lightPurple.opacity(0.66)
-        #endif
     }
     /// Playback chrome stays legible against video.
     static var mediaText: Color { text }
     static var mediaSecondary: Color { secondary }
     static var mediaAccent: Color { text }
     static var field: Color { lightPurple }
-    /// An error on the phone is red whatever its accent.
+    /// An error is red whatever the accent.
     static var live: Color {
-        #if os(tvOS)
-        return palette.highlight
-        #else
         return broadcastRed
-        #endif
     }
     static var warning: Color { palette.warning }
-    /// What is on air. On the phone it is the accent, so the live marks and
-    /// the active ones are one colour whatever the viewer chose -- Red by
-    /// default, which is the broadcast red it always was. The television
-    /// keeps the broadcast red.
+    /// What is on air: the accent, on the phone and the television alike, so
+    /// the live marks and the active ones are one colour whatever the viewer
+    /// chose -- Red by default, which is the broadcast red it always was.
     static var liveDot: Color {
-        #if os(tvOS)
-        return broadcastRed
-        #else
         return LineupAccent.current.color
-        #endif
     }
     static var liveStatus: Color { liveDot }
     /// Type set on a live mark, legible whatever the accent is.
     static var onLive: Color {
-        #if os(tvOS)
-        return .white
-        #else
         return LineupAccent.current.onAccent
-        #endif
     }
     /// The red of failure, which is not a matter of taste.
     static var broadcastRed: Color { rgb(0xFF3347) }
     /// Confirmation -- a channel was found, a server answered.
     static var positive: Color { palette.positive }
     static var logoPlate: Color { palette.logoPlate }
+    #if os(tvOS)
     static let compactRadius: CGFloat = 8
     static let panelRadius: CGFloat = 12
+    #else
+    static let compactRadius: CGFloat = 14
+    static let panelRadius: CGFloat = 24
+    #endif
 
     /// How far a focused thing rises, in two steps.
     ///
@@ -252,6 +518,9 @@ enum LineupStyle {
         case .mlb: return leagues.baseball
         case .ufc: return leagues.combat
         case .atp, .wta: return leagues.tennis
+        case .soccer: return leagues.football
+        case .f1: return leagues.combat
+        case .nascar: return leagues.college
         }
     }
 }
@@ -357,11 +626,7 @@ extension View {
     /// state worth keeping, such as the selected tab.
     @ViewBuilder
     func lineupAccentScope(_ accent: String) -> some View {
-        #if os(tvOS)
-        self
-        #else
         id(accent)
-        #endif
     }
 
     /// A region the remote can land in as a whole.
@@ -405,22 +670,119 @@ struct LineupButtonStyle: ButtonStyle {
         PurpleButtonLabel(configuration: configuration)
     }
 
+    // The reference app's control: a capsule a step lighter than the card it
+    // sits on, its words in white -- red for one that takes something away --
+    // and its icon on a tile in the accent.
     private struct PurpleButtonLabel: View {
         @Environment(\.isFocused) private var focused
         @Environment(\.isEnabled) private var enabled
         let configuration: ButtonStyle.Configuration
 
         var body: some View {
-            let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+            let shape = Capsule()
             configuration.label
-                .foregroundStyle(LineupStyle.lightPurple)
+                .labelStyle(LineupTileLabelStyle())
+                .font(.inter(17, .semibold))
+                .foregroundStyle(configuration.role == .destructive ? LineupIconTile.red : LineupStyle.text)
                 .padding(.horizontal, 20).padding(.vertical, 12)
-                .background(LineupStyle.raised, in: shape)
+                .frame(minHeight: Self.height)
+                .background(LineupPanelStyle.well, in: shape)
                 .lineupFocusLayer(focused, in: shape)
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
                 .animation(.easeOut(duration: 0.16), value: focused)
                 .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
         }
+
+        #if os(tvOS)
+        static let height: CGFloat = 60
+        #else
+        static let height: CGFloat = 46
+        #endif
+    }
+}
+
+/// A Label's icon on a tile in the accent, beside its words: how a control
+/// with an icon reads anywhere in the app.
+struct LineupTileLabelStyle: LabelStyle {
+    #if os(tvOS)
+    var tile: CGFloat = 34
+    #else
+    var tile: CGFloat = 26
+    #endif
+
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: tile * 0.42) {
+            configuration.icon
+                .font(.system(size: tile * 0.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: tile, height: tile)
+                .background(LineupStyle.highlight,
+                            in: RoundedRectangle(cornerRadius: tile * 0.26, style: .continuous))
+            configuration.title
+        }
+    }
+}
+
+/// A button in a bar: its words in white on a capsule of the card grey with a
+/// hairline of light, as the reference app draws its round close button. The
+/// one that finishes the screen -- Done, Use -- is the accent, filled.
+struct LineupBarButtonStyle: ButtonStyle {
+    var prominent = false
+    /// A prominent button's fill and words in a colour of their own -- the
+    /// accent picker's, which shows the colour being tried.
+    var fill: Color? = nil
+    var ink: Color? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        Face(configuration: configuration, prominent: prominent, fill: fill, ink: ink)
+    }
+
+    private struct Face: View {
+        @Environment(\.isEnabled) private var enabled
+        let configuration: ButtonStyle.Configuration
+        let prominent: Bool
+        let fill: Color?
+        let ink: Color?
+
+        var body: some View {
+            configuration.label
+                .font(.inter(15, .semibold))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .foregroundStyle(prominent ? (ink ?? LineupStyle.onHighlight)
+                                 : (configuration.role == .destructive ? LineupIconTile.red : LineupStyle.text))
+                .padding(.horizontal, 14)
+                .frame(minWidth: 36, minHeight: 34)
+                .background(prominent ? (fill ?? LineupStyle.highlight) : LineupPanelStyle.fill, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(prominent ? 0 : 0.08), lineWidth: 1))
+                .contentShape(Capsule())
+                .opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : 0.45)
+        }
+    }
+}
+
+/// App-owned toolbar controls keep their intrinsic label width and their own
+/// charcoal/accent surface. Native iOS glass would otherwise wrap them again.
+struct LineupToolbarItem<Content: View>: ToolbarContent {
+    let placement: ToolbarItemPlacement
+    let content: () -> Content
+
+    init(placement: ToolbarItemPlacement, @ViewBuilder content: @escaping () -> Content) {
+        self.placement = placement
+        self.content = content
+    }
+
+    @ToolbarContentBuilder var body: some ToolbarContent {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: placement) { content().fixedSize(horizontal: true, vertical: false) }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: placement) { content().fixedSize(horizontal: true, vertical: false) }
+        }
+        #else
+        ToolbarItem(placement: placement) { content() }
+        #endif
     }
 }
 
@@ -433,13 +795,9 @@ struct LineupGlassGroup<Content: View>: View {
     var spacing: CGFloat = 8
     @ViewBuilder var content: Content
 
-    var body: some View {
-        if #available(iOS 26.0, tvOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) { content }
-        } else {
-            content
-        }
-    }
+    // No glass to merge: the app's surfaces are solid, as the reference
+    // app's are. Kept so the groups that used it need not change.
+    var body: some View { content }
 }
 
 #if os(iOS)
@@ -447,17 +805,16 @@ extension View {
     // Apple's Liquid Glass for the iPhone app's chrome and floating controls.
     // Below iOS 26 the same surfaces keep the theme's own fill and hairline, so
     // nothing shifts in size, shape or spacing on older systems.
-    @ViewBuilder
+    //
+    // Glass no longer: every floating surface is the reference app's card --
+    // its grey, solid, with a hairline of light round it -- so a panel over
+    // a picture and a panel on a page are the same thing.
     func lineupLiquidGlass<S: InsettableShape, F: ShapeStyle>(
         _ shape: S, clear: Bool = false, fallback: F,
         border: Color = .white.opacity(0.12)
     ) -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(clear ? .clear : .regular, in: shape)
-        } else {
-            self.background(fallback, in: shape)
-                .overlay(shape.strokeBorder(border, lineWidth: 1))
-        }
+        self.background(LineupPanelStyle.fill.opacity(clear ? 0.86 : 0.97), in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
     }
 
     // The floating-control default: dark scrim and hairline below iOS 26.
@@ -469,17 +826,14 @@ extension View {
     /// light the way the system's own controls do, where `lineupLiquidGlass`
     /// is a surface that only sits there. `prominent` lifts it a shade, for
     /// the one control a screen is about -- play and pause.
-    @ViewBuilder
+    // The reference app's round button, as its close button is drawn: the
+    // card grey with a white glyph and a hairline of light. The one a screen
+    // is about -- play and pause -- a step lighter.
     func lineupGlassControl<S: InsettableShape, F: ShapeStyle>(
         _ shape: S, fallback: F, prominent: Bool = false
     ) -> some View {
-        if #available(iOS 26.0, *) {
-            self.glassEffect(prominent ? Glass.regular.tint(.white.opacity(0.16)).interactive()
-                                       : Glass.regular.interactive(), in: shape)
-        } else {
-            self.background(fallback, in: shape)
-                .overlay(shape.strokeBorder(.white.opacity(0.12), lineWidth: 1))
-        }
+        self.background(prominent ? LineupPanelStyle.well : LineupPanelStyle.fill, in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
     }
 
     func lineupGlassControl<S: InsettableShape>(_ shape: S, prominent: Bool = false) -> some View {
@@ -488,13 +842,65 @@ extension View {
 
     /// The one action a message is waiting on, such as Retry: the system's
     /// prominent glass button, or its filled button below iOS 26.
-    @ViewBuilder
     func lineupProminentButton() -> some View {
-        if #available(iOS 26.0, *) {
-            self.buttonStyle(.glassProminent)
-        } else {
-            self.buttonStyle(.borderedProminent)
+        self.buttonStyle(LineupProminentButtonStyle())
+    }
+}
+
+/// A card with a header, a hairline, and its content under them. `padded`
+/// gives the content the card's insets. Rows that carry their own -- a list
+/// of games divided by hairlines, a row of posters that scrolls beneath the
+/// card's edges -- take the card's full width instead.
+struct LineupPanel<Content: View, Accessory: View>: View {
+    let title: String
+    var systemImage: String?
+    var padded = true
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            LineupPanelHeader(title: title, systemImage: systemImage, accessory: accessory)
+                .padding(.top, 15).padding(.bottom, 11)
+                .padding(.horizontal, LineupPanelStyle.inset)
+            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                .padding(.horizontal, LineupPanelStyle.inset)
+            content()
+                .padding(.horizontal, padded ? LineupPanelStyle.inset : 0)
+                .padding(.top, padded ? 16 : 0).padding(.bottom, padded ? 18 : 4)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .clipShape(LineupPanelStyle.shape)
+    }
+}
+
+extension LineupPanel where Accessory == EmptyView {
+    init(_ title: String, systemImage: String? = nil, padded: Bool = true,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.init(title: title, systemImage: systemImage, padded: padded,
+                  accessory: { EmptyView() }, content: content)
+    }
+}
+
+extension View {
+    /// A card with no header: the panel's fill and corners alone.
+    func lineupPanelCard(padding: CGFloat = LineupPanelStyle.inset) -> some View {
+        self.padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+    }
+
+    /// A filter or choice as a capsule: filled with the accent when chosen,
+    /// drawn in its outline otherwise.
+    func lineupChip(_ selected: Bool) -> some View {
+        self.font(.inter(15, .bold))
+            .lineLimit(1)
+            .foregroundStyle(selected ? LineupStyle.onHighlight : LineupStyle.highlight)
+            .padding(.horizontal, 14).frame(minHeight: 32)
+            .background(Capsule().fill(selected ? LineupStyle.highlight : Color.clear))
+            .overlay(Capsule().strokeBorder(selected ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
+            .contentShape(Capsule())
     }
 }
 
@@ -504,7 +910,7 @@ extension View {
 /// `listRowBackground`, which wants a view rather than a modifier.
 struct LineupRowBackground: View {
     var body: some View {
-        LineupStyle.raised
+        LineupPanelStyle.fill
     }
 }
 
@@ -522,6 +928,15 @@ struct LineupCellBackground: View {
 }
 
 extension View {
+    /// A section of an inset-grouped list drawn as one panel: the panel's
+    /// fill, its hairline between rows, and its side insets.
+    func lineupPanelRows() -> some View {
+        self.listRowBackground(LineupPanelStyle.fill)
+            .listRowSeparatorTint(LineupPanelStyle.divider)
+            .listRowInsets(EdgeInsets(top: 12, leading: LineupPanelStyle.inset,
+                                      bottom: 12, trailing: LineupPanelStyle.inset))
+    }
+
     /// List rows as separate Guide cells, the content inside each cell's own
     /// margins.
     func lineupCellRows() -> some View {
@@ -568,18 +983,16 @@ extension View {
     // like, so nothing shifts in size, shape or spacing on an older system.
     // Focus is not the glass's business on the television: the app's own
     // focus layer and lift sit on top of it, as they sat on the fill.
-    @ViewBuilder
+    //
+    // Glass no longer, as on the phone: the reference app's card grey,
+    // solid, with a hairline of light; a step lighter for the prominent one.
     func lineupLiquidGlass<S: InsettableShape, F: ShapeStyle>(
         _ shape: S, clear: Bool = false, fallback: F,
         border: Color = .white.opacity(0.12), prominent: Bool = false
     ) -> some View {
-        if #available(tvOS 26.0, *) {
-            self.glassEffect(prominent ? Glass.regular.tint(.white.opacity(0.16))
-                                       : (clear ? Glass.clear : Glass.regular), in: shape)
-        } else {
-            self.background(fallback, in: shape)
-                .overlay(shape.strokeBorder(border, lineWidth: 1))
-        }
+        self.background(prominent ? LineupPanelStyle.well : LineupPanelStyle.fill.opacity(clear ? 0.86 : 0.97),
+                        in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
     }
 
     func lineupLiquidGlass<S: InsettableShape>(_ shape: S, clear: Bool = false) -> some View {
@@ -623,7 +1036,7 @@ struct TVSelectable<Content: View>: View {
             .focusable()
             .focused($focused)
             .focusEffectDisabled()
-            .onTapGesture(perform: action)
+            .tvSelectAction(action)
             .onChange(of: focused) { _, value in onFocusChange?(value) }
             .onAppear { if requestInitialFocus { focused = true } }
             // The cue lives here rather than in the content, because content
@@ -704,6 +1117,22 @@ struct PageTitle: View {
                     .foregroundStyle(LineupStyle.secondary)
             }
         }
+    }
+}
+
+/// A group's caption over a list of choices, in the panels' header type:
+/// light grey and heavy, at each platform's size.
+struct LineupGroupHeading: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content.font(.inter(18, .heavy)).tracking(LineupPanelStyle.headerTracking)
+            .textCase(.uppercase)
+            .foregroundStyle(LineupPanelStyle.caption)
+        #else
+        content.font(.inter(15, .heavy)).tracking(0.4)
+            .textCase(.uppercase)
+            .foregroundStyle(LineupPanelStyle.caption)
+        #endif
     }
 }
 

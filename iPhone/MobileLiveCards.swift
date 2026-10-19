@@ -29,7 +29,7 @@ extension SportsGame {
     var spokenScoreline: String {
         let network = leadNetwork.map { ", on \($0)" } ?? ""
         let when = isLive ? (status.isEmpty ? "Live" : status) : startLabel
-        if isEvent { return "\(eventName ?? ""), \(when)\(network)" }
+        if isEvent { return "\(matchupLine), \(when)\(network)" }
         let away = Self.spokenName(awayTeam, rank: awayRank)
         let home = Self.spokenName(homeTeam, rank: homeRank)
         guard isLive else { return "\(away) \(sidesWord == "vs" ? "versus" : "at") \(home), \(when)\(network)" }
@@ -74,8 +74,8 @@ struct MobileLiveScoreboard: View {
         // A scoreboard that moves under VoiceOver's cursor reads as noise,
         // so with VoiceOver it stays on the game being watched.
         let rotates = ids.count > 1 && !voiceOver && scenePhase == .active
-        // Coloured as the Guide colours a programme: grey, a step lighter and
-        // edged in a faint red while it is on.
+        // A panel's own fill and corners; the strip says itself whether the
+        // game is on.
         let shape = RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous)
         Button {
             if shown.id != watching.id { onWatch(shown) }
@@ -87,10 +87,8 @@ struct MobileLiveScoreboard: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: MobileNowPlayingStrip.height)
-            .background(shown.isLive ? LineupStyle.focused : LineupStyle.raised)
+            .background(LineupPanelStyle.fill)
             .clipShape(shape)
-            .overlay(shape.strokeBorder(shown.isLive ? LineupStyle.liveDot.opacity(0.34) : LineupStyle.line,
-                                        lineWidth: shown.isLive ? 1 : 0.5))
             .contentShape(shape)
         }
         .buttonStyle(MobileCardButtonStyle())
@@ -128,7 +126,7 @@ struct MobileNowPlayingStrip: View {
             if game.isEvent {
                 MobileLeagueLogo(league: game.league, size: 30)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(game.eventName ?? "").font(.inter(14, .bold)).lineLimit(1)
+                    Text(game.matchupLine).font(.inter(14, .bold)).lineLimit(1)
                     if game.isLive { clock } else {
                         Text(game.startLabel).font(.interDigits(12, .heavy))
                     }
@@ -142,7 +140,7 @@ struct MobileNowPlayingStrip: View {
                         Text(game.startLabel).font(.interDigits(12, .heavy))
                     }
                     HStack(spacing: 4) {
-                        MobileLeagueLogo(league: game.league, size: 13)
+                        SportsMark(league: game.league, competition: game.competition, size: 16)
                         if let network = game.leadNetwork {
                             Text(network.uppercased()).font(.inter(10, .semibold)).foregroundStyle(LineupStyle.secondary)
                                 .lineLimit(1)
