@@ -8,6 +8,9 @@ struct SportsTeamsSettingsView: View {
     @State private var query = ""
     @State private var selectedLeague: SportsLeague? = .nfl
     @State private var soccerCompetition: String?
+    #if !os(tvOS)
+    @State private var teamPage: MobileTeamPageTarget?
+    #endif
     private let directory = SportsTeamDirectory.bundled
 
     var body: some View {
@@ -126,7 +129,7 @@ struct SportsTeamsSettingsView: View {
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if !library.followedTeams.isEmpty {
                     Section {
-                        ForEach(library.followedTeams.teams) { team in SportsTeamFollowButton(team: team, showsLeague: true) }
+                        ForEach(library.followedTeams.teams) { team in phoneRow(team) }
                     } header: { Text("Following").lineupSettingsHeader() }
                     .lineupSettingsRows()
                 }
@@ -156,7 +159,7 @@ struct SportsTeamsSettingsView: View {
                 let results = directory.teams(matching: query)
                 Section {
                     if results.isEmpty { Text("No matching teams. Try a name or abbreviation.").foregroundStyle(LineupPanelStyle.listValue) }
-                    ForEach(results) { team in SportsTeamFollowButton(team: team.followedTeam, showsLeague: true) }
+                    ForEach(results) { team in phoneRow(team.followedTeam) }
                 } header: { Text("Teams").lineupSettingsHeader() }
                 .lineupSettingsRows()
             }
@@ -175,6 +178,26 @@ struct SportsTeamsSettingsView: View {
         .navigationTitle("My Teams")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "Find a team or league")
+        .sheet(item: $teamPage) { MobileTeamPage(target: $0) }
+    }
+
+    /// The row follows and unfollows; the button beside it opens the team's
+    /// page, where ESPN has one.
+    private func phoneRow(_ team: FollowedTeam) -> some View {
+        HStack(spacing: 10) {
+            SportsTeamFollowButton(team: team, showsLeague: true)
+            if let target = MobileTeamPageTarget(side: team) {
+                Button { teamPage = target } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(LineupPanelStyle.listChevron)
+                        .frame(width: 34, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("\(team.name) team page")
+            }
+        }
     }
     #endif
 }

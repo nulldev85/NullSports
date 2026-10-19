@@ -21,6 +21,7 @@ struct MobileLiveView: View {
     @State private var pendingGame: SportsGame?
     @State private var upcomingGame: SportsGame?
     @State private var racingDetails: SportsGame?
+    @State private var teamPage: MobileTeamPageTarget?
     @State private var showsChannelSyncMessage = false
     @State private var previewStream: XtreamStream?
     @State private var expanded = false
@@ -322,6 +323,7 @@ struct MobileLiveView: View {
                 if value { expanded = false }
             }
             .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .sheet(item: $teamPage) { MobileTeamPage(target: $0) }
             .fullScreenCover(item: $multiview) { session in
                 MobileMultiviewView(session: session).environment(library)
             }
@@ -683,6 +685,12 @@ struct MobileLiveView: View {
         items.append(MobileMenuItem("Choose Another Channel", symbol: "list.bullet.rectangle") {
             choosingChannel = game
         })
+        // Each side's page: its schedule, standing, roster, injuries, news.
+        for side in library.followableSides(of: game) {
+            if let target = MobileTeamPageTarget(side: side, competition: game.competition?.id) {
+                items.append(MobileMenuItem(side.name, symbol: "person.2", id: "team-\(side.id)") { teamPage = target })
+            }
+        }
         for side in library.followableSides(of: game) {
             let following = library.isFollowing(side.key)
             items.append(MobileMenuItem(following ? "Remove \(side.name) from My Teams" : "Add \(side.name) to My Teams",
