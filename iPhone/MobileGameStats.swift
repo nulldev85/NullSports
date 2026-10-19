@@ -247,6 +247,38 @@ final class MobileGameStats: ObservableObject {
         setDelay(0)
     }
 
+    // MARK: Auto Sync
+
+    /// The sport a game's clock is read for, where its feed is a summary of
+    /// timed plays. Tennis, fights and races sync as before.
+    var autoSyncSport: String? {
+        guard case .summary(let sport, _)? = source else { return nil }
+        return sport
+    }
+
+    /// Every play ESPN has timed for the game, shown yet or not, oldest
+    /// first: what the scoreboard on screen is matched to.
+    var autoSyncPlays: [AutoSyncPlay] {
+        timeline.timedPlays(in: syncGroup).compactMap { play in
+            play.wallclock.map {
+                AutoSyncPlay(wallclock: $0, clockSeconds: play.clockSeconds, period: play.period,
+                             awayScore: play.awayScore, homeScore: play.homeScore)
+            }
+        }
+    }
+
+    /// The codes a scoreboard calls each side by.
+    var autoSyncTeams: (away: [String], home: [String])? {
+        guard let game else { return nil }
+        return ([game.awayAbbreviation], [game.homeAbbreviation])
+    }
+
+    /// The delay the scoreboard on screen says, set as a sync would set it.
+    func applyAutoSync(_ seconds: TimeInterval) {
+        guard abs(seconds - delay) >= 1 || !calibrated else { return }
+        setDelay(seconds)
+    }
+
     /// This play isn't on the viewer's screen yet: held back until a moment
     /// after it, so it waits for them to say it is.
     func hold(before play: GameStatsPlay) {

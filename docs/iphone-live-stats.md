@@ -104,3 +104,34 @@ worked out from the games between.
   the panel and the sync sheet.
 - `Tests/MobileGameStatsChecks.swift`, `Tests/MobileGameBoardChecks.swift`:
   run in the iOS build's "Check shared sports logic" step.
+
+## Auto Sync
+
+With the stats open on a live game whose feed has timed plays (football,
+basketball, hockey, baseball, soccer), the iPhone reads the broadcast's own
+scoreboard and sets the delay itself. It is on by default and can be switched
+off in the sync sheet; it runs only in the foreground, rests when the phone is
+hot, and nothing leaves the device.
+
+- **Frames.** AVPlayer and Aether's native routes through an
+  `AVPlayerItemVideoOutput` on the playing item (attached while Auto Sync
+  runs, removed when it stops); Aether's software route from its renderer's
+  displayed frame; VLC through libvlc's own snapshot, written to a file and
+  read back. Once a second until the delay settles, every four after.
+- **Reading.** Vision's text recognition, digits as they are (no language
+  correction). A game clock is minutes and seconds standing alone, not a time
+  of day, not longer than the sport's longest period; a score is the number
+  beside a side's code in the same line or the next one along.
+- **Estimates.** A countdown clock (football, basketball) reaching a play's
+  time, first seen then, gives one: seen minus happened, less the viewer's own
+  pauses. Hockey's feed counts up within the period, so its plays are turned
+  around. Soccer's clock never stops, so every running reading gives one from
+  the nearest play; a clock held at 45:00 is ignored. A score changing on
+  screen to one a play made gives one, timed from its first sighting and only
+  once read twice.
+- **Agreement.** The delay is the median of the largest group of estimates
+  within 2.5 seconds of each other (three, or two for baseball), from the last
+  ten minutes, ties to the longer. The ways an estimate goes wrong that are not
+  random (a clock stopped on a play's time before the play) make it short, so
+  football adds four seconds and the others one. A hand sync stands until the
+  scoreboard differs by a second or more.

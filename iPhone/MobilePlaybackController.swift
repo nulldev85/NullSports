@@ -4,6 +4,7 @@ import AVKit
 import CoreMedia
 import VLCKitSPM
 import LineupAetherPlayback
+import ImageIO
 
 /// Runs `body` on the main actor. AVFoundation delivers KVO on an unspecified
 /// queue, so every observer hops through here before touching controller state;
@@ -1538,6 +1539,78 @@ final class MobilePlaybackController: ObservableObject {
         guard let id = pendingWorkingChannelID, id == currentChannelID else { return }
         pendingWorkingChannelID = nil
         failover?.didPlay(id)
+    }
+
+    // MARK: - Frames for Auto Sync
+
+    /// A picture taken from the stream: AVPlayer's and Aether's as decoded,
+    /// VLC's as the PNG it writes.
+    enum CapturedFrame {
+        case pixelBuffer(CVPixelBuffer)
+        case image(CGImage)
+    }
+
+    private var frameOutput: AVPlayerItemVideoOutput?
+    private weak var frameOutputItem: AVPlayerItem?
+
+    /// The picture on screen now, for Auto Sync to read the scoreboard in.
+    /// Nil while there is nothing to read, and for the first ask on a new
+    /// stream, whose output sees frames only from then on.
+    func captureFrame() async -> CapturedFrame? {
+        guard error == nil, !loading, isPlaying else { return nil }
+        switch engine {
+        case .system:
+            return systemPlayer.currentItem.flatMap(frame(from:)).map(CapturedFrame.pixelBuffer)
+        case .aether:
+            guard let session = aetherSession else { return nil }
+            if let shown = session.displayedFrame() { return .pixelBuffer(shown) }
+            return session.currentPlayerItem.flatMap(frame(from:)).map(CapturedFrame.pixelBuffer)
+        case .vlc:
+            return await vlcSnapshot().map(CapturedFrame.image)
+        }
+    }
+
+    /// Done reading frames: the output comes off the item.
+    func releaseFrameOutput() {
+        if let output = frameOutput, let item = frameOutputItem { item.remove(output) }
+        frameOutput = nil
+        frameOutputItem = nil
+    }
+
+    private func frame(from item: AVPlayerItem) -> CVPixelBuffer? {
+        if frameOutputItem !== item {
+            releaseFrameOutput()
+            let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ])
+            item.add(output)
+            frameOutput = output
+            frameOutputItem = item
+            return nil
+        }
+        guard let output = frameOutput else { return nil }
+        let time = output.itemTime(forHostTime: CACurrentMediaTime())
+        return output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+    }
+
+    /// VLC writes the picture to a file on its own thread; it is read once
+    /// it is whole, then thrown away.
+    private func vlcSnapshot() async -> CGImage? {
+        guard let handle = libVLCHandle else { return nil }
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lineup-scoreboard-\(UUID().uuidString).png")
+        let status = file.path.withCString { libvlc_video_take_snapshot(handle, 0, $0, 1280, 0) }
+        guard status == 0 else { return nil }
+        defer { try? FileManager.default.removeItem(at: file) }
+        for _ in 0..<15 {
+            try? await Task.sleep(for: .milliseconds(100))
+            guard let data = try? Data(contentsOf: file),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  CGImageSourceGetStatus(source) == .statusComplete,
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { continue }
+            return image
+        }
+        return nil
     }
 
     // MARK: - Subtitles

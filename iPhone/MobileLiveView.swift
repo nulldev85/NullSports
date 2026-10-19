@@ -42,6 +42,7 @@ struct MobileLiveView: View {
     @StateObject private var playbackSlot = MobilePlaybackSlot()
     /// The watched game's stats, held behind the picture.
     @StateObject private var gameStats = MobileGameStats()
+    @StateObject private var autoSync = MobileAutoSync()
     /// The stats are open: under the picture upright, beside it on its side.
     @State private var showsStats = false
     @State private var syncingStats = false
@@ -184,7 +185,7 @@ struct MobileLiveView: View {
                             if statsOpen, let statsGame {
                                 // Upright, the stats take the room under the
                                 // picture that the games had.
-                                MobileGameStatsPanel(stats: gameStats, game: statsGame,
+                                MobileGameStatsPanel(stats: gameStats, game: statsGame, autoSync: autoSync.status,
                                                      onSync: { syncingStats = true },
                                                      onClose: { toggleStats() })
                                     .clipShape(RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
@@ -255,7 +256,7 @@ struct MobileLiveView: View {
                     }
 
                     if statsBeside, let statsGame {
-                        MobileGameStatsPanel(stats: gameStats, game: statsGame, sideways: true,
+                        MobileGameStatsPanel(stats: gameStats, game: statsGame, sideways: true, autoSync: autoSync.status,
                                              onSync: { syncingStats = true },
                                              onClose: { toggleStats() })
                             .padding(.top, viewport.safeAreaInsets.top)
@@ -340,7 +341,19 @@ struct MobileLiveView: View {
                 }
             }
             .sheet(isPresented: $syncingStats) {
-                if let statsGame { MobileStatsSyncSheet(stats: gameStats, game: statsGame) }
+                if let statsGame {
+                    MobileStatsSyncSheet(stats: gameStats, game: statsGame,
+                                         autoSync: gameStats.autoSyncSport == nil ? nil : autoSync)
+                }
+            }
+            // Auto Sync reads the scoreboard while the stats are open on a
+            // live game, from whichever player is showing it.
+            .task(id: "\(statsOpen)|\(watching?.isLive == true)|\(previewStream?.id ?? -1)|\(autoSync.isEnabled)") {
+                guard statsOpen, autoSync.isEnabled else { autoSync.stop(); return }
+                let slot = playbackSlot
+                autoSync.run(for: gameStats, channel: previewStream?.id,
+                             frames: { [weak slot] in await slot?.controller.captureFrame() },
+                             release: { [weak slot] in slot?.controller.releaseFrameOutput() })
             }
             // The stats follow the game on screen from the moment it opens,
             // shown or not, so what the picture needs is there when they are.
@@ -359,7 +372,7 @@ struct MobileLiveView: View {
             .overlay(alignment: .top) {
                 if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
             }
-            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel() }
+            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel(); autoSync.stop() }
             .sheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
                 MobileEventChannelsSheet(library: library, game: game, playingID: previewStream?.id) { stream in
                     pendingStream = stream

@@ -8,6 +8,8 @@ struct MobileGameStatsPanel: View {
     let game: SportsGame
     /// Beside a full-screen picture, rather than under an upright one.
     var sideways = false
+    /// Whether the scoreboard on screen is keeping the stats in step.
+    var autoSync: MobileAutoSync.Status = .off
     let onSync: () -> Void
     var onClose: (() -> Void)? = nil
 
@@ -212,6 +214,8 @@ struct MobileGameStatsPanel: View {
         let seconds = Int(stats.totalDelay.rounded())
         if reveal.catchingUp { return "Catching up to your stream · \(reveal.catchingUpFor ?? seconds)s" }
         if stats.needsFocus { return "Pick the match on your screen to sync" }
+        if autoSync == .synced { return "Auto-synced · your stream is \(seconds)s behind live" }
+        if autoSync == .reading && !stats.calibrated { return "Auto Sync is reading the scoreboard…" }
         return stats.calibrated ? "In sync · your stream is \(seconds)s behind live"
                                 : "Held \(seconds)s behind live · tap to sync"
     }
@@ -417,6 +421,8 @@ enum MobileTeamColor {
 struct MobileStatsSyncSheet: View {
     @ObservedObject var stats: MobileGameStats
     let game: SportsGame
+    /// Nil where the scoreboard cannot be read: tennis, fights, races.
+    var autoSync: MobileAutoSync? = nil
     @Environment(\.dismiss) private var dismiss
 
     private enum Step: Equatable {
@@ -447,6 +453,8 @@ struct MobileStatsSyncSheet: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.top, 22)
+
+                if let autoSync { AutoSyncToggle(autoSync: autoSync).padding(.top, 18) }
 
                 Group {
                     if stats.needsFocus {
@@ -687,5 +695,34 @@ struct MobileStatsSyncSheet: View {
     static func duration(_ seconds: TimeInterval) -> String {
         let whole = Int(seconds.rounded())
         return whole >= 60 ? "\(whole / 60)m \(whole % 60)s" : "\(whole)s"
+    }
+}
+
+/// Auto Sync on or off, and what it is doing.
+private struct AutoSyncToggle: View {
+    @ObservedObject var autoSync: MobileAutoSync
+
+    var body: some View {
+        Toggle(isOn: $autoSync.isEnabled) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Auto Sync").font(.inter(16, .semibold))
+                Text(detail).font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .tint(LineupStyle.highlight)
+        .padding(16)
+        .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var detail: String {
+        guard autoSync.isEnabled else {
+            return "Reads the clock and score on your picture to keep the stats in step, on this iPhone."
+        }
+        switch autoSync.status {
+        case .synced: return "In step with the scoreboard on your picture. It keeps watching in case your stream moves."
+        case .reading: return "Reading the clock and score on your picture. It takes a minute of play."
+        case .off: return "Starts when the stats are open on a live game."
+        }
     }
 }
