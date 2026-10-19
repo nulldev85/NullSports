@@ -8,6 +8,14 @@ public enum AetherPlaybackPhase: Equatable { case idle, loading, buffering, play
 public struct AetherPlaybackTrack {
     public let id: Int
     public let title: String
+    /// The track's language code, where the file says.
+    public let language: String?
+
+    public init(id: Int, title: String, language: String? = nil) {
+        self.id = id
+        self.title = title
+        self.language = language
+    }
 }
 
 /// A dynamic-framework boundary keeps Aether's FFmpeg references bound to its
@@ -195,11 +203,11 @@ public final class AetherPlaybackSession {
     private func applyVolume() { engine.volume = muted ? 0 : level }
 
     public var subtitles: [AetherPlaybackTrack] {
-        engine.subtitleTracks.map { .init(id: $0.id, title: Self.title($0, fallback: "Subtitle")) }
+        engine.subtitleTracks.map { .init(id: $0.id, title: Self.title($0, fallback: "Subtitle"), language: $0.language) }
     }
     public var selectedSubtitleIndex: Int? { engine.activeSubtitleTrackIndex }
     public var audioTracks: [AetherPlaybackTrack] {
-        engine.audioTracks.map { .init(id: $0.id, title: Self.title($0, fallback: "Audio")) }
+        engine.audioTracks.map { .init(id: $0.id, title: Self.title($0, fallback: "Audio"), language: $0.language) }
     }
     public var selectedAudioIndex: Int? { engine.activeAudioTrackIndex }
     private static func title(_ track: TrackInfo, fallback: String) -> String {
@@ -211,7 +219,8 @@ public final class AetherPlaybackSession {
     }
 
     public func load(url: URL, startPosition: Double?, isLive: Bool, expectedDuration: Double?, primary: Bool, matchContent: Bool,
-                     preferredSubtitleLanguages: [String] = []) {
+                     preferredSubtitleLanguages: [String] = [],
+                     preferredAudioLanguages: [String] = ["en", "eng"]) {
         stop()
         let token = generation
         isOpen = true
@@ -233,7 +242,7 @@ public final class AetherPlaybackSession {
         // Live H.264 otherwise stays on a native path that cannot show frames.
         options.preferredDecodePath = .software
         #endif
-        options.preferredAudioLanguages = ["en", "eng"]
+        options.preferredAudioLanguages = preferredAudioLanguages
         options.preferredSubtitleLanguages = preferredSubtitleLanguages
         options.declaredDurationSeconds = expectedDuration
         options.suppressDisplayCriteria = !matchContent
@@ -344,6 +353,19 @@ public final class AetherPlaybackSession {
         return info.id
     }
     public func selectAudio(index: Int) { engine.selectAudioTrack(index: index) }
+
+    #if os(iOS)
+    /// The picture on screen now, for reading what it shows (Auto Sync's
+    /// scoreboard): the software renderer's own frame. Nil on a route
+    /// AVPlayer draws, whose item `currentPlayerItem` reads instead.
+    public func displayedFrame() -> CVPixelBuffer? {
+        guard engine.videoRoute == .software, let layer = engine.softwarePiPSource?.layer else { return nil }
+        return layer.sampleBufferRenderer.displayedPixelBuffer()
+    }
+
+    /// The item AVPlayer is drawing, on the routes it draws.
+    public var currentPlayerItem: AVPlayerItem? { engine.currentAVPlayerItem }
+    #endif
 
     public static func openSourceNotices() -> String {
         guard let directory = Bundle(for: AetherPlaybackSession.self).resourceURL?

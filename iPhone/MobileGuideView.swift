@@ -27,7 +27,7 @@ private struct PendingRecording {
 }
 
 struct MobileGuideView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
@@ -312,16 +312,16 @@ struct MobileGuideView: View {
                     pendingRecording = PendingRecording(stream: stream, programme: programme)
                     catchUpChannel = nil
                 }
-                .environmentObject(library)
+                .environment(library)
                 .tint(LineupStyle.highlight)
                 .preferredColorScheme(.dark)
             }
             .fullScreenCover(item: $multiview) { session in
-                MobileMultiviewView(session: session).environmentObject(library)
+                MobileMultiviewView(session: session).environment(library)
             }
             .sheet(isPresented: $reorderingFavorites) {
                 FavoritesOrderView()
-                    .environmentObject(library)
+                    .environment(library)
                     .tint(LineupStyle.highlight)
                     .preferredColorScheme(.dark)
             }
@@ -768,7 +768,7 @@ private struct GuideHorizontalPosition: PreferenceKey {
 /// Favorites order drives the guide's channel order, so this list edits it directly:
 /// drag a row to move a channel, swipe or tap the minus to drop it.
 private struct FavoritesOrderView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

@@ -33,13 +33,19 @@ final class CloudSettingsSync: ObservableObject {
 
     private init() {}
 
+    /// The app's root watches this, and the sync runs every ninety seconds:
+    /// setting the same words again would redraw every screen that often.
+    private func report(_ text: String) {
+        if status != text { status = text }
+    }
+
     func sync() async {
         #if LINEUP_UNSIGNED_BUILD
-        status = "iCloud sync requires a signed build with CloudKit enabled"
+        report("iCloud sync requires a signed build with CloudKit enabled")
         return
         #endif
         #if targetEnvironment(simulator)
-        status = "iCloud sync requires a signed device build"
+        report("iCloud sync requires a signed device build")
         return
         #endif
         guard !isApplying else { return }
@@ -59,16 +65,16 @@ final class CloudSettingsSync: ObservableObject {
                 .flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) }
             if let incoming, incoming.updatedAt > local.updatedAt {
                 apply(incoming)
-                status = "Synced with iCloud"
+                report("Synced with iCloud")
                 return
             }
             if incoming == nil || local.updatedAt > (incoming?.updatedAt ?? .distantPast) {
                 try await upload(local, existing: remote)
             }
-            status = "Synced with iCloud"
+            report("Synced with iCloud")
         } catch {
             if let cloudError = error as? CKError, cloudError.code == .serverRecordChanged { needsSync = true }
-            status = "Sync unavailable: \(error.localizedDescription)"
+            report("Sync unavailable: \(error.localizedDescription)")
         }
     }
 

@@ -62,6 +62,10 @@ struct GameStatsPlay: Identifiable, Equatable, Sendable {
     var badge: String? = nil
     /// The match or fight it belongs to, on a board of several.
     var group: String? = nil
+    /// The clock in seconds, as ESPN keeps it: time left in the period, or
+    /// for soccer and hockey time gone. What Auto Sync matches the clock on
+    /// screen to.
+    var clockSeconds: Double? = nil
 
     /// When it happened, where that is known without the timeline: ESPN's
     /// own time, or the end of the window it was found in.
@@ -338,6 +342,7 @@ enum GameStatsParser {
             guard let id = string(raw["id"]), let text = string(raw["text"]) else { return nil }
             let period = raw["period"] as? [String: Any]
             let clock = (raw["clock"] as? [String: Any]).flatMap { string($0["displayValue"]) }
+            let clockValue = ((raw["clock"] as? [String: Any])?["value"] as? NSNumber)?.doubleValue
             return GameStatsPlay(
                 id: id,
                 sequence: int(raw["sequenceNumber"]) ?? Int(id.suffix(9)) ?? 0,
@@ -349,7 +354,8 @@ enum GameStatsParser {
                 awayScore: int(raw["awayScore"]) ?? 0,
                 homeScore: int(raw["homeScore"]) ?? 0,
                 teamID: string((raw["team"] as? [String: Any])?["id"]) ?? fallbackTeam,
-                drive: drive)
+                drive: drive,
+                clockSeconds: sport == "baseball" ? nil : clockValue ?? clock.flatMap(clockSeconds))
         }
         if let drives = root["drives"] as? [String: Any] {
             var all = drives["previous"] as? [[String: Any]] ?? []
@@ -376,6 +382,14 @@ enum GameStatsParser {
             }
         }
         return result.sorted { $0.sequence < $1.sequence }
+    }
+
+    /// "10:55" as 655 seconds; nil for anything else -- "45.2", "6'".
+    static func clockSeconds(_ display: String) -> Double? {
+        let parts = display.split(separator: ":")
+        guard parts.count == 2, let minutes = Int(parts[0]), let seconds = Int(parts[1]),
+              (0..<60).contains(seconds) else { return nil }
+        return Double(minutes * 60 + seconds)
     }
 
     /// Soccer's plays are its commentary -- every shot, corner, card and
@@ -431,7 +445,8 @@ enum GameStatsParser {
                 clock: (raw["clock"] as? [String: Any]).flatMap { string($0["displayValue"]) },
                 wallclock: date(raw["wallclock"]), scoring: scoring,
                 awayScore: score.away, homeScore: score.home,
-                teamID: team.map { $0 == .away ? away.id : home.id }, drive: nil))
+                teamID: team.map { $0 == .away ? away.id : home.id }, drive: nil,
+                clockSeconds: ((raw["clock"] as? [String: Any])?["value"] as? NSNumber)?.doubleValue))
         }
         return result
     }

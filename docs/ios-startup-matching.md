@@ -87,3 +87,35 @@ relevance, tracking, navigation and full simulator coverage remain enabled.
 Apple SDK execution is pending CI; Swift/Xcode are unavailable on this Windows
 workspace. The speed improvement on the user's actual provider needs a new
 device timing report after installing the review build.
+
+## Kept matches stay kept
+
+A matching pass runs on every refresh that changes what matching reads, every
+few minutes while a live game has no channel, and every five minutes when only
+scores moved. Most of those passes keep every match they already have, and
+each used to prepare every candidate channel's guide first.
+
+A pass now reads a channel's guide the first time it needs it. A game whose
+match is kept (its signature unchanged, the kept channel still verified against
+the current guide, not in another language, not a tennis channel shared between
+tournaments) reads that one channel. A game looked for afresh reads its
+candidates. On iOS the per-game candidate shortlists are carried from the last
+pass while the channel list and guide are the same ones (the index generation)
+and the game's identity is unchanged. Within a generation the guide only loses
+listings as they end, so a carried shortlist holds every channel a rebuilt one
+would. The word indexes are built only for a game without one: the first pass
+of a generation, or a game new to it. The Channels list keeps its hints either
+way.
+
+College games keep their matches the way every other league does: the
+signature is the game's identity plus whether it is delayed, and the kept
+channel must still score. They used to be scored against the whole college
+pool, or its shortlist, on every pass.
+
+Restored matches are given the signature a pass writes. They were given an
+older form, which no pass matched, so the first pass after every launch looked
+for every restored game again.
+
+Launch Timing's "candidate scores" line says how many channels and guides a
+pass read, how many college matches it kept, and whether shortlists were
+carried or rebuilt.

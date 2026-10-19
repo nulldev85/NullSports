@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ProfileSetupView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @State private var profileName = ""
     @State private var serverURL = ""

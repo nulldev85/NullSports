@@ -6,20 +6,37 @@ struct MediaRatings: Codable, Equatable, Sendable {
     var imdb: Double?
     var tmdb: Double?
     var rottenTomatoes: Int?
+    /// The Metascore, out of a hundred.
+    var metacritic: Int?
+    /// Letterboxd's average, out of five stars.
+    var letterboxd: Double?
 
-    init(imdb: Double? = nil, tmdb: Double? = nil, rottenTomatoes: Int? = nil) {
+    init(imdb: Double? = nil, tmdb: Double? = nil, rottenTomatoes: Int? = nil,
+         metacritic: Int? = nil, letterboxd: Double? = nil) {
         self.imdb = imdb
         self.tmdb = tmdb
         self.rottenTomatoes = rottenTomatoes
+        self.metacritic = metacritic
+        self.letterboxd = letterboxd
     }
 
-    var isEmpty: Bool { imdb == nil && tmdb == nil && rottenTomatoes == nil }
+    var isEmpty: Bool {
+        imdb == nil && tmdb == nil && rottenTomatoes == nil && metacritic == nil && letterboxd == nil
+    }
+    /// The three every film and show has somewhere. Metacritic and Letterboxd
+    /// leave many out -- Letterboxd has no shows at all -- so a title without
+    /// them is not missing anything to ask about again.
     var isComplete: Bool { imdb != nil && tmdb != nil && rottenTomatoes != nil }
+    /// Whether only MDBList could add more: it is the one source of
+    /// Metacritic and Letterboxd.
+    var lacksListScores: Bool { metacritic == nil && letterboxd == nil }
 
     /// These, with whatever they lack taken from `other`.
     func filling(from other: MediaRatings) -> MediaRatings {
         MediaRatings(imdb: imdb ?? other.imdb, tmdb: tmdb ?? other.tmdb,
-                     rottenTomatoes: rottenTomatoes ?? other.rottenTomatoes)
+                     rottenTomatoes: rottenTomatoes ?? other.rottenTomatoes,
+                     metacritic: metacritic ?? other.metacritic,
+                     letterboxd: letterboxd ?? other.letterboxd)
     }
 
     /// From a server's per-source scores, which every addon stores out of a
@@ -31,6 +48,8 @@ struct MediaRatings: Codable, Equatable, Sendable {
             case "imdb": imdb = Self.tenths(metric.value / 10)
             case "tmdb": tmdb = Self.tenths(metric.value / 10)
             case "rottentomatoes", "rotten_tomatoes", "tomatoes": rottenTomatoes = Self.percent(metric.value)
+            case "metacritic": metacritic = Self.percent(metric.value)
+            case "letterboxd": letterboxd = Self.stars(metric.value / 20)
             default: break
             }
         }
@@ -45,8 +64,9 @@ struct MediaRatings: Codable, Equatable, Sendable {
     }
 
     /// From MDBList's `ratings`, a list of `{source, value, score}`. IMDb's
-    /// value is out of ten; TMDB's and the Tomatometer's are out of a hundred,
-    /// and so is every score, which stands in when a value is missing.
+    /// value is out of ten; TMDB's, the Tomatometer's and the Metascore are
+    /// out of a hundred; Letterboxd's is out of five stars; and every score is
+    /// out of a hundred, standing in when a value is missing.
     init(mdbList raw: Any?) {
         self.init()
         guard let entries = raw as? [[String: Any]] else { return }
@@ -61,6 +81,11 @@ struct MediaRatings: Codable, Equatable, Sendable {
                 if let score { tmdb = Self.tenths(score / 10) } else if let value { tmdb = Self.outOfTen(value) }
             case "tomatoes", "rottentomatoes":
                 if let found = value ?? score { rottenTomatoes = Self.percent(found) }
+            case "metacritic":
+                if let found = value ?? score { metacritic = Self.percent(found) }
+            case "letterboxd":
+                if let value, value <= 5 { letterboxd = Self.stars(value) }
+                else if let found = score ?? value { letterboxd = Self.stars(found / 20) }
             default:
                 break
             }
@@ -75,6 +100,11 @@ struct MediaRatings: Codable, Equatable, Sendable {
 
     private static func tenths(_ value: Double) -> Double {
         (min(max(value, 0), 10) * 10).rounded() / 10
+    }
+
+    /// Stars out of five, to a tenth.
+    private static func stars(_ value: Double) -> Double {
+        (min(max(value, 0), 5) * 10).rounded() / 10
     }
 
     static func percent(_ value: Double) -> Int {

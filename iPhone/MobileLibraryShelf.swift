@@ -19,7 +19,7 @@ final class MobileLibraryShelfPosition {
 }
 
 struct MobileLibraryShelf: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.mobileHoldMenu) private var holdMenu
     @ScaledMetric(relativeTo: .subheadline) private var titleHeight: CGFloat = 40
     @ScaledMetric(relativeTo: .caption2) private var metadataHeight: CGFloat = 16
@@ -161,7 +161,7 @@ struct MobileLibraryShelfView: UIViewRepresentable {
             let media = owner.media
             cell.contentConfiguration = UIHostingConfiguration {
                 MediaItemCard(item: item, shape: shape)
-                    .environmentObject(media)
+                    .environment(media)
                     .frame(width: size.width, height: size.cardHeight, alignment: .topLeading)
                     .id(item.libraryKey)
                     .allowsHitTesting(false)

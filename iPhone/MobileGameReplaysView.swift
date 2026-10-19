@@ -2,7 +2,7 @@ import SwiftUI
 
 struct MobileGameReplaysSection: View {
     @Environment(\.mobileHoldMenu) private var menu
-    @ObservedObject var library: SportsLibrary
+    var library: SportsLibrary
     @ObservedObject var store: MobileGameReplayStore
     let enabled: Bool
     let onSelect: (MobileGameReplaySelection) -> Void
@@ -133,7 +133,7 @@ struct MobileGameReplaysSection: View {
 }
 
 struct MobileGameReplayPlayer: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var controller = MobilePlaybackController()

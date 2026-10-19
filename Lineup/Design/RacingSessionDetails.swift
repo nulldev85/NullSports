@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct RacingSessionDetails: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     let game: SportsGame
     private var current: SportsGame { library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game }

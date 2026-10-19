@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Where ESPN keeps a game's live account.
 enum GameStatsSource: Equatable, Sendable {
@@ -91,7 +92,52 @@ final class MobileGameStats: ObservableObject {
     /// a channel's recording played behind the broadcast. Read every second.
     var playerLag: () -> TimeInterval = { 0 }
 
-    init(session: URLSession = .shared) { self.session = session }
+    /// Nothing shows the stats while the app is in the background -- its
+    /// picture in Picture in Picture, or its sound alone -- so the feed is
+    /// not asked and nothing is worked out. Back on screen it is asked at
+    /// once, and what changed meanwhile is placed between the two answers,
+    /// as ever: never early.
+    private var inBackground = false
+    private var foregroundWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var lifecycleNotifications: [NSObjectProtocol] = []
+
+    init(session: URLSession = .shared) {
+        self.session = session
+        let center = NotificationCenter.default
+        lifecycleNotifications = [
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+                               object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.inBackground = true }
+            },
+            center.addObserver(forName: UIApplication.willEnterForegroundNotification,
+                               object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.cameToForeground() }
+            }
+        ]
+    }
+
+    deinit {
+        lifecycleNotifications.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    private func cameToForeground() {
+        inBackground = false
+        let waiting = foregroundWaiters.values
+        foregroundWaiters = [:]
+        waiting.forEach { $0.resume() }
+    }
+
+    /// At once on screen; in the background, once the app is back, or the
+    /// feed is stopped.
+    private func untilForeground() async {
+        guard inBackground, !Task.isCancelled else { return }
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { foregroundWaiters[id] = $0 }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.foregroundWaiters.removeValue(forKey: id)?.resume() }
+        }
+    }
 
     /// On a tennis tournament, the match the viewer says is on their
     /// screen: the one its plays and syncing keep to.
@@ -201,6 +247,38 @@ final class MobileGameStats: ObservableObject {
         setDelay(0)
     }
 
+    // MARK: Auto Sync
+
+    /// The sport a game's clock is read for, where its feed is a summary of
+    /// timed plays. Tennis, fights and races sync as before.
+    var autoSyncSport: String? {
+        guard case .summary(let sport, _)? = source else { return nil }
+        return sport
+    }
+
+    /// Every play ESPN has timed for the game, shown yet or not, oldest
+    /// first: what the scoreboard on screen is matched to.
+    var autoSyncPlays: [AutoSyncPlay] {
+        timeline.timedPlays(in: syncGroup).compactMap { play in
+            play.wallclock.map {
+                AutoSyncPlay(wallclock: $0, clockSeconds: play.clockSeconds, period: play.period,
+                             awayScore: play.awayScore, homeScore: play.homeScore)
+            }
+        }
+    }
+
+    /// The codes a scoreboard calls each side by.
+    var autoSyncTeams: (away: [String], home: [String])? {
+        guard let game else { return nil }
+        return ([game.awayAbbreviation], [game.homeAbbreviation])
+    }
+
+    /// The delay the scoreboard on screen says, set as a sync would set it.
+    func applyAutoSync(_ seconds: TimeInterval) {
+        guard abs(seconds - delay) >= 1 || !calibrated else { return }
+        setDelay(seconds)
+    }
+
     /// This play isn't on the viewer's screen yet: held back until a moment
     /// after it, so it waits for them to say it is.
     func hold(before play: GameStatsPlay) {
@@ -225,6 +303,8 @@ final class MobileGameStats: ObservableObject {
             }
             self.target = target
             while !Task.isCancelled {
+                await self.untilForeground()
+                guard !Task.isCancelled else { return }
                 await self.fetch(target)
                 // A game on now every ten seconds -- ESPN's own refresh is
                 // five -- and one not yet started or finished once a minute.
@@ -234,6 +314,7 @@ final class MobileGameStats: ObservableObject {
         }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
+                await self?.untilForeground()
                 self?.refreshReveal()
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
             }
@@ -274,6 +355,8 @@ final class MobileGameStats: ObservableObject {
     private func followBoard(_ source: GameStatsSource) async {
         var found = false
         while !Task.isCancelled {
+            await untilForeground()
+            guard !Task.isCancelled else { return }
             if let report = await board(source) {
                 guard !Task.isCancelled, self.source == source else { return }
                 found = true

@@ -13,6 +13,42 @@ enum XtreamPayloadDigest {
     }
 }
 
+/// What a guide server said identifies the guide it sent -- its `ETag` and
+/// `Last-Modified` -- with the digest of those bytes, so the next refresh can
+/// ask for them only if they changed. Kept per guide address, by a digest of
+/// it: the address carries the account's password.
+struct GuideValidators {
+    struct Entry: Codable, Equatable {
+        let digest: String
+        let etag: String?
+        let lastModified: String?
+    }
+
+    static let key = "Lineup.guideValidators.v1"
+    let defaults: UserDefaults
+
+    func entry(for url: URL) -> Entry? {
+        guard let saved = defaults.data(forKey: Self.key),
+              let entries = try? JSONDecoder().decode([String: Entry].self, from: saved) else { return nil }
+        return entries[Self.name(url)]
+    }
+
+    /// A server that sent neither validator has nothing to ask with, and
+    /// its address is forgotten.
+    func record(_ entry: Entry, for url: URL) {
+        var entries = defaults.data(forKey: Self.key)
+            .flatMap { try? JSONDecoder().decode([String: Entry].self, from: $0) } ?? [:]
+        let name = Self.name(url)
+        let kept = entry.etag != nil || entry.lastModified != nil ? entry : nil
+        guard entries[name] != kept else { return }
+        entries[name] = kept
+        if entries.count > 16, let kept { entries = [name: kept] }
+        defaults.set(try? JSONEncoder().encode(entries), forKey: Self.key)
+    }
+
+    private static func name(_ url: URL) -> String { XtreamPayloadDigest.of(Data(url.absoluteString.utf8)) }
+}
+
 /// Something a server sent, and the digest of the bytes it arrived in.
 struct XtreamPayload<Value: Sendable>: Sendable {
     let value: Value
@@ -200,13 +236,27 @@ struct XtreamClient {
         }
         var request = URLRequest(url: url)
         request.timeoutInterval = 45
-        request.cachePolicy = .reloadRevalidatingCacheData
-        let (data, response) = try await Self.data(for: request, progress: progress)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw XtreamError.serverRejected
+        // The guide is too big for the shared cache to keep, so the app keeps
+        // the server's validators itself and asks whether the guide it holds
+        // has changed. A server that keeps them answers 304 and sends nothing;
+        // one that doesn't sends the guide as before.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let validators = GuideValidators(defaults: .standard)
+        if let digest, let saved = validators.entry(for: url), saved.digest == digest {
+            if let etag = saved.etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
+            if let modified = saved.lastModified { request.setValue(modified, forHTTPHeaderField: "If-Modified-Since") }
         }
+        let (data, response) = try await Self.data(for: request, progress: progress)
+        guard let http = response as? HTTPURLResponse else { throw XtreamError.serverRejected }
+        if http.statusCode == 304, digest != nil { return .unchanged(bytes: 0) }
+        guard (200..<300).contains(http.statusCode) else { throw XtreamError.serverRejected }
         let fresh = XtreamPayloadDigest.of(data)
-        if let digest, digest == fresh { return .unchanged(bytes: data.count) }
+        let entry = GuideValidators.Entry(digest: fresh, etag: http.value(forHTTPHeaderField: "ETag"),
+                                          lastModified: http.value(forHTTPHeaderField: "Last-Modified"))
+        if let digest, digest == fresh {
+            validators.record(entry, for: url)
+            return .unchanged(bytes: data.count)
+        }
         let programs = try await Task.detached(priority: .utility) {
             let expanded = try XMLTVData.expanded(data)
             let parser = XMLTVParser()
@@ -214,6 +264,8 @@ struct XtreamClient {
             guard parser.isValid else { throw PlaylistError.guide }
             return programs
         }.value
+        // Only for a guide that read: the validators stand for what is held.
+        validators.record(entry, for: url)
         return .fresh(XtreamPayload(value: programs, digest: fresh, bytes: data.count))
     }
 
