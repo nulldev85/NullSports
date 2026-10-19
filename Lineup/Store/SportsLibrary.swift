@@ -198,6 +198,8 @@ final class SportsLibrary: ObservableObject {
     /// throughout, which is why nothing here feeds `channelsAreSyncing`.
     private var backgroundRefresh: Task<Void, Never>?
     private var scheduleWriteTask: Task<Void, Never>?
+    /// When matching last ran, for the rematch a score-only refresh waits on.
+    private var lastMatchingPass = Date.distantPast
     private var scheduleRefreshInFlight = false
     private var lastSavedMatchIdentities: [String: [String]] = [:]
     private var lastSavedMatchDay: Date?
@@ -283,10 +285,19 @@ final class SportsLibrary: ObservableObject {
 
     // A channel's guide usually only names the game once it is under way, and a
     // scoreless opening gives the schedule nothing to change, so nothing asks
-    // matching to look again. Retry rather than leave a live game unmatched.
+    // matching to look again. Retry rather than leave a live game unmatched:
+    // on every refresh around its start, when providers add a game's channel
+    // and name it in the guide, and every few minutes after. A slate always
+    // has some live game no provider carries, and retrying it every thirty
+    // seconds all day rematched every channel just as often.
     private var hasUnmatchedLiveGame: Bool {
-        gamesByLeague.values.contains { games in
-            games.contains { $0.isLive && gameStreamCache[$0.id] == nil }
+        let now = Date()
+        let rested = now.timeIntervalSince(lastMatchingPass) >= Self.scoreOnlyRematchInterval
+        return gamesByLeague.values.contains { games in
+            games.contains { game in
+                game.isLive && gameStreamCache[game.id] == nil
+                    && (rested || now < game.start.addingTimeInterval(ProviderRefreshPolicy.window))
+            }
         }
     }
 
@@ -526,7 +537,11 @@ final class SportsLibrary: ObservableObject {
         if !didRestoreSchedule {
             let key = scheduleKey
             let cached = await Task.detached(priority: .utility) { () -> ScheduleCache? in
-                guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+                // Earlier versions kept it in preferences; it is read from
+                // there once and taken out.
+                let saved = (try? Data(contentsOf: Self.scheduleURL())) ?? UserDefaults.standard.data(forKey: key)
+                UserDefaults.standard.removeObject(forKey: key)
+                guard let data = saved else { return nil }
                 // Undated legacy snapshots need a fresh fetch, not a guessed date.
                 return try? JSONDecoder().decode(ScheduleCache.self, from: data)
             }.value
@@ -1047,6 +1062,13 @@ final class SportsLibrary: ObservableObject {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
     }
 
+    /// The last good schedule, for a cold start before the feed answers. A
+    /// file, not a preference: preferences are read whole at launch and
+    /// written whole on every save, and this changes with every score.
+    nonisolated private static func scheduleURL() -> URL {
+        cacheDirectory().appendingPathComponent("lineup-schedule.json")
+    }
+
     /// The one-file cache written by every version before the split.
     nonisolated private static func cacheURL(profileID: UUID) -> URL {
         cacheDirectory().appendingPathComponent("lineup-\(profileID.uuidString).json")
@@ -1238,7 +1260,8 @@ final class SportsLibrary: ObservableObject {
                             games[league] = (fresh + keptTomorrow).sorted { $0.start < $1.start }
                         }
                     }
-                    return (games, games != previousGames)
+                    return (games, games != previousGames,
+                            Self.matchingInputs(games) != Self.matchingInputs(previousGames))
                 }.value
                 guard self.activeProfile?.id == profileID,
                       Calendar.current.isDate(today, inSameDayAs: Date()) else { return }
@@ -1246,7 +1269,13 @@ final class SportsLibrary: ObservableObject {
                     self.gamesByLeague = update.0
                     self.persistSchedule(loadedLeagues: self.scheduleLoadedLeagues.union(snapshot.loadedLeagues))
                 }
-                if update.1 || self.hasUnmatchedLiveGame {
+                // A score or a clock moving can't change which channel carries a
+                // game. A refresh that moved only those rematches every few
+                // minutes, which still rechecks kept matches against the guide,
+                // rather than every thirty seconds through a live game: each
+                // pass prepares every channel's listings.
+                if update.2 || self.hasUnmatchedLiveGame
+                    || (update.1 && Date().timeIntervalSince(self.lastMatchingPass) >= Self.scoreOnlyRematchInterval) {
                     await self.rebuildGameStreamCache()
                 }
                 if self.hasUnmatchedGameNeedingProviderData,
@@ -1255,7 +1284,11 @@ final class SportsLibrary: ObservableObject {
                     await self.refreshLibrary(forceGuide: true, refreshChannels: true, invalidatesSession: false)
                 }
                 guard self.activeProfile?.id == profileID else { return }
-                self.scheduleValidatedLeagues.formUnion(snapshot.loadedLeagues)
+                // Only when it adds one: every change to it redraws whatever
+                // watches the library.
+                if !snapshot.loadedLeagues.isSubset(of: self.scheduleValidatedLeagues) {
+                    self.scheduleValidatedLeagues.formUnion(snapshot.loadedLeagues)
+                }
                 await self.promoteCachedMatchesIfSafe()
                 let loadedLeagues = self.scheduleLoadedLeagues.union(snapshot.loadedLeagues)
                 if loadedLeagues != self.scheduleLoadedLeagues { self.scheduleLoadedLeagues = loadedLeagues }
@@ -1266,13 +1299,10 @@ final class SportsLibrary: ObservableObject {
 
     private func persistSchedule(loadedLeagues: Set<SportsLeague>) {
         let value = ScheduleCache(savedAt: Date(), games: Dictionary(uniqueKeysWithValues: loadedLeagues.map { ($0.rawValue, gamesByLeague[$0] ?? []) }))
-        let key = scheduleKey
         let previousWrite = scheduleWriteTask
         scheduleWriteTask = Task.detached(priority: .utility) {
             await previousWrite?.value
-            if let data = try? JSONEncoder().encode(value) {
-                UserDefaults.standard.set(data, forKey: key)
-            }
+            Self.write(value, to: Self.scheduleURL())
         }
     }
 
@@ -1435,6 +1465,25 @@ final class SportsLibrary: ObservableObject {
                   game.start >= day || (game.isLive && now.timeIntervalSince(game.start) < 12 * 60 * 60) else { return }
             result[game.id] = Self.matchIdentity(game)
         }
+    }
+
+    /// How often a refresh that moved only scores and clocks rematches.
+    private static let scoreOnlyRematchInterval: TimeInterval = 5 * 60
+
+    /// Each game as channel matching reads it: everything but what moves
+    /// while it is played -- the score, the clock, a match's sets, a race's
+    /// order. A college game's clock counts only as far as saying it is
+    /// delayed, which its matcher reads.
+    nonisolated private static func matchingInputs(_ games: [SportsLeague: [SportsGame]]) -> [String: [String]] {
+        var inputs: [String: [String]] = [:]
+        for game in games.values.joined() {
+            inputs[game.id] = matchIdentity(game) + [
+                game.state, game.venue ?? "", game.location ?? "",
+                game.race.map { [$0.eventID, $0.title, $0.circuit ?? ""].joined(separator: "|") } ?? "",
+                game.league == .ncaaf && collegeMatchup(game).isDelayed ? "delayed" : ""
+            ]
+        }
+        return inputs
     }
 
     nonisolated private static func matchIdentity(_ game: SportsGame) -> [String] {
@@ -1866,6 +1915,7 @@ final class SportsLibrary: ObservableObject {
         // A schedule response may arrive before startup/index rebuilding finishes.
         // The completed index rebuild will match the latest schedule itself.
         guard sportsIndexReady else { return }
+        lastMatchingPass = Date()
         channelMatchingWorkCount += 1
         defer { channelMatchingWorkCount -= 1 }
         let generation = UUID()
@@ -2143,8 +2193,8 @@ final class SportsLibrary: ObservableObject {
             resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         if result.2 { gameStreamCache = result.0 }
         gameMatchSignatures = result.1
-        matchEvidenceScores = result.3
-        didCompleteMatching = true
+        if matchEvidenceScores != result.3 { matchEvidenceScores = result.3 }
+        if !didCompleteMatching { didCompleteMatching = true }
         #if os(iOS)
         mobileEventCandidates = (sourceGeneration,
             Dictionary(games.map { ($0.id, Self.matchIdentity($0)) }, uniquingKeysWith: { first, _ in first }),

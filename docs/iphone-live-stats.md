@@ -84,6 +84,8 @@ Polling: summaries every 10 seconds while live. Tennis scoreboards, fight
 cards and races every 5: ESPN's copy is up to ten seconds old, so asking
 twice as often takes each change from it sooner. Anything not live, once a
 minute.
+In the background (Picture in Picture, or sound alone) the feed isn't
+asked at all. It is asked again the moment the app is back.
 
 Measured on live ATP and WTA matches, ESPN posts each game on its own as it
 ends, a few minutes apart as real games are. Who is serving lags: it comes
