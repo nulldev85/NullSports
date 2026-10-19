@@ -1,0 +1,1320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Every feature added to Lineup for iPhone and Apple TV, from Library collections through Auto Sync, and how each one works.">
+<title>What's New in Lineup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..900&family=Geist:wght@400..700&family=Geist+Mono:wght@400..600&display=swap">
+<style>
+:root {
+  /* Layout: a control-room spec sheet. Sticky filter bar, Auto Sync's readout as the opener,
+     a release ledger, then entries with a mono meta gutter beside the copy. One look: Lineup's own dark. */
+  --ground: #0D0D10;
+  --panel: #16161A;
+  --raise: #1E1E23;
+  --line: #2A2A30;
+  --line-2: #3C3C43;
+  --ink: #F5F5F7;
+  --text: #C8C8CE;
+  --quiet: #9A9AA3;
+  --faint: #676770;
+  --accent: #FF3347;
+  --accent-ink: #FF7482;
+  --accent-wash: rgba(255, 51, 71, 0.13);
+  --lock: #30D158;
+  --lock-wash: rgba(48, 209, 88, 0.14);
+  --gold: #FFC21A;
+  --bug: rgba(9, 9, 12, 0.94);
+  --bug-ink: #FFFFFF;
+  --field-a: #13201A;
+  --field-b: #0A110D;
+  --chalk: rgba(255, 255, 255, 0.07);
+  --kc: #E31837;
+  --buf: #2A63E0;
+
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+h1, h2, h3, p, ol, ul, dl, dd, figure { margin: 0; padding: 0; }
+ol, ul { list-style: none; }
+
+body {
+  background: var(--ground);
+  color: var(--text);
+  font: 400 16px/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--ground);
+}
+
+a { color: inherit; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+.mono { font-family: var(--mono); }
+
+.gutter {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* ---------- bar ---------- */
+.bar {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 9;
+  background: var(--ground);
+  background: color-mix(in srgb, var(--ground) 86%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.bar .gutter {
+  display: flex;
+  align-items: center;
+  gap: 12px 24px;
+  flex-wrap: wrap;
+  padding-block: 12px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  font: 800 15px/1 var(--display);
+  font-stretch: 125%;
+  font-variation-settings: "wdth" 125;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+.onair {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent-wash);
+  animation: onair 2.4s ease-out infinite;
+}
+@keyframes onair {
+  0% { box-shadow: 0 0 0 0 rgba(255, 51, 71, 0.55); }
+  70%, 100% { box-shadow: 0 0 0 8px rgba(255, 51, 71, 0); }
+}
+.jump {
+  display: flex;
+  gap: 18px;
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.jump a { color: var(--quiet); text-decoration: none; padding-block: 6px; }
+.jump a:hover { color: var(--ink); }
+.filters {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+}
+.filters button {
+  border: 0;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--quiet);
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.filters button .n { color: var(--faint); font-variant-numeric: tabular-nums; }
+.filters button[aria-pressed="true"] { background: var(--ink); color: var(--ground); }
+.filters button[aria-pressed="true"] .n { color: var(--line-2); }
+@media (max-width: 720px) {
+  .jump { display: none; }
+}
+
+/* ---------- hero ---------- */
+.hero {
+  padding-block: 64px 40px;
+  display: grid;
+  gap: 18px;
+}
+.eyebrow {
+  font: 500 12px/1.3 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.eyebrow.hot { color: var(--accent-ink); }
+h1 {
+  font: 800 clamp(44px, 8.4vw, 96px)/0.92 var(--display);
+  font-stretch: 125%;
+  font-variation-settings: "wdth" 125;
+  letter-spacing: -0.015em;
+  text-transform: uppercase;
+  color: var(--ink);
+  text-wrap: balance;
+}
+h1 .thin { font-weight: 500; color: var(--quiet); }
+.intro {
+  font-size: clamp(17px, 2vw, 20px);
+  line-height: 1.5;
+  max-width: 58ch;
+  color: var(--text);
+}
+.tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font: 500 12px/1 var(--mono);
+  color: var(--quiet);
+}
+.tally span {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-variant-numeric: tabular-nums;
+}
+.tally b { color: var(--ink); font-weight: 600; }
+
+/* ---------- demo ---------- */
+.demo {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: clamp(18px, 3vw, 32px);
+  display: grid;
+  gap: 24px;
+}
+.demo-head {
+  display: flex;
+  gap: 16px 32px;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.demo-head > div { display: grid; gap: 8px; min-width: 0; max-width: 62ch; }
+.demo h2 {
+  font: 700 clamp(22px, 3vw, 30px)/1.15 var(--body);
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.replay {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line-2);
+  background: var(--raise);
+  border-radius: 999px;
+  padding: 9px 16px;
+  font: 500 13px/1 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.replay:hover { border-color: var(--accent); }
+.replay svg { width: 12px; height: 12px; fill: var(--accent); }
+
+.demo-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .demo-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  max-width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  container-type: inline-size;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 9.4%, var(--chalk) 9.4% 9.7%),
+    radial-gradient(120% 90% at 50% 35%, var(--field-a), var(--field-b));
+  border: 1px solid var(--line);
+}
+.frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(140% 100% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.55));
+  pointer-events: none;
+}
+.hash {
+  position: absolute;
+  left: 0; right: 0;
+  height: 0.5cqw;
+  background: repeating-linear-gradient(90deg, transparent 0 1.6%, var(--chalk) 1.6% 1.9%);
+}
+.hash.a { top: 38%; }
+.hash.b { top: 56%; }
+.scan {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, transparent 0%, transparent 46%, var(--accent-wash) 50%, transparent 54%, transparent 100%);
+  background-size: 100% 220%;
+  animation: scan 3.6s linear infinite;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 1;
+}
+@keyframes scan { from { background-position: 0 100%; } to { background-position: 0 -120%; } }
+.ftag {
+  position: absolute;
+  top: 3cqw;
+  z-index: 2;
+  font: 500 max(9px, 1.45cqw)/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.9cqw 1.2cqw;
+  border-radius: 0.6cqw;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--quiet);
+}
+.ftag.l { left: 3cqw; }
+.ftag.r { right: 3cqw; color: var(--accent-ink); }
+.ftag.r.locked { color: var(--lock); background: rgba(0, 0, 0, 0.6); }
+
+.bug {
+  position: absolute;
+  left: 4cqw;
+  bottom: 5.5cqw;
+  z-index: 2;
+  display: flex;
+  align-items: stretch;
+  height: 6.6cqw;
+  background: var(--bug);
+  color: var(--bug-ink);
+  border-radius: 0.8cqw;
+  font: 800 3.3cqw/1 var(--display);
+  font-stretch: 112%;
+  font-variation-settings: "wdth" 112;
+  box-shadow: 0 1cqw 3cqw rgba(0, 0, 0, 0.5);
+}
+.seg {
+  display: flex;
+  align-items: center;
+  gap: 1.1cqw;
+  padding: 0 1.7cqw;
+  border-left: 1px solid rgba(255, 255, 255, 0.09);
+  position: relative;
+}
+.seg:first-child { border-left: 0; }
+.seg em { font-style: normal; font-variant-numeric: tabular-nums; }
+.tc { width: 0.8cqw; height: 3.8cqw; border-radius: 0.2cqw; display: block; }
+.tc.kc { background: var(--kc); }
+.tc.buf { background: var(--buf); }
+.seg.per { font-size: 2.4cqw; color: var(--text); font-weight: 700; }
+.seg.dn { font-size: 2.2cqw; color: var(--gold); font-weight: 700; }
+.box { outline: max(1px, 0.25cqw) dashed var(--accent); outline-offset: -0.5cqw; }
+.box::before {
+  content: attr(data-label);
+  position: absolute;
+  bottom: calc(100% + 0.9cqw);
+  left: 0;
+  font: 600 max(8px, 1.35cqw)/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--accent);
+  padding: 0.6cqw 0.9cqw;
+  border-radius: 0.4cqw;
+  white-space: nowrap;
+}
+.flash { animation: flash 0.7s ease-out; }
+@keyframes flash { from { background: var(--accent-wash); } to { background: transparent; } }
+
+.readout { display: grid; gap: 12px; min-width: 0; }
+.log {
+  display: grid;
+  gap: 2px;
+  font: 400 12.5px/1.45 var(--mono);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--ground);
+  overflow-x: auto;
+}
+.log li {
+  display: grid;
+  grid-template-columns: 4.4em 5.6em minmax(0, 1fr) 4.6em;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  transition: opacity 0.35s ease, background 0.35s ease;
+}
+.log .t { color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.log .src { letter-spacing: 0.06em; }
+.log .scr { color: var(--accent-ink); }
+.log .espn { color: var(--ink); }
+.log .calc { color: var(--quiet); }
+.log .msg { color: var(--text); min-width: 0; }
+.log .est { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.log li.off .est, .log li.off .msg { color: var(--faint); text-decoration: line-through; text-decoration-color: var(--faint); }
+.log li.lock { background: var(--lock-wash); }
+.log li.lock .src, .log li.lock .msg, .log li.lock .est { color: var(--lock); }
+.log li.pending { opacity: 0.12; }
+.note { font-size: 13px; color: var(--quiet); line-height: 1.5; }
+
+.scale {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  display: grid;
+  gap: 8px;
+}
+.scale-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font: 500 12px/1.3 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.scale-head .key { display: flex; gap: 14px; flex-wrap: wrap; }
+.scale-head .key i {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 6px; vertical-align: 0;
+}
+.key .k-est { background: var(--accent); }
+.key .k-out { background: transparent; border: 1.5px solid var(--faint); }
+.key .k-lock { background: var(--lock); border-radius: 1px; width: 3px; }
+.axis-wrap { padding-inline: 18px; }
+.axis {
+  position: relative;
+  height: 86px;
+}
+.axis .rule {
+  position: absolute; left: 0; right: 0; top: 50px;
+  height: 1px; background: var(--line-2);
+}
+.tick {
+  position: absolute; top: 46px;
+  left: calc((var(--v) - 15) / 25 * 100%);
+  width: 1px; height: 9px; background: var(--line-2);
+}
+.tick span {
+  position: absolute; top: 14px; left: 50%;
+  transform: translateX(-50%);
+  font: 400 11px/1 var(--mono);
+  color: var(--faint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.band {
+  position: absolute; top: 38px; height: 24px;
+  left: calc((var(--a) - 15) / 25 * 100%);
+  width: calc((var(--b) - var(--a)) / 25 * 100%);
+  min-width: 6px;
+  background: var(--accent-wash);
+  border: 1px solid rgba(255, 51, 71, 0.45);
+  border-radius: 6px;
+  transform: translateX(-3px);
+  padding-inline: 3px;
+  box-sizing: content-box;
+}
+.pt {
+  position: absolute; top: 45px;
+  left: calc((var(--v) - 15) / 25 * 100%);
+  width: 11px; height: 11px; margin-left: -5.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--panel);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+.pt.out { background: var(--panel); border: 1.5px solid var(--faint); box-shadow: none; }
+.lockmark {
+  position: absolute; top: 0; height: 62px;
+  left: calc((var(--v) - 15) / 25 * 100%);
+  width: 2px; margin-left: -1px;
+  background: var(--lock);
+  transition: opacity 0.35s ease;
+}
+.lockmark span {
+  position: absolute; top: 0; left: 8px;
+  font: 600 12px/1 var(--mono);
+  color: var(--lock);
+  white-space: nowrap;
+}
+.bandlabel {
+  position: absolute; top: 4px;
+  left: calc((var(--a) - 15) / 25 * 100%);
+  transform: translateX(-100%) translateX(-10px);
+  font: 500 12px/1 var(--mono);
+  color: var(--accent-ink);
+  white-space: nowrap;
+  transition: opacity 0.35s ease;
+}
+.axis .pending { opacity: 0; transform: scale(0.4); }
+.axis .lockmark.pending, .axis .bandlabel.pending { transform: none; }
+
+/* ---------- ledger ---------- */
+.ledger { padding-block: 56px 8px; display: grid; gap: 16px; }
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+}
+.sec-head h2 {
+  font: 800 clamp(26px, 4vw, 38px)/1 var(--display);
+  font-stretch: 125%;
+  font-variation-settings: "wdth" 125;
+  text-transform: uppercase;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+.sec-head .count {
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+  font-variant-numeric: tabular-nums;
+}
+.ledger-list { display: grid; border-top: 1px solid var(--line); }
+.rel {
+  display: grid;
+  grid-template-columns: 4em 11em minmax(0, 1fr) auto;
+  gap: 4px 20px;
+  align-items: baseline;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 14px 8px;
+  border-radius: 0;
+  transition: background 0.2s ease;
+}
+.rel:hover { background: var(--panel); }
+.rel[aria-pressed="true"] { background: var(--accent-wash); }
+.rel .pr { font: 600 14px/1.4 var(--mono); color: var(--accent-ink); }
+.rel .when { font: 400 13px/1.4 var(--mono); color: var(--quiet); font-variant-numeric: tabular-nums; }
+.rel .what { color: var(--ink); font-size: 15px; line-height: 1.4; min-width: 0; }
+.rel .n { font: 500 12px/1.4 var(--mono); color: var(--quiet); white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .rel { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .rel .what { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* ---------- sections and entries ---------- */
+.section { padding-block: 64px 8px; }
+.section > .sec-head { padding-bottom: 18px; border-bottom: 1px solid var(--line-2); }
+.entry {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 14px 40px;
+  padding-block: 30px;
+  border-bottom: 1px solid var(--line);
+  scroll-margin-top: 80px;
+}
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font: 400 12px/1.4 var(--mono);
+  color: var(--quiet);
+  padding-top: 4px;
+}
+.plats { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.chip svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.rels { color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+.shas { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--faint); }
+@media (max-width: 760px) {
+  .entry { grid-template-columns: minmax(0, 1fr); }
+  .meta { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding-top: 0; }
+}
+.copy { min-width: 0; display: grid; gap: 14px; }
+.entry h3 {
+  font: 650 23px/1.2 var(--body);
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.lede { font-size: 17px; line-height: 1.55; max-width: 64ch; }
+.how { display: grid; gap: 10px; max-width: 76ch; }
+.how > div {
+  display: grid;
+  grid-template-columns: 9.5em minmax(0, 1fr);
+  gap: 18px;
+}
+.how dt {
+  font: 500 11.5px/2.1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--quiet);
+}
+.how dd { line-height: 1.6; }
+@media (max-width: 560px) {
+  .how > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+.steps { display: grid; gap: 12px; max-width: 76ch; counter-reset: s; }
+.steps li {
+  display: grid;
+  grid-template-columns: 2.6em minmax(0, 1fr);
+  gap: 12px;
+  counter-increment: s;
+}
+.steps li::before {
+  content: counter(s, decimal-leading-zero);
+  font: 600 13px/1.75 var(--mono);
+  color: var(--accent-ink);
+}
+.steps b { color: var(--ink); font-weight: 600; }
+.stack { display: flex; flex-wrap: wrap; gap: 6px; }
+.stack span {
+  font: 400 12px/1.3 var(--mono);
+  color: var(--quiet);
+  background: var(--raise);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+.entry b.ui { color: var(--ink); font-weight: 600; }
+
+.empty {
+  padding-block: 48px;
+  text-align: left;
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+.empty p { color: var(--quiet); }
+
+footer {
+  margin-top: 72px;
+  border-top: 1px solid var(--line);
+}
+footer .gutter {
+  padding-block: 28px 48px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font: 400 12px/1.5 var(--mono);
+  color: var(--faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scan, .onair { animation: none; }
+  .log li, .pt, .lockmark, .bandlabel, .rel { transition: none; }
+  .flash { animation: none; }
+}
+
+html { -webkit-text-size-adjust: 100%; }
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="gutter">
+    <a class="brand" href="#top"><span class="onair" aria-hidden="true"></span>LINEUP</a>
+    <nav class="jump" aria-label="Sections">
+      <a href="#sports">Sports</a>
+      <a href="#library">Library</a>
+      <a href="#player">Player</a>
+      <a href="#hood">Under the hood</a>
+    </nav>
+    <div class="filters" role="group" aria-label="Show features for">
+      <button type="button" id="f-all" data-plat="all" aria-pressed="true">All <span class="n">24</span></button>
+      <button type="button" id="f-iphone" data-plat="iphone" aria-pressed="false">iPhone <span class="n">23</span></button>
+      <button type="button" id="f-tv" data-plat="tv" aria-pressed="false">Apple TV <span class="n">7</span></button>
+    </div>
+  </div>
+</header>
+
+<main class="gutter">
+
+  <section class="hero" id="top">
+    <p class="eyebrow">Release notes · Oct 18–19, 2026</p>
+    <h1>What's new <span class="thin">in</span> Lineup</h1>
+    <p class="intro">Every feature added since Library collections, across iPhone and Apple TV, and how each one works under the hood.</p>
+    <p class="tally"><span><b>4</b> releases</span><span><b>24</b> features</span><span>iPhone <b>23</b></span><span>Apple TV <b>7</b></span></p>
+  </section>
+
+  <section class="demo" aria-labelledby="demo-h">
+    <div class="demo-head">
+      <div>
+        <p class="eyebrow hot">Auto Sync · example readout</p>
+        <h2 id="demo-h">Your iPhone reads the scoreboard to learn how far behind your stream is</h2>
+        <p class="note">Every stream runs a different amount behind live. Auto Sync times the moment your screen first shows a clock or a score, then compares it with when ESPN logged that play. Here a football stream locks at 34 seconds behind.</p>
+      </div>
+      <button type="button" class="replay" id="replay"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1.2v9.6L10.4 6z"/></svg>Replay</button>
+    </div>
+
+    <div class="demo-grid">
+      <figure class="frame" aria-label="Example broadcast frame. Dashed boxes mark where text recognition read the away score, home score and game clock.">
+        <span class="hash a" aria-hidden="true"></span>
+        <span class="hash b" aria-hidden="true"></span>
+        <span class="scan" aria-hidden="true"></span>
+        <span class="ftag l">frame · BGRA · on device</span>
+        <span class="ftag r locked" id="vstate">Locked · every 4 s</span>
+        <div class="bug" aria-hidden="true">
+          <span class="seg box" data-label="away"><i class="tc kc"></i>KC <em id="kc">24</em></span>
+          <span class="seg box" data-label="home"><i class="tc buf"></i>BUF <em>17</em></span>
+          <span class="seg per">4TH</span>
+          <span class="seg box" data-label="clock"><em id="clock">2:00</em></span>
+          <span class="seg dn">1ST &amp; 10</span>
+        </div>
+      </figure>
+
+      <div class="readout">
+        <ol class="log" id="log" aria-label="Auto Sync log">
+          <li data-step="0"><span class="t">t+0:00</span><span class="src scr">SCREEN</span><span class="msg">clock 4:52, first seen</span><span class="est"></span></li>
+          <li data-step="0"><span class="t">t+0:00</span><span class="src espn">ESPN</span><span class="msg">play at 4:52, logged earlier</span><span class="est">30.3 s</span></li>
+          <li data-step="1"><span class="t">t+0:15</span><span class="src scr">SCREEN</span><span class="msg">clock 4:38, first seen</span><span class="est"></span></li>
+          <li data-step="1"><span class="t">t+0:15</span><span class="src espn">ESPN</span><span class="msg">play at 4:38, logged earlier</span><span class="est">30.6 s</span></li>
+          <li data-step="2"><span class="t">t+3:02</span><span class="src scr">SCREEN</span><span class="msg">KC 21 → 24, read twice</span><span class="est"></span></li>
+          <li data-step="2"><span class="t">t+3:02</span><span class="src espn">ESPN</span><span class="msg">the play that made 24–17</span><span class="est">29.4 s</span></li>
+          <li data-step="3"><span class="t">t+5:47</span><span class="src scr">SCREEN</span><span class="msg">clock 2:00, stopped before the play</span><span class="est"></span></li>
+          <li data-step="3" class="off"><span class="t">t+5:47</span><span class="src espn">ESPN</span><span class="msg">play at 2:00, outlier</span><span class="est">18.7 s</span></li>
+          <li data-step="4"><span class="t"></span><span class="src calc">AGREE</span><span class="msg">3 of 4 within 2.5 s, median</span><span class="est">30.3 s</span></li>
+          <li data-step="4"><span class="t"></span><span class="src calc">MARGIN</span><span class="msg">football, so stats never run early</span><span class="est">+4 s</span></li>
+          <li data-step="4" class="lock"><span class="t"></span><span class="src">LOCKED</span><span class="msg">stats held behind live by</span><span class="est">34 s</span></li>
+        </ol>
+        <p class="note">Example values. Each estimate is when the screen showed it minus when ESPN logged it, less any time you paused.</p>
+      </div>
+    </div>
+
+    <div class="scale">
+      <div class="scale-head">
+        <span>Estimates, seconds behind live</span>
+        <span class="key"><span><i class="k-est"></i>estimate</span><span><i class="k-out"></i>outlier</span><span><i class="k-lock"></i>locked delay</span></span>
+      </div>
+      <div class="axis-wrap">
+        <div class="axis" id="axis" aria-hidden="true">
+          <span class="rule"></span>
+          <span class="tick" style="--v:15"><span>15</span></span>
+          <span class="tick" style="--v:20"><span>20</span></span>
+          <span class="tick" style="--v:25"><span>25</span></span>
+          <span class="tick" style="--v:30"><span>30</span></span>
+          <span class="tick" style="--v:35"><span>35</span></span>
+          <span class="tick" style="--v:40"><span>40 s</span></span>
+          <span class="band" data-step="4" style="--a:29.4;--b:30.6"></span>
+          <span class="bandlabel" data-step="4" style="--a:29.4">3 agree</span>
+          <span class="pt" data-step="0" style="--v:30.3"></span>
+          <span class="pt" data-step="1" style="--v:30.6"></span>
+          <span class="pt" data-step="2" style="--v:29.4"></span>
+          <span class="pt out" data-step="3" style="--v:18.7"></span>
+          <span class="lockmark" data-step="4" style="--v:34"><span>34 s</span></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ledger" aria-labelledby="ledger-h">
+    <div class="sec-head">
+      <h2 id="ledger-h">Releases</h2>
+      <span class="count">Tap one to see only its features</span>
+    </div>
+    <div class="ledger-list">
+      <button type="button" class="rel" data-release="91" aria-pressed="false"><span class="pr">#91</span><span class="when">Oct 19 · 1:40 PM PT</span><span class="what">Auto Sync, team pages, more ratings, per-show tracks, performance sweep</span><span class="n">7 features</span></button>
+      <button type="button" class="rel" data-release="89" aria-pressed="false"><span class="pr">#89</span><span class="when">Oct 19 · 1:56 AM PT</span><span class="what">Live stats for soccer, tennis, UFC and racing; AetherEngine 7.40.1; engine logos</span><span class="n">3 features</span></button>
+      <button type="button" class="rel" data-release="87" aria-pressed="false"><span class="pr">#87</span><span class="when">Oct 18 · 8:51 PM PT</span><span class="what">Skip Intro on Apple TV, live stats and Multiview on iPhone</span><span class="n">4 features</span></button>
+      <button type="button" class="rel" data-release="84" aria-pressed="false"><span class="pr">#84</span><span class="when">Oct 18 · 2:56 PM PT</span><span class="what">Library collections, subtitles, seek previews, replays and playback controls</span><span class="n">11 features</span></button>
+    </div>
+  </section>
+
+  <!-- ================= SPORTS ================= -->
+  <section class="section" id="sports" aria-labelledby="sports-h">
+    <div class="sec-head"><h2 id="sports-h">Sports</h2><span class="count" data-count></span></div>
+
+    <article class="entry" id="auto-sync" data-platform="iphone" data-release="91">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#91 · Oct 19</div>
+        <div class="shas"><span>8c42937</span></div>
+      </div>
+      <div class="copy">
+        <h3>Auto Sync</h3>
+        <p class="lede">Live stats line up with your stream by reading the scoreboard on your screen. No taps.</p>
+        <ol class="steps">
+          <li><span><b>It takes a frame.</b> About once a second, the app grabs the frame on screen from whichever player engine is running.</span></li>
+          <li><span><b>It reads the scoreboard.</b> Apple's text recognition reads the broadcast's clock and score on the iPhone itself. Nothing is uploaded.</span></li>
+          <li><span><b>It compares with ESPN.</b> ESPN records the real time of every play, with the game clock and score at that moment. When your screen first shows 4:52 and ESPN logged a play at 4:52 thirty seconds ago, your stream is 30 seconds behind.</span></li>
+          <li><span><b>It follows each sport's clock.</b> Football and basketball count down, as ESPN does. Hockey broadcasts count down while ESPN counts up within the period, so the app converts. Soccer's clock never stops, so every reading gives an answer, which is why soccer locks fastest. Baseball has no clock, so it waits for the score to change.</span></li>
+          <li><span><b>It throws out bad readings.</b> A misread digit or a clock frozen at 45:00 in stoppage time can mislead. The app waits until several estimates agree within 2.5 seconds, then adds a little on the late side so stats never run ahead of the picture.</span></li>
+          <li><span><b>It keeps watching.</b> Once locked it checks every 4 seconds in case the stream reconnects. It rests when the phone runs hot or the app is in the background, and it can be switched off in the sync sheet.</span></li>
+        </ol>
+        <p class="stack"><span>Vision text recognition</span><span>AVPlayerItemVideoOutput</span><span>Aether displayed frame</span><span>libvlc snapshot</span><span>ESPN play wallclock</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="live-stats" data-platform="iphone" data-release="87">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#87 · Oct 18</div>
+        <div class="shas"><span>ffd595d</span><span>ef88db0</span></div>
+      </div>
+      <div class="copy">
+        <h3>Live stats while you watch</h3>
+        <p class="lede">A Stats button on the player opens the game's score, win probability, play-by-play, box score and leaders. Upright they sit under the picture. Turned sideways, beside it.</p>
+        <dl class="how">
+          <div><dt>Source</dt><dd>ESPN's game feed, every 10 seconds. NFL, college football, NBA, NHL and MLB.</dd></div>
+          <div><dt>No spoilers</dt><dd>ESPN stamps each play with the moment it happened. A play shows only once that moment plus your stream's delay has passed. The box score waits for the latest play that came with it, and the game's score on the Sports tab is held the same way.</dd></div>
+          <div><dt>Pausing</dt><dd>Holds everything back by as long as you paused.</dd></div>
+          <div><dt>Sync by hand</dt><dd>The sync sheet shows the latest play and asks if it's on your screen: <b class="ui">It Just Happened</b>, <b class="ui">Not Yet</b> or <b class="ui">Already Saw It</b>. Until a sync, everything is held a minute.</dd></div>
+        </dl>
+        <p class="stack"><span>ESPN summary feed</span><span>play time + stream delay</span><span>delay kept per channel</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="more-sports" data-platform="iphone" data-release="89">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#89 · Oct 19</div>
+        <div class="shas"><span>83bc555</span><span>6fade34</span><span>a2ec372</span><span>2518198</span></div>
+      </div>
+      <div class="copy">
+        <h3>Soccer, tennis, UFC and racing stats</h3>
+        <p class="lede">The same stats panel for four more sports, with the same rule: nothing shows before your picture does.</p>
+        <dl class="how">
+          <div><dt>Soccer</dt><dd>ESPN's match commentary logs every shot, corner, card and substitution with its moment. Goals carry no running score, so the app counts it from the commentary.</dd></div>
+          <div><dt>Scoreboards</dt><dd>For tennis, UFC, F1 and NASCAR, ESPN only has a scoreboard. The app compares each scoreboard with the last one to work out what happened in between (a break of serve, a takedown, a new leader) and times each change between the two fetches, so it never shows early.</dd></div>
+          <div><dt>Tennis</dt><dd>The match with the server marked, and a Courts tab with every court of the day. Other courts update live. Only the match on your screen is held.</dd></div>
+          <div><dt>UFC</dt><dd>The fight on now and the whole card, with results and how each fight ended.</dd></div>
+          <div><dt>Racing</dt><dd>The session, the lap and the running order, with places gained and lost.</dd></div>
+        </dl>
+        <p class="stack"><span>ESPN soccer commentary</span><span>scoreboards compared fetch to fetch</span><span>5 s polling</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="multiview" data-platform="iphone" data-release="87">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#87 · Oct 18</div>
+        <div class="shas"><span>5aa7f90</span></div>
+      </div>
+      <div class="copy">
+        <h3>Multiview</h3>
+        <p class="lede">Two live channels on one screen. While one plays, touch and hold another game or TV Guide channel and pick <b class="ui">Watch Side by Side</b>.</p>
+        <dl class="how">
+          <div><dt>Layouts</dt><dd>Sideways: side by side, or one large with one small. Upright: one over the other. Swap moves them around.</dd></div>
+          <div><dt>Sound</dt><dd>Tap a picture to hear it. The other is muted and keeps playing. Double-tap a picture to make it the large one.</dd></div>
+          <div><dt>Under it</dt><dd>Each player has its own mute that survives reconnects, and the phone's audio stays on until the last player lets go.</dd></div>
+        </dl>
+        <p class="stack"><span>per-player mute</span><span>shared audio session</span><span>failover per picture</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="team-pages" data-platform="iphone" data-release="91">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#91 · Oct 19</div>
+        <div class="shas"><span>b58cad2</span><span>2fad50a</span></div>
+      </div>
+      <div class="copy">
+        <h3>Team pages</h3>
+        <p class="lede">Schedule, standings, roster, injuries and news for any team. Touch and hold a game and pick a team, or tap the arrow beside a team in <b class="ui">Settings › My Teams</b>. Follow the team from its header.</p>
+        <dl class="how">
+          <div><dt>Source</dt><dd>ESPN, loaded one tab at a time and kept for five minutes.</dd></div>
+          <div><dt>Standings</dt><dd>The team's own conference, division or league table, sorted the way the league ranks it.</dd></div>
+          <div><dt>Injuries</dt><dd>From the roster, as each player's status.</dd></div>
+          <div><dt>Off-season</dt><dd>By then ESPN's "1st in NL West" line already belongs to next season, so it shows only while the team's next game is within two weeks.</dd></div>
+        </dl>
+        <p class="stack"><span>ESPN team, schedule, standings, roster, news</span><span>5 min cache</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="game-replays" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>465195d</span></div>
+      </div>
+      <div class="copy">
+        <h3>Game Replays in My Teams</h3>
+        <p class="lede">Recordings of your followed NFL teams' games, in a Game Replays section under My Teams.</p>
+        <dl class="how">
+          <div><dt>Source</dt><dd>Your provider's own catch-up archive.</dd></div>
+          <div><dt>Matching</dt><dd>Only channels that keep recordings are checked. A recording counts only if it has ended, is still inside the provider's keep window and names a matchup with one of your teams. RedZone, highlights and news are left out.</dd></div>
+          <div><dt>Opening</dt><dd>The app checks again that the recording is still there. If it's gone you get Retry, never a live feed.</dd></div>
+        </dl>
+        <p class="stack"><span>Xtream catch-up archive</span><span>3 requests at a time</span><span>5 min cache</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="catch-up" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>0b0accb</span></div>
+      </div>
+      <div class="copy">
+        <h3>Catch Up from a live game</h3>
+        <p class="lede">Touch and hold any live game and pick <b class="ui">Catch Up</b> to open that channel's recordings. You can start the current game over while it's still on.</p>
+        <dl class="how">
+          <div><dt>Works for</dt><dd>Any sport whose matched channel keeps recordings, including a backup channel when the main one doesn't.</dd></div>
+        </dl>
+        <p class="stack"><span>matched event channels</span><span>TV Guide catch-up list</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="tennis-channels" data-platform="iphone tv" data-release="91">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span><span class="chip">Apple TV</span></div>
+        <div class="rels">#91 · Oct 19</div>
+        <div class="shas"><span>b633a05</span></div>
+      </div>
+      <div class="copy">
+        <h3>Shared tennis channels</h3>
+        <p class="lede">Channels like Tennis Channel's "Center Court Live" switch between several tournaments.</p>
+        <dl class="how">
+          <div><dt>Ranking</dt><dd>A guide entry that names several tournaments ranks behind a channel showing only yours.</dd></div>
+          <div><dt>Labels</dt><dd>A Multiview tile on a shared channel reads "Center Court Live · 5 tournaments" instead of the wrong tournament's name.</dd></div>
+        </dl>
+        <p class="stack"><span>guide title parsing</span><span>shared ranks behind dedicated</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="matching" data-platform="iphone tv" data-release="91">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span><span class="chip">Apple TV</span></div>
+        <div class="rels">#91 · Oct 19</div>
+        <div class="shas"><span>6533827</span></div>
+      </div>
+      <div class="copy">
+        <h3>Faster channel matching</h3>
+        <p class="lede">Once a game has its channel, the app stops looking.</p>
+        <dl class="how">
+          <div><dt>Kept games</dt><dd>A game that already has a channel isn't searched again. Each check reads only that one channel's guide.</dd></div>
+          <div><dt>Shortlists</dt><dd>On iPhone, each game's shortlist of possible channels carries over between checks. A full scan runs only when your channels or guide change.</dd></div>
+          <div><dt>College</dt><dd>College games keep their matches like every other league.</dd></div>
+          <div><dt>Launch</dt><dd>Matches from your last session are recognized right away instead of searched for again.</dd></div>
+        </dl>
+        <p class="stack"><span>match signatures</span><span>carried shortlists</span><span>rebuild on guide change</span></p>
+      </div>
+    </article>
+  </section>
+
+  <!-- ================= LIBRARY ================= -->
+  <section class="section" id="library" aria-labelledby="library-h">
+    <div class="sec-head"><h2 id="library-h">Library</h2><span class="count" data-count></span></div>
+
+    <article class="entry" id="collections" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>5a803b2</span><span>46d4f04</span></div>
+      </div>
+      <div class="copy">
+        <h3>Collections</h3>
+        <p class="lede">Your own collections of movies and shows, on a Collections shelf.</p>
+        <dl class="how">
+          <div><dt>Making them</dt><dd>Create, rename and delete. Add a title by touching and holding its poster, or with the collection button on its page. Each card previews up to three posters.</dd></div>
+          <div><dt>Server ones</dt><dd>Your media servers' own collections are listed too, to browse. They aren't changed.</dd></div>
+          <div><dt>Storage</dt><dd>On the phone. Each title is saved with its server, so the same title on two servers stays separate.</dd></div>
+          <div><dt>Order</dt><dd>Move Collections like any other shelf in <b class="ui">Edit Shelves</b>.</dd></div>
+        </dl>
+        <p class="stack"><span>on-device store</span><span>server + item ID keys</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="shelves" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>a8c1e91</span></div>
+      </div>
+      <div class="copy">
+        <h3>Smoother shelves</h3>
+        <p class="lede">Poster rows were rebuilt on UIKit's recycled-cell lists with fixed card sizes.</p>
+        <dl class="how">
+          <div><dt>Scrolling</dt><dd>Posters and titles no longer jump.</dd></div>
+          <div><dt>Position</dt><dd>Each row remembers its place by the first poster you were looking at.</dd></div>
+          <div><dt>Loading</dt><dd>Posters load just before they scroll into view.</dd></div>
+        </dl>
+        <p class="stack"><span>UICollectionView</span><span>recycled cells</span><span>nearby prefetch</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="ratings" data-platform="iphone" data-release="91">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#91 · Oct 19</div>
+        <div class="shas"><span>55760f6</span></div>
+      </div>
+      <div class="copy">
+        <h3>Metacritic and Letterboxd</h3>
+        <p class="lede">The Metascore and Letterboxd's star average, beside IMDb, TMDB and Rotten Tomatoes.</p>
+        <dl class="how">
+          <div><dt>Source</dt><dd>MDBList.</dd></div>
+          <div><dt>Look</dt><dd>The Metascore sits in Metacritic's own green, yellow or red box.</dd></div>
+          <div><dt>Small screens</dt><dd>Five chips tighten up before they wrap to a second line.</dd></div>
+        </dl>
+        <p class="stack"><span>MDBList</span><span>Metascore out of 100</span><span>Letterboxd out of 5</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="betterposters" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>5a803b2</span></div>
+      </div>
+      <div class="copy">
+        <h3>BetterPosters</h3>
+        <p class="lede">An opt-in switch in <b class="ui">Settings › Metadata</b> that swaps movie and show posters for BetterPosters versions, with ratings printed on them.</p>
+        <dl class="how">
+          <div><dt>Matching</dt><dd>By IMDb ID. Titles without one keep their art.</dd></div>
+          <div><dt>Style</dt><dd><b class="ui">Poster Style</b> opens BetterPosters' own designer.</dd></div>
+          <div><dt>Loading</dt><dd>Your normal poster stays up until the new one loads, and stays if it fails.</dd></div>
+        </dl>
+        <p class="stack"><span>btttr.cc</span><span>IMDb ID</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="title-logos" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>b8e66dc</span></div>
+      </div>
+      <div class="copy">
+        <h3>Title logos</h3>
+        <p class="lede">The Library hero and title pages show the movie's or show's own logo in place of plain text.</p>
+        <dl class="how">
+          <div><dt>Source</dt><dd>Fanart.tv. English first, then logos with no language, HD first, then the most liked.</dd></div>
+          <div><dt>Loading</dt><dd>The text holds the logo's space until it arrives, so nothing shifts.</dd></div>
+          <div><dt>Setting</dt><dd><b class="ui">Settings › Metadata › Title Logos</b>.</dd></div>
+        </dl>
+        <p class="stack"><span>Fanart.tv API</span><span>TMDB, IMDb and TVDB IDs</span></p>
+      </div>
+    </article>
+  </section>
+
+  <!-- ================= PLAYER ================= -->
+  <section class="section" id="player" aria-labelledby="player-h">
+    <div class="sec-head"><h2 id="player-h">Player</h2><span class="count" data-count></span></div>
+
+    <article class="entry" id="skip-intro" data-platform="iphone tv" data-release="84 87">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span><span class="chip">Apple TV</span></div>
+        <div class="rels">#84 iPhone · #87 Apple TV</div>
+        <div class="shas"><span>5a803b2</span><span>b8e66dc</span><span>27314bd</span></div>
+      </div>
+      <div class="copy">
+        <h3>Skip Intro, Skip Recap and credits</h3>
+        <p class="lede">Buttons to skip an episode's intro or recap, and Next Episode right as the credits start.</p>
+        <dl class="how">
+          <div><dt>Source</dt><dd>IntroDB, a community database of intro, recap and credit times, looked up by the show's IMDb ID and the episode number. Only high-confidence times are used.</dd></div>
+          <div><dt>Skipping</dt><dd>The buttons appear only inside an intro or recap. Nothing skips by itself. On Apple TV one press of Select skips, and Back dismisses it.</dd></div>
+          <div><dt>Next Episode</dt><dd>At the start of the credits when IntroDB knows them. Otherwise the last 30 seconds, as before.</dd></div>
+          <div><dt>After credits</dt><dd>Movies with a scene after the credits show a small notice while the credits run.</dd></div>
+          <div><dt>Settings</dt><dd>Four separate switches in <b class="ui">Settings › Metadata</b>.</dd></div>
+        </dl>
+        <p class="stack"><span>IntroDB segments</span><span>confidence ≥ 0.8</span><span>cached a day</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="subtitles-online" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>709a2f0</span></div>
+      </div>
+      <div class="copy">
+        <h3>Find Subtitles Online</h3>
+        <p class="lede"><b class="ui">Subtitles › Find Subtitles Online</b> searches OpenSubtitles. No account needed.</p>
+        <dl class="how">
+          <div><dt>Matching</dt><dd>The title's IMDb ID, or for an episode the show's ID plus season and episode.</dd></div>
+          <div><dt>Searching</dt><dd>Pick a language, then narrow the releases with the filter box. Filtering runs on the phone without searching again.</dd></div>
+          <div><dt>Adding it</dt><dd>The file is checked, then added to the playing video without a restart.</dd></div>
+          <div><dt>Limits</dt><dd>AetherEngine and VLC only, and not in Picture in Picture.</dd></div>
+        </dl>
+        <p class="stack"><span>OpenSubtitles API</span><span>SubRip sidecar</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="subtitle-settings" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>a6c8069</span></div>
+      </div>
+      <div class="copy">
+        <h3>Subtitle Settings</h3>
+        <p class="lede">Language, size, background and timing for subtitles, under the Subtitles menu.</p>
+        <dl class="how">
+          <div><dt>Language</dt><dd>A preferred subtitle language, also used by Find Subtitles Online.</dd></div>
+          <div><dt>Look</dt><dd>Four text sizes and an optional background.</dd></div>
+          <div><dt>Timing</dt><dd>Earlier or later in quarter-second steps, up to 30 seconds either way.</dd></div>
+          <div><dt>Engines</dt><dd>AetherEngine changes the look live. VLC changes it on the next video.</dd></div>
+        </dl>
+        <p class="stack"><span>0.25 s steps</span><span>±30 s</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="seek-previews" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>a6c8069</span></div>
+      </div>
+      <div class="copy">
+        <h3>Seek previews</h3>
+        <p class="lede">Dragging the seek bar shows a thumbnail of that moment.</p>
+        <dl class="how">
+          <div><dt>Source</dt><dd>Jellyfin's Trickplay sheets: grids of thumbnails your server already made.</dd></div>
+          <div><dt>How</dt><dd>The app downloads a sheet, cuts out the frame it needs and keeps it. Seeking never waits on a thumbnail.</dd></div>
+          <div><dt>Works with</dt><dd>Jellyfin servers with Trickplay turned on.</dd></div>
+        </dl>
+        <p class="stack"><span>Jellyfin Trickplay</span><span>cropped and cached on device</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="audio-memory" data-platform="iphone" data-release="91">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#91 · Oct 19</div>
+        <div class="shas"><span>d090b3a</span></div>
+      </div>
+      <div class="copy">
+        <h3>Audio menu and per-show memory</h3>
+        <p class="lede">An Audio menu for a title's sound tracks (languages, commentary) on all three player engines, and a memory for each show.</p>
+        <dl class="how">
+          <div><dt>What it keeps</dt><dd>The audio and subtitles you pick, including subtitles off, are saved for that show.</dd></div>
+          <div><dt>Next episode</dt><dd>The app finds the same track by name, then by language code, then by the language written in the track's name, like "Track 2 – [Spanish]".</dd></div>
+          <div><dt>Smooth start</dt><dd>Where it can, the player opens already on that language, so you don't hear it switch.</dd></div>
+        </dl>
+        <p class="stack"><span>name → language code → language in title</span><span>up to 200 shows</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="replay-seeking" data-platform="iphone" data-release="84">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span></div>
+        <div class="rels">#84 · Oct 18</div>
+        <div class="shas"><span>0f3b794</span><span>f0fbbee</span><span>a49cc62</span></div>
+      </div>
+      <div class="copy">
+        <h3>Replay seeking fixes</h3>
+        <p class="lede">Recordings now seek like Library videos.</p>
+        <dl class="how">
+          <div><dt>Seek bar</dt><dd>The same one Library videos use.</dd></div>
+          <div><dt>Skipping</dt><dd>AetherEngine and AVPlayer used to reopen the recording for a 10-second skip, which could jump back to the start of the minute. All three engines now seek inside the recording.</dd></div>
+          <div><dt>VLC paused</dt><dd>Pausing holds, and the position comes straight from VLC's own clock, so a paused seek lands where you put it.</dd></div>
+        </dl>
+        <p class="stack"><span>in-stream seeking</span><span>libvlc_media_player_get_time</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="info-tags" data-platform="tv" data-release="87">
+      <div class="meta">
+        <div class="plats"><span class="chip">Apple TV</span></div>
+        <div class="rels">#87 · Oct 18</div>
+        <div class="shas"><span>df8e775</span></div>
+      </div>
+      <div class="copy">
+        <h3>Info tags on the seek bar</h3>
+        <p class="lede">The engine, resolution and format badges (HDR, Dolby Vision, Atmos) moved from under the title to just above the seek bar, at half again the size.</p>
+        <p class="stack"><span>21 pt badges</span><span>above the seek bar or channel timeline</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="engine-logos" data-platform="iphone tv" data-release="89">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span><span class="chip">Apple TV</span></div>
+        <div class="rels">#89 · Oct 19</div>
+        <div class="shas"><span>4284136</span><span>f9eec01</span></div>
+      </div>
+      <div class="copy">
+        <h3>Engine logos</h3>
+        <p class="lede">AetherEngine's logo and VLC's cone sit beside the engine's name everywhere it's shown: player badges, Settings, the engine picker and the acknowledgements.</p>
+        <p class="stack"><span>inline, sized to the text</span></p>
+      </div>
+    </article>
+
+    <article class="entry" id="aether" data-platform="iphone tv" data-release="89">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span><span class="chip">Apple TV</span></div>
+        <div class="rels">#89 · Oct 19</div>
+        <div class="shas"><span>bfd33d7</span></div>
+      </div>
+      <div class="copy">
+        <h3>AetherEngine 7.40.1</h3>
+        <p class="lede">The main player engine moved up from 7.36.0.</p>
+        <dl class="how">
+          <div><dt>Live streams</dt><dd>Start near the newest video.</dd></div>
+          <div><dt>Reconnects</dt><dd>No longer show the same picture twice.</dd></div>
+          <div><dt>Slow servers</dt><dd>Large video segments no longer fail.</dd></div>
+          <div><dt>Starts, seeks</dt><dd>The clock waits for the picture.</dd></div>
+        </dl>
+        <p class="stack"><span>7.36.0 → 7.40.1</span></p>
+      </div>
+    </article>
+  </section>
+
+  <!-- ================= UNDER THE HOOD ================= -->
+  <section class="section" id="hood" aria-labelledby="hood-h">
+    <div class="sec-head"><h2 id="hood-h">Under the hood</h2><span class="count" data-count></span></div>
+
+    <article class="entry" id="performance" data-platform="iphone tv" data-release="91">
+      <div class="meta">
+        <div class="plats"><span class="chip">iPhone</span><span class="chip">Apple TV</span></div>
+        <div class="rels">#91 · Oct 19</div>
+        <div class="shas"><span>0ab6fce</span><span>f574f13</span></div>
+      </div>
+      <div class="copy">
+        <h3>Performance sweep</h3>
+        <p class="lede">Less work on every screen, every refresh and every launch.</p>
+        <dl class="how">
+          <div><dt>Redrawing</dt><dd>The app moved to Swift's newer change tracking (Observation), so a screen redraws only when what it shows changes.</dd></div>
+          <div><dt>Guide</dt><dd>The app asks your provider whether the guide changed, and skips the download if it didn't.</dd></div>
+          <div><dt>Opening</dt><dd>The schedule is saved to a file, so the app opens with it already filled in.</dd></div>
+          <div><dt>Re-checks</dt><dd>Refreshes where only scores changed re-check channels at most every 5 minutes.</dd></div>
+          <div><dt>Heat</dt><dd>In Multiview, when the phone runs hot, the muted picture drops its quality.</dd></div>
+          <div><dt>Reports</dt><dd>On iPhone, a Device Reports screen in Settings shows Apple's own performance reports for the app.</dd></div>
+        </dl>
+        <p class="stack"><span>Swift Observation</span><span>ETag / If-Modified-Since</span><span>MetricKit</span></p>
+      </div>
+    </article>
+  </section>
+
+  <div class="empty" id="empty" hidden>
+    <p>No features match these filters.</p>
+    <button type="button" class="replay" id="clear">Show everything</button>
+  </div>
+</main>
+
+<footer>
+  <div class="gutter">
+    <span>Lineup for iPhone and Apple TV · tester notes</span>
+    <span>Updated Oct 19, 2026</span>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // ---------- filters ----------
+  const state = { plat: "all", rel: null };
+  const entries = [...document.querySelectorAll(".entry")];
+  const sections = [...document.querySelectorAll(".section")];
+  const platButtons = [...document.querySelectorAll(".filters button")];
+  const relButtons = [...document.querySelectorAll(".rel")];
+  const empty = document.getElementById("empty");
+
+  const matches = (el, plat, rel) => {
+    const p = el.dataset.platform.split(" ");
+    const r = el.dataset.release.split(" ");
+    return (plat === "all" || p.includes(plat)) && (!rel || r.includes(rel));
+  };
+
+  function apply() {
+    let shown = 0;
+    entries.forEach(el => {
+      const on = matches(el, state.plat, state.rel);
+      el.hidden = !on;
+      if (on) shown++;
+    });
+    sections.forEach(sec => {
+      const n = sec.querySelectorAll(".entry:not([hidden])").length;
+      sec.hidden = n === 0;
+      const c = sec.querySelector("[data-count]");
+      if (c) c.textContent = n + (n === 1 ? " feature" : " features");
+    });
+    platButtons.forEach(b => {
+      b.setAttribute("aria-pressed", String(b.dataset.plat === state.plat));
+      b.querySelector(".n").textContent = entries.filter(el => matches(el, b.dataset.plat, state.rel)).length;
+    });
+    relButtons.forEach(b => {
+      b.setAttribute("aria-pressed", String(b.dataset.release === state.rel));
+      const n = entries.filter(el => matches(el, state.plat, b.dataset.release)).length;
+      b.querySelector(".n").textContent = n + (n === 1 ? " feature" : " features");
+    });
+    empty.hidden = shown !== 0;
+  }
+
+  platButtons.forEach(b => b.addEventListener("click", () => { state.plat = b.dataset.plat; apply(); }));
+  relButtons.forEach(b => b.addEventListener("click", () => {
+    state.rel = state.rel === b.dataset.release ? null : b.dataset.release;
+    apply();
+    const first = document.querySelector(".section:not([hidden])");
+    if (state.rel && first) first.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  }));
+  document.getElementById("clear").addEventListener("click", () => { state.plat = "all"; state.rel = null; apply(); });
+  apply();
+
+  // ---------- Auto Sync replay ----------
+  const stepped = [...document.querySelectorAll(".demo [data-step]")];
+  const clock = document.getElementById("clock");
+  const kc = document.getElementById("kc");
+  const vstate = document.getElementById("vstate");
+  const frames = [
+    { clock: "4:52", kc: "21" },
+    { clock: "4:38", kc: "21" },
+    { clock: "3:12", kc: "24" },
+    { clock: "2:00", kc: "24" },
+    { clock: "2:00", kc: "24" }
+  ];
+  let timers = [];
+
+  function flash(el) {
+    const box = el.closest(".seg");
+    if (!box) return;
+    box.classList.remove("flash");
+    void box.offsetWidth;
+    box.classList.add("flash");
+  }
+
+  function show(n) {
+    stepped.forEach(el => el.classList.toggle("pending", Number(el.dataset.step) > n));
+    const f = frames[Math.max(0, Math.min(n, frames.length - 1))];
+    if (clock.textContent !== f.clock) { clock.textContent = f.clock; flash(clock); }
+    if (kc.textContent !== f.kc) { kc.textContent = f.kc; flash(kc); }
+    const locked = n >= 4;
+    vstate.textContent = locked ? "Locked · every 4 s" : "Reading · 1 per second";
+    vstate.classList.toggle("locked", locked);
+  }
+
+  document.getElementById("replay").addEventListener("click", () => {
+    timers.forEach(clearTimeout);
+    timers = [];
+    show(-1);
+    clock.textContent = "4:58";
+    kc.textContent = "21";
+    for (let i = 0; i <= 4; i++) timers.push(setTimeout(() => show(i), 700 + i * 1300));
+  });
+})();
+</script>
+
+</body>
+</html>
