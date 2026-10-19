@@ -14,6 +14,9 @@ SHARED = (
     "Lineup/Services/M3UPlaylist.swift",
     "Lineup/Services/MediaPlaybackRequest.swift",
     "Lineup/Services/SportsIndexFacts.swift",
+    # IntroDB's skip prompts play on both: the phone's player and the TV's.
+    "Lineup/Services/PlaybackSegments.swift",
+    "Lineup/Services/IntroDB.swift",
 )
 
 
@@ -40,13 +43,13 @@ class SharedSourceMembershipChecks(unittest.TestCase):
     def test_mobile_library_rows_and_artwork_are_iphone_only(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
         for source in ("iPhone/MobileLibraryShelf.swift", "iPhone/MobileLibraryArtwork.swift",
-                       "iPhone/MobileLibraryCollections.swift", "iPhone/MobileIntroDB.swift",
+                       "iPhone/MobileLibraryCollections.swift",
                        "iPhone/MobileBetterPosters.swift", "iPhone/MobileGameReplayPolicy.swift",
                        "iPhone/MobileGameReplayStore.swift", "iPhone/MobileGameReplaysView.swift",
                        "iPhone/MobileSportsCatchUp.swift", "iPhone/MobileOpenSubtitles.swift",
                        "iPhone/MobileOnlineSubtitlesSheet.swift", "iPhone/MobileSubtitleSettings.swift",
                        "iPhone/MobileSeekPreview.swift", "iPhone/MobileSubtitlePreferences.swift",
-                       "iPhone/MobilePlaybackSegments.swift", "iPhone/MobileFanart.swift",
+                       "iPhone/MobileFanart.swift",
                        "iPhone/MobileFanartPolicy.swift", "iPhone/MobileFanartTitle.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))

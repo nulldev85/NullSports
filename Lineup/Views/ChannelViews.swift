@@ -6455,6 +6455,66 @@ private struct TVNextEpisodeCard: View {
     }
 }
 
+/// What Skip does: the end of the recap or the intro the picture is in.
+private struct TVSkipAction: Equatable {
+    enum Kind: Hashable { case intro, recap }
+    let kind: Kind
+    let destination: Double
+    var title: String { kind == .recap ? "Skip Recap" : "Skip Intro" }
+}
+
+/// Skip Intro or Skip Recap, in the bottom corner over the picture: the
+/// panels' fill, the icon on its tile, and the words. Select skips; Back
+/// sends it away for the rest of that segment.
+private struct TVSkipSegmentButton: View {
+    let action: TVSkipAction
+    var focused: FocusState<Bool>.Binding
+    let skip: () -> Void
+    let decline: () -> Void
+
+    var body: some View {
+        let shape = Capsule()
+        HStack(spacing: 14) {
+            LineupIconTile(symbol: "forward.end.fill", size: 38)
+            Text(action.title).font(.inter(24, .bold)).foregroundStyle(LineupStyle.text)
+        }
+        .padding(.leading, 12).padding(.trailing, 30)
+        .frame(height: 66)
+        .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .lineupFocusLayer(focused.wrappedValue, in: shape)
+        .scaleEffect(focused.wrappedValue ? LineupStyle.cardLift : 1)
+        .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
+        .contentShape(shape)
+        .focusable()
+        .focused(focused)
+        .focusEffectDisabled()
+        .onTapGesture(perform: skip)
+        .onExitCommand(perform: decline)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(action.title)
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// A film's credits, with a scene after them: said in the corner, and
+/// gone when the scene begins.
+private struct TVPostCreditsNotice: View {
+    var body: some View {
+        let shape = Capsule()
+        HStack(spacing: 12) {
+            LineupIconTile(symbol: "film.stack", size: 32)
+            Text("Post-credit scene ahead").font(.inter(20, .semibold)).foregroundStyle(LineupStyle.text)
+        }
+        .padding(.leading, 10).padding(.trailing, 24)
+        .frame(height: 54)
+        .background(LineupPanelStyle.fill.opacity(0.94), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var library: SportsLibrary
@@ -6482,6 +6542,9 @@ struct PlayerView: View {
     /// Told when the title played to its end, before the player closes, so
     /// the screen beneath can lead on from it.
     var onReachedEnd: (() -> Void)? = nil
+    /// A Library title's intro, recap and credits from IntroDB, as the
+    /// phone's player has them.
+    var segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil
     @StateObject private var controller: TVPlaybackController
     @ObservedObject private var alerts = GameAlertCenter.shared
     /// The channel on screen, which Up and Down change.
@@ -6525,6 +6588,19 @@ struct PlayerView: View {
     /// The viewer pressed Back on Next Episode: it stays away.
     @State private var nextEpisodeDeclined = false
     @FocusState private var nextEpisodeFocused: Bool
+    /// The title's intro, recap and credits, once IntroDB has answered.
+    @State private var segments: MobilePlaybackSegments?
+    /// Skip Intro or Skip Recap, while the picture is inside one.
+    @State private var skipAction: TVSkipAction?
+    /// The segments the viewer pressed Back on: their prompts stay away.
+    @State private var declinedSkips: Set<TVSkipAction.Kind> = []
+    @FocusState private var skipFocused: Bool
+    /// The credits of a film with a scene after them.
+    @State private var postCreditsAhead = false
+    @AppStorage("Lineup.library.introDB.v1") private var introEnabled = true
+    @AppStorage("Lineup.library.skipRecaps.v1") private var recapEnabled = true
+    @AppStorage("Lineup.library.creditsPrompt.v1") private var creditsEnabled = true
+    @AppStorage("Lineup.library.postCreditsNotice.v1") private var postCreditsEnabled = true
     @State private var lastReportedPosition: TimeInterval = 0
     /// The player is closing because the viewer or the film said so. Any other
     /// way of going -- the screens around it torn down -- is noted in the log
@@ -6539,6 +6615,7 @@ struct PlayerView: View {
          recording: CatchUpProgramme? = nil, startsOver: Bool = false,
          onChannelChange: ((XtreamStream) -> Void)? = nil,
          nextEpisode: TVNextEpisodeOffer? = nil, onReachedEnd: (() -> Void)? = nil,
+         segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil,
          continuing preview: TVPreviewHandoff? = nil, playbackController: TVPlaybackController? = nil) {
         self.urls = urls
         self.title = title
@@ -6554,6 +6631,7 @@ struct PlayerView: View {
         self.onChannelChange = onChannelChange
         self.nextEpisode = nextEpisode
         self.onReachedEnd = onReachedEnd
+        self.segmentsLookup = segmentsLookup
         _controller = StateObject(wrappedValue: preview?.controller ?? playbackController ?? TVPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
         _currentChannel = State(initialValue: channel)
@@ -6642,6 +6720,22 @@ struct PlayerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .padding(.trailing, 80).padding(.bottom, 72)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+            if let skipAction, showsSkip {
+                TVSkipSegmentButton(action: skipAction, focused: $skipFocused,
+                                    skip: { skip(skipAction) },
+                                    decline: { declineSkip(skipAction) })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    // Above the seek bar and buttons while they are up.
+                    .padding(.trailing, 80).padding(.bottom, controlsVisible ? 300 : 72)
+                    .transition(.opacity.combined(with: .move(edge: .trailing)))
+            }
+            if postCreditsAhead && controller.error == nil && !controller.isScrubbing {
+                TVPostCreditsNotice()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.trailing, 80).padding(.top, 56)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
             }
             if urls.isEmpty {
                 Text("This stream is unavailable").font(.inter(.title2))
@@ -6735,7 +6829,24 @@ struct PlayerView: View {
         .onReceive(controller.clock.$elapsed) { position in
             reportProgress(at: position)
             updateNextEpisode(at: position)
+            updateSegments(at: position)
         }
+        // IntroDB's answer for this title; nothing is shown until it comes.
+        .task(id: urls) {
+            segments = nil
+            guard !isLive, let segmentsLookup else { return }
+            let found = await segmentsLookup()
+            guard !Task.isCancelled else { return }
+            segments = found
+        }
+        // Skip takes the remote when it appears over a bare picture, so one
+        // press of Select skips; with the controls up it waits above them.
+        .onChange(of: showsSkip) { _, shown in
+            if shown, !controlsVisible { skipFocused = true }
+            else if !shown, skipFocused { surfaceFocused = true }
+        }
+        .animation(.easeInOut(duration: 0.3), value: showsSkip)
+        .animation(.easeInOut(duration: 0.3), value: postCreditsAhead)
         // A film or an episode played to its end is saved as watched and the
         // player closes, as it would on the remote's Menu button; the screen
         // beneath is told first, so it can lead on to what comes next.
@@ -6869,8 +6980,14 @@ struct PlayerView: View {
         controlsVisible = false
         Task { @MainActor in
             await Task.yield()
-            surfaceFocused = true
+            focusPicture()
         }
+    }
+
+    /// Where the remote lands as the controls go: Skip when it is up, so
+    /// one press skips, else the picture itself.
+    private func focusPicture() {
+        if showsSkip { skipFocused = true } else { surfaceFocused = true }
     }
 
     /// Next Episode is up: the last half minute of an episode with one after
@@ -6883,9 +7000,51 @@ struct PlayerView: View {
 
     private func updateNextEpisode(at position: TimeInterval) {
         guard nextEpisode != nil, !isLive else { return }
-        let remaining = controller.duration - position
-        let due = controller.duration > 90 && remaining <= 30 && remaining > 0
+        let duration = controller.duration
+        // From the credits when IntroDB knows where they start, as on the
+        // phone; otherwise the last half minute.
+        let due = position < duration
+            && (segments ?? MobilePlaybackSegments()).offersNext(at: position, duration: duration,
+                                                                 creditsEnabled: creditsEnabled)
         if due != nextEpisodeDue { nextEpisodeDue = due }
+    }
+
+    /// Skip Intro or Skip Recap while the picture is inside one, and the
+    /// post-credits notice while a film's credits run.
+    private func updateSegments(at position: TimeInterval) {
+        let duration = controller.duration
+        var action: TVSkipAction?
+        if !isLive, let segments, duration > 0 {
+            if recapEnabled, let to = segments.recap?.destination(at: position, duration: duration) {
+                action = TVSkipAction(kind: .recap, destination: to)
+            } else if introEnabled, let to = segments.intro?.destination(at: position, duration: duration) {
+                action = TVSkipAction(kind: .intro, destination: to)
+            }
+        }
+        if action != skipAction { skipAction = action }
+        let credits = !isLive && postCreditsEnabled
+            && segments?.hasPostCreditsAhead(at: position, duration: duration) == true
+        if credits != postCreditsAhead { postCreditsAhead = credits }
+    }
+
+    /// Skip is up: inside an intro or recap the viewer hasn't sent away,
+    /// while nothing else holds the bottom corner.
+    private var showsSkip: Bool {
+        guard let skipAction else { return false }
+        return !declinedSkips.contains(skipAction.kind) && controller.error == nil
+            && !controller.isScrubbing && !showsNextEpisode
+    }
+
+    private func skip(_ action: TVSkipAction) {
+        PlaybackJournal.shared.note(action.title + " to " + PlaybackJournal.clock(action.destination))
+        controller.seek(to: action.destination)
+        skipAction = nil
+        surfaceFocused = true
+    }
+
+    private func declineSkip(_ action: TVSkipAction) {
+        declinedSkips.insert(action.kind)
+        surfaceFocused = true
     }
 
     private func playNext(_ offer: TVNextEpisodeOffer) {
@@ -6969,7 +7128,7 @@ struct PlayerView: View {
             // Hand focus to the video surface as the chrome leaves, so the next
             // press on the remote has somewhere to arrive.
             await Task.yield()
-            surfaceFocused = true
+            focusPicture()
         }
     }
 }
@@ -7953,7 +8112,7 @@ private struct PlaybackClockReader<Content: View>: View {
         endScrubbing(at: scrubDestination ?? elapsed)
     }
 
-    private func seek(to seconds: Double) {
+    func seek(to seconds: Double) {
         guard duration > 0, seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
         appliedInitialPosition = true

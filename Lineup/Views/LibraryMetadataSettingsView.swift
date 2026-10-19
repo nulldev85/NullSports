@@ -27,6 +27,16 @@ struct LibraryMetadataSettingsView: View {
                 }
                 Text("Metadata source applies to movies and shows. Episode data applies to episode titles, summaries, and stills. Your provider's data is used when a match is unavailable.")
                     .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                Text("Playback").font(.inter(30, .bold)).padding(.top, 12)
+                VStack(spacing: 16) {
+                    switchRow("Skip Intro", symbol: "forward.end.fill", isOn: $media.introDBEnabled)
+                    switchRow("Skip Recap", symbol: "backward.end.fill", isOn: $media.recapSkippingEnabled)
+                    switchRow("Next Episode During Credits", symbol: "play.rectangle.on.rectangle",
+                              isOn: $media.creditsPromptEnabled)
+                    switchRow("Post-Credit Scene Notices", symbol: "film.stack", isOn: $media.postCreditsNoticeEnabled)
+                }
+                Text("Uses matching community timestamps from IntroDB for Library playback. Missing credit timestamps keep the normal prompt near the end. Nothing skips automatically.")
+                    .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
                 availability
                 credits
             }
@@ -139,6 +149,23 @@ struct LibraryMetadataSettingsView: View {
             .padding(24)
             .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
+    }
+
+    /// A setting that is on or off: Select flips it, and the state says so
+    /// in the accent, as the source rows say theirs.
+    private func switchRow(_ title: String, symbol: String, isOn: Binding<Bool>) -> some View {
+        TVSelectable(scale: 1.015, fillRadius: 18, action: { isOn.wrappedValue.toggle() }) {
+            HStack(spacing: 20) {
+                LineupIconTile(symbol: symbol, size: 42)
+                Text(title).font(.inter(26, .semibold))
+                Spacer()
+                Text(isOn.wrappedValue ? "On" : "Off").font(.inter(25))
+                    .foregroundStyle(isOn.wrappedValue ? LineupStyle.highlight : LineupPanelStyle.quiet)
+            }
+            .padding(24)
+            .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
     }
 
     private func choices(episodes: Bool) -> [TVChoice] {
