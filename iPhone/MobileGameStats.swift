@@ -12,6 +12,16 @@ enum GameStatsSource: Equatable, Sendable {
     case race(path: String, event: String, session: String)
 
     var isBoard: Bool { if case .summary = self { return false } else { return true } }
+
+    /// Which of a channel's delays this feed is held by.
+    var delayKind: GameStatsDelayStore.Kind {
+        switch self {
+        case .summary: .plays
+        case .tennis: .tennis
+        case .card: .fights
+        case .race: .races
+        }
+    }
 }
 
 extension SportsGame {
@@ -57,7 +67,7 @@ final class MobileGameStats: ObservableObject {
     @Published private(set) var reveal: GameStatsReveal?
     /// How far the viewer's picture is behind ESPN on this channel, before
     /// any pause or rewind of their own.
-    @Published private(set) var delay: TimeInterval = GameStatsDelayStore.defaultDelay
+    @Published private(set) var delay: TimeInterval = GameStatsDelayStore.Kind.plays.defaultDelay
     /// The viewer has set the delay for this channel, rather than it being
     /// the default or another channel's.
     @Published private(set) var calibrated = false
@@ -71,7 +81,10 @@ final class MobileGameStats: ObservableObject {
     private var target: GameStatsTarget?
     private var poll: Task<Void, Never>?
     private var ticker: Task<Void, Never>?
-    private let store = GameStatsDelayStore(defaults: .standard)
+    /// The followed game's kind of delay, for its channel.
+    private var store: GameStatsDelayStore {
+        GameStatsDelayStore(defaults: .standard, kind: source?.delayKind ?? .plays)
+    }
     private let session: URLSession
 
     /// The picture's own distance behind live: a pause on a live channel, or
@@ -106,12 +119,16 @@ final class MobileGameStats: ObservableObject {
         let sameGame = game?.id == self.game?.id
         guard !sameGame || channelID != self.channelID else { return }
         self.channelID = channelID
+        if !sameGame {
+            stopFeed()
+            self.game = game
+        }
+        // Read for the game's own kind of feed: a channel's tennis delay is
+        // not its football one.
         let saved = store.delay(forChannel: channelID)
         delay = saved.seconds
         calibrated = saved.calibrated
         guard !sameGame else { refreshReveal(); return }
-        stopFeed()
-        self.game = game
         guard let game, Self.supports(game) else { return }
         start(game)
     }
@@ -173,6 +190,15 @@ final class MobileGameStats: ObservableObject {
         // On a tournament, a match's play on screen says which match is.
         if case .tennis(_, nil, _)? = source, let group = play.group { focus = group }
         setDelay(seconds - max(0, playerLag()))
+    }
+
+    /// The viewer's picture is past this play and ESPN has nothing later: the
+    /// stream is as far on as the feed, so everything shows the moment ESPN
+    /// has it. Syncing to the play instead would hold all that follows by
+    /// however long ago it happened.
+    func caughtUp(past play: GameStatsPlay) {
+        if case .tennis(_, nil, _)? = source, let group = play.group { focus = group }
+        setDelay(0)
     }
 
     /// This play isn't on the viewer's screen yet: held back until a moment
@@ -259,12 +285,11 @@ final class MobileGameStats: ObservableObject {
                 if !Task.isCancelled { unavailable = true }
                 return
             }
-            // Live, as often as ESPN refreshes it: a tennis scoreboard every
-            // ten seconds, a fight card or a race every five.
+            // Live, every five seconds: ESPN's copy is up to ten seconds
+            // old, so asking twice as often takes each change from it
+            // sooner.
             let live = timeline.snapshots.last?.state == "in" || (game?.isLive ?? false)
-            var pace: TimeInterval = 60
-            if live { if case .tennis = source { pace = 10 } else { pace = 5 } }
-            do { try await Task.sleep(for: .seconds(pace)) } catch { return }
+            do { try await Task.sleep(for: .seconds(live ? 5 : 60)) } catch { return }
         }
     }
 

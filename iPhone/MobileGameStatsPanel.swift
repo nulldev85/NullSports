@@ -519,7 +519,7 @@ struct MobileStatsSyncSheet: View {
                         stats.sync(to: next)
                         step = .asking(next)
                     } else {
-                        stats.sync(to: play)
+                        stats.caughtUp(past: play)
                         syncs += 1
                         step = .caughtUp(play)
                     }
@@ -551,7 +551,7 @@ struct MobileStatsSyncSheet: View {
                     .foregroundStyle(LineupIconTile.green)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("In sync").font(.inter(18, .bold))
-                    Text(caughtUp
+                    Text(caughtUp || stats.delay == 0
                          ? "Your stream is as current as ESPN's feed. Stats show the moment ESPN has them."
                          : "Your stream is \(Self.duration(stats.delay)) behind live. Lineup remembers this for the channel.")
                         .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
@@ -600,7 +600,8 @@ struct MobileStatsSyncSheet: View {
             Text(stats.reveal?.board == nil ? "Syncing works once the game's plays start."
                  : "Syncing works once something happens: a game, a round, a lap.")
                 .font(.inter(15, .semibold)).multilineTextAlignment(.center)
-            Text("Until then, stats are held \(Self.duration(stats.delay)) behind live.")
+            Text(stats.delay > 0 ? "Until then, stats are held \(Self.duration(stats.delay)) behind live."
+                 : "Until then, stats show the moment ESPN has them.")
                 .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

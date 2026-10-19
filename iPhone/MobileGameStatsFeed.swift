@@ -639,43 +639,62 @@ struct GameStatsTimeline: Sendable {
     }
 }
 
-/// How far the viewer's picture is behind live, as the viewer has set it,
+/// How far the viewer's picture is behind ESPN, as the viewer has set it,
 /// for each channel: providers differ, and a channel's lag stays put.
 struct GameStatsDelayStore {
-    // Version 2 counts from the moment on the field; version 1 counted from
-    // when ESPN sent it, and its values mean something else.
-    static let key = "Lineup.stats.streamDelay.v2"
-    static let lastKey = "Lineup.stats.streamDelay.last.v2"
-    /// Unset: long enough that a typical provider's stream is not overtaken.
-    static let defaultDelay: TimeInterval = 60
+    /// What a delay is reckoned from. A play's moment is when it happened on
+    /// the field. A board's is when ESPN posted it, already some way behind
+    /// the field, and by a different way for each sport. So a channel keeps
+    /// one delay of each kind, and none stands in for another.
+    enum Kind: String, CaseIterable, Sendable {
+        case plays, tennis, fights, races
+
+        /// Unset. Plays wait long enough that a typical provider's stream is
+        /// not overtaken. A tennis game reaches ESPN only after its last
+        /// point, and holding it a minute more left scores minutes behind
+        /// the picture, so tennis shows the moment ESPN has it until the
+        /// viewer syncs.
+        var defaultDelay: TimeInterval { self == .tennis ? 0 : 60 }
+
+        // Plays are version 2, counted from the moment on the field; version
+        // 1 counted from when ESPN sent it, and its values mean something
+        // else.
+        var key: String {
+            self == .plays ? "Lineup.stats.streamDelay.v2" : "Lineup.stats.streamDelay.\(rawValue).v1"
+        }
+        var lastKey: String {
+            self == .plays ? "Lineup.stats.streamDelay.last.v2" : "Lineup.stats.streamDelay.\(rawValue).last.v1"
+        }
+    }
     static let range: ClosedRange<TimeInterval> = 0...600
 
     let defaults: UserDefaults
+    var kind: Kind = .plays
 
     func delay(forChannel id: Int?) -> (seconds: TimeInterval, calibrated: Bool) {
-        let saved = defaults.dictionary(forKey: Self.key) as? [String: Double] ?? [:]
+        let saved = defaults.dictionary(forKey: kind.key) as? [String: Double] ?? [:]
         if let id, let value = saved[String(id)] { return (value, true) }
         // Another channel set by hand is a better guess than none: the same
         // provider sends them all.
-        if let last = defaults.object(forKey: Self.lastKey) as? Double { return (last, false) }
-        return (Self.defaultDelay, false)
+        if let last = defaults.object(forKey: kind.lastKey) as? Double { return (last, false) }
+        return (kind.defaultDelay, false)
     }
 
     func set(_ seconds: TimeInterval, forChannel id: Int?) {
         let value = min(Self.range.upperBound, max(Self.range.lowerBound, seconds.rounded()))
         if let id {
-            var saved = defaults.dictionary(forKey: Self.key) as? [String: Double] ?? [:]
+            var saved = defaults.dictionary(forKey: kind.key) as? [String: Double] ?? [:]
             saved[String(id)] = value
             if saved.count > 400 { saved = [String(id): value] }
-            defaults.set(saved, forKey: Self.key)
+            defaults.set(saved, forKey: kind.key)
         }
-        defaults.set(value, forKey: Self.lastKey)
+        defaults.set(value, forKey: kind.lastKey)
     }
 
     func reset(forChannel id: Int?) {
         guard let id else { return }
-        var saved = defaults.dictionary(forKey: Self.key) as? [String: Double] ?? [:]
+        var saved = defaults.dictionary(forKey: kind.key) as? [String: Double] ?? [:]
         saved[String(id)] = nil
-        defaults.set(saved, forKey: Self.key)
+        defaults.set(saved, forKey: kind.key)
     }
 }

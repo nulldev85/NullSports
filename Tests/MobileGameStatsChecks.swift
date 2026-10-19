@@ -106,12 +106,21 @@ struct MobileGameStatsChecks {
         let defaults = UserDefaults(suiteName: "MobileGameStatsChecks")!
         defaults.removePersistentDomain(forName: "MobileGameStatsChecks")
         let store = GameStatsDelayStore(defaults: defaults)
-        check(store.delay(forChannel: 7) == (GameStatsDelayStore.defaultDelay, false), "Unset uses the default")
+        check(store.delay(forChannel: 7) == (GameStatsDelayStore.Kind.plays.defaultDelay, false), "Unset uses the default")
         store.set(32.4, forChannel: 7)
         check(store.delay(forChannel: 7) == (32, true), "A set delay is kept for its channel")
         check(store.delay(forChannel: 8) == (32, false), "Another channel starts from the last one set")
         store.set(900, forChannel: 7)
         check(store.delay(forChannel: 7).seconds == 600, "Delays are kept in range")
+        // Tennis is held by a delay of its own, unset at nothing: a game
+        // reaches ESPN only after its last point.
+        let tennis = GameStatsDelayStore(defaults: defaults, kind: .tennis)
+        check(tennis.delay(forChannel: 7) == (0, false), "Tennis shows as ESPN has it until synced")
+        tennis.set(14, forChannel: 7)
+        check(tennis.delay(forChannel: 7) == (14, true), "A tennis delay is kept for its channel")
+        check(store.delay(forChannel: 7).seconds == 600, "Tennis syncing leaves the channel's play delay alone")
+        check(GameStatsDelayStore(defaults: defaults, kind: .fights).delay(forChannel: 7) == (60, false),
+              "A fight card keeps its own default")
         print("MobileGameStatsChecks passed")
     }
 }

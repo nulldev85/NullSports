@@ -22,8 +22,16 @@ fetch. NFL RedZone has no stats, since it moves between games.
 
 ## Holding it back
 
-The viewer's delay is one number: how many seconds the picture is behind
-live, kept per channel.
+The viewer's delay is how many seconds the picture is behind ESPN, kept per
+channel and per kind of feed: plays, tennis, fight cards and races each have
+their own. A play's moment is when it happened on the field; a board's is
+when ESPN posted it, already some way behind the field, by a different way
+for each sport. So one kind's delay never stands in for another's.
+
+Unset, plays, fight cards and races are held a minute. Tennis is not held: a
+game reaches ESPN only after its last point, and holding it a minute more
+left scores minutes behind the picture. It shows the moment ESPN has it
+until the viewer syncs.
 
 - A play with a time of its own (ESPN's `wallclock`) shows once that time
   plus the delay has passed.
@@ -41,6 +49,12 @@ screen. "It Just Happened" sets the delay to how long ago it happened. For
 a play worked out from two boards, that is reckoned from the earlier fetch,
 the earliest it can have happened. So later changes come a few seconds
 after the picture shows them, and never before.
+
+"Already Saw It" on the latest play, with nothing later from ESPN, means the
+stream is as far on as the feed: the delay goes to nothing, and everything
+shows the moment ESPN has it. (It used to sync to that play, which held
+everything after it by however long ago it had happened: minutes, if the
+sheet was opened late.)
 
 On a tennis tournament with several matches on court, the viewer picks the
 match on their screen first. That match's games are what syncing uses.
@@ -66,9 +80,15 @@ up to ten seconds, and its `max-age` says how long this one has left, so a
 change between two boards is placed after the earlier board's data could
 have been taken, not after it arrived.
 
-Polling: summaries every 10 seconds while live. Tennis scoreboards every 10
-seconds, which matches ESPN's cache. Fight cards and races every 5. Anything
-not live, once a minute.
+Polling: summaries every 10 seconds while live. Tennis scoreboards, fight
+cards and races every 5: ESPN's copy is up to ten seconds old, so asking
+twice as often takes each change from it sooner. Anything not live, once a
+minute.
+
+Measured on live ATP and WTA matches, ESPN posts each game on its own as it
+ends, a few minutes apart as real games are. Who is serving lags: it comes
+back for every match of a tour at once, a minute or two later, so it is
+worked out from the games between.
 
 ## Code
 
