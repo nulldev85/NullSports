@@ -20,9 +20,12 @@ struct MobileGameStatsPanel: View {
     @State private var section: StatsSection?
 
     /// What a game of this kind has to show, the one to open on first.
+    /// Tennis has the scoreboard and the courts and nothing more: ESPN gives
+    /// a game at a time and no points, too little for a list of plays. The
+    /// games still sync it, from the sync sheet.
     private var sections: [StatsSection] {
         switch game.statsSource {
-        case .tennis(_, let match, _)?: match == nil ? [.courts, .plays] : [.plays, .courts]
+        case .tennis?: [.courts]
         case .card?: [.card, .plays]
         case .race?: [.positions, .plays]
         default: [.plays, .box, .leaders]
@@ -57,16 +60,21 @@ struct MobileGameStatsPanel: View {
                 if let home = reveal.homeWinProbability {
                     WinProbabilityBar(reveal: reveal, home: home).padding(.horizontal, 16).padding(.top, 14)
                 }
-                HStack(spacing: 8) {
-                    ForEach(options) { option in
-                        Button { withAnimation(.easeInOut(duration: 0.16)) { section = option } } label: {
-                            Text(option.rawValue).lineupChip(shown == option)
+                // One section needs no tabs to choose it.
+                if options.count > 1 {
+                    HStack(spacing: 8) {
+                        ForEach(options) { option in
+                            Button { withAnimation(.easeInOut(duration: 0.16)) { section = option } } label: {
+                                Text(option.rawValue).lineupChip(shown == option)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+                } else {
+                    Color.clear.frame(height: 12)
                 }
-                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
                 Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
                 ScrollView {
                     switch shown {
@@ -212,10 +220,7 @@ struct MobileGameStatsPanel: View {
 
     @ViewBuilder
     private func plays(_ reveal: GameStatsReveal) -> some View {
-        // On a tournament, the match on screen's own plays, once it is known.
-        let tournament = reveal.board?.tennis.map { $0.focus == nil } ?? false
-        let focus = tournament ? stats.focus : nil
-        let shown = focus.map { group in reveal.plays.filter { $0.group == group } } ?? reveal.plays
+        let shown = reveal.plays
         if shown.isEmpty {
             message(reveal.state == "pre" ? "Plays appear here once it starts."
                     : (reveal.board == nil ? "No plays yet." : "Plays appear here as they happen."),

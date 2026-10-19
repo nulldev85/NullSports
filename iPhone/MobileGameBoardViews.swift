@@ -110,7 +110,7 @@ struct MobileTennisCourts: View {
         let results = matches.filter { $0.state == "post" }.reversed()
         LazyVStack(alignment: .leading, spacing: 0) {
             if onPick != nil, onScreen == nil, live.count > 1 {
-                Text("Tap the match on your screen. Its plays are the ones synced to, and the rest show live.")
+                Text("Tap the match on your screen. It's the one the stats sync to, and the rest show live.")
                     .font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
                     .padding(.horizontal, 16).padding(.top, 12)
             }

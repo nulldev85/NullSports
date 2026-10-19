@@ -43,7 +43,7 @@ the earliest it can have happened. So later changes come a few seconds
 after the picture shows them, and never before.
 
 On a tennis tournament with several matches on court, the viewer picks the
-match on their screen first. Its plays are the ones synced to.
+match on their screen first. That match's games are what syncing uses.
 
 ## The Courts tab
 
@@ -55,7 +55,9 @@ tournament channel, until the viewer picks a match, any match that could be
 on screen is held: one under way, or one the picture hasn't seen finish.
 
 ESPN's tennis scoreboard has games and sets but no points, so a match moves
-a game at a time.
+a game at a time. That is too little for a list of plays, so tennis has the
+scoreboard and the Courts tab only. The games are still worked out behind
+the scenes, and the sync sheet uses them.
 
 ## Freshness
 
