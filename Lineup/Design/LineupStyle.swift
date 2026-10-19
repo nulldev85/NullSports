@@ -260,6 +260,8 @@ struct LineupIconTile: View {
         case "timer": ("timer", blue)
         case "list.bullet.rectangle": ("list.bullet.rectangle.fill", green)
         case "clock.arrow.circlepath": ("clock.arrow.circlepath", orange)
+        case "chart.bar", "chart.bar.fill": ("chart.bar.fill", green)
+        case "tablecells": ("tablecells.fill", indigo)
         default: (symbol, gray)
         }
     }

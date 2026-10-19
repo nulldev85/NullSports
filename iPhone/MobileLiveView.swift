@@ -44,6 +44,13 @@ struct MobileLiveView: View {
     /// The stats are open: under the picture upright, beside it on its side.
     @State private var showsStats = false
     @State private var syncingStats = false
+    /// Two games at once, full screen.
+    @State private var multiview: MobileMultiviewSession?
+    /// The game on screen, kept while a channel is chosen for the one to
+    /// watch beside it.
+    @State private var multiviewFirst: MobileMultiviewSession.Tile?
+    @State private var multiviewPicking: SportsGame?
+    @State private var multiviewSecond: MobileMultiviewSession.Tile?
     /// A new selection gets a new controller; see `MobilePlaybackSlot`.
     private var playback: MobilePlaybackController {
         get { playbackSlot.controller }
@@ -307,6 +314,21 @@ struct MobileLiveView: View {
                 if value { expanded = false }
             }
             .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .fullScreenCover(item: $multiview) { session in
+                MobileMultiviewView(session: session).environmentObject(library)
+            }
+            .sheet(item: $multiviewPicking, onDismiss: {
+                // Opened once the picker has gone: one full-screen cover
+                // can't come up while a sheet is still leaving.
+                if let first = multiviewFirst, let second = multiviewSecond { launchMultiview([first, second]) }
+                multiviewFirst = nil
+                multiviewSecond = nil
+            }) { game in
+                MobileChannelPicker(library: library, game: game) { stream in
+                    multiviewSecond = MobileMultiviewSession.Tile(stream: stream, game: game)
+                    multiviewPicking = nil
+                }
+            }
             .sheet(isPresented: $syncingStats) {
                 if let statsGame { MobileStatsSyncSheet(stats: gameStats, game: statsGame) }
             }
@@ -638,6 +660,12 @@ struct MobileLiveView: View {
             items.append(MobileMenuItem(watching ? "Watching" : "Watch", symbol: "play.circle",
                                         isEnabled: !watching) { open(game) })
             items.append(MobileMenuItem("Channels", symbol: "tv") { showingEventChannels = game })
+            // Beside the game already playing, rather than instead of it.
+            if previewStream != nil && !watching {
+                items.append(MobileMenuItem("Watch Side by Side", symbol: "rectangle.split.2x1") {
+                    watchSideBySide(game)
+                })
+            }
         } else {
             let on = reminders.reminds(game)
             items.append(MobileMenuItem(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
@@ -869,6 +897,34 @@ struct MobileLiveView: View {
         previewGame = nil
         showsStats = false
         gameStats.stop()
+    }
+
+    /// The game playing now and this one, side by side. This one's channel
+    /// is the one it would play on its own; without one, it is chosen.
+    private func watchSideBySide(_ game: SportsGame) {
+        guard let current = previewStream else { return }
+        let first = MobileMultiviewSession.Tile(stream: current, game: previewGame)
+        switch library.preferredChannel(for: game) {
+        case .syncing:
+            showsChannelSyncMessage = true
+        case let .play(streamID, _):
+            if let stream = library.stream(withID: streamID) {
+                launchMultiview([first, MobileMultiviewSession.Tile(stream: stream, game: game)])
+            } else {
+                multiviewFirst = first
+                multiviewPicking = game
+            }
+        case .chooseFeed, .pick:
+            multiviewFirst = first
+            multiviewPicking = game
+        }
+    }
+
+    private func launchMultiview(_ tiles: [MobileMultiviewSession.Tile]) {
+        cancelQualityCheck()
+        // Its connection goes before multiview opens two of its own.
+        closePreview()
+        multiview = MobileMultiviewSession(tiles: tiles)
     }
 
     private func toggleStats() {
