@@ -162,6 +162,11 @@ final class MobilePlaybackController: ObservableObject {
     private(set) var recordingEndsWithProgramme = false
     /// When a live channel the provider records was paused, to pick up from.
     private var pausedAt: Date?
+    /// Pauses on a channel playing live since it was last opened: the
+    /// picture falls behind the broadcast by each one, however the engine
+    /// then catches up, and nothing shown beside it may run ahead.
+    private var liveHoldSince: Date?
+    private var liveHeldSeconds: TimeInterval = 0
     private var skipTask: Task<Void, Never>?
     /// Holds a surface teardown back long enough for a replacement to arrive.
     private var pendingTeardown: Task<Void, Never>?
@@ -1277,6 +1282,12 @@ final class MobilePlaybackController: ObservableObject {
 
     func toggle() {
         pausedByUser.toggle()
+        if pausedByUser, isLive, catchUp == nil {
+            liveHoldSince = Date()
+        } else if !pausedByUser, let since = liveHoldSince {
+            liveHeldSeconds += Date().timeIntervalSince(since)
+            liveHoldSince = nil
+        }
         if pausedByUser {
             switch engine {
             case .aether: aetherSession?.pause()
@@ -1712,6 +1723,20 @@ final class MobilePlaybackController: ObservableObject {
 
     // MARK: - Catch-up
 
+    /// How far the picture is behind the live broadcast by the viewer's own
+    /// doing: a channel's recording played behind live, or pauses on a
+    /// channel playing live. The stream's own lag behind the broadcast is
+    /// not counted here; the viewer sets that against what they see.
+    var secondsBehindLive: TimeInterval {
+        guard isLive else { return 0 }
+        if let position = catchUpPosition {
+            return max(0, Date().timeIntervalSince(position) - CatchUpPolicy.liveLatency)
+        }
+        var held = liveHeldSeconds
+        if let liveHoldSince { held += Date().timeIntervalSince(liveHoldSince) }
+        return held
+    }
+
     /// What is on screen while a recording plays: a skip's destination while
     /// it waits, else where the stream has got to. Nil while live.
     var catchUpPosition: Date? {
@@ -2060,6 +2085,8 @@ final class MobilePlaybackController: ObservableObject {
         skipTarget = nil
         catchUp = nil
         pausedAt = nil
+        liveHoldSince = nil
+        liveHeldSeconds = 0
         recordingElapsed = 0
         UIApplication.shared.isIdleTimerDisabled = false
         MobileAudioSession.deactivate()

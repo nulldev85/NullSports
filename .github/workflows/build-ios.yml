@@ -68,6 +68,8 @@ jobs:
           /tmp/mobile-subtitle-preference-checks
           swiftc Lineup/Services/PlaybackSegments.swift Tests/MobilePlaybackSegmentChecks.swift -o /tmp/mobile-playback-segment-checks
           /tmp/mobile-playback-segment-checks
+          swiftc iPhone/MobileGameStatsFeed.swift Tests/MobileGameStatsChecks.swift -o /tmp/mobile-game-stats-checks
+          /tmp/mobile-game-stats-checks
           swiftc iPhone/MobileFanartPolicy.swift Tests/MobileFanartPolicyChecks.swift -o /tmp/mobile-fanart-policy-checks
           /tmp/mobile-fanart-policy-checks
           swiftc iPhone/PlaybackDiagnosticsLog.swift Tests/PlaybackDiagnosticsLogChecks.swift -o /tmp/playback-diagnostics-checks

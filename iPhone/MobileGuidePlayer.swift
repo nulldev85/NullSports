@@ -46,6 +46,10 @@ struct MobileGuidePlayer: View {
     /// Opens one of the viewer's teams' games from an alert. Nil: the owning
     /// screen has no way to, and alerts are not shown.
     var onWatchGame: ((SportsGame) -> Void)? = nil
+    /// Live stats for the game on screen, opened and closed from the top
+    /// bar. Nil where there are none to show.
+    var onToggleStats: (() -> Void)? = nil
+    var statsShown = false
     @State private var controlsVisible = true
     @State private var editingTimeline = false
     @State private var timelineBounds = CGRect.zero
@@ -217,6 +221,12 @@ struct MobileGuidePlayer: View {
             HStack(spacing: 8) {
                 control("xmark", label: "Close player", action: onClose)
                 Spacer(minLength: 8)
+                if let onToggleStats {
+                    control(statsShown ? "chart.bar.fill" : "chart.bar", label: statsShown ? "Hide stats" : "Show stats") {
+                        showControls()
+                        onToggleStats()
+                    }
+                }
                 if let onChooseChannel {
                     control("list.bullet", label: "Choose another channel") {
                         showControls()
