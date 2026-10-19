@@ -1009,10 +1009,10 @@ final class MediaLibrary {
 
     // MARK: - Ratings
 
-    /// IMDb, TMDB and Rotten Tomatoes for a film or show. The server's own
-    /// per-source scores come first, where it keeps them; MDBList fills in
-    /// what they leave out when the viewer has connected it; what the title
-    /// carries itself fills in the rest.
+    /// IMDb, TMDB, Rotten Tomatoes, Metacritic and Letterboxd for a film or
+    /// show. The server's own per-source scores come first, where it keeps
+    /// them; MDBList fills in what they leave out when the viewer has
+    /// connected it; what the title carries itself fills in the rest.
     func ratings(for item: MediaItem) async -> MediaRatings {
         let key = item.libraryKey
         if let stored = storedRatings[key],
@@ -1037,8 +1037,10 @@ final class MediaLibrary {
 
     private func lookUpRatings(for item: MediaItem) async -> MediaRatings {
         var found = item.isProviderTitle ? MediaRatings() : MediaRatings(metrics: await metrics(for: item))
-        // MDBList knows films and shows, not seasons or episodes.
-        if !found.isComplete, item.type == "Movie" || item.type == "Series",
+        // MDBList knows films and shows, not seasons or episodes. It is asked
+        // even when the server has the first three: Metacritic and
+        // Letterboxd come from nowhere else.
+        if !found.isComplete || found.lacksListScores, item.type == "Movie" || item.type == "Series",
            let apiKey = MDBListKeychainStore.apiKey() {
             let ids = MediaTitleMatch.providerIDs(of: item)
             if let listed = try? await MDBListClient(apiKey: apiKey)
@@ -1060,6 +1062,8 @@ final class MediaLibrary {
             if let ratingsCache { return ratingsCache }
             let read = (try? Data(contentsOf: Self.ratingsURL))
                 .flatMap { try? JSONDecoder().decode([String: StoredRatings].self, from: $0) } ?? [:]
+            try? FileManager.default.removeItem(at: Self.ratingsURL.deletingLastPathComponent()
+                .appendingPathComponent("Lineup-ratings.json"))
             ratingsCache = read
             return read
         }
@@ -1084,9 +1088,12 @@ final class MediaLibrary {
         }
     }
 
+    /// The second file: the first was written before Metacritic and
+    /// Letterboxd were asked for, and a title it holds would go days without
+    /// them.
     nonisolated private static var ratingsURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Lineup-ratings.json")
+            .appendingPathComponent("Lineup-ratings-v2.json")
     }
 
     func setFavorite(_ isFavorite: Bool, for item: MediaItem) async {
