@@ -3,17 +3,19 @@ import LineupAetherPlayback
 
 struct PlaybackFormatBadge: View {
     let text: String
+    /// Full screen on the television, read from across the room.
+    var large = false
     var body: some View {
         Text(text)
             #if os(tvOS)
-            .font(.inter(13, .semibold))
+            .font(.inter(large ? 21 : 13, .semibold))
             #else
             .font(.inter(.caption2, .semibold))
             #endif
             .lineLimit(1).fixedSize()
             .foregroundStyle(.white)
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, large ? 12 : 8).padding(.vertical, large ? 7 : 5)
+            .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: large ? 9 : 6))
             .accessibilityLabel("Stream format: " + text)
             .accessibilityIdentifier("lineup.playback.format." + text)
             .allowsHitTesting(false)

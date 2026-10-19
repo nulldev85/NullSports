@@ -6727,7 +6727,7 @@ struct PlayerView: View {
                                     decline: { declineSkip(skipAction) })
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     // Above the seek bar and buttons while they are up.
-                    .padding(.trailing, 80).padding(.bottom, controlsVisible ? 300 : 72)
+                    .padding(.trailing, 80).padding(.bottom, controlsVisible ? 360 : 72)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
             if postCreditsAhead && controller.error == nil && !controller.isScrubbing {
@@ -7218,11 +7218,6 @@ private struct TVPlayerChrome: View {
                                     .foregroundStyle(isLive && controller.catchUp == nil
                                                      ? LineupStyle.liveStatus : LineupStyle.mediaText)
                             }
-                            TVPlaybackEngineBadge(engine: controller.engineKind)
-                        }
-                        PlaybackBadgeFlow {
-                            if controller.videoHeight > 0 { PlaybackFormatBadge(text: controller.qualityLabel) }
-                            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
                         }
                         Text(nowPlayingTitle).font(.inter(36, .semibold)).lineLimit(1)
                         if let subtitle { Text(subtitle).font(.inter(19, .medium)).opacity(0.78).lineLimit(1) }
@@ -7238,17 +7233,27 @@ private struct TVPlayerChrome: View {
             // Lighter than it was: glass shows what is behind it, and over a
             // band of near-black there was nothing behind it to show.
             LinearGradient(colors: [.clear, .black.opacity(0.22), .black.opacity(0.62)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 270)
+                .frame(height: 340)
                 .overlay(alignment: .bottom) {
                     LineupGlassGroup {
                     VStack(alignment: .leading, spacing: 26) {
-                    if !isLive && controller.duration > 0 {
-                        TVSeekBar(controller: controller, clock: controller.clock, focus: focusedControl,
-                                  onInteraction: onInteraction)
-                    }
-                    if showsTimeline {
-                        TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
-                                     onInteraction: onInteraction)
+                    // What is playing and how -- the engine, the picture's
+                    // size, its formats -- sat on the bar they describe,
+                    // large enough to read from the couch.
+                    VStack(alignment: .leading, spacing: 14) {
+                        PlaybackBadgeFlow(spacing: 10) {
+                            TVPlaybackEngineBadge(engine: controller.engineKind, large: true)
+                            if controller.videoHeight > 0 { PlaybackFormatBadge(text: controller.qualityLabel, large: true) }
+                            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0, large: true) }
+                        }
+                        if !isLive && controller.duration > 0 {
+                            TVSeekBar(controller: controller, clock: controller.clock, focus: focusedControl,
+                                      onInteraction: onInteraction)
+                        }
+                        if showsTimeline {
+                            TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
+                                         onInteraction: onInteraction)
+                        }
                     }
                     HStack(spacing: 14) {
                         TVPlayerButton(title: controller.isPlaying ? "Pause" : "Play",
@@ -8716,12 +8721,14 @@ private struct PlaybackClockReader<Content: View>: View {
 
 private struct TVPlaybackEngineBadge: View {
     let engine: TVPlaybackEngine
+    /// Full screen, read from across the room.
+    var large = false
     var body: some View {
         Text(engine.title)
-            .font(.inter(13, .semibold))
+            .font(.inter(large ? 21 : 13, .semibold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(LineupPanelStyle.fill.opacity(0.9), in: RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, large ? 12 : 8).padding(.vertical, large ? 7 : 4)
+            .background(LineupPanelStyle.fill.opacity(0.9), in: RoundedRectangle(cornerRadius: large ? 9 : 6))
             .accessibilityLabel("Playback engine: \(engine.title)")
             .accessibilityIdentifier("lineup.playback.activeEngine")
             .allowsHitTesting(false)
