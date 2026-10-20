@@ -8,13 +8,13 @@ repo holds one self-contained page, `index.html`, and `.nojekyll`. A push there
 is live a minute or two later; nothing in this repo deploys it, and it stays up
 while this repo is private.
 
-The page has its own look, not the app's: a stadium after dark. It is dark
-only and monochrome, warm white on near-black, and the one colour is the
-on-air light. Archivo at full width is for the loud words, Geist for reading,
-Geist Mono for versions, SHAs and dates, and Doto for lit dots. The hero's LED
-board and the stats under it count from the page itself. Downloads are a box
-office machine that prints each app's ticket from the site repo's releases.
-Feature cards keep one markup,
+The page has its own look, not the app's. It is dark only and monochrome,
+warm white on near-black, with no accent colour. Archivo at full width is for
+the loud words, Geist for reading, and Geist Mono for versions, SHAs and
+dates. Motion is quiet and eased. Behind the headline is a dot field lit by
+slow light and the pointer, and the hero stats count from the page itself.
+Downloads are two cards filled from the site repo's releases, with each device
+drawn in hairlines. Feature cards keep one markup,
 `.meta` (`.plats`, `.rels`, `.shas`) then `.copy` (`h3`, `p.lede`, `dl.how`
 or `ol.steps`, `p.stack`), so anything added copies an existing card and uses
 those classes.
@@ -30,7 +30,7 @@ Every merge round into `main` ends with updating that page:
 - On a card for both apps, mark any line true of one app only with
   `data-only="iphone"` or `data-only="tv"`, so each filter shows only its own.
 - Add the release to the ledger at the top of the Releases list, newest first.
-- Update the footer's date by hand. The filter, ledger and scoreboard counts
+- Update the footer's date by hand. The filter, ledger and hero counts
   recount themselves on load.
 - Push to `main` of that repo and give the user the link with the build links.
 
