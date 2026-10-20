@@ -3094,6 +3094,17 @@ final class MediaLibrary {
                     }) {
                         return match.servedBy(profile.id)
                     }
+                    // No episode back means its metadata addon could not
+                    // describe the show, not that there are no streams: it
+                    // still answers a show it cannot describe, with a stand-in
+                    // that has no episodes. Its streams need only the id,
+                    // which is the episode itself, so that is what is asked.
+                    if let direct = packed.first {
+                        return MediaItem(id: direct.id, name: episode.name, type: "Episode", overview: nil,
+                                         productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                                         indexNumber: number, parentIndexNumber: season,
+                                         seriesName: showName, serverID: profile.id)
+                    }
                 } catch {
                     if !Self.isCancellation(error) { lookup.idFailure = error.localizedDescription }
                 }
