@@ -8,11 +8,13 @@ repo holds one self-contained page, `index.html`, and `.nojekyll`. A push there
 is live a minute or two later; nothing in this repo deploys it, and it stays up
 while this repo is private.
 
-The page has its own look, not the app's. Geist is for reading,
-Instrument Serif italic for the big words, Geist Mono for versions, SHAs and
-dates, and Doto for the scoreboard. iPhone is lime and Apple TV is lavender
-everywhere. Light and dark follow the device, with a toggle. Downloads are two
-tickets filled from the site repo's releases. Feature cards keep one markup,
+The page has its own look, not the app's: a stadium after dark. It is dark
+only and monochrome, warm white on near-black, and the one colour is the
+on-air light. Archivo at full width is for the loud words, Geist for reading,
+Geist Mono for versions, SHAs and dates, and Doto for lit dots. The hero's LED
+board and the stats under it count from the page itself. Downloads are a box
+office machine that prints each app's ticket from the site repo's releases.
+Feature cards keep one markup,
 `.meta` (`.plats`, `.rels`, `.shas`) then `.copy` (`h3`, `p.lede`, `dl.how`
 or `ol.steps`, `p.stack`), so anything added copies an existing card and uses
 those classes.
