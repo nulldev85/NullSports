@@ -37,6 +37,8 @@ TARGET_FILES = [
     "Lineup/Views/StreamingServiceViews.swift",
     "Lineup/Views/LibraryShelfOrderViews.swift",
     "Lineup/Views/TVGameStatsPanel.swift",
+    "Lineup/Views/TVTeamPage.swift",
+    "Lineup/Views/TVSportsExtras.swift",
     "Lineup/Design/GameStatsRows.swift",
     "Lineup/Design/GameStatsBoardViews.swift",
     "Lineup/Views/RootView.swift",

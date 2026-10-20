@@ -141,7 +141,7 @@ struct MobileTennisCourts: View {
                 // Only a match on court can be the one on screen.
                 if let onPick, match.state == "in" {
                     #if os(tvOS)
-                    row(match).gameStatsRowFocus { onPick(match.id) }
+                    row(match).lineupRowFocus { onPick(match.id) }
                         .accessibilityHint("Syncs the stats to this match")
                     #else
                     Button { onPick(match.id) } label: { row(match) }
@@ -149,7 +149,7 @@ struct MobileTennisCourts: View {
                         .accessibilityHint("Syncs the stats to this match")
                     #endif
                 } else {
-                    row(match).gameStatsRowFocus()
+                    row(match).lineupRowFocus()
                 }
                 Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.leading, scaled(16))
             }
@@ -285,7 +285,7 @@ struct MobileFightCardList: View {
                 .padding(.horizontal, scaled(16)).padding(.vertical, scaled(10))
                 .background(bout.state == "in" ? LineupPanelStyle.well : .clear)
                 .accessibilityElement(children: .combine)
-                .gameStatsRowFocus()
+                .lineupRowFocus()
                 Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.leading, scaled(16))
             }
         }
@@ -404,7 +404,7 @@ struct MobileRacePositions: View {
                         }
                     }
                     .padding(.horizontal, scaled(16)).padding(.vertical, scaled(9))
-                    .gameStatsRowFocus()
+                    .lineupRowFocus()
                     Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.leading, scaled(56))
                 }
             }

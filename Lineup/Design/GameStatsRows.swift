@@ -127,9 +127,9 @@ extension View {
     /// On the television, a row the remote can rest on, so a list of them
     /// scrolls under it; Select on it runs `onSelect`, where there is one.
     /// On the phone, the row as it is.
-    func gameStatsRowFocus(onSelect: (() -> Void)? = nil) -> some View {
+    func lineupRowFocus(onSelect: (() -> Void)? = nil) -> some View {
         #if os(tvOS)
-        return modifier(GameStatsRowFocus(onSelect: onSelect))
+        return modifier(LineupRowFocus(onSelect: onSelect))
         #else
         return self
         #endif
@@ -137,7 +137,7 @@ extension View {
 }
 
 #if os(tvOS)
-private struct GameStatsRowFocus: ViewModifier {
+private struct LineupRowFocus: ViewModifier {
     let onSelect: (() -> Void)?
     @FocusState private var focused: Bool
 

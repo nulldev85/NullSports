@@ -276,7 +276,7 @@ struct TVGameStatsPanel: View {
                     // Select a play the moment it shows on screen: the stats
                     // sync to it.
                     GameStatsPlayRow(play: play, reveal: reveal, game: game)
-                        .gameStatsRowFocus { if play.timedMoment != nil { syncingPlay = play } }
+                        .lineupRowFocus { if play.timedMoment != nil { syncingPlay = play } }
                     Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.leading, scaled(16))
                 }
             }
@@ -305,7 +305,7 @@ struct TVGameStatsPanel: View {
                         Text(line.home).font(.interDigits(scaled(15), .semibold)).frame(width: scaled(74), alignment: .trailing)
                     }
                     .padding(.horizontal, scaled(16)).padding(.vertical, scaled(9))
-                    .gameStatsRowFocus()
+                    .lineupRowFocus()
                     Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.horizontal, scaled(16))
                 }
             }
@@ -334,7 +334,7 @@ struct TVGameStatsPanel: View {
                             .lineLimit(2)
                     }
                     .padding(.horizontal, scaled(16)).padding(.vertical, scaled(10))
-                    .gameStatsRowFocus()
+                    .lineupRowFocus()
                     Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.leading, scaled(54))
                 }
             }

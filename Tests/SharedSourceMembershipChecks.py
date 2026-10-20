@@ -25,6 +25,13 @@ SHARED = (
     "Lineup/Store/GameStats.swift",
     "Lineup/Design/GameStatsRows.swift",
     "Lineup/Design/GameStatsBoardViews.swift",
+    # Team pages, Game Replays and Catch Up from a live game.
+    "Lineup/Services/TeamPageFeed.swift",
+    "Lineup/Services/TeamPageClient.swift",
+    "Lineup/Services/TeamPageTarget.swift",
+    "Lineup/Services/GameReplayPolicy.swift",
+    "Lineup/Store/GameReplayStore.swift",
+    "Lineup/Services/SportsCatchUp.swift",
 )
 
 
@@ -52,9 +59,8 @@ class SharedSourceMembershipChecks(unittest.TestCase):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
         for source in ("iPhone/MobileLibraryShelf.swift", "iPhone/MobileLibraryArtwork.swift",
                        "iPhone/MobileLibraryCollections.swift",
-                       "iPhone/MobileBetterPosters.swift", "iPhone/MobileGameReplayPolicy.swift",
-                       "iPhone/MobileGameReplayStore.swift", "iPhone/MobileGameReplaysView.swift",
-                       "iPhone/MobileSportsCatchUp.swift", "iPhone/MobileOpenSubtitles.swift",
+                       "iPhone/MobileBetterPosters.swift", "iPhone/MobileGameReplaysView.swift",
+                       "iPhone/MobileOpenSubtitles.swift",
                        "iPhone/MobileOnlineSubtitlesSheet.swift", "iPhone/MobileSubtitleSettings.swift",
                        "iPhone/MobileSeekPreview.swift", "iPhone/MobileSubtitlePreferences.swift",
                        "iPhone/MobileFanart.swift",

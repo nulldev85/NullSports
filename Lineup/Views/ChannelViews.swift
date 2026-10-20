@@ -32,6 +32,15 @@ struct LiveView: View {
     @State private var pickedChannel: TVPickedChannel?
     /// After a pick: just this game, or always for one of its teams.
     @State private var scopingChannel: TVPickedChannel?
+    /// From a game's hold menu: the channels verified to carry it, a side's
+    /// page, the game from its start, and My Teams' recorded games.
+    @State private var eventChannelsGame: SportsGame?
+    @State private var teamPage: MobileTeamPageTarget?
+    @State private var catchUpStream: XtreamStream?
+    @State private var catchUpChoice: TVCatchUpChoice?
+    @State private var catchUpMissing: SportsGame?
+    @State private var catchUpLookup: Task<Void, Never>?
+    @State private var showingReplays = false
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -74,6 +83,7 @@ struct LiveView: View {
                     // Hold Select on any game for its channel, wherever the
                     // game's card is.
                     .environment(\.liveChooseChannel, { chooseChannel(for: $0) })
+                    .environment(\.liveGameActions, gameActions)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
@@ -92,11 +102,44 @@ struct LiveView: View {
                     game: item.game,
                     channelID: item.stream.id,
                     channel: item.stream,
-                    // Up and Down go through the viewer's favourites.
-                    lineup: library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""),
+                    // Up and Down go through the viewer's favourites; a
+                    // replay is the game alone.
+                    lineup: item.recordingOnly ? [] : library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""),
+                    recording: item.recording,
+                    recordingOnly: item.recordingOnly,
                     continuing: item.preview
                 )
             }
+            .fullScreenCover(item: $eventChannelsGame, onDismiss: applyPickedChannel) { game in
+                TVEventChannelsScreen(game: game, playingID: previewGameID == game.id ? previewStream?.id : nil) { stream in
+                    pickedChannel = TVPickedChannel(game: game, stream: stream, startsMultiview: false)
+                    eventChannelsGame = nil
+                }
+            }
+            .fullScreenCover(item: $teamPage) { TVTeamPage(target: $0) }
+            .fullScreenCover(item: $catchUpStream) { stream in
+                TVCatchUpScreen(stream: stream) { programme in
+                    catchUpStream = nil
+                    watchRecording(of: stream, programme: programme)
+                }
+            }
+            .fullScreenCover(isPresented: $showingReplays) {
+                TVGameReplaysScreen { recording in
+                    showingReplays = false
+                    watchRecording(of: recording.stream, programme: recording.program, recordingOnly: true)
+                }
+            }
+            .tvChoices("Catch Up", symbol: "clock.arrow.circlepath", isPresented: presenting($catchUpChoice),
+                       message: catchUpChoice.map { "\($0.game.matchupLine): which channel's recording?" }) {
+                guard let choice = catchUpChoice else { return [] }
+                return choice.channels.map { stream in
+                    TVChoice(stream.name, symbol: "tv", id: String(stream.id)) { openCatchUp(stream, for: choice.game) }
+                }
+            } onCancel: { catchUpChoice = nil }
+            .tvChoices("No recording for this game", symbol: "clock.arrow.circlepath",
+                       isPresented: presenting($catchUpMissing),
+                       message: "None of the channels Lineup found for this game keeps a recording with your provider. TV Guide's Catch Up lists every channel that does.",
+                       cancelTitle: "OK") { [] }
             .fullScreenCover(item: $manualChannelGame, onDismiss: applyPickedChannel) { game in
                 ManualGameChannelPicker(game: game) { stream in
                     pickedChannel = TVPickedChannel(game: game, stream: stream,
@@ -152,7 +195,7 @@ struct LiveView: View {
             .overlay(alignment: .top) {
                 if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
             }
-            .onDisappear { cancelQualityCheck() }
+            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel() }
             .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
@@ -297,6 +340,51 @@ struct LiveView: View {
         open(game, startsMultiview: true)
     }
 
+    private var gameActions: LiveGameActions {
+        LiveGameActions(channels: { eventChannelsGame = $0 }, catchUp: findCatchUp,
+                        teamPage: { teamPage = $0 }, replays: { showingReplays = true })
+    }
+
+    /// Catch Up from a game's menu: of the channels verified to carry it,
+    /// the ones that keep a recording. One opens its programmes; several
+    /// ask which; none says so.
+    private func findCatchUp(_ game: SportsGame) {
+        catchUpLookup?.cancel()
+        guard let profile = library.activeProfile, !profile.isPlaylist else { return }
+        catchUpLookup = Task { @MainActor in
+            let matched = await library.eventChannels(for: game)
+            guard !Task.isCancelled, isActive, library.activeProfile?.id == profile.id else { return }
+            let current = library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+            let channels = MobileSportsCatchUpPolicy.channels(matched, live: current.isLive, playlist: profile.isPlaylist)
+            switch channels.count {
+            case 0: catchUpMissing = current
+            case 1: openCatchUp(channels[0], for: current)
+            default: catchUpChoice = TVCatchUpChoice(game: current, channels: channels)
+            }
+        }
+    }
+
+    /// Checked again as it is chosen: still the provider's, still keeping
+    /// recordings, still carrying the game.
+    private func openCatchUp(_ selected: XtreamStream, for game: SportsGame) {
+        catchUpChoice = nil
+        guard let stream = library.stream(withID: selected.id), stream.hasCatchUp,
+              library.isEventChannel(stream, verifiedFor: game) else { return }
+        catchUpStream = stream
+    }
+
+    /// A recording full screen, once the screen it was chosen on has gone.
+    /// A replay is the recording or nothing: it never goes live instead.
+    private func watchRecording(of stream: XtreamStream, programme: CatchUpProgramme, recordingOnly: Bool = false) {
+        stopPreview()
+        TVPreviewHandoff.stopPreviews()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard isActive else { return }
+            fullScreen = TVFullScreenItem(stream: stream, recording: programme, recordingOnly: recordingOnly)
+        }
+    }
+
     private func stopPreview() {
         cancelQualityCheck()
         playbackTransitionID = nil
@@ -310,6 +398,12 @@ struct LiveView: View {
         qualityTask = nil
         qualityRequest = nil
     }
+}
+
+/// Catch Up from a game's menu, with more than one channel recording it.
+private struct TVCatchUpChoice {
+    let game: SportsGame
+    let channels: [XtreamStream]
 }
 
 /// Both teams have a saved channel for a game, and they are not the same.
@@ -1718,6 +1812,7 @@ private struct LiveTallyChip: View {
 /// by accident.
 private struct LiveMyTeams: View {
     @Environment(SportsLibrary.self) private var library
+    @Environment(\.liveGameActions) private var actions
     let events: [SportsGame]
     let spotlight: LiveSpotlight
     let previewGameID: String?
@@ -1754,6 +1849,12 @@ private struct LiveMyTeams: View {
                 }
                 .scrollIndicators(.hidden)
                 .padding(-LiveMetrics.liftRoom)
+            }
+            // The NFL teams followed, recorded: as on the phone, with a
+            // provider that keeps recordings.
+            if let actions, library.followedTeams.teams.contains(where: { $0.league == "NFL" }),
+               let profile = library.activeProfile, !profile.isPlaylist {
+                TVGameReplaysEntry(action: actions.replays)
             }
         }
     }
@@ -2026,6 +2127,7 @@ private struct LiveGameMenu: ViewModifier {
     @Environment(SportsLibrary.self) private var library
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.liveChooseChannel) private var chooseChannel
+    @Environment(\.liveGameActions) private var actions
     @State private var showingRaceDetails = false
     let game: SportsGame
     let isPrimary: Bool
@@ -2037,6 +2139,7 @@ private struct LiveGameMenu: ViewModifier {
             if game.league.isRacing {
                 items.append(TVChoice("Race Details", symbol: "flag.checkered") { showingRaceDetails = true })
             }
+            items += actions?.liveItems(for: game, library: library) ?? []
             if game.isUpcoming {
                 let on = reminders.reminds(game)
                 items.append(TVChoice(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
@@ -2048,6 +2151,7 @@ private struct LiveGameMenu: ViewModifier {
             if let chooseChannel {
                 items.append(TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle") { chooseChannel(game) })
             }
+            items += actions?.teamItems(for: game, library: library) ?? []
             for team in library.followableSides(of: game) {
                 let following = library.isFollowing(team.key)
                 items.append(TVChoice(following ? "Remove \(team.name) from My Teams" : "Add \(team.name) to My Teams",
@@ -6610,6 +6714,9 @@ struct PlayerView: View {
     @AppStorage("Lineup.library.creditsPrompt.v1") private var creditsEnabled = true
     @AppStorage("Lineup.library.postCreditsNotice.v1") private var postCreditsEnabled = true
     @State private var lastReportedPosition: TimeInterval = 0
+    /// A replay: the recording or nothing. Without a recording to play it
+    /// says so, rather than going to the channel live.
+    var recordingOnly = false
     /// The player is closing because the viewer or the film said so. Any other
     /// way of going -- the screens around it torn down -- is noted in the log
     /// as such, because that is the one nobody asked for.
@@ -6628,7 +6735,7 @@ struct PlayerView: View {
          onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
          game: SportsGame? = nil, channelID: Int? = nil, synopsis: TVPlayerSynopsis? = nil,
          channel: XtreamStream? = nil, lineup: [XtreamStream] = [],
-         recording: CatchUpProgramme? = nil, startsOver: Bool = false,
+         recording: CatchUpProgramme? = nil, startsOver: Bool = false, recordingOnly: Bool = false,
          onChannelChange: ((XtreamStream) -> Void)? = nil,
          nextEpisode: TVNextEpisodeOffer? = nil, onReachedEnd: (() -> Void)? = nil,
          segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil,
@@ -6648,6 +6755,7 @@ struct PlayerView: View {
         self.nextEpisode = nextEpisode
         self.onReachedEnd = onReachedEnd
         self.segmentsLookup = segmentsLookup
+        self.recordingOnly = recordingOnly
         _controller = StateObject(wrappedValue: preview?.controller ?? playbackController ?? TVPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
         _currentChannel = State(initialValue: channel)
@@ -6875,7 +6983,13 @@ struct PlayerView: View {
             controller.catchUpSource = source
             if let recording = openingRecording {
                 openingRecording = nil
-                if source != nil { controller.playRecording(of: recording) } else { startLive(stream) }
+                if source != nil {
+                    controller.playRecording(of: recording)
+                } else if recordingOnly {
+                    controller.unavailable("This recording can't be opened from your provider right now.")
+                } else {
+                    startLive(stream)
+                }
             } else if openingStartOver {
                 openingStartOver = false
                 if controller.canStartOver { controller.startOver() } else { startLive(stream) }
@@ -8550,6 +8664,14 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     /// A programme from the past, from its start to its end.
+    /// Nothing to play: the reason, in place of the picture, and nothing
+    /// else opened in its stead.
+    func unavailable(_ message: String) {
+        stop()
+        error = message
+        log("Unavailable: " + message)
+    }
+
     func playRecording(of programme: CatchUpProgramme) {
         log("Playing a recording from " + programme.start.formatted(date: .abbreviated, time: .shortened))
         playRecording(from: programme.start, programmeStart: programme.start,
@@ -9026,6 +9148,8 @@ private struct TVFullScreenItem: Identifiable {
     var recording: CatchUpProgramme? = nil
     /// The programme on now, from its beginning, instead of live.
     var startsOver = false
+    /// A replay: the recording or nothing, never the channel live instead.
+    var recordingOnly = false
     var id: Int { stream.id }
 }
 
