@@ -1,32 +1,11 @@
 import SwiftUI
 
-struct MobileLibraryCollection: Codable, Identifiable, Equatable {
-    var id = UUID()
-    var name: String
-    var items: [MediaItem] = []
-
-    mutating func add(_ item: MediaItem) {
-        guard ["Movie", "Series"].contains(item.type), !items.contains(where: { $0.libraryKey == item.libraryKey }) else { return }
-        items.append(item.withMetadata(nil))
-    }
-}
-
 extension MediaLibrary {
     func collectionMenu(for item: MediaItem) -> MobileMenuItem? {
         guard ["Movie", "Series"].contains(item.type) else { return nil }
         return MobileMenuItem("Collections", symbol: "folder") {
             self.collectionSelectionItem = item
         }
-    }
-
-    @discardableResult
-    func createCollection(named name: String, adding item: MediaItem? = nil) -> UUID? {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name.count <= 80 else { return nil }
-        var collection = MobileLibraryCollection(name: name)
-        if let item { collection.add(item) }
-        personalCollections.append(collection)
-        return collection.id
     }
 }
 

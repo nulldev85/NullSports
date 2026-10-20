@@ -37,6 +37,14 @@ struct LibraryMetadataSettingsView: View {
                 }
                 Text("Uses matching community timestamps from IntroDB for Library playback. Missing credit timestamps keep the normal prompt near the end. Nothing skips automatically.")
                     .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                Text("Artwork").font(.inter(30, .bold)).padding(.top, 12)
+                VStack(spacing: 16) {
+                    switchRow("BetterPosters", symbol: "photo.on.rectangle.angled",
+                              isOn: Bindable(media).betterPostersEnabled)
+                    switchRow("Title Logos", symbol: "textformat", isOn: Bindable(media).fanartEnabled)
+                }
+                Text("BetterPosters draws movie and show posters with their ratings, in its default style, for titles with an IMDb match. Your own artwork stays wherever one can't load. Title Logos shows a logo from Fanart.tv on titles whose server has none. Artwork provided by BetterPosters and Fanart.tv.")
+                    .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
                 availability
                 credits
             }

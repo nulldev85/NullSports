@@ -13,6 +13,23 @@ struct MobileAutoSyncChecks {
         precondition(ScoreboardReader.clocks(in: [line("67:13")], maxMinutes: 20).isEmpty, "Longer than a period")
         precondition(ScoreboardReader.clocks(in: [line("12:34:56")], maxMinutes: 130).isEmpty, "A time with seconds")
 
+        // A line read in the top of the frame is placed in the whole frame,
+        // and the band read after is drawn round it, clear of the edge.
+        let inTop = ScoreboardArea.top.placing(line("SJ 0 TOR 0 9:12", x: 0.1, y: 0.5, width: 0.2))
+        precondition(abs(inTop.y - 0.83) < 0.0001 && abs(inTop.height - 0.0102) < 0.0001
+                     && abs(inTop.x - 0.1) < 0.0001 && abs(inTop.width - 0.2) < 0.0001)
+        let band = ScoreboardArea.around(inTop)
+        precondition(abs(band.y - 0.75) < 0.0001 && abs(band.y + band.height - (0.83 + 0.0102 + 0.08)) < 0.0001
+                     && band.x == 0 && band.width == 1)
+        let edge = ScoreboardArea.around(line("4:52", y: 0.95))
+        precondition(edge.y + edge.height < 1.0001, "Kept inside the frame")
+        let found = ScoreboardReader.clockLines(in: [line("SN"), inTop], maxMinutes: 20)
+        precondition(found.count == 1 && found[0].seconds == 552 && found[0].line.text == "SJ 0 TOR 0 9:12")
+        // Without a clock, the scoreboard is the line naming a side.
+        precondition(ScoreboardReader.line(in: [line("MLB NETWORK"), line("SF 3 LAD 1 · TOP 7")],
+                                           naming: ["SF", "LAD"])?.text == "SF 3 LAD 1 · TOP 7")
+        precondition(ScoreboardReader.line(in: [line("SFO 3")], naming: ["SF"]) == nil, "A whole word, not a part")
+
         // Each side's score beside its code, in its line or the next one along.
         let bug = [line("LAC 6", x: 0.05), line("KC", x: 0.30, width: 0.04), line("22", x: 0.35, width: 0.03),
                    line("2ND 4:52", x: 0.5)]
@@ -34,6 +51,7 @@ struct MobileAutoSyncChecks {
         tracker.observe(clocks: [292], score: nil, at: at(31), playerLag: 0, plays: basketball)
         precondition(tracker.estimates.count == 1, "A clock still on screen is not new")
         precondition(tracker.delay == nil, "One estimate is not enough")
+        precondition(tracker.agreeing == 1 && tracker.needed == 3, "What the panel says while it waits")
         tracker.observe(clocks: [280], score: nil, at: at(42), playerLag: 0, plays: basketball)
         tracker.observe(clocks: [270], score: nil, at: at(52), playerLag: 0, plays: basketball)
         precondition(tracker.delay == 31, "Thirty seconds behind, and the margin")
@@ -49,6 +67,20 @@ struct MobileAutoSyncChecks {
         var rink = AutoSyncTracker(clock: .remainingOfPeriods, margin: 0)
         rink.observe(clocks: [1148], score: nil, at: at(20), playerLag: 0, plays: hockey)
         precondition(rink.estimates.map(\.delay) == [20])
+
+        // ESPN posts plays minutes late: the moments the clock showed are
+        // kept, and matched when their plays come, for ten minutes.
+        let posted = [AutoSyncPlay(wallclock: at(0), clockSeconds: 52, period: "1st", awayScore: 0, homeScore: 0),
+                      AutoSyncPlay(wallclock: at(1), clockSeconds: 53, period: "1st", awayScore: 0, homeScore: 0),
+                      AutoSyncPlay(wallclock: at(8), clockSeconds: 60, period: "1st", awayScore: 0, homeScore: 0)]
+        var late = AutoSyncTracker(clock: .remainingOfPeriods, margin: 0)
+        late.observe(clocks: [1148], score: nil, at: at(20), playerLag: 0, plays: [])
+        late.observe(clocks: [1147], score: nil, at: at(21), playerLag: 0, plays: [])
+        precondition(late.estimates.isEmpty, "Nothing to match yet")
+        late.observe(clocks: [1140], score: nil, at: at(28), playerLag: 0, plays: posted)
+        precondition(late.estimates.map(\.delay) == [20, 20, 20] && late.delay == 20, "Matched once posted")
+        late.observe(clocks: [], score: nil, at: at(700), playerLag: 0, plays: posted)
+        precondition(late.estimates.isEmpty, "Ten minutes on, a reconnected stream may be a new delay")
 
         // Soccer's clock never stops: every running reading is a moment.
         let soccer = [AutoSyncPlay(wallclock: at(0), clockSeconds: 1400, period: "1H", awayScore: 0, homeScore: 0)]
@@ -92,6 +124,8 @@ struct MobileAutoSyncChecks {
             mixed.observe(clocks: [clock], score: nil, at: at(delay), playerLag: 0, plays: plays)
         }
         precondition(mixed.delay == 31, "30.5 agreed by three, not 10 or 55")
+        precondition(mixed.agreeing == 3)
+        precondition(AutoSyncTracker(clock: .none, margin: 0).needed == 2)
         print("Auto Sync checks passed")
     }
 }

@@ -564,6 +564,7 @@ private struct TVMediaServersHome: View {
     @Binding var searchingLibrary: Bool
     @State private var removingShelf = false
     @State private var clearingHistory = false
+    @State private var showingCollections = false
 
     /// Whether the shelves are on screen, with the Library's menu at the top
     /// right of the artwork above them; elsewhere the menu sits at the top.
@@ -577,6 +578,9 @@ private struct TVMediaServersHome: View {
                 searchingLibrary = true
             })
         }
+        options.append(TVLibraryOption(title: "Collections", symbol: "folder.fill") {
+            showingCollections = true
+        })
         options.append(TVLibraryOption(title: "Add Shelf", symbol: "plus.rectangle.on.rectangle") {
             choosingShelf = true
         })
@@ -652,6 +656,13 @@ private struct TVMediaServersHome: View {
         .tvChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
                    message: "This removes Continue Watching and local watched status from this Apple TV.") {
             [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
+        }
+        .fullScreenCover(isPresented: $showingCollections) { TVCollectionsScreen().environment(media) }
+        // Collections from a card's hold menu, anywhere in the Library. The
+        // Collections screen has its own while it is up.
+        .fullScreenCover(item: Binding(get: { showingCollections ? nil : media.collectionSelectionItem },
+                                       set: { media.collectionSelectionItem = $0 })) { item in
+            TVCollectionPicker(item: item).environment(media)
         }
         .background(
             ZStack {
@@ -3849,6 +3860,7 @@ extension MediaLibrary {
             })
         }
         if item.isPlayable { choices += tvEpisodeChoices(for: item) }
+        if let collections = tvCollectionChoice(for: item) { choices.append(collections) }
         return choices
     }
 
@@ -4057,6 +4069,8 @@ private struct TVMediaLibraryPreview: View {
     /// Each title's ratings once found. The hero moves on every few seconds
     /// and comes back round, and a title it has shown keeps its chips.
     @State private var ratings: [String: MediaRatings] = [:]
+    /// Fanart.tv's title logos, for titles whose server has none of its own.
+    @State private var fanartLogos: [String: URL] = [:]
 
     var body: some View {
         Group {
@@ -4090,11 +4104,21 @@ private struct TVMediaLibraryPreview: View {
             let found = await media.ratings(for: item)
             ratings[item.libraryKey] = found
         }
+        // A server's own logo comes first; Fanart.tv fills in where there is
+        // none -- a provider's title, a list's -- as the phone's Title Logos do.
+        .task(id: originalItem.map { "\(media.metadataRequestKey(for: $0))|\(media.fanartEnabled)" }) {
+            guard let item, media.logoURL(for: item, width: 620) == nil,
+                  fanartLogos[item.libraryKey] == nil else { return }
+            if let logo = await media.fanartLogo(for: item), !Task.isCancelled {
+                fanartLogos[item.libraryKey] = logo
+            }
+        }
     }
 
     @ViewBuilder
     private func titleLockup(_ item: MediaItem) -> some View {
-        LineupArtView(url: media.logoURL(for: item, width: 620), width: 620) { loaded in
+        let fanart = media.fanartEnabled ? fanartLogos[item.libraryKey] : nil
+        LineupArtView(url: media.logoURL(for: item, width: 620) ?? fanart, width: 620) { loaded in
             if let loaded {
                 loaded.resizable().scaledToFit()
             } else {
@@ -5229,7 +5253,14 @@ private struct MediaSourcePicker: View {
                        },
                        segmentsLookup: ["Episode", "Movie"].contains(item.type) ? {
                            await media.playbackSegments(for: trackedItem)
-                       } : nil)
+                       } : nil,
+                       // As on the phone: subtitles found online, the
+                       // show's kept tracks, and the server's scrubbing
+                       // thumbnails for this copy.
+                       subtitleIdentityLookup: { await media.onlineSubtitleIdentity(for: trackedItem) },
+                       trackMemoryShow: item.type == "Episode"
+                           ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
+                       seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) })
             .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
@@ -6062,9 +6093,8 @@ private struct BadgeFlow: Layout {
     }
 }
 
-/// IMDb, TMDB and Rotten Tomatoes as dark chips -- and on the iPhone
-/// Metacritic and Letterboxd too -- each source named in its own colour the
-/// way the sites' own badges are.
+/// IMDb, TMDB, Rotten Tomatoes, Metacritic and Letterboxd as dark chips,
+/// each source named in its own colour the way the sites' own badges are.
 struct MediaRatingChips: View {
     let ratings: MediaRatings
 
@@ -6100,7 +6130,6 @@ struct MediaRatingChips: View {
                 value("\(tomatoes)%", tight: tight)
             }
         }
-        #if os(iOS)
         if let metascore = ratings.metacritic {
             chip("Rating-Metacritic", spoken: "Metacritic", spokenValue: "\(metascore)", tight: tight) {
                 metascoreBox(metascore, tight: tight)
@@ -6114,7 +6143,6 @@ struct MediaRatingChips: View {
                 value(String(format: "%.1f", stars), tight: tight)
             }
         }
-        #endif
     }
 
     private func value(_ text: String, tight: Bool) -> some View {
@@ -6123,7 +6151,6 @@ struct MediaRatingChips: View {
             .foregroundStyle(Color.white)
     }
 
-    #if os(iOS)
     /// The Metascore in the box Metacritic draws it in: green from 61,
     /// yellow from 40, red below.
     private func metascoreBox(_ score: Int, tight: Bool) -> some View {
@@ -6137,7 +6164,6 @@ struct MediaRatingChips: View {
             .frame(minWidth: size * 1.7, minHeight: size * 1.35)
             .background(fill, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
-    #endif
 
     /// Each site by its own mark rather than its name in letters: IMDb's
     /// yellow badge, TMDB's square mark and the Tomatometer's tomato, all
@@ -6194,6 +6220,28 @@ private enum MediaRatingMetrics {
     static let tightValueSize: CGFloat = 13
     #endif
 }
+
+#if os(tvOS)
+/// BetterPosters' rated poster, drawn over the ordinary one, as the phone's
+/// `MobileRatedPoster` does: both through the same artwork cache, and the
+/// ordinary poster shown while the rated one loads and wherever it fails.
+struct TVRatedPoster<Content: View>: View {
+    let url: URL?
+    let fallback: URL?
+    let width: CGFloat
+    @ViewBuilder var content: (Image?) -> Content
+
+    var body: some View {
+        if let url, url != fallback {
+            LineupArtView(url: fallback, width: width) { ordinary in
+                LineupArtView(url: url, width: width) { rated in content(rated ?? ordinary) }
+            }
+        } else {
+            LineupArtView(url: fallback, width: width, content: content)
+        }
+    }
+}
+#endif
 
 /// An episode's primary image is a 16:9 still and a movie's is a portrait poster.
 /// Choosing per item is what left a shelf ragged, so a screen picks one shape
@@ -6299,11 +6347,9 @@ struct MediaItemCard: View {
         .task(id: media.metadataRequestKey(for: originalItem)) {
             await media.resolveMetadata(for: originalItem)
         }
-        #if !os(tvOS)
         .task(id: media.betterPostersEnabled ? originalItem.libraryKey : "") {
             await media.resolveBetterPosterIdentity(for: originalItem)
         }
-        #endif
     }
 
     private var artworkIsFocused: Bool {
@@ -6336,7 +6382,10 @@ struct MediaItemCard: View {
                 LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                     startPoint: .topLeading, endPoint: .bottomTrailing)
                 #if os(tvOS)
-                LineupArtView(url: artworkURL, width: artWidth) { loaded in
+                // BetterPosters' rated poster over the ordinary one, which
+                // stays while it loads and wherever it fails.
+                TVRatedPoster(url: shape.isPoster ? media.betterPosterURL(for: item) : nil,
+                              fallback: artworkURL, width: artWidth) { loaded in
                     if let image = loaded { image.resizable().scaledToFill() }
                     else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
                 }

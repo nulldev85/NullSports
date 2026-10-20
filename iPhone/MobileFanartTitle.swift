@@ -29,30 +29,11 @@ struct MobileFanartTitle<Fallback: View>: View {
         .accessibilityElement(children: .ignore).accessibilityLabel(item.name)
         .task(id: requestID) {
             logo = nil
-            guard media.fanartEnabled, MobileFanart.configured, ["Movie", "Series"].contains(item.type) else { return }
-            await media.resolveMetadata(for: item)
-            guard !Task.isCancelled else { return }
-            var matched = media.displayItem(item)
-            if Self.identity(for: matched) == nil {
-                matched = await media.libraryExternalIdentity(item, requiring: item.isSeries ? "tvdb" : "imdb")
-            }
-            guard !Task.isCancelled, let identity = Self.identity(for: matched) else { return }
-            let found = await MobileFanart.shared.logo(for: identity)
+            let found = await media.fanartLogo(for: item)
             guard !Task.isCancelled else { return }
             logo = found
         }
     }
 
-    static func identity(for item: MediaItem) -> MobileFanartIdentity? {
-        let ids = LibraryMetadataIdentity.ids(item)
-        if item.type == "Series", let tvdb = ids["tvdb"] {
-            return MobileFanartIdentity(kind: .series, id: tvdb)
-        }
-        if item.type == "Movie" {
-            for provider in ["tmdb", "imdb"] {
-                if let id = ids[provider], let identity = MobileFanartIdentity(kind: .movie, id: id) { return identity }
-            }
-        }
-        return nil
-    }
+    static func identity(for item: MediaItem) -> MobileFanartIdentity? { MobileFanartIdentity(item: item) }
 }

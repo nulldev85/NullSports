@@ -2,39 +2,6 @@ import SwiftUI
 import UIKit
 import Combine
 
-/// Only completed results are published. The native editor owns its text and
-/// keystrokes never start network or metadata work or replace that editor.
-@MainActor
-final class MobileSubtitleResults: ObservableObject {
-    @Published private(set) var visible: [MobileOnlineSubtitle] = []
-    private var records: [MobileOnlineSubtitle] = []
-    private var query = ""
-    private var generation = UUID()
-    private var work: Task<Void, Never>?
-    func replace(_ records: [MobileOnlineSubtitle]) { self.records = records; filter(query) }
-    func filter(_ query: String) {
-        self.query = query
-        work?.cancel()
-        let token = UUID(); generation = token
-        let records = self.records
-        work = Task {
-            let scan = Task.detached(priority: .userInitiated) {
-                let terms = query.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                    .split(whereSeparator: \.isWhitespace).map(String.init)
-                return records.filter { row in
-                    guard !Task.isCancelled else { return false }
-                    let text = row.title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                    return terms.allSatisfy(text.contains)
-                }
-            }
-            let result = await withTaskCancellationHandler(operation: { await scan.value }, onCancel: { scan.cancel() })
-            guard !Task.isCancelled, generation == token else { return }
-            if result != visible { visible = result }
-        }
-    }
-    func cancel() { generation = UUID(); work?.cancel() }
-}
-
 struct MobileSubtitleSearchInput: UIViewRepresentable {
     let results: MobileSubtitleResults
     func makeCoordinator() -> Coordinator { Coordinator(results) }

@@ -20,7 +20,13 @@ jobs:
         env:
           LINEUP_TMDB_TOKEN: ${{ secrets.LINEUP_TMDB_TOKEN }}
           LINEUP_TVDB_API_KEY: ${{ secrets.LINEUP_TVDB_API_KEY }}
-        run: python3 -B Tools/configure-metadata.py
+          # Title logos and Find Subtitles Online, on the television as on
+          # the phone.
+          LINEUP_OPENSUBTITLES_API_KEY: ${{ secrets.LINEUP_OPENSUBTITLES_API_KEY }}
+          LINEUP_FANART_API_KEY: ${{ secrets.LINEUP_FANART_API_KEY }}
+        run: |
+          python3 -B Tools/configure-metadata.py
+          python3 -B Tools/check-metadata-bundle.py Lineup/Resources --require-online-subtitles --require-fanart
 
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -50,6 +56,24 @@ jobs:
           set -euo pipefail
           swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/lineup-daily-cache-checks
           /tmp/lineup-daily-cache-checks
+
+      - name: Check live stats, Auto Sync, team pages, title logos and track memory
+        run: |
+          set -euo pipefail
+          swiftc Lineup/Services/GameStatsFeed.swift Lineup/Services/GameStatsBoards.swift Tests/MobileGameStatsChecks.swift -o /tmp/lineup-game-stats-checks
+          /tmp/lineup-game-stats-checks
+          swiftc Lineup/Services/GameStatsFeed.swift Lineup/Services/GameStatsBoards.swift Tests/MobileGameBoardChecks.swift -o /tmp/lineup-game-board-checks
+          /tmp/lineup-game-board-checks
+          swiftc Lineup/Services/AutoSyncLogic.swift Tests/MobileAutoSyncChecks.swift -o /tmp/lineup-auto-sync-checks
+          /tmp/lineup-auto-sync-checks
+          swiftc Lineup/Services/TeamPageFeed.swift Tests/MobileTeamPageChecks.swift -o /tmp/lineup-team-page-checks
+          /tmp/lineup-team-page-checks
+          swiftc Lineup/Services/FanartPolicy.swift Tests/MobileFanartPolicyChecks.swift -o /tmp/lineup-fanart-policy-checks
+          /tmp/lineup-fanart-policy-checks
+          swiftc Lineup/Services/SubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/lineup-subtitle-preference-checks
+          /tmp/lineup-subtitle-preference-checks
+          swiftc Lineup/Services/SubtitlePreferences.swift Lineup/Services/TrackMemory.swift Tests/MobileTrackMemoryChecks.swift -o /tmp/lineup-track-memory-checks
+          /tmp/lineup-track-memory-checks
 
       - name: Install project generator
         run: brew install xcodegen
@@ -108,7 +132,7 @@ jobs:
           # app looks the way it did before Inter. So the bundle is the thing
           # to check, not the code.
           app="build/Build/Products/Release-appletvos/Lineup.app"
-          python3 -B Tools/check-metadata-bundle.py "$app"
+          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart
           test -d "$app"
           missing=0
           for face in Light Regular Medium SemiBold Bold ExtraBold Black; do

@@ -1,4 +1,4 @@
-# iPhone live stats
+# Live stats
 
 The stats panel beside or under the picture follows the game on screen and
 holds everything it shows until the viewer's picture reaches it. A score,
@@ -92,18 +92,49 @@ ends, a few minutes apart as real games are. Who is serving lags: it comes
 back for every match of a tour at once, a minute or two later, so it is
 worked out from the games between.
 
+## Apple TV
+
+The same stats, feeds, sync and Auto Sync, shared with the phone. In full
+screen on a game ESPN has an account of, the controls have a Stats button;
+the panel takes the right 640 points of the screen and the picture the rest
+(1280 by 720, 16:9 exactly). The surface is narrowed by a padding value, never
+a modifier that comes and goes, so VLC keeps its drawable. While the panel is
+open the control row shows icons only, and the button the remote is on its
+name too, so the row fits beside it. The panel stays open from one game to
+the next until it is closed.
+
+- **Remote.** Right from the picture goes into the panel; every row takes
+  focus, so Up and Down scroll the list. Select on a play offers "It Just
+  Happened on My Screen". The sync chip opens the sync steps in the panel
+  itself, so the picture stays in view to be watched against. Back leaves the
+  steps, then closes the panel. As the controls time out, the remote stays in
+  the panel if it was there.
+- **Pauses.** A live channel paused and played on from its buffer counts
+  that time as the viewer's own, as on the phone, so the stats hold back by as
+  much; a recording played behind live counts how far behind.
+- **Auto Sync frames.** VLC through its snapshot to a file, as on the phone;
+  Aether from its renderer's displayed frame, else an `AVPlayerItemVideoOutput`
+  attached while Auto Sync runs. Notes go to the playback log, which the
+  television keeps between launches, so only the moments that matter are
+  written: on, off, the scoreboard found or lost, the lock, resting.
+
 ## Code
 
-- `iPhone/MobileGameStatsFeed.swift`: summary parsing, including soccer, and
-  the timeline that holds everything back.
-- `iPhone/MobileGameBoards.swift`: tennis, fight card and race boards, and
-  the plays worked out from two of them.
-- `iPhone/MobileGameStats.swift`: which feed a game uses, fetching, and
+- `Lineup/Services/GameStatsFeed.swift`: summary parsing, including soccer,
+  and the timeline that holds everything back.
+- `Lineup/Services/GameStatsBoards.swift`: tennis, fight card and race
+  boards, and the plays worked out from two of them.
+- `Lineup/Store/GameStats.swift`: which feed a game uses, fetching, and
   holding the Sports tab's score with the stats.
-- `iPhone/MobileGameStatsPanel.swift`, `iPhone/MobileGameBoardViews.swift`:
-  the panel and the sync sheet.
-- `Tests/MobileGameStatsChecks.swift`, `Tests/MobileGameBoardChecks.swift`:
-  run in the iOS build's "Check shared sports logic" step.
+- `Lineup/Services/AutoSyncLogic.swift`, `Lineup/Services/AutoSync.swift`:
+  reading the scoreboard and matching it to the plays.
+- `Lineup/Design/GameStatsRows.swift`, `Lineup/Design/GameStatsBoardViews.swift`:
+  the rows and boards both apps draw, at the television's sizes there.
+- `iPhone/MobileGameStatsPanel.swift`: the phone's panel and sync sheet.
+- `Lineup/Views/TVGameStatsPanel.swift`: the television's panel and sync
+  steps.
+- `Tests/MobileGameStatsChecks.swift`, `Tests/MobileGameBoardChecks.swift`,
+  `Tests/MobileAutoSyncChecks.swift`: run in both builds.
 
 ## Auto Sync
 
@@ -122,6 +153,19 @@ hot, and nothing leaves the device.
   correction). A game clock is minutes and seconds standing alone, not a time
   of day, not longer than the sport's longest period; a score is the number
   beside a side's code in the same line or the next one along.
+- **Where.** A scoreboard is a small box in a corner or along an edge, too
+  small to read reliably in the whole frame. Until a clock turns up, the top
+  third and bottom third are read in turn (and the whole frame every third
+  time), each through Vision's region of interest, which gives the text
+  several times the size. Once a clock is read, only a full-width band around
+  its line is read, until eight frames in a row find nothing there (ads,
+  replays); then the search starts again.
+- **What it says.** The panel's sync line shows how far it has got: reading,
+  no picture from the player, looking for the scoreboard, or the clock it
+  reads and how many plays of the three needed agree. With Settings ›
+  Diagnostics › Playback diagnostics on, the log records each frame's size and
+  format, where it was read, the clock and score found or the lines read
+  instead, every estimate, and the lock.
 - **Estimates.** A countdown clock (football, basketball) reaching a play's
   time, first seen then, gives one: seen minus happened, less the viewer's own
   pauses. Hockey's feed counts up within the period, so its plays are turned
@@ -129,6 +173,14 @@ hot, and nothing leaves the device.
   the nearest play; a clock held at 45:00 is ignored. A score changing on
   screen to one a play made gives one, timed from its first sighting and only
   once read twice.
+- **Late plays.** ESPN posts some plays minutes after they happened: in an
+  NHL game on Oct 19, a shot appeared in the feed 177 seconds after its time
+  and a hit 208 seconds after. A stream only a little behind live has shown
+  those plays well before ESPN has them. So every moment the scoreboard showed
+  is kept for ten minutes and matched again each frame against the plays
+  posted so far, instead of only against those there when it was seen.
+  Replayed against that game's plays with a stream 20 seconds behind, the
+  old way never locked; this way locks in two to three minutes.
 - **Agreement.** The delay is the median of the largest group of estimates
   within 2.5 seconds of each other (three, or two for baseball), from the last
   ten minutes, ties to the longer. The ways an estimate goes wrong that are not

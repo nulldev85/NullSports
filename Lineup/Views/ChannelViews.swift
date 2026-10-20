@@ -32,6 +32,15 @@ struct LiveView: View {
     @State private var pickedChannel: TVPickedChannel?
     /// After a pick: just this game, or always for one of its teams.
     @State private var scopingChannel: TVPickedChannel?
+    /// From a game's hold menu: the channels verified to carry it, a side's
+    /// page, the game from its start, and My Teams' recorded games.
+    @State private var eventChannelsGame: SportsGame?
+    @State private var teamPage: MobileTeamPageTarget?
+    @State private var catchUpStream: XtreamStream?
+    @State private var catchUpChoice: TVCatchUpChoice?
+    @State private var catchUpMissing: SportsGame?
+    @State private var catchUpLookup: Task<Void, Never>?
+    @State private var showingReplays = false
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
@@ -74,6 +83,7 @@ struct LiveView: View {
                     // Hold Select on any game for its channel, wherever the
                     // game's card is.
                     .environment(\.liveChooseChannel, { chooseChannel(for: $0) })
+                    .environment(\.liveGameActions, gameActions)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
@@ -92,11 +102,44 @@ struct LiveView: View {
                     game: item.game,
                     channelID: item.stream.id,
                     channel: item.stream,
-                    // Up and Down go through the viewer's favourites.
-                    lineup: library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""),
+                    // Up and Down go through the viewer's favourites; a
+                    // replay is the game alone.
+                    lineup: item.recordingOnly ? [] : library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""),
+                    recording: item.recording,
+                    recordingOnly: item.recordingOnly,
                     continuing: item.preview
                 )
             }
+            .fullScreenCover(item: $eventChannelsGame, onDismiss: applyPickedChannel) { game in
+                TVEventChannelsScreen(game: game, playingID: previewGameID == game.id ? previewStream?.id : nil) { stream in
+                    pickedChannel = TVPickedChannel(game: game, stream: stream, startsMultiview: false)
+                    eventChannelsGame = nil
+                }
+            }
+            .fullScreenCover(item: $teamPage) { TVTeamPage(target: $0) }
+            .fullScreenCover(item: $catchUpStream) { stream in
+                TVCatchUpScreen(stream: stream) { programme in
+                    catchUpStream = nil
+                    watchRecording(of: stream, programme: programme)
+                }
+            }
+            .fullScreenCover(isPresented: $showingReplays) {
+                TVGameReplaysScreen { recording in
+                    showingReplays = false
+                    watchRecording(of: recording.stream, programme: recording.program, recordingOnly: true)
+                }
+            }
+            .tvChoices("Catch Up", symbol: "clock.arrow.circlepath", isPresented: presenting($catchUpChoice),
+                       message: catchUpChoice.map { "\($0.game.matchupLine): which channel's recording?" }) {
+                guard let choice = catchUpChoice else { return [] }
+                return choice.channels.map { stream in
+                    TVChoice(stream.name, symbol: "tv", id: String(stream.id)) { openCatchUp(stream, for: choice.game) }
+                }
+            } onCancel: { catchUpChoice = nil }
+            .tvChoices("No recording for this game", symbol: "clock.arrow.circlepath",
+                       isPresented: presenting($catchUpMissing),
+                       message: "None of the channels Lineup found for this game keeps a recording with your provider. TV Guide's Catch Up lists every channel that does.",
+                       cancelTitle: "OK") { [] }
             .fullScreenCover(item: $manualChannelGame, onDismiss: applyPickedChannel) { game in
                 ManualGameChannelPicker(game: game) { stream in
                     pickedChannel = TVPickedChannel(game: game, stream: stream,
@@ -152,7 +195,7 @@ struct LiveView: View {
             .overlay(alignment: .top) {
                 if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
             }
-            .onDisappear { cancelQualityCheck() }
+            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel() }
             .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
@@ -297,6 +340,51 @@ struct LiveView: View {
         open(game, startsMultiview: true)
     }
 
+    private var gameActions: LiveGameActions {
+        LiveGameActions(channels: { eventChannelsGame = $0 }, catchUp: findCatchUp,
+                        teamPage: { teamPage = $0 }, replays: { showingReplays = true })
+    }
+
+    /// Catch Up from a game's menu: of the channels verified to carry it,
+    /// the ones that keep a recording. One opens its programmes; several
+    /// ask which; none says so.
+    private func findCatchUp(_ game: SportsGame) {
+        catchUpLookup?.cancel()
+        guard let profile = library.activeProfile, !profile.isPlaylist else { return }
+        catchUpLookup = Task { @MainActor in
+            let matched = await library.eventChannels(for: game)
+            guard !Task.isCancelled, isActive, library.activeProfile?.id == profile.id else { return }
+            let current = library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+            let channels = MobileSportsCatchUpPolicy.channels(matched, live: current.isLive, playlist: profile.isPlaylist)
+            switch channels.count {
+            case 0: catchUpMissing = current
+            case 1: openCatchUp(channels[0], for: current)
+            default: catchUpChoice = TVCatchUpChoice(game: current, channels: channels)
+            }
+        }
+    }
+
+    /// Checked again as it is chosen: still the provider's, still keeping
+    /// recordings, still carrying the game.
+    private func openCatchUp(_ selected: XtreamStream, for game: SportsGame) {
+        catchUpChoice = nil
+        guard let stream = library.stream(withID: selected.id), stream.hasCatchUp,
+              library.isEventChannel(stream, verifiedFor: game) else { return }
+        catchUpStream = stream
+    }
+
+    /// A recording full screen, once the screen it was chosen on has gone.
+    /// A replay is the recording or nothing: it never goes live instead.
+    private func watchRecording(of stream: XtreamStream, programme: CatchUpProgramme, recordingOnly: Bool = false) {
+        stopPreview()
+        TVPreviewHandoff.stopPreviews()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard isActive else { return }
+            fullScreen = TVFullScreenItem(stream: stream, recording: programme, recordingOnly: recordingOnly)
+        }
+    }
+
     private func stopPreview() {
         cancelQualityCheck()
         playbackTransitionID = nil
@@ -310,6 +398,12 @@ struct LiveView: View {
         qualityTask = nil
         qualityRequest = nil
     }
+}
+
+/// Catch Up from a game's menu, with more than one channel recording it.
+private struct TVCatchUpChoice {
+    let game: SportsGame
+    let channels: [XtreamStream]
 }
 
 /// Both teams have a saved channel for a game, and they are not the same.
@@ -1718,6 +1812,7 @@ private struct LiveTallyChip: View {
 /// by accident.
 private struct LiveMyTeams: View {
     @Environment(SportsLibrary.self) private var library
+    @Environment(\.liveGameActions) private var actions
     let events: [SportsGame]
     let spotlight: LiveSpotlight
     let previewGameID: String?
@@ -1754,6 +1849,12 @@ private struct LiveMyTeams: View {
                 }
                 .scrollIndicators(.hidden)
                 .padding(-LiveMetrics.liftRoom)
+            }
+            // The NFL teams followed, recorded: as on the phone, with a
+            // provider that keeps recordings.
+            if let actions, library.followedTeams.teams.contains(where: { $0.league == "NFL" }),
+               let profile = library.activeProfile, !profile.isPlaylist {
+                TVGameReplaysEntry(action: actions.replays)
             }
         }
     }
@@ -2026,6 +2127,7 @@ private struct LiveGameMenu: ViewModifier {
     @Environment(SportsLibrary.self) private var library
     @EnvironmentObject private var reminders: GameReminders
     @Environment(\.liveChooseChannel) private var chooseChannel
+    @Environment(\.liveGameActions) private var actions
     @State private var showingRaceDetails = false
     let game: SportsGame
     let isPrimary: Bool
@@ -2037,6 +2139,7 @@ private struct LiveGameMenu: ViewModifier {
             if game.league.isRacing {
                 items.append(TVChoice("Race Details", symbol: "flag.checkered") { showingRaceDetails = true })
             }
+            items += actions?.liveItems(for: game, library: library) ?? []
             if game.isUpcoming {
                 let on = reminders.reminds(game)
                 items.append(TVChoice(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
@@ -2048,6 +2151,7 @@ private struct LiveGameMenu: ViewModifier {
             if let chooseChannel {
                 items.append(TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle") { chooseChannel(game) })
             }
+            items += actions?.teamItems(for: game, library: library) ?? []
             for team in library.followableSides(of: game) {
                 let following = library.isFollowing(team.key)
                 items.append(TVChoice(following ? "Remove \(team.name) from My Teams" : "Add \(team.name) to My Teams",
@@ -6553,6 +6657,19 @@ struct PlayerView: View {
     /// A Library title's intro, recap and credits from IntroDB, as the
     /// phone's player has them.
     var segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil
+    /// A Library title as OpenSubtitles knows it, for Find Subtitles Online.
+    var subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil
+    /// An episode's show: its sound and subtitles are kept for the next one.
+    var trackMemoryShow: String? = nil
+    /// The server's scrubbing thumbnails for the copy playing, where it
+    /// has them.
+    var seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil
+    @State private var findingSubtitles = false
+    @State private var subtitleSettingsShown = false
+    @State private var onlineSubtitleSession = UUID()
+    /// Holds the thumbnails without the player redrawing for each one: only
+    /// the seek bar watches them.
+    @StateObject private var seekPreview = MobileSeekPreviewSession()
     @StateObject private var controller: TVPlaybackController
     @ObservedObject private var alerts = GameAlertCenter.shared
     /// The channel on screen, which Up and Down change.
@@ -6610,20 +6727,34 @@ struct PlayerView: View {
     @AppStorage("Lineup.library.creditsPrompt.v1") private var creditsEnabled = true
     @AppStorage("Lineup.library.postCreditsNotice.v1") private var postCreditsEnabled = true
     @State private var lastReportedPosition: TimeInterval = 0
+    /// A replay: the recording or nothing. Without a recording to play it
+    /// says so, rather than going to the channel live.
+    var recordingOnly = false
     /// The player is closing because the viewer or the film said so. Any other
     /// way of going -- the screens around it torn down -- is noted in the log
     /// as such, because that is the one nobody asked for.
     @State private var closing = false
+    /// The live stats beside the picture, for a game ESPN keeps an account
+    /// of, and the scoreboard reading that keeps them in step.
+    @StateObject private var gameStats = MobileGameStats()
+    @StateObject private var autoSync = MobileAutoSync()
+    /// Open from one game to the next, until the viewer closes them.
+    @AppStorage("Lineup.tv.liveStats.v1") private var statsWanted = false
+    /// The remote on the stats' sync chip, as it comes into the panel.
+    @FocusState private var statsEntryFocused: Bool
 
     init(urls: [URL], title: String = "Live TV", program: CurrentProgram? = nil, isLive: Bool = true,
          initialPosition: TimeInterval? = nil, expectedDuration: TimeInterval? = nil,
          onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
          game: SportsGame? = nil, channelID: Int? = nil, synopsis: TVPlayerSynopsis? = nil,
          channel: XtreamStream? = nil, lineup: [XtreamStream] = [],
-         recording: CatchUpProgramme? = nil, startsOver: Bool = false,
+         recording: CatchUpProgramme? = nil, startsOver: Bool = false, recordingOnly: Bool = false,
          onChannelChange: ((XtreamStream) -> Void)? = nil,
          nextEpisode: TVNextEpisodeOffer? = nil, onReachedEnd: (() -> Void)? = nil,
          segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil,
+         subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil,
+         trackMemoryShow: String? = nil,
+         seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil,
          continuing preview: TVPreviewHandoff? = nil, playbackController: TVPlaybackController? = nil) {
         self.urls = urls
         self.title = title
@@ -6640,6 +6771,10 @@ struct PlayerView: View {
         self.nextEpisode = nextEpisode
         self.onReachedEnd = onReachedEnd
         self.segmentsLookup = segmentsLookup
+        self.subtitleIdentityLookup = subtitleIdentityLookup
+        self.trackMemoryShow = trackMemoryShow
+        self.seekPreviewLookup = seekPreviewLookup
+        self.recordingOnly = recordingOnly
         _controller = StateObject(wrappedValue: preview?.controller ?? playbackController ?? TVPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
         _currentChannel = State(initialValue: channel)
@@ -6663,10 +6798,27 @@ struct PlayerView: View {
         return library.recentStreams.first { $0.id != currentChannel?.id }
     }
 
+    /// The game the stats can follow: one ESPN keeps an account of, on a
+    /// channel.
+    private var statsGame: SportsGame? {
+        guard isLive, let watchingGame, MobileGameStats.supports(watchingGame) else { return nil }
+        return watchingGame
+    }
+    private var statsShown: Bool { statsWanted && statsGame != nil }
+    /// The room the stats take from the right of the screen. The picture,
+    /// the controls and anything over them keep the rest.
+    private var statsInset: CGFloat { statsShown ? TVGameStatsPanel.width : 0 }
+    private var statsChannelID: Int? { currentChannel?.id ?? channelID }
+    private var statsFollowKey: String { "\(statsGame?.id ?? "")|\(statsChannelID ?? -1)" }
+    private var autoSyncKey: String { statsFollowKey + "|\(statsShown)|\(autoSync.isEnabled)" }
+
     var body: some View {
         ZStack {
+            // Narrowed by a value, never by a modifier that comes and goes:
+            // the surface keeps its identity, and VLC its drawable.
             TVHostedSurface(controller: controller, fullScreen: true)
                 .overlay { TVPlaybackStatus(controller: controller) }
+                .padding(.trailing, statsInset)
                 .background(Color.black).ignoresSafeArea()
             // Hiding the chrome removes every focusable view, and the remote
             // only reaches a view that holds focus, so this stands in for it
@@ -6695,6 +6847,7 @@ struct PlayerView: View {
                     .onTapGesture {
                         if let alert = visibleAlert { watch(alert.game) } else { revealControls(focus: true) }
                     }
+                    .padding(.trailing, statsInset)
             }
             if controlsVisible && controller.error == nil {
                 TVPlayerChrome(title: controller.activeChannelName ?? chosenTitle ?? title,
@@ -6704,8 +6857,21 @@ struct PlayerView: View {
                     onChooserChange: chooserChanged,
                     onLastChannel: { if let lastChannel { tune(lastChannel) } },
                     onWatchAlert: { if let alert = visibleAlert { watch(alert.game) } },
-                    onChooseChannel: chooseChannelAction)
+                    onChooseChannel: chooseChannelAction,
+                    compact: statsShown, statsShown: statsShown,
+                    onToggleStats: statsGame == nil ? nil : toggleStats,
+                    onFindSubtitles: findSubtitlesAction,
+                    onSubtitleSettings: isLive ? nil : { subtitleSettingsShown = true },
+                    seekPreview: seekPreview.store)
+                    .padding(.trailing, statsInset)
                     .transition(.opacity)
+            }
+            if statsShown, let statsGame {
+                TVGameStatsPanel(stats: gameStats, autoSync: autoSync, game: statsGame,
+                                 entry: $statsEntryFocused, onClose: closeStats)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .ignoresSafeArea()
+                    .transition(.move(edge: .trailing))
             }
             if !controlsVisible, let channelBanner {
                 TVChannelBanner(stream: channelBanner, program: channelProgram)
@@ -6717,7 +6883,7 @@ struct PlayerView: View {
             if let alert = visibleAlert {
                 TVGameAlertBanner(alert: alert, selectWatches: !controlsVisible)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.horizontal, 72).padding(.top, 56)
+                    .padding(.leading, 72).padding(.trailing, 72 + statsInset).padding(.top, 56)
                     .allowsHitTesting(false)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -6791,6 +6957,7 @@ struct PlayerView: View {
                 PlaybackJournal.shared.note(openingNote)
             } else {
                 PlaybackJournal.shared.note(openingNote)
+                controller.remembersTracks(forShow: isLive ? nil : trackMemoryShow)
                 controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
                                  channelID: channelID, isLive: isLive, expectedDuration: expectedDuration)
             }
@@ -6807,7 +6974,48 @@ struct PlayerView: View {
             reportProgress(force: true)
             hideControlsTask?.cancel()
             bannerTask?.cancel()
+            autoSync.stop()
+            gameStats.stop()
+            seekPreview.store.cancel()
             finishPlayback()
+        }
+        .fullScreenCover(isPresented: $findingSubtitles, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
+            if let subtitleIdentityLookup {
+                TVOnlineSubtitlesScreen(name: synopsis?.title ?? title, identity: subtitleIdentityLookup) { data, subtitle in
+                    try await controller.addOnlineSubtitle(data, title: subtitle.title, language: subtitle.language,
+                                                           session: onlineSubtitleSession)
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $subtitleSettingsShown, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
+            TVSubtitleSettingsScreen(controller: controller)
+        }
+        // The server's thumbnails for this copy, as the phone's player asks.
+        .task(id: urls) {
+            seekPreview.store.configure(nil)
+            guard !isLive, let seekPreviewLookup else { return }
+            let source = await seekPreviewLookup()
+            guard !Task.isCancelled else { return }
+            seekPreview.store.configure(source)
+        }
+        // The stats follow the game on screen from the moment it opens,
+        // shown or not, so what the picture needs is there when they are.
+        .task(id: statsFollowKey) { followStats() }
+        // Auto Sync reads the scoreboard while the stats are open beside a
+        // game, from whichever engine is playing it.
+        .task(id: autoSyncKey) {
+            guard statsShown, autoSync.isEnabled else { autoSync.stop(); return }
+            // Following first: Auto Sync reads the game the stats follow.
+            followStats()
+            let player = controller
+            autoSync.run(for: gameStats, channel: statsChannelID,
+                         frames: { [weak player] in await player?.captureFrame() },
+                         release: { [weak player] in player?.releaseFrameOutput() })
+        }
+        // Gone with the game -- another channel, or one with no account --
+        // the panel leaves the remote on the picture.
+        .onChange(of: statsShown) { _, shown in
+            if !shown, !controlsVisible { surfaceFocused = true }
         }
         // The channel's recording, once the server's time zone is known:
         // Start Over, rewinding, and pausing live all need it.
@@ -6818,7 +7026,13 @@ struct PlayerView: View {
             controller.catchUpSource = source
             if let recording = openingRecording {
                 openingRecording = nil
-                if source != nil { controller.playRecording(of: recording) } else { startLive(stream) }
+                if source != nil {
+                    controller.playRecording(of: recording)
+                } else if recordingOnly {
+                    controller.unavailable("This recording can't be opened from your provider right now.")
+                } else {
+                    startLive(stream)
+                }
             } else if openingStartOver {
                 openingStartOver = false
                 if controller.canStartOver { controller.startOver() } else { startLive(stream) }
@@ -6880,6 +7094,7 @@ struct PlayerView: View {
             if control != nil, controlsVisible { scheduleAutoHide() }
         }
         .animation(.easeInOut(duration: 0.22), value: controlsVisible)
+        .animation(.easeInOut(duration: 0.3), value: statsShown)
         .animation(.easeInOut(duration: 0.22), value: channelBanner?.id)
         .animation(.easeInOut(duration: 0.3), value: visibleAlert?.id)
     }
@@ -6908,6 +7123,9 @@ struct PlayerView: View {
         case .right where isLive && controller.catchUp != nil:
             controller.skip(by: CatchUpPolicy.skip)
             revealControls(focus: true, on: .scrubber)
+        case .right where statsShown:
+            // Into the stats beside the picture.
+            statsEntryFocused = true
         default:
             revealControls(focus: true)
         }
@@ -6985,10 +7203,12 @@ struct PlayerView: View {
     /// next press has somewhere to land, as when they time out.
     private func hideControls() {
         hideControlsTask?.cancel()
+        let inChrome = focusedControl != nil
         controlsVisible = false
         Task { @MainActor in
             await Task.yield()
-            focusPicture()
+            // The remote in the stats stays there as the controls go.
+            if inChrome || !statsShown { focusPicture() }
         }
     }
 
@@ -6996,6 +7216,39 @@ struct PlayerView: View {
     /// one press skips, else the picture itself.
     private func focusPicture() {
         if showsSkip { skipFocused = true } else { surfaceFocused = true }
+    }
+
+    /// The stats on the game on screen, on the channel it is on, held behind
+    /// the picture by however far the viewer has paused or rewound it.
+    private func followStats() {
+        let player = controller
+        gameStats.playerLag = { [weak player] in player?.secondsBehindLive ?? 0 }
+        gameStats.follow(statsGame, channelID: statsChannelID)
+    }
+
+    /// Find Subtitles Online, where the title is one OpenSubtitles can be
+    /// asked about and the engine can take a file.
+    private var findSubtitlesAction: (() -> Void)? {
+        guard !isLive, subtitleIdentityLookup != nil, MobileOpenSubtitles.configured,
+              controller.canAttachOnlineSubtitles else { return nil }
+        return {
+            onlineSubtitleSession = controller.subtitleSession
+            findingSubtitles = true
+        }
+    }
+
+    /// Stats from the controls: open, with the remote in them, or closed.
+    private func toggleStats() {
+        if statsShown { closeStats(); return }
+        statsWanted = true
+        PlaybackJournal.shared.note("Live stats opened")
+        Task { @MainActor in await Task.yield(); statsEntryFocused = true }
+    }
+
+    private func closeStats() {
+        statsWanted = false
+        PlaybackJournal.shared.note("Live stats closed")
+        if controlsVisible { focusedControl = .stats } else { surfaceFocused = true }
     }
 
     /// Next Episode is up: the last half minute of an episode with one after
@@ -7132,17 +7385,19 @@ struct PlayerView: View {
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
             guard !Task.isCancelled, !controller.isScrubbing else { return }
+            let inChrome = focusedControl != nil
             controlsVisible = false
             // Hand focus to the video surface as the chrome leaves, so the next
-            // press on the remote has somewhere to arrive.
+            // press on the remote has somewhere to arrive -- unless it is in
+            // the stats, which stay.
             await Task.yield()
-            focusPicture()
+            if inChrome || !statsShown { focusPicture() }
         }
     }
 }
 
 private enum TVPlayerControl: Hashable {
-    case scrubber, playPause, goLive, startOver, mute, lastChannel, chooseChannel, alert, subtitles, audio, video, quality
+    case scrubber, playPause, goLive, startOver, mute, lastChannel, chooseChannel, stats, alert, subtitles, audio, video, quality
 }
 
 private struct TVPlayerChrome: View {
@@ -7166,6 +7421,18 @@ private struct TVPlayerChrome: View {
     let onWatchAlert: () -> Void
     /// Another channel for the game on screen, as on iPhone.
     let onChooseChannel: (() -> Void)?
+    /// The stats take the right of the screen: the buttons show only their
+    /// icons, and the one the remote is on its name too, so the row fits
+    /// beside them.
+    let compact: Bool
+    let statsShown: Bool
+    /// The live stats, for a game ESPN keeps an account of.
+    let onToggleStats: (() -> Void)?
+    /// Find Subtitles Online and Subtitle Settings, for a Library title.
+    let onFindSubtitles: (() -> Void)?
+    let onSubtitleSettings: (() -> Void)?
+    /// The server's scrubbing thumbnails, shown over the seek bar.
+    let seekPreview: MobileSeekPreviewStore
 
     private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
 
@@ -7255,8 +7522,8 @@ private struct TVPlayerChrome: View {
                             ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0, large: true) }
                         }
                         if !isLive && controller.duration > 0 {
-                            TVSeekBar(controller: controller, clock: controller.clock, focus: focusedControl,
-                                      onInteraction: onInteraction)
+                            TVSeekBar(controller: controller, clock: controller.clock, preview: seekPreview,
+                                      focus: focusedControl, onInteraction: onInteraction)
                         }
                         if showsTimeline {
                             TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
@@ -7266,54 +7533,74 @@ private struct TVPlayerChrome: View {
                     HStack(spacing: 14) {
                         TVPlayerButton(title: controller.isPlaying ? "Pause" : "Play",
                             symbol: controller.isPlaying ? "pause.fill" : "play.fill", prominent: true,
-                            focus: focusedControl, id: .playPause) { controller.togglePlayback(); onInteraction() }
+                            compact: compact, focus: focusedControl, id: .playPause) { controller.togglePlayback(); onInteraction() }
                         TVPlayerButton(title: isLive ? (controller.isAtLiveEdge ? "Live" : "Go Live") : "Restart",
                             symbol: isLive ? "dot.radiowaves.left.and.right" : "backward.end.fill",
-                            badge: isLive && controller.isAtLiveEdge, focus: focusedControl, id: .goLive) {
+                            badge: isLive && controller.isAtLiveEdge, compact: compact, focus: focusedControl, id: .goLive) {
                                 controller.goLive(); onInteraction()
                             }
                         if isLive && controller.canStartOver {
                             TVPlayerButton(title: "Start Over", symbol: "backward.end.fill",
-                                           focus: focusedControl, id: .startOver) {
+                                           compact: compact, focus: focusedControl, id: .startOver) {
                                 controller.startOver(); onInteraction()
                             }
                         }
                         TVPlayerButton(title: controller.isMuted ? "Unmute" : "Mute",
                             symbol: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                            focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
+                            compact: compact, focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
                         if let lastChannelName {
                             TVPlayerButton(title: "Last · " + short(lastChannelName), symbol: "arrow.uturn.backward",
-                                           focus: focusedControl, id: .lastChannel) {
+                                           compact: compact, focus: focusedControl, id: .lastChannel) {
                                 onLastChannel(); onInteraction()
                             }
                         }
                         if let onChooseChannel {
                             TVPlayerButton(title: "Choose Channel", symbol: "list.bullet",
-                                           focus: focusedControl, id: .chooseChannel) {
+                                           compact: compact, focus: focusedControl, id: .chooseChannel) {
                                 onChooseChannel(); onInteraction()
+                            }
+                        }
+                        if let onToggleStats {
+                            TVPlayerButton(title: statsShown ? "Hide Stats" : "Stats", symbol: "chart.bar.fill",
+                                           compact: compact, focus: focusedControl, id: .stats) {
+                                onToggleStats(); onInteraction()
                             }
                         }
                         if let alert {
                             TVPlayerButton(title: "Watch " + TVGameAlertBanner.matchup(alert.game),
-                                           symbol: "sportscourt.fill", focus: focusedControl, id: .alert) {
+                                           symbol: "sportscourt.fill", compact: compact, focus: focusedControl, id: .alert) {
                                 onWatchAlert(); onInteraction()
                             }
                         }
-                        if !isLive && controller.subtitleTracks.count > 1 {
+                        // Every Library title: its own subtitles, any found
+                        // online, and how they look.
+                        if !isLive && (controller.subtitleTracks.count > 1 || onFindSubtitles != nil
+                                       || onSubtitleSettings != nil) {
                             TVSelectable(scale: LineupStyle.controlLift, action: { showingSubtitles = true }) {
                                 TVPlayerMenuLabel(title: "Subtitles · \(short(controller.selectedSubtitleTitle))",
                                                   symbol: "captions.bubble.fill",
                                                   focused: focusedControl.wrappedValue == .subtitles)
                             }
                             .focused(focusedControl, equals: .subtitles)
-                            .tvChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles) {
-                                controller.subtitleTracks.map { track in
+                            .tvChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles,
+                                       message: controller.trackMemoryShow == nil ? nil
+                                           : "Kept for every episode of this show.") {
+                                var choices = controller.subtitleTracks.map { track in
                                     TVChoice(track.title, id: "\(track.id)",
                                              isSelected: track.id == controller.selectedSubtitleID) {
                                         controller.selectSubtitle(track)
                                         onInteraction()
                                     }
                                 }
+                                if let onFindSubtitles {
+                                    choices.append(TVChoice("Find Subtitles Online", symbol: "magnifyingglass",
+                                                            id: "find-online", action: onFindSubtitles))
+                                }
+                                if let onSubtitleSettings {
+                                    choices.append(TVChoice("Subtitle Settings", symbol: "textformat.size",
+                                                            id: "settings", action: onSubtitleSettings))
+                                }
+                                return choices
                             } onCancel: { onInteraction() }
                         }
                         // A file with more than one audio stream -- languages,
@@ -7325,7 +7612,9 @@ private struct TVPlayerChrome: View {
                                                   focused: focusedControl.wrappedValue == .audio)
                             }
                             .focused(focusedControl, equals: .audio)
-                            .tvChoices("Audio", symbol: "waveform", isPresented: $showingAudio) {
+                            .tvChoices("Audio", symbol: "waveform", isPresented: $showingAudio,
+                                       message: controller.trackMemoryShow == nil ? nil
+                                           : "Kept for every episode of this show.") {
                                 controller.audioTracks.map { track in
                                     TVChoice(track.title, id: "\(track.id)",
                                              isSelected: track.id == controller.selectedAudioTrackID) {
@@ -7358,7 +7647,7 @@ private struct TVPlayerChrome: View {
                         TVSelectable(scale: LineupStyle.controlLift, action: { showingQuality = true }) {
                             TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)",
                                               symbol: "gearshape.fill",
-                                              focused: focusedControl.wrappedValue == .quality)
+                                              focused: focusedControl.wrappedValue == .quality, compact: compact)
                         }
                         .focused(focusedControl, equals: .quality)
                         .tvChoices("Quality · \(controller.qualityLabel)", symbol: "gearshape", isPresented: $showingQuality) {
@@ -7565,6 +7854,9 @@ private struct TVGameAlertBanner: View {
 private struct TVSeekBar: View {
     @ObservedObject var controller: TVPlaybackController
     @ObservedObject var clock: PlaybackClock
+    /// The server's thumbnails: the one for where the remote has got to
+    /// rides over the bar while it scrubs.
+    let preview: MobileSeekPreviewStore
     let focus: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
     @State private var target: Double?
@@ -7583,6 +7875,17 @@ private struct TVSeekBar: View {
         VStack(spacing: 12) {
             LineupProgressBar(value: progress,
                               height: selected ? 16 : LineupProgressBar.standardHeight)
+                .overlay(alignment: .topLeading) {
+                    if let target {
+                        GeometryReader { bar in
+                            let width = TVSeekPreviewBubble.size.width
+                            TVSeekPreviewBubble(store: preview, seconds: target)
+                                .offset(x: min(max(0, progress * bar.size.width - width / 2), max(0, bar.size.width - width)),
+                                        y: -TVSeekPreviewBubble.size.height - 34)
+                        }
+                        .allowsHitTesting(false)
+                    }
+                }
             HStack {
                 Text(Self.clock(shown))
                 Spacer(minLength: 0)
@@ -7603,6 +7906,7 @@ private struct TVSeekBar: View {
             guard controller.isScrubbing else { return }
             target = PlaybackSeekPolicy.clamped(controller.elapsed + direction * 10, duration: controller.duration)
             controller.previewScrubbing(at: target ?? controller.elapsed)
+            preview.request(at: target ?? controller.elapsed)
             onInteraction()
         }, onFrame: { direction, heldFor, delta in
             guard let target else { return }
@@ -7611,6 +7915,7 @@ private struct TVSeekBar: View {
             guard abs(next - target) > 0.001 else { return }
             self.target = next
             controller.previewScrubbing(at: next)
+            preview.request(at: next)
         }, onEnd: { finishScrubbing() }).frame(width: 0, height: 0))
         .onMoveCommand { direction in
             switch direction {
@@ -7630,6 +7935,7 @@ private struct TVSeekBar: View {
         .onDisappear {
             controller.finishScrubbing(resume: false)
             target = nil
+            preview.cancel()
         }
         .transaction { if target != nil { $0.animation = nil } }
         .accessibilityLabel("Playback position")
@@ -7640,6 +7946,7 @@ private struct TVSeekBar: View {
         guard let target else { return }
         controller.endScrubbing(at: target)
         self.target = nil
+        preview.cancel()
         onInteraction()
     }
 
@@ -7654,11 +7961,48 @@ private struct TVSeekBar: View {
     }
 }
 
+/// The picture at the place being scrubbed to, from the server's
+/// thumbnails, with its time under it. Only drawn where the server has them.
+private struct TVSeekPreviewBubble: View {
+    static let size = CGSize(width: 336, height: 222)
+    @ObservedObject var store: MobileSeekPreviewStore
+    let seconds: Double
+
+    var body: some View {
+        if let info = store.source?.info {
+            let index = info.index(at: seconds)
+            let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+            VStack(spacing: 8) {
+                ZStack {
+                    Color.black
+                    if let frame = store.frame, frame.index == index {
+                        Image(decorative: frame.image, scale: 1).resizable().scaledToFill()
+                    } else {
+                        ProgressView().tint(.white)
+                    }
+                }
+                .frame(width: Self.size.width - 16, height: 180)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Text(PlaybackJournal.clock(seconds)).font(.interDigits(17, .bold))
+                    .foregroundStyle(LineupStyle.mediaText)
+            }
+            .padding(8)
+            .frame(width: Self.size.width, height: Self.size.height)
+            .background(Color.black.opacity(0.82), in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+            .lineupShadow(.overlay)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
 private struct TVPlayerButton: View {
     let title: String
     let symbol: String
     var prominent = false
     var badge = false
+    /// Its icon alone, until the remote is on it.
+    var compact = false
     let focus: FocusState<TVPlayerControl?>.Binding
     let id: TVPlayerControl
     let action: () -> Void
@@ -7670,10 +8014,10 @@ private struct TVPlayerButton: View {
             HStack(spacing: 12) {
                 if badge { Circle().fill(LineupStyle.lightPurple).frame(width: 7, height: 7) }
                 LineupIconTile(symbol: symbol, size: 32)
-                Text(title).font(.inter(18, .semibold)).fixedSize()
+                if !compact || selected { Text(title).font(.inter(18, .semibold)).fixedSize() }
             }
             .foregroundStyle(LineupStyle.lightPurple)
-            .padding(.leading, badge ? 16 : 10).padding(.trailing, 22).frame(height: 52)
+            .padding(.leading, badge ? 16 : 10).padding(.trailing, compact && !selected ? 10 : 22).frame(height: 52)
             .lineupLiquidGlass(shape, fallback: prominent ? LineupStyle.raised : LineupStyle.surface.opacity(0.88),
                                border: LineupStyle.line, prominent: prominent)
             .lineupFocusLayer(selected, in: shape)
@@ -7692,14 +8036,18 @@ private struct TVPlayerMenuLabel: View {
     let title: String
     let symbol: String
     let focused: Bool
+    /// Its icon alone, until the remote is on it.
+    var compact = false
     var body: some View {
         HStack(spacing: 12) {
             LineupIconTile(symbol: symbol, size: 32)
-            Text(title).font(.inter(18, .semibold)).fixedSize()
-            Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold, design: .rounded)).opacity(0.72)
+            if !compact || focused {
+                Text(title).font(.inter(18, .semibold)).fixedSize()
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold, design: .rounded)).opacity(0.72)
+            }
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .padding(.leading, 10).padding(.trailing, 22).frame(height: 52)
+        .padding(.leading, 10).padding(.trailing, compact && !focused ? 10 : 22).frame(height: 52)
         .lineupLiquidGlass(Capsule(), fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
         .lineupFocusLayer(focused, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
@@ -7743,6 +8091,7 @@ private struct PlaybackClockReader<Content: View>: View {
         backend = initial
         engineKind = initial.kind
         mountBackend()
+        subtitlePreferences = MobileSubtitlePreferences(defaults: defaults)
     }
 
     private func mountBackend() {
@@ -7823,6 +8172,10 @@ private struct PlaybackClockReader<Content: View>: View {
     private(set) var recordingEndsWithProgramme = false
     /// When a live channel the provider records was paused, to pick up from.
     private var pausedAt: Date?
+    /// A live channel paused and played on from its buffer is that far behind
+    /// the broadcast: the stats hold back by as much.
+    private var liveHoldSince: Date?
+    private var liveHeldSeconds: TimeInterval = 0
     private var skipTask: Task<Void, Never>?
     private var monitor: Task<Void, Never>?
     private var urls: [URL] = []
@@ -7879,6 +8232,28 @@ private struct PlaybackClockReader<Content: View>: View {
     private var chosenAudioTrack: Int?
     private var chosenVideoTrack: Int?
     private var chosenSubtitle: PlaybackSubtitleTrack?
+    /// The viewer's subtitle size, background and language, kept on this
+    /// Apple TV; and this title's subtitle timing, which is its alone.
+    @Published private(set) var subtitlePreferences = MobileSubtitlePreferences()
+    @Published private(set) var subtitleDelaySeconds: Double = 0
+    /// Subtitle files found online for this title: added again after a
+    /// reconnect reopens it, and thrown away with it.
+    private struct OnlineSubtitle { let file: URL; let title: String; let language: String }
+    private var onlineSubtitles: [OnlineSubtitle] = []
+    private var onlineSubtitlesToAdd: [OnlineSubtitle] = []
+    /// The engine chooses a subtitle as it is added; the next look at the
+    /// tracks makes that the viewer's choice, so it is kept through a
+    /// reconnect like any other.
+    private var adoptsAddedSubtitle = false
+    /// Which title the online subtitles are for, so one found for the last
+    /// title never lands on the next.
+    private(set) var subtitleSession = UUID()
+    /// The show whose episodes keep their sound and subtitles, and what was
+    /// kept; put back once an episode, as soon as its tracks are known.
+    private(set) var trackMemoryShow: String?
+    private var showTracks: MobileShowTracks?
+    private var appliedShowAudio = false
+    private var appliedShowSubtitle = false
     /// What the log last said the stream was doing, so it notes changes
     /// rather than ticks.
     private var loggedCondition: String?
@@ -7966,6 +8341,12 @@ private struct PlaybackClockReader<Content: View>: View {
             chosenAudioTrack = nil
             chosenVideoTrack = nil
             chosenSubtitle = nil
+            // Another title: its own timing, its own show's tracks put back,
+            // and no subtitles found for the last one.
+            subtitleDelaySeconds = 0
+            appliedShowAudio = false
+            appliedShowSubtitle = false
+            discardOnlineSubtitles()
         }
         currentChannelID = channelID
         if resetFailover {
@@ -8016,6 +8397,9 @@ private struct PlaybackClockReader<Content: View>: View {
             + (place.map { " at " + PlaybackJournal.clock($0) } ?? ""))
         let fullscreen: Bool
         if case .fullScreen? = watched { fullscreen = true } else { fullscreen = false }
+        backend.setOpeningLanguages(isLive ? PlaybackLanguages() : openingLanguages)
+        backend.styleSubtitles(isLive ? PlaybackSubtitleStyle() : subtitleStyle)
+        onlineSubtitlesToAdd = onlineSubtitles
         backend.load(url: urls[urlIndex], startPosition: place, isLive: isLive && !sourceIsRecording,
                      expectedDuration: !isLive && duration > 0 ? duration : nil,
                      primary: fullscreen || (watched != nil && primaryOutput), matchContent: fullscreen)
@@ -8149,8 +8533,10 @@ private struct PlaybackClockReader<Content: View>: View {
         updateProgress()
         if seekLanding.isWaiting(now: uptime()) { health = freshHealth(); return }
         followRecordingIntoNextProgramme()
+        addOnlineSubtitlesAgain()
         refreshSubtitleTracks()
         refreshStreamTracks()
+        applyShowTracks()
         restoreTrackChoices()
         holdScreenAwake()
         noteCondition()
@@ -8361,14 +8747,20 @@ private struct PlaybackClockReader<Content: View>: View {
             // long the pause: the broadcast doesn't wait, but its recording
             // does.
             if isLive, catchUp == nil, catchUpSource != nil { pausedAt = Date() }
+            if isLive, catchUp == nil { liveHoldSince = Date() }
         } else if let pausedAt, catchUp == nil, catchUpSource != nil,
                   Date().timeIntervalSince(pausedAt) >= CatchUpPolicy.resumeFromPauseAfter {
             self.pausedAt = nil
+            liveHoldSince = nil
             log("Resumed from the pause, behind live")
             rewindFromLive(to: pausedAt.addingTimeInterval(-CatchUpPolicy.liveLatency))
             return
         } else {
             pausedAt = nil
+            if let since = liveHoldSince {
+                liveHeldSeconds += Date().timeIntervalSince(since)
+                liveHoldSince = nil
+            }
             health = freshHealth()
             if retryAt == nil { backend.play() }
         }
@@ -8384,6 +8776,30 @@ private struct PlaybackClockReader<Content: View>: View {
         guard let catchUp else { return nil }
         return skipTarget ?? catchUp.position(playedSeconds: elapsed)
     }
+
+    /// How far the viewer's own doing has put the picture behind live: a
+    /// channel's recording played behind the broadcast, or a pause on it.
+    /// What the live stats hold back on top of the stream's own delay.
+    var secondsBehindLive: TimeInterval {
+        guard isLive else { return 0 }
+        if let position = catchUpPosition {
+            return max(0, Date().timeIntervalSince(position) - CatchUpPolicy.liveLatency)
+        }
+        var held = liveHeldSeconds
+        if let liveHoldSince { held += Date().timeIntervalSince(liveHoldSince) }
+        return held
+    }
+
+    // MARK: Frames for Auto Sync
+
+    /// The picture on screen, for Auto Sync to read the scoreboard in.
+    func captureFrame() async -> CapturedVideoFrame? {
+        guard error == nil, isPlaying else { return nil }
+        return await backend.captureFrame()
+    }
+
+    /// Done reading frames.
+    func releaseFrameOutput() { backend.releaseFrameOutput() }
 
     /// The programme from its start -- the one a recording is playing, or
     /// the one on now when the provider records the channel and the guide
@@ -8410,6 +8826,14 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     /// A programme from the past, from its start to its end.
+    /// Nothing to play: the reason, in place of the picture, and nothing
+    /// else opened in its stead.
+    func unavailable(_ message: String) {
+        stop()
+        error = message
+        log("Unavailable: " + message)
+    }
+
     func playRecording(of programme: CatchUpProgramme) {
         log("Playing a recording from " + programme.start.formatted(date: .abbreviated, time: .shortened))
         playRecording(from: programme.start, programmeStart: programme.start,
@@ -8529,18 +8953,29 @@ private struct PlaybackClockReader<Content: View>: View {
                                        title: next.title, streamStart: catchUp.streamStart)
     }
 
-    func selectSubtitle(_ track: PlaybackSubtitleTrack) {
+    /// A subtitle track, or Off. Chosen by the viewer, it is kept for the
+    /// show's next episodes too.
+    func selectSubtitle(_ track: PlaybackSubtitleTrack, byViewer: Bool = true) {
         backend.selectSubtitle(index: track.engineIndex)
         selectedSubtitleID = track.id
         chosenSubtitle = track
+        adoptsAddedSubtitle = false
+        if byViewer {
+            appliedShowSubtitle = true
+            rememberSubtitle(track)
+        }
     }
 
     private func refreshSubtitleTracks() {
         let discovered = backend.subtitles
         if discovered != subtitleTracks { subtitleTracks = discovered }
-        let selected = discovered.first { $0.engineIndex == backend.selectedSubtitleIndex }?.id
-            ?? PlaybackSubtitleTrack.off.id
-        if selected != selectedSubtitleID { selectedSubtitleID = selected }
+        let selected = discovered.first { $0.engineIndex == backend.selectedSubtitleIndex }
+        if adoptsAddedSubtitle, let selected, selected.id != PlaybackSubtitleTrack.off.id {
+            adoptsAddedSubtitle = false
+            chosenSubtitle = selected
+        }
+        let selectedID = selected?.id ?? PlaybackSubtitleTrack.off.id
+        if selectedID != selectedSubtitleID { selectedSubtitleID = selectedID }
     }
 
     private func resetSubtitles() {
@@ -8552,10 +8987,166 @@ private struct PlaybackClockReader<Content: View>: View {
         selectedVideoTrackID = nil
     }
 
-    func selectAudioTrack(_ track: PlaybackStreamTrack) {
+    /// An audio track. Chosen by the viewer, it is kept for the show's next
+    /// episodes too.
+    func selectAudioTrack(_ track: PlaybackStreamTrack, byViewer: Bool = true) {
         backend.selectAudio(index: track.id)
         selectedAudioTrackID = track.id
         chosenAudioTrack = track.id
+        guard byViewer else { return }
+        appliedShowAudio = true
+        guard let show = trackMemoryShow else { return }
+        var kept = showTracks ?? MobileShowTracks()
+        kept.audio = MobileTrackMemory.choice(for: Self.option(track))
+        showTracks = kept
+        MobileTrackMemory.save(kept, for: show, defaults: defaults)
+    }
+
+    // MARK: Subtitle settings, online subtitles, and a show's tracks
+
+    func setSubtitlePreferences(_ value: MobileSubtitlePreferences) {
+        guard value != subtitlePreferences else { return }
+        subtitlePreferences = value
+        value.save(to: defaults)
+        if !isLive { backend.styleSubtitles(subtitleStyle) }
+    }
+
+    func setSubtitleDelay(_ seconds: Double) {
+        let delay = MobileSubtitlePreferences.delay(seconds)
+        guard delay != subtitleDelaySeconds else { return }
+        subtitleDelaySeconds = delay
+        if !isLive { backend.styleSubtitles(subtitleStyle) }
+    }
+
+    private var subtitleStyle: PlaybackSubtitleStyle {
+        PlaybackSubtitleStyle(scale: subtitlePreferences.scale, background: subtitlePreferences.background,
+                              delay: subtitleDelaySeconds)
+    }
+
+    /// VLC sets a title's subtitle size and background as it opens it.
+    var subtitleLooksApplyNextTitle: Bool { engineKind == .vlc }
+
+    /// What a title opens with: the show's kept languages, else the viewer's
+    /// subtitle language. Subtitles kept off open with none.
+    private var openingLanguages: PlaybackLanguages {
+        var languages = PlaybackLanguages()
+        if let showTracks, showTracks.hasSubtitleChoice {
+            languages.subtitles = showTracks.subtitlesOff ? [] : [showTracks.subtitle?.language].compactMap { $0 }
+        } else if !subtitlePreferences.language.isEmpty {
+            languages.subtitles = [subtitlePreferences.language]
+        }
+        if let audio = showTracks?.audio?.language { languages.audio = [audio] }
+        return languages
+    }
+
+    /// Keeps the sound and subtitles chosen for a show's episodes and puts
+    /// them back on the next one. Set before `start`, so the title opens on
+    /// the kept languages rather than switching to them.
+    func remembersTracks(forShow show: String?) {
+        trackMemoryShow = show
+        showTracks = show.flatMap { MobileTrackMemory.load($0, defaults: defaults) }
+    }
+
+    var canAttachOnlineSubtitles: Bool { !isLive && error == nil && !urls.isEmpty }
+
+    /// A subtitle file found online, for the title in `session`: checked,
+    /// written to a file of its own off the main thread, and added to what
+    /// is playing.
+    func addOnlineSubtitle(_ data: Data, title: String, language: String, session: UUID) async throws {
+        guard session == subtitleSession, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
+        let preparation = Task.detached(priority: .userInitiated) { () throws -> URL in
+            guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
+            try data.write(to: file, options: .atomic)
+            return file
+        }
+        let file = try await withTaskCancellationHandler(operation: { try await preparation.value },
+                                                         onCancel: { preparation.cancel() })
+        guard !Task.isCancelled, session == subtitleSession, canAttachOnlineSubtitles else {
+            try? FileManager.default.removeItem(at: file)
+            throw MobileSubtitleFailure.unsupported
+        }
+        guard backend.addSubtitle(file: file, title: title, language: language) else {
+            try? FileManager.default.removeItem(at: file)
+            throw MobileSubtitleFailure.invalidFile
+        }
+        onlineSubtitles.append(OnlineSubtitle(file: file, title: title, language: language))
+        chosenSubtitle = nil
+        adoptsAddedSubtitle = true
+        log("Added subtitles found online")
+    }
+
+    /// After a reconnect: the subtitles found online, added to the reopened
+    /// title once it is showing.
+    private func addOnlineSubtitlesAgain() {
+        guard !onlineSubtitlesToAdd.isEmpty, backend.hasVideoOut else { return }
+        for subtitle in onlineSubtitlesToAdd {
+            _ = backend.addSubtitle(file: subtitle.file, title: subtitle.title, language: subtitle.language)
+        }
+        onlineSubtitlesToAdd = []
+    }
+
+    private func discardOnlineSubtitles() {
+        for subtitle in onlineSubtitles { try? FileManager.default.removeItem(at: subtitle.file) }
+        onlineSubtitles = []
+        onlineSubtitlesToAdd = []
+        adoptsAddedSubtitle = false
+        subtitleSession = UUID()
+    }
+
+    private func rememberSubtitle(_ track: PlaybackSubtitleTrack) {
+        guard let show = trackMemoryShow else { return }
+        var kept = showTracks ?? MobileShowTracks()
+        if track.id == PlaybackSubtitleTrack.off.id {
+            kept.subtitlesOff = true
+            kept.subtitle = nil
+        } else {
+            kept.subtitlesOff = false
+            kept.subtitle = MobileTrackMemory.choice(for: Self.option(track))
+        }
+        showTracks = kept
+        MobileTrackMemory.save(kept, for: show, defaults: defaults)
+    }
+
+    /// The show's kept sound and subtitles, put back once an episode, as
+    /// soon as its tracks are known. A track the viewer picks meanwhile wins.
+    private func applyShowTracks() {
+        guard let showTracks, !isLive else { return }
+        if !appliedShowAudio, let audio = showTracks.audio, audioTracks.count > 1 {
+            appliedShowAudio = true
+            if let match = MobileTrackMemory.match(audio, in: audioTracks.map(Self.option)),
+               let track = audioTracks.first(where: { $0.id == match.engineIndex }), track.id != selectedAudioTrackID {
+                selectAudioTrack(track, byViewer: false)
+                log("Put back the sound kept for this show")
+            }
+        }
+        let offered = subtitleTracks.filter { $0.id != PlaybackSubtitleTrack.off.id }
+        if !appliedShowSubtitle, showTracks.hasSubtitleChoice, !offered.isEmpty {
+            appliedShowSubtitle = true
+            if showTracks.subtitlesOff {
+                if selectedSubtitleID != PlaybackSubtitleTrack.off.id { selectSubtitle(.off, byViewer: false) }
+            } else if let subtitle = showTracks.subtitle,
+                      let match = MobileTrackMemory.match(subtitle, in: offered.map(Self.option)),
+                      match.id != selectedSubtitleID,
+                      let track = offered.first(where: { $0.id == match.id }) {
+                selectSubtitle(track, byViewer: false)
+                log("Put back the subtitles kept for this show")
+            }
+        }
+    }
+
+    /// A track as the show memory reads it, its language from its name: the
+    /// engines' names carry it ("English · AC3 5.1", "Track 2 - [Spanish]").
+    private static func option(_ track: PlaybackStreamTrack) -> MobileTrackOption {
+        MobileTrackOption(id: "audio-\(track.id)", title: track.title,
+                          language: MobileTrackMemory.language(inTitle: track.title), engineIndex: track.id)
+    }
+
+    private static func option(_ track: PlaybackSubtitleTrack) -> MobileTrackOption {
+        MobileTrackOption(id: track.id, title: track.title,
+                          language: MobileTrackMemory.language(inTitle: track.title), engineIndex: track.engineIndex)
     }
 
     func selectVideoTrack(_ track: PlaybackStreamTrack) {
@@ -8606,6 +9197,9 @@ private struct PlaybackClockReader<Content: View>: View {
         pendingWorkingChannelID = nil
         urls = []
         pausedByUser = false
+        // Opened again, the channel plays from its live edge.
+        liveHoldSince = nil
+        liveHeldSeconds = 0
         reconnecting = false
         isPlaying = false
         videoHeight = 0
@@ -8622,6 +9216,7 @@ private struct PlaybackClockReader<Content: View>: View {
             skipTarget = nil
             catchUp = nil
             pausedAt = nil
+            discardOnlineSubtitles()
             holdScreenAwake()
         }
     }
@@ -8883,6 +9478,8 @@ private struct TVFullScreenItem: Identifiable {
     var recording: CatchUpProgramme? = nil
     /// The programme on now, from its beginning, instead of live.
     var startsOver = false
+    /// A replay: the recording or nothing, never the channel live instead.
+    var recordingOnly = false
     var id: Int { stream.id }
 }
 

@@ -177,3 +177,30 @@ Source evidence:
 - https://github.com/videolan/vlc/blob/3.0.x/lib/media_player.c#L324-L338
 - https://github.com/videolan/vlc/blob/3.0.x/lib/media_player.c#L1250-L1261
 - https://github.com/videolan/vlckit/blob/3.0/Sources/VLCMediaPlayer.m#L732-L735
+
+## Apple TV (Round 2 of the port)
+
+The policy, the store and Catch Up's channel rule now live in `Lineup/`
+(`Services/GameReplayPolicy.swift`, `Store/GameReplayStore.swift`,
+`Services/SportsCatchUp.swift`) and both apps use them unchanged.
+
+- **Game Replays.** In the Sports tab's My Teams rail, while an NFL team is
+  followed on a provider with catch-up, a Game Replays row opens a full-screen
+  list (`Lineup/Views/TVSportsExtras.swift`): the same candidates, archive
+  checks, three-at-a-time requests, five-minute cache and minute clock. One
+  recording plays at once; several ask for the channel. A replay opens
+  through the player with `recordingOnly`: without a recording to play it says
+  so and never goes to the channel live. Up and Down do not change channel.
+- **Catch Up from a live game.** The game's hold menu offers Catch Up on any
+  live game when the provider is Xtream. Choosing it runs the strict
+  event-channel lookup, keeps the archive-capable ones, and opens TV Guide's
+  own Catch Up screen for the one channel, asks which of several, or says
+  none of them keeps a recording. The channel is checked again as it is
+  chosen.
+- **Channels.** The hold menu's Channels opens the verified event channels
+  full screen, revalidated on Select; a pick plays and is remembered as a
+  Choose Another Channel pick is, with the same scope question.
+- **Team pages.** Each side's name in the hold menu opens its page
+  (`Lineup/Views/TVTeamPage.swift`): the parts down the left, their rows on
+  the right, each row focusable so the list scrolls. News rows carry the
+  headline and summary in full; the television has no browser to open them.
