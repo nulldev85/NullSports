@@ -11,10 +11,12 @@ while this repo is private.
 The page has its own look, not the app's. It is dark only and monochrome,
 warm white on near-black, with no accent colour. Archivo at full width is for
 the loud words, Geist for reading, and Geist Mono for versions, SHAs and
-dates. Motion is quiet and eased. Behind the headline is a dot field lit by
-slow light and the pointer, and the hero stats count from the page itself.
-Downloads are two cards filled from the site repo's releases, with each device
-drawn in hairlines around the app's own icon. The app icon is also the top
+dates. Motion is quiet and eased. The top has no headline: a caption, the
+intro and the hero stats, which count from the page itself, over a dot field
+lit by slow light and the pointer. Downloads are two cards filled from the
+site repo's releases, with each device drawn in hairlines around the app's
+own icon, drawn again each time a card comes back into view or the page comes
+back to the front; the Apple TV box's light comes on once it is drawn. The app icon is also the top
 bar logo and the tab icon. All of them are small PNGs inside the page, cut
 from `iPhone/Assets.xcassets/LineupAppIcon.appiconset` and the flattened
 Apple TV brand assets, so a new icon means new copies there. Feature cards keep one markup,
