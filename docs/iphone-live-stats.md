@@ -1,4 +1,4 @@
-# iPhone live stats
+# Live stats
 
 The stats panel beside or under the picture follows the game on screen and
 holds everything it shows until the viewer's picture reaches it. A score,
@@ -92,18 +92,49 @@ ends, a few minutes apart as real games are. Who is serving lags: it comes
 back for every match of a tour at once, a minute or two later, so it is
 worked out from the games between.
 
+## Apple TV
+
+The same stats, feeds, sync and Auto Sync, shared with the phone. In full
+screen on a game ESPN has an account of, the controls have a Stats button;
+the panel takes the right 640 points of the screen and the picture the rest
+(1280 by 720, 16:9 exactly). The surface is narrowed by a padding value, never
+a modifier that comes and goes, so VLC keeps its drawable. While the panel is
+open the control row shows icons only, and the button the remote is on its
+name too, so the row fits beside it. The panel stays open from one game to
+the next until it is closed.
+
+- **Remote.** Right from the picture goes into the panel; every row takes
+  focus, so Up and Down scroll the list. Select on a play offers "It Just
+  Happened on My Screen". The sync chip opens the sync steps in the panel
+  itself, so the picture stays in view to be watched against. Back leaves the
+  steps, then closes the panel. As the controls time out, the remote stays in
+  the panel if it was there.
+- **Pauses.** A live channel paused and played on from its buffer counts
+  that time as the viewer's own, as on the phone, so the stats hold back by as
+  much; a recording played behind live counts how far behind.
+- **Auto Sync frames.** VLC through its snapshot to a file, as on the phone;
+  Aether from its renderer's displayed frame, else an `AVPlayerItemVideoOutput`
+  attached while Auto Sync runs. Notes go to the playback log, which the
+  television keeps between launches, so only the moments that matter are
+  written: on, off, the scoreboard found or lost, the lock, resting.
+
 ## Code
 
-- `iPhone/MobileGameStatsFeed.swift`: summary parsing, including soccer, and
-  the timeline that holds everything back.
-- `iPhone/MobileGameBoards.swift`: tennis, fight card and race boards, and
-  the plays worked out from two of them.
-- `iPhone/MobileGameStats.swift`: which feed a game uses, fetching, and
+- `Lineup/Services/GameStatsFeed.swift`: summary parsing, including soccer,
+  and the timeline that holds everything back.
+- `Lineup/Services/GameStatsBoards.swift`: tennis, fight card and race
+  boards, and the plays worked out from two of them.
+- `Lineup/Store/GameStats.swift`: which feed a game uses, fetching, and
   holding the Sports tab's score with the stats.
-- `iPhone/MobileGameStatsPanel.swift`, `iPhone/MobileGameBoardViews.swift`:
-  the panel and the sync sheet.
-- `Tests/MobileGameStatsChecks.swift`, `Tests/MobileGameBoardChecks.swift`:
-  run in the iOS build's "Check shared sports logic" step.
+- `Lineup/Services/AutoSyncLogic.swift`, `Lineup/Services/AutoSync.swift`:
+  reading the scoreboard and matching it to the plays.
+- `Lineup/Design/GameStatsRows.swift`, `Lineup/Design/GameStatsBoardViews.swift`:
+  the rows and boards both apps draw, at the television's sizes there.
+- `iPhone/MobileGameStatsPanel.swift`: the phone's panel and sync sheet.
+- `Lineup/Views/TVGameStatsPanel.swift`: the television's panel and sync
+  steps.
+- `Tests/MobileGameStatsChecks.swift`, `Tests/MobileGameBoardChecks.swift`,
+  `Tests/MobileAutoSyncChecks.swift`: run in both builds.
 
 ## Auto Sync
 

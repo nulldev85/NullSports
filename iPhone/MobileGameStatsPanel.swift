@@ -244,7 +244,7 @@ struct MobileGameStatsPanel: View {
         } else {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(shown.prefix(120)) { play in
-                    PlayRow(play: play, reveal: reveal, game: game)
+                    GameStatsPlayRow(play: play, reveal: reveal, game: game)
                         // Hold a play the moment it shows on screen: the
                         // stats sync to it.
                         .lineupHoldMenu(play.text, symbol: "timer",
@@ -324,102 +324,6 @@ struct MobileGameStatsPanel: View {
         }
         .padding(.horizontal, 24).padding(.vertical, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-/// One play: when it happened, what it was, and the score it made.
-private struct PlayRow: View {
-    let play: GameStatsPlay
-    let reveal: GameStatsReveal
-    let game: SportsGame
-
-    var body: some View {
-        let home = play.teamID == reveal.home.id
-        let color = MobileTeamColor.readable(home ? reveal.home.color : (play.teamID == reveal.away.id ? reveal.away.color : nil))
-        HStack(alignment: .top, spacing: 12) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(color ?? (play.scoring && play.seen != nil ? LineupStyle.highlight : LineupPanelStyle.divider))
-                .frame(width: 3)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text([play.period, play.clock].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                        .font(.interDigits(11, .heavy)).foregroundStyle(LineupPanelStyle.quiet)
-                    if let badge = play.badge {
-                        Text(badge)
-                            .font(.interDigits(11, .heavy))
-                            .foregroundStyle(play.scoring ? LineupStyle.onHighlight : LineupStyle.text)
-                            .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(play.scoring ? LineupStyle.highlight : LineupPanelStyle.well, in: Capsule())
-                    } else if play.scoring {
-                        Text("\(SportsGame.code(reveal.away.abbreviation, game.awayTeam)) \(play.awayScore) – \(play.homeScore) \(SportsGame.code(reveal.home.abbreviation, game.homeTeam))")
-                            .font(.interDigits(11, .heavy))
-                            .foregroundStyle(LineupStyle.onHighlight)
-                            .padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(LineupStyle.highlight, in: Capsule())
-                    }
-                }
-                Text(play.text).font(.inter(14, play.scoring ? .semibold : .regular))
-                    .foregroundStyle(LineupStyle.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                // On a board of several matches or fights, which one.
-                if play.seen != nil, let context = play.drive {
-                    Text(context).font(.inter(12)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// Who is likely to win, as of the last play the picture has shown.
-private struct WinProbabilityBar: View {
-    let reveal: GameStatsReveal
-    let home: Double
-
-    var body: some View {
-        let away = 1 - home
-        let awayColor = MobileTeamColor.readable(reveal.away.color) ?? LineupPanelStyle.quiet
-        let homeColor = MobileTeamColor.readable(reveal.home.color) ?? LineupStyle.highlight
-        VStack(spacing: 6) {
-            HStack {
-                Text("\(reveal.away.abbreviation) \(Int((away * 100).rounded()))%")
-                Spacer()
-                Text("WIN PROBABILITY").font(.inter(10, .heavy)).tracking(0.8).foregroundStyle(LineupPanelStyle.quiet)
-                Spacer()
-                Text("\(Int((home * 100).rounded()))% \(reveal.home.abbreviation)")
-            }
-            .font(.interDigits(12, .heavy))
-            GeometryReader { proxy in
-                HStack(spacing: 2) {
-                    Capsule().fill(awayColor).frame(width: max(4, (proxy.size.width - 2) * away))
-                    Capsule().fill(homeColor)
-                }
-            }
-            .frame(height: 8)
-            .animation(.easeInOut(duration: 0.4), value: home)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Win probability: \(reveal.away.name) \(Int((away * 100).rounded())) percent, \(reveal.home.name) \(Int((home * 100).rounded())) percent")
-    }
-}
-
-/// A team's colour from its hex, lifted until it reads on the panels' grey.
-enum MobileTeamColor {
-    static func readable(_ hex: String?) -> Color? {
-        guard var value = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
-        value = value.replacingOccurrences(of: "#", with: "")
-        guard value.count == 6, let number = UInt64(value, radix: 16) else { return nil }
-        var red = Double((number >> 16) & 0xff) / 255
-        var green = Double((number >> 8) & 0xff) / 255
-        var blue = Double(number & 0xff) / 255
-        let luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722
-        if luminance < 0.45 {
-            let mix = (0.45 - luminance) / max(0.01, 1 - luminance)
-            red += (1 - red) * mix; green += (1 - green) * mix; blue += (1 - blue) * mix
-        }
-        return Color(red: red, green: green, blue: blue)
     }
 }
 

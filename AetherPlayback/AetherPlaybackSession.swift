@@ -354,7 +354,6 @@ public final class AetherPlaybackSession {
     }
     public func selectAudio(index: Int) { engine.selectAudioTrack(index: index) }
 
-    #if os(iOS)
     /// The picture on screen now, for reading what it shows (Auto Sync's
     /// scoreboard): the software renderer's own frame. Nil on a route
     /// AVPlayer draws, whose item `currentPlayerItem` reads instead.
@@ -365,7 +364,6 @@ public final class AetherPlaybackSession {
 
     /// The item AVPlayer is drawing, on the routes it draws.
     public var currentPlayerItem: AVPlayerItem? { engine.currentAVPlayerItem }
-    #endif
 
     public static func openSourceNotices() -> String {
         guard let directory = Bundle(for: AetherPlaybackSession.self).resourceURL?

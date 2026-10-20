@@ -2,6 +2,12 @@ import Foundation
 import UIKit
 import Vision
 
+/// A frame of the picture on screen, as a player hands it over to be read.
+enum CapturedVideoFrame {
+    case pixelBuffer(CVPixelBuffer)
+    case image(CGImage)
+}
+
 /// Lines the stats up with the picture by reading the broadcast's own
 /// scoreboard: its clock and score, a frame at a time, with Vision on the
 /// phone. Nothing leaves the device and nothing needs a tap.
@@ -64,7 +70,9 @@ final class MobileAutoSync: ObservableObject {
     private var sawScoreboardYet = false
     private var lastClock: Int?
     private var estimateCount = 0
+    #if os(iOS)
     private let diagnostics = PlaybackDiagnostics.shared
+    #endif
 
     init() {
         isEnabled = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true
@@ -74,7 +82,7 @@ final class MobileAutoSync: ObservableObject {
     /// `frames` hands over. Asking again for the same game and channel
     /// changes nothing; another starts over.
     func run(for stats: MobileGameStats, channel: Int?,
-             frames: @escaping @MainActor () async -> MobilePlaybackController.CapturedFrame?,
+             frames: @escaping @MainActor () async -> CapturedVideoFrame?,
              release: @escaping @MainActor () -> Void) {
         guard isEnabled, let sport = stats.autoSyncSport, let teams = stats.autoSyncTeams,
               let game = stats.game else { stop(); return }
@@ -89,7 +97,7 @@ final class MobileAutoSync: ObservableObject {
         // play, so baseball's run long already.
         tracker = AutoSyncTracker(clock: clock, margin: sport == "football" ? 4 : (sport == "baseball" ? 0 : 1))
         status = .reading(.starting)
-        diagnostics.record("Auto Sync on: \(sport), \(teams.away.joined(separator: "/")) at \(teams.home.joined(separator: "/"))")
+        note("Auto Sync on: \(sport), \(teams.away.joined(separator: "/")) at \(teams.home.joined(separator: "/"))")
         loop = Task { [weak self, weak stats] in
             while !Task.isCancelled {
                 let settled = await self?.step(stats: stats, teams: teams, frames: frames) ?? false
@@ -100,7 +108,7 @@ final class MobileAutoSync: ObservableObject {
     }
 
     func stop() {
-        if loop != nil { diagnostics.record("Auto Sync off") }
+        if loop != nil { note("Auto Sync off") }
         loop?.cancel()
         loop = nil
         following = nil
@@ -120,14 +128,14 @@ final class MobileAutoSync: ObservableObject {
 
     /// One frame, read and weighed. True once the delay is the scoreboard's.
     private func step(stats: MobileGameStats?, teams: (away: [String], home: [String]),
-                      frames: @MainActor () async -> MobilePlaybackController.CapturedFrame?) async -> Bool {
+                      frames: @MainActor () async -> CapturedVideoFrame?) async -> Bool {
         guard let stats, var tracker, let key = following else { return false }
         guard UIApplication.shared.applicationState == .active else { return status == .synced }
         let thermal = ProcessInfo.processInfo.thermalState
         guard thermal != .serious, thermal != .critical else {
             if status != .synced, status != .resting {
                 status = .resting
-                diagnostics.record("Auto Sync resting: the phone is hot")
+                note("Auto Sync resting: the device is running hot")
             }
             return status == .synced
         }
@@ -136,7 +144,7 @@ final class MobileAutoSync: ObservableObject {
         let lag = stats.playerLag()
         guard let frame = await frames() else {
             missedFrames += 1
-            if missedFrames == 5 { diagnostics.record("Auto Sync: the player hands over no picture") }
+            if missedFrames == 5 { note("Auto Sync: the player hands over no picture") }
             if missedFrames >= 5 { show(.noPicture) }
             return status == .synced
         }
@@ -160,13 +168,13 @@ final class MobileAutoSync: ObservableObject {
                 ?? ScoreboardReader.line(in: texts, naming: teams.away + teams.home)
             if area == nil, let line = anchor {
                 area = .around(line)
-                diagnostics.record("Auto Sync found the scoreboard in \(Self.describe(place)): \"\(line.text)\"")
+                note("Auto Sync found the scoreboard in \(Self.describe(place)): \"\(line.text)\"")
             }
         } else {
             blankFrames += 1
             if area != nil, blankFrames >= 8 {
                 area = nil
-                diagnostics.record("Auto Sync lost the scoreboard; looking again")
+                note("Auto Sync lost the scoreboard; looking again")
             }
         }
         tracker.observe(clocks: clocks, score: score, at: seenAt, playerLag: lag, plays: stats.autoSyncPlays)
@@ -177,7 +185,7 @@ final class MobileAutoSync: ObservableObject {
             stats.applyAutoSync(delay)
             if status != .synced {
                 status = .synced
-                diagnostics.record("Auto Sync locked: the picture is \(Int(delay))s behind live")
+                note("Auto Sync locked: the picture is \(Int(delay))s behind live")
             }
             return true
         }
@@ -202,16 +210,28 @@ final class MobileAutoSync: ObservableObject {
         status = .reading(progress)
     }
 
+    /// A line in the playback log. The iPhone's is switched on to chase a
+    /// problem and takes every step; the television's is kept between
+    /// launches, so it takes only the moments that matter.
+    private func note(_ text: @autoclosure () -> String) {
+        #if os(iOS)
+        diagnostics.record(text())
+        #else
+        PlaybackJournal.shared.note(text())
+        #endif
+    }
+
     /// The playback log's account of a frame, while it is switched on: every
     /// fifth frame, and any frame that found nothing or made an estimate.
-    private func record(frame: MobilePlaybackController.CapturedFrame, place: ScoreboardArea, texts: [ScoreboardText],
+    private func record(frame: CapturedVideoFrame, place: ScoreboardArea, texts: [ScoreboardText],
                         clocks: Set<Int>, score: (away: Int, home: Int)?, tracker: AutoSyncTracker) {
+        #if os(iOS)
         guard diagnostics.isEnabled else { return }
         // Estimates are matched afresh each frame, as late plays arrive.
         if tracker.estimates.count != estimateCount {
             estimateCount = tracker.estimates.count
             let values = tracker.estimates.suffix(8).map { "\(Int($0.delay.rounded()))s" }.joined(separator: " ")
-            diagnostics.record("Auto Sync estimates: \(estimateCount) (latest \(values)), \(tracker.agreeing) of \(tracker.needed) agree")
+            note("Auto Sync estimates: \(estimateCount) (latest \(values)), \(tracker.agreeing) of \(tracker.needed) agree")
         }
         guard frameCount <= 3 || frameCount % 5 == 0 || clocks.isEmpty && score == nil else { return }
         var line = "Auto Sync frame \(frameCount): \(Self.describe(frame)), \(Self.describe(place)), \(texts.count) lines"
@@ -220,7 +240,8 @@ final class MobileAutoSync: ObservableObject {
         if clocks.isEmpty && score == nil && !texts.isEmpty {
             line += ", read " + texts.prefix(6).map { "\"\($0.text.prefix(28))\"" }.joined(separator: " ")
         }
-        diagnostics.record(line)
+        note(line)
+        #endif
     }
 
     /// "9:12", "67:13".
@@ -238,7 +259,7 @@ final class MobileAutoSync: ObservableObject {
         }
     }
 
-    nonisolated private static func describe(_ frame: MobilePlaybackController.CapturedFrame) -> String {
+    nonisolated private static func describe(_ frame: CapturedVideoFrame) -> String {
         switch frame {
         case .pixelBuffer(let buffer):
             let code = CVPixelBufferGetPixelFormatType(buffer)
@@ -254,7 +275,7 @@ final class MobileAutoSync: ObservableObject {
     /// A frame handed to Vision's thread. The pixels are not touched again
     /// on this one.
     private struct FrameBox: @unchecked Sendable {
-        let frame: MobilePlaybackController.CapturedFrame
+        let frame: CapturedVideoFrame
     }
 
     /// Every line of text in that part of the frame, placed in the whole

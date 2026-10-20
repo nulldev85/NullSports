@@ -6614,6 +6614,14 @@ struct PlayerView: View {
     /// way of going -- the screens around it torn down -- is noted in the log
     /// as such, because that is the one nobody asked for.
     @State private var closing = false
+    /// The live stats beside the picture, for a game ESPN keeps an account
+    /// of, and the scoreboard reading that keeps them in step.
+    @StateObject private var gameStats = MobileGameStats()
+    @StateObject private var autoSync = MobileAutoSync()
+    /// Open from one game to the next, until the viewer closes them.
+    @AppStorage("Lineup.tv.liveStats.v1") private var statsWanted = false
+    /// The remote on the stats' sync chip, as it comes into the panel.
+    @FocusState private var statsEntryFocused: Bool
 
     init(urls: [URL], title: String = "Live TV", program: CurrentProgram? = nil, isLive: Bool = true,
          initialPosition: TimeInterval? = nil, expectedDuration: TimeInterval? = nil,
@@ -6663,10 +6671,27 @@ struct PlayerView: View {
         return library.recentStreams.first { $0.id != currentChannel?.id }
     }
 
+    /// The game the stats can follow: one ESPN keeps an account of, on a
+    /// channel.
+    private var statsGame: SportsGame? {
+        guard isLive, let watchingGame, MobileGameStats.supports(watchingGame) else { return nil }
+        return watchingGame
+    }
+    private var statsShown: Bool { statsWanted && statsGame != nil }
+    /// The room the stats take from the right of the screen. The picture,
+    /// the controls and anything over them keep the rest.
+    private var statsInset: CGFloat { statsShown ? TVGameStatsPanel.width : 0 }
+    private var statsChannelID: Int? { currentChannel?.id ?? channelID }
+    private var statsFollowKey: String { "\(statsGame?.id ?? "")|\(statsChannelID ?? -1)" }
+    private var autoSyncKey: String { statsFollowKey + "|\(statsShown)|\(autoSync.isEnabled)" }
+
     var body: some View {
         ZStack {
+            // Narrowed by a value, never by a modifier that comes and goes:
+            // the surface keeps its identity, and VLC its drawable.
             TVHostedSurface(controller: controller, fullScreen: true)
                 .overlay { TVPlaybackStatus(controller: controller) }
+                .padding(.trailing, statsInset)
                 .background(Color.black).ignoresSafeArea()
             // Hiding the chrome removes every focusable view, and the remote
             // only reaches a view that holds focus, so this stands in for it
@@ -6695,6 +6720,7 @@ struct PlayerView: View {
                     .onTapGesture {
                         if let alert = visibleAlert { watch(alert.game) } else { revealControls(focus: true) }
                     }
+                    .padding(.trailing, statsInset)
             }
             if controlsVisible && controller.error == nil {
                 TVPlayerChrome(title: controller.activeChannelName ?? chosenTitle ?? title,
@@ -6704,8 +6730,18 @@ struct PlayerView: View {
                     onChooserChange: chooserChanged,
                     onLastChannel: { if let lastChannel { tune(lastChannel) } },
                     onWatchAlert: { if let alert = visibleAlert { watch(alert.game) } },
-                    onChooseChannel: chooseChannelAction)
+                    onChooseChannel: chooseChannelAction,
+                    compact: statsShown, statsShown: statsShown,
+                    onToggleStats: statsGame == nil ? nil : toggleStats)
+                    .padding(.trailing, statsInset)
                     .transition(.opacity)
+            }
+            if statsShown, let statsGame {
+                TVGameStatsPanel(stats: gameStats, autoSync: autoSync, game: statsGame,
+                                 entry: $statsEntryFocused, onClose: closeStats)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .ignoresSafeArea()
+                    .transition(.move(edge: .trailing))
             }
             if !controlsVisible, let channelBanner {
                 TVChannelBanner(stream: channelBanner, program: channelProgram)
@@ -6717,7 +6753,7 @@ struct PlayerView: View {
             if let alert = visibleAlert {
                 TVGameAlertBanner(alert: alert, selectWatches: !controlsVisible)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.horizontal, 72).padding(.top, 56)
+                    .padding(.leading, 72).padding(.trailing, 72 + statsInset).padding(.top, 56)
                     .allowsHitTesting(false)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -6807,7 +6843,28 @@ struct PlayerView: View {
             reportProgress(force: true)
             hideControlsTask?.cancel()
             bannerTask?.cancel()
+            autoSync.stop()
+            gameStats.stop()
             finishPlayback()
+        }
+        // The stats follow the game on screen from the moment it opens,
+        // shown or not, so what the picture needs is there when they are.
+        .task(id: statsFollowKey) { followStats() }
+        // Auto Sync reads the scoreboard while the stats are open beside a
+        // game, from whichever engine is playing it.
+        .task(id: autoSyncKey) {
+            guard statsShown, autoSync.isEnabled else { autoSync.stop(); return }
+            // Following first: Auto Sync reads the game the stats follow.
+            followStats()
+            let player = controller
+            autoSync.run(for: gameStats, channel: statsChannelID,
+                         frames: { [weak player] in await player?.captureFrame() },
+                         release: { [weak player] in player?.releaseFrameOutput() })
+        }
+        // Gone with the game -- another channel, or one with no account --
+        // the panel leaves the remote on the picture.
+        .onChange(of: statsShown) { _, shown in
+            if !shown, !controlsVisible { surfaceFocused = true }
         }
         // The channel's recording, once the server's time zone is known:
         // Start Over, rewinding, and pausing live all need it.
@@ -6880,6 +6937,7 @@ struct PlayerView: View {
             if control != nil, controlsVisible { scheduleAutoHide() }
         }
         .animation(.easeInOut(duration: 0.22), value: controlsVisible)
+        .animation(.easeInOut(duration: 0.3), value: statsShown)
         .animation(.easeInOut(duration: 0.22), value: channelBanner?.id)
         .animation(.easeInOut(duration: 0.3), value: visibleAlert?.id)
     }
@@ -6908,6 +6966,9 @@ struct PlayerView: View {
         case .right where isLive && controller.catchUp != nil:
             controller.skip(by: CatchUpPolicy.skip)
             revealControls(focus: true, on: .scrubber)
+        case .right where statsShown:
+            // Into the stats beside the picture.
+            statsEntryFocused = true
         default:
             revealControls(focus: true)
         }
@@ -6985,10 +7046,12 @@ struct PlayerView: View {
     /// next press has somewhere to land, as when they time out.
     private func hideControls() {
         hideControlsTask?.cancel()
+        let inChrome = focusedControl != nil
         controlsVisible = false
         Task { @MainActor in
             await Task.yield()
-            focusPicture()
+            // The remote in the stats stays there as the controls go.
+            if inChrome || !statsShown { focusPicture() }
         }
     }
 
@@ -6996,6 +7059,28 @@ struct PlayerView: View {
     /// one press skips, else the picture itself.
     private func focusPicture() {
         if showsSkip { skipFocused = true } else { surfaceFocused = true }
+    }
+
+    /// The stats on the game on screen, on the channel it is on, held behind
+    /// the picture by however far the viewer has paused or rewound it.
+    private func followStats() {
+        let player = controller
+        gameStats.playerLag = { [weak player] in player?.secondsBehindLive ?? 0 }
+        gameStats.follow(statsGame, channelID: statsChannelID)
+    }
+
+    /// Stats from the controls: open, with the remote in them, or closed.
+    private func toggleStats() {
+        if statsShown { closeStats(); return }
+        statsWanted = true
+        PlaybackJournal.shared.note("Live stats opened")
+        Task { @MainActor in await Task.yield(); statsEntryFocused = true }
+    }
+
+    private func closeStats() {
+        statsWanted = false
+        PlaybackJournal.shared.note("Live stats closed")
+        if controlsVisible { focusedControl = .stats } else { surfaceFocused = true }
     }
 
     /// Next Episode is up: the last half minute of an episode with one after
@@ -7132,17 +7217,19 @@ struct PlayerView: View {
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
             guard !Task.isCancelled, !controller.isScrubbing else { return }
+            let inChrome = focusedControl != nil
             controlsVisible = false
             // Hand focus to the video surface as the chrome leaves, so the next
-            // press on the remote has somewhere to arrive.
+            // press on the remote has somewhere to arrive -- unless it is in
+            // the stats, which stay.
             await Task.yield()
-            focusPicture()
+            if inChrome || !statsShown { focusPicture() }
         }
     }
 }
 
 private enum TVPlayerControl: Hashable {
-    case scrubber, playPause, goLive, startOver, mute, lastChannel, chooseChannel, alert, subtitles, audio, video, quality
+    case scrubber, playPause, goLive, startOver, mute, lastChannel, chooseChannel, stats, alert, subtitles, audio, video, quality
 }
 
 private struct TVPlayerChrome: View {
@@ -7166,6 +7253,13 @@ private struct TVPlayerChrome: View {
     let onWatchAlert: () -> Void
     /// Another channel for the game on screen, as on iPhone.
     let onChooseChannel: (() -> Void)?
+    /// The stats take the right of the screen: the buttons show only their
+    /// icons, and the one the remote is on its name too, so the row fits
+    /// beside them.
+    let compact: Bool
+    let statsShown: Bool
+    /// The live stats, for a game ESPN keeps an account of.
+    let onToggleStats: (() -> Void)?
 
     private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
 
@@ -7266,36 +7360,42 @@ private struct TVPlayerChrome: View {
                     HStack(spacing: 14) {
                         TVPlayerButton(title: controller.isPlaying ? "Pause" : "Play",
                             symbol: controller.isPlaying ? "pause.fill" : "play.fill", prominent: true,
-                            focus: focusedControl, id: .playPause) { controller.togglePlayback(); onInteraction() }
+                            compact: compact, focus: focusedControl, id: .playPause) { controller.togglePlayback(); onInteraction() }
                         TVPlayerButton(title: isLive ? (controller.isAtLiveEdge ? "Live" : "Go Live") : "Restart",
                             symbol: isLive ? "dot.radiowaves.left.and.right" : "backward.end.fill",
-                            badge: isLive && controller.isAtLiveEdge, focus: focusedControl, id: .goLive) {
+                            badge: isLive && controller.isAtLiveEdge, compact: compact, focus: focusedControl, id: .goLive) {
                                 controller.goLive(); onInteraction()
                             }
                         if isLive && controller.canStartOver {
                             TVPlayerButton(title: "Start Over", symbol: "backward.end.fill",
-                                           focus: focusedControl, id: .startOver) {
+                                           compact: compact, focus: focusedControl, id: .startOver) {
                                 controller.startOver(); onInteraction()
                             }
                         }
                         TVPlayerButton(title: controller.isMuted ? "Unmute" : "Mute",
                             symbol: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                            focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
+                            compact: compact, focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
                         if let lastChannelName {
                             TVPlayerButton(title: "Last · " + short(lastChannelName), symbol: "arrow.uturn.backward",
-                                           focus: focusedControl, id: .lastChannel) {
+                                           compact: compact, focus: focusedControl, id: .lastChannel) {
                                 onLastChannel(); onInteraction()
                             }
                         }
                         if let onChooseChannel {
                             TVPlayerButton(title: "Choose Channel", symbol: "list.bullet",
-                                           focus: focusedControl, id: .chooseChannel) {
+                                           compact: compact, focus: focusedControl, id: .chooseChannel) {
                                 onChooseChannel(); onInteraction()
+                            }
+                        }
+                        if let onToggleStats {
+                            TVPlayerButton(title: statsShown ? "Hide Stats" : "Stats", symbol: "chart.bar.fill",
+                                           compact: compact, focus: focusedControl, id: .stats) {
+                                onToggleStats(); onInteraction()
                             }
                         }
                         if let alert {
                             TVPlayerButton(title: "Watch " + TVGameAlertBanner.matchup(alert.game),
-                                           symbol: "sportscourt.fill", focus: focusedControl, id: .alert) {
+                                           symbol: "sportscourt.fill", compact: compact, focus: focusedControl, id: .alert) {
                                 onWatchAlert(); onInteraction()
                             }
                         }
@@ -7358,7 +7458,7 @@ private struct TVPlayerChrome: View {
                         TVSelectable(scale: LineupStyle.controlLift, action: { showingQuality = true }) {
                             TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)",
                                               symbol: "gearshape.fill",
-                                              focused: focusedControl.wrappedValue == .quality)
+                                              focused: focusedControl.wrappedValue == .quality, compact: compact)
                         }
                         .focused(focusedControl, equals: .quality)
                         .tvChoices("Quality · \(controller.qualityLabel)", symbol: "gearshape", isPresented: $showingQuality) {
@@ -7659,6 +7759,8 @@ private struct TVPlayerButton: View {
     let symbol: String
     var prominent = false
     var badge = false
+    /// Its icon alone, until the remote is on it.
+    var compact = false
     let focus: FocusState<TVPlayerControl?>.Binding
     let id: TVPlayerControl
     let action: () -> Void
@@ -7670,10 +7772,10 @@ private struct TVPlayerButton: View {
             HStack(spacing: 12) {
                 if badge { Circle().fill(LineupStyle.lightPurple).frame(width: 7, height: 7) }
                 LineupIconTile(symbol: symbol, size: 32)
-                Text(title).font(.inter(18, .semibold)).fixedSize()
+                if !compact || selected { Text(title).font(.inter(18, .semibold)).fixedSize() }
             }
             .foregroundStyle(LineupStyle.lightPurple)
-            .padding(.leading, badge ? 16 : 10).padding(.trailing, 22).frame(height: 52)
+            .padding(.leading, badge ? 16 : 10).padding(.trailing, compact && !selected ? 10 : 22).frame(height: 52)
             .lineupLiquidGlass(shape, fallback: prominent ? LineupStyle.raised : LineupStyle.surface.opacity(0.88),
                                border: LineupStyle.line, prominent: prominent)
             .lineupFocusLayer(selected, in: shape)
@@ -7692,14 +7794,18 @@ private struct TVPlayerMenuLabel: View {
     let title: String
     let symbol: String
     let focused: Bool
+    /// Its icon alone, until the remote is on it.
+    var compact = false
     var body: some View {
         HStack(spacing: 12) {
             LineupIconTile(symbol: symbol, size: 32)
-            Text(title).font(.inter(18, .semibold)).fixedSize()
-            Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold, design: .rounded)).opacity(0.72)
+            if !compact || focused {
+                Text(title).font(.inter(18, .semibold)).fixedSize()
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .bold, design: .rounded)).opacity(0.72)
+            }
         }
         .foregroundStyle(LineupStyle.lightPurple)
-        .padding(.leading, 10).padding(.trailing, 22).frame(height: 52)
+        .padding(.leading, 10).padding(.trailing, compact && !focused ? 10 : 22).frame(height: 52)
         .lineupLiquidGlass(Capsule(), fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
         .lineupFocusLayer(focused, in: Capsule())
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
@@ -7823,6 +7929,10 @@ private struct PlaybackClockReader<Content: View>: View {
     private(set) var recordingEndsWithProgramme = false
     /// When a live channel the provider records was paused, to pick up from.
     private var pausedAt: Date?
+    /// A live channel paused and played on from its buffer is that far behind
+    /// the broadcast: the stats hold back by as much.
+    private var liveHoldSince: Date?
+    private var liveHeldSeconds: TimeInterval = 0
     private var skipTask: Task<Void, Never>?
     private var monitor: Task<Void, Never>?
     private var urls: [URL] = []
@@ -8361,14 +8471,20 @@ private struct PlaybackClockReader<Content: View>: View {
             // long the pause: the broadcast doesn't wait, but its recording
             // does.
             if isLive, catchUp == nil, catchUpSource != nil { pausedAt = Date() }
+            if isLive, catchUp == nil { liveHoldSince = Date() }
         } else if let pausedAt, catchUp == nil, catchUpSource != nil,
                   Date().timeIntervalSince(pausedAt) >= CatchUpPolicy.resumeFromPauseAfter {
             self.pausedAt = nil
+            liveHoldSince = nil
             log("Resumed from the pause, behind live")
             rewindFromLive(to: pausedAt.addingTimeInterval(-CatchUpPolicy.liveLatency))
             return
         } else {
             pausedAt = nil
+            if let since = liveHoldSince {
+                liveHeldSeconds += Date().timeIntervalSince(since)
+                liveHoldSince = nil
+            }
             health = freshHealth()
             if retryAt == nil { backend.play() }
         }
@@ -8384,6 +8500,30 @@ private struct PlaybackClockReader<Content: View>: View {
         guard let catchUp else { return nil }
         return skipTarget ?? catchUp.position(playedSeconds: elapsed)
     }
+
+    /// How far the viewer's own doing has put the picture behind live: a
+    /// channel's recording played behind the broadcast, or a pause on it.
+    /// What the live stats hold back on top of the stream's own delay.
+    var secondsBehindLive: TimeInterval {
+        guard isLive else { return 0 }
+        if let position = catchUpPosition {
+            return max(0, Date().timeIntervalSince(position) - CatchUpPolicy.liveLatency)
+        }
+        var held = liveHeldSeconds
+        if let liveHoldSince { held += Date().timeIntervalSince(liveHoldSince) }
+        return held
+    }
+
+    // MARK: Frames for Auto Sync
+
+    /// The picture on screen, for Auto Sync to read the scoreboard in.
+    func captureFrame() async -> CapturedVideoFrame? {
+        guard error == nil, isPlaying else { return nil }
+        return await backend.captureFrame()
+    }
+
+    /// Done reading frames.
+    func releaseFrameOutput() { backend.releaseFrameOutput() }
 
     /// The programme from its start -- the one a recording is playing, or
     /// the one on now when the provider records the channel and the guide
@@ -8606,6 +8746,9 @@ private struct PlaybackClockReader<Content: View>: View {
         pendingWorkingChannelID = nil
         urls = []
         pausedByUser = false
+        // Opened again, the channel plays from its live edge.
+        liveHoldSince = nil
+        liveHeldSeconds = 0
         reconnecting = false
         isPlaying = false
         videoHeight = 0

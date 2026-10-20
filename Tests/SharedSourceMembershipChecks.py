@@ -17,6 +17,14 @@ SHARED = (
     # IntroDB's skip prompts play on both: the phone's player and the TV's.
     "Lineup/Services/PlaybackSegments.swift",
     "Lineup/Services/IntroDB.swift",
+    # Live stats and Auto Sync: beside the phone's picture and the TV's.
+    "Lineup/Services/GameStatsFeed.swift",
+    "Lineup/Services/GameStatsBoards.swift",
+    "Lineup/Services/AutoSyncLogic.swift",
+    "Lineup/Services/AutoSync.swift",
+    "Lineup/Store/GameStats.swift",
+    "Lineup/Design/GameStatsRows.swift",
+    "Lineup/Design/GameStatsBoardViews.swift",
 )
 
 

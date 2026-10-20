@@ -1,5 +1,7 @@
 #if os(tvOS)
 import UIKit
+import AVFoundation
+import ImageIO
 import VLCKitSPM
 import LineupAetherPlayback
 
@@ -41,6 +43,11 @@ protocol TVPlaybackBackend: AnyObject {
     func selectSubtitle(index: Int?)
     func selectAudio(index: Int)
     func selectVideo(index: Int)
+    /// The picture on screen now, for Auto Sync to read the scoreboard in.
+    /// Nil when there is none to give yet.
+    func captureFrame() async -> CapturedVideoFrame?
+    /// Done reading frames: anything attached to read them comes off.
+    func releaseFrameOutput()
 }
 
 @MainActor
@@ -135,6 +142,26 @@ final class TVVLCBackend: TVPlaybackBackend {
     func selectSubtitle(index: Int?) { player.currentVideoSubTitleIndex = Int32(index ?? -1) }
     func selectAudio(index: Int) { player.currentAudioTrackIndex = Int32(index) }
     func selectVideo(index: Int) { player.currentVideoTrackIndex = Int32(index) }
+
+    /// VLC writes the picture to a file on its own thread; it is read once
+    /// it is whole, then thrown away.
+    func captureFrame() async -> CapturedVideoFrame? {
+        guard player.hasVideoOut else { return nil }
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lineup-scoreboard-\(UUID().uuidString).png")
+        player.saveVideoSnapshot(at: file.path, withWidth: 1280, andHeight: 0)
+        defer { try? FileManager.default.removeItem(at: file) }
+        for _ in 0..<15 {
+            try? await Task.sleep(for: .milliseconds(100))
+            guard let data = try? Data(contentsOf: file),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  CGImageSourceGetStatus(source) == .statusComplete,
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { continue }
+            return .image(image)
+        }
+        return nil
+    }
+    func releaseFrameOutput() {}
 }
 
 @MainActor
@@ -214,5 +241,35 @@ final class TVAetherBackend: TVPlaybackBackend {
     func selectSubtitle(index: Int?) { session?.selectSubtitle(index: index) }
     func selectAudio(index: Int) { session?.selectAudio(index: index) }
     func selectVideo(index: Int) {}
+
+    private var frameOutput: AVPlayerItemVideoOutput?
+    private weak var frameOutputItem: AVPlayerItem?
+
+    /// The software renderer's own frame, or on a route AVPlayer draws, the
+    /// item's picture through an output attached on the first ask.
+    func captureFrame() async -> CapturedVideoFrame? {
+        guard let session else { return nil }
+        if let shown = session.displayedFrame() { return .pixelBuffer(shown) }
+        guard let item = session.currentPlayerItem else { return nil }
+        if frameOutputItem !== item {
+            releaseFrameOutput()
+            let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ])
+            item.add(output)
+            frameOutput = output
+            frameOutputItem = item
+            return nil
+        }
+        guard let output = frameOutput else { return nil }
+        let time = output.itemTime(forHostTime: CACurrentMediaTime())
+        return output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil).map(CapturedVideoFrame.pixelBuffer)
+    }
+
+    func releaseFrameOutput() {
+        if let output = frameOutput, let item = frameOutputItem { item.remove(output) }
+        frameOutput = nil
+        frameOutputItem = nil
+    }
 }
 #endif

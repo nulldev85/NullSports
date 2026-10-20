@@ -331,6 +331,28 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(fixture.aether.loads.last?.isLive, false)
     }
 
+    /// The live stats hold back by the viewer's own pauses: a live channel
+    /// paused and played on from its buffer stays that far behind, until it
+    /// goes live again.
+    func testAPauseOnALiveChannelHoldsTheStatsBackUntilItGoesLive() throws {
+        let fixture = try Fixture(.vlc)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url], isLive: true)
+        XCTAssertEqual(controller.secondsBehindLive, 0)
+        controller.togglePlayback()
+        Thread.sleep(forTimeInterval: 0.05)
+        let paused = controller.secondsBehindLive
+        XCTAssertGreaterThanOrEqual(paused, 0.05)
+        controller.togglePlayback()
+        XCTAssertGreaterThanOrEqual(controller.secondsBehindLive, paused)
+        Thread.sleep(forTimeInterval: 0.05)
+        XCTAssertLessThan(controller.secondsBehindLive, paused + 0.04, "Playing, it falls no further behind")
+        controller.goLive()
+        XCTAssertEqual(controller.secondsBehindLive, 0)
+    }
+
     @MainActor private final class Fixture {
         static let url = URL(string: "https://example.invalid/movie.mkv")!
         let suite = "PlaybackEngineTests.\(UUID())"
@@ -404,4 +426,6 @@ private final class MockTVBackend: TVPlaybackBackend {
     func selectSubtitle(index: Int?) { selectedSubtitleIndex = index }
     func selectAudio(index: Int) { selectedAudioIndex = index }
     func selectVideo(index: Int) { selectedVideoIndex = index }
+    func captureFrame() async -> CapturedVideoFrame? { nil }
+    func releaseFrameOutput() {}
 }
