@@ -123,3 +123,28 @@ Target-membership, bundle checks, focus checks, workflow lint and diff checks ru
 locally. Apple SDK compilation, simulator tests, IPA packaging and physical-device
 validation are pending CI/tester results. Windows cannot run Xcode; no runtime
 pass or frame-rate measurement is claimed here.
+
+## Apple TV (Round 3 of the port)
+
+The models and lookups are shared now: `Lineup/Models/LibraryCollection.swift`
+(collections and their membership), `Lineup/Services/BetterPosters.swift`
+(template rules, the rated-poster URL, the IMDb lookup, and the Fanart logo
+lookup), `Lineup/Services/Fanart.swift` and `FanartPolicy.swift`. Their saved
+values stay on each device; nothing syncs between the phone and the TV.
+
+- **Collections.** The Library's menu has Collections: the viewer's own,
+  kept on this Apple TV, and the servers' own, which open as they always did.
+  Hold Select on a movie or show anywhere in the Library for Collections: each
+  collection is switched by Select, and a new one is named with the TV's
+  keyboard and added to at once. Hold a collection in the list to rename or
+  delete it. There is no Collections shelf on the TV's home; the menu stands
+  in for the phone's panel, so the shelf editor does not list one.
+- **Ratings.** Metacritic's Metascore box and Letterboxd's average join
+  IMDb, TMDB and Rotten Tomatoes in the preview and on the title page. The
+  scores were already fetched on the TV; only the chips were the phone's.
+- **BetterPosters.** Settings › Metadata › BetterPosters, off by default,
+  puts rated posters on movie and show portrait cards in the default style.
+  The ordinary poster shows while one loads and wherever it fails. Choosing
+  another style stays on the phone, which can type the configurator's URL.
+- **Title Logos.** On by default. Where the server has no logo for a title, the
+  preview and the title page draw Fanart.tv's, else the title's name.

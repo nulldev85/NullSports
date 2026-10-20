@@ -76,7 +76,7 @@ jobs:
           /tmp/mobile-game-stats-checks
           swiftc Lineup/Services/GameStatsFeed.swift Lineup/Services/GameStatsBoards.swift Tests/MobileGameBoardChecks.swift -o /tmp/mobile-game-board-checks
           /tmp/mobile-game-board-checks
-          swiftc iPhone/MobileFanartPolicy.swift Tests/MobileFanartPolicyChecks.swift -o /tmp/mobile-fanart-policy-checks
+          swiftc Lineup/Services/FanartPolicy.swift Tests/MobileFanartPolicyChecks.swift -o /tmp/mobile-fanart-policy-checks
           /tmp/mobile-fanart-policy-checks
           swiftc iPhone/PlaybackDiagnosticsLog.swift Tests/PlaybackDiagnosticsLogChecks.swift -o /tmp/playback-diagnostics-checks
           /tmp/playback-diagnostics-checks

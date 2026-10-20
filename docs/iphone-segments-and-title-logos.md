@@ -73,9 +73,12 @@ consumer credentials, a bundled project key can be extracted from an installed
 app. Do not use an account credential. No personal client_key or VIP purchase is
 required for the implemented API route.
 
-iPhone configuration checks require the key before dependency resolution and
-again in the packaged app. tvOS keeps an intentionally empty Fanart field and
-does not reference the iPhone's Fanart service or UI.
+Both builds' configuration checks require the key before dependency
+resolution and again in the packaged app. The service and its policy are
+shared (`Lineup/Services/Fanart.swift`, `FanartPolicy.swift`), as is the
+lookup, `MediaLibrary.fanartLogo(for:)`. The Apple TV draws a Fanart logo in
+its Library preview and title page where the server has no logo of its own;
+Settings › Metadata › Title Logos switches it, as on the phone.
 
 ## Validation
 
