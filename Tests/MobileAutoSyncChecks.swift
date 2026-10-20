@@ -41,30 +41,62 @@ struct MobileAutoSyncChecks {
         let kickoff = Date(timeIntervalSince1970: 1_800_000_000)
         func at(_ seconds: Double) -> Date { kickoff.addingTimeInterval(seconds) }
 
-        // A counting-down clock: each play's time, reached on screen 30s
+        // A counting-down clock, timed by watching it run: two readings with
+        // as many seconds gone on it as on the wall saw every second between
+        // reached at its own moment. Each play's time, reached on screen 30s
         // after it happened, is one estimate. Three agree.
         let basketball = [AutoSyncPlay(wallclock: at(0), clockSeconds: 292, period: "Q2", awayScore: 0, homeScore: 0),
                           AutoSyncPlay(wallclock: at(12), clockSeconds: 280, period: "Q2", awayScore: 2, homeScore: 0),
                           AutoSyncPlay(wallclock: at(22), clockSeconds: 270, period: "Q2", awayScore: 2, homeScore: 0)]
         var tracker = AutoSyncTracker(clock: .remaining, margin: 1)
+        tracker.observe(clocks: [293], score: nil, at: at(29), playerLag: 0, plays: basketball)
         tracker.observe(clocks: [292], score: nil, at: at(30), playerLag: 0, plays: basketball)
         tracker.observe(clocks: [292], score: nil, at: at(31), playerLag: 0, plays: basketball)
-        precondition(tracker.estimates.count == 1, "A clock still on screen is not new")
+        precondition(tracker.estimates.map(\.delay) == [30], "A clock still on screen has not just reached its time")
         precondition(tracker.delay == nil, "One estimate is not enough")
         precondition(tracker.agreeing == 1 && tracker.needed == 3, "What the panel says while it waits")
         tracker.observe(clocks: [280], score: nil, at: at(42), playerLag: 0, plays: basketball)
         tracker.observe(clocks: [270], score: nil, at: at(52), playerLag: 0, plays: basketball)
+        precondition(tracker.estimates.map(\.delay) == [30, 31, 30], "Every second the clock ran past is a moment")
         precondition(tracker.delay == 31, "Thirty seconds behind, and the margin")
+        // Read only every four seconds, a running clock's plays are still each
+        // timed: not just those whose second a frame happened to land on.
+        let sparse = [AutoSyncPlay(wallclock: at(2), clockSeconds: 290, period: "Q2", awayScore: 0, homeScore: 0),
+                      AutoSyncPlay(wallclock: at(5), clockSeconds: 287, period: "Q2", awayScore: 0, homeScore: 0)]
+        var every4 = AutoSyncTracker(clock: .remaining, margin: 0)
+        for (clock, seen) in [(292, 30.0), (288, 34.0), (284, 38.0)] {
+            every4.observe(clocks: [clock], score: nil, at: at(seen), playerLag: 0, plays: sparse)
+        }
+        precondition(every4.estimates.map(\.delay) == [30, 30], "Both plays timed between frames")
         // The viewer's own pause is theirs, not the stream's.
         var paused = AutoSyncTracker(clock: .remaining, margin: 0)
-        for (clock, seen) in [(292, 40.0), (280, 52.0), (270, 62.0)] {
+        for (clock, seen) in [(293, 39.0), (292, 40.0), (280, 52.0), (270, 62.0)] {
             paused.observe(clocks: [clock], score: nil, at: at(seen), playerLag: 10, plays: basketball)
         }
         precondition(paused.delay == 30)
+        // A clock back from an ad break, still stopped where it was, has not
+        // just reached its time; once it runs again, it says so.
+        let stopped = [AutoSyncPlay(wallclock: at(0), clockSeconds: 610, period: "Q3", awayScore: 0, homeScore: 0),
+                       AutoSyncPlay(wallclock: at(200), clockSeconds: 609, period: "Q3", awayScore: 0, homeScore: 0)]
+        var ads = AutoSyncTracker(clock: .remaining, margin: 0)
+        ads.observe(clocks: [611], score: nil, at: at(29), playerLag: 0, plays: stopped)
+        ads.observe(clocks: [610], score: nil, at: at(30), playerLag: 0, plays: stopped)
+        ads.observe(clocks: [], score: nil, at: at(100), playerLag: 0, plays: stopped)
+        ads.observe(clocks: [610], score: nil, at: at(229), playerLag: 0, plays: stopped)
+        precondition(ads.estimates.map(\.delay) == [30], "Back from the break says nothing")
+        ads.observe(clocks: [609], score: nil, at: at(230), playerLag: 0, plays: stopped)
+        precondition(ads.estimates.map(\.delay) == [30, 30], "Running again, it does")
+        // Two clocks at once is no telling which is the game's.
+        var two = AutoSyncTracker(clock: .remaining, margin: 0)
+        two.observe(clocks: [293], score: nil, at: at(29), playerLag: 0, plays: basketball)
+        two.observe(clocks: [292, 24], score: nil, at: at(30), playerLag: 0, plays: basketball)
+        two.observe(clocks: [291], score: nil, at: at(31), playerLag: 0, plays: basketball)
+        precondition(two.estimates.isEmpty)
 
         // Hockey's feed counts up; its scoreboard counts down.
         let hockey = [AutoSyncPlay(wallclock: at(0), clockSeconds: 52, period: "1st", awayScore: 0, homeScore: 0)]
         var rink = AutoSyncTracker(clock: .remainingOfPeriods, margin: 0)
+        rink.observe(clocks: [1149], score: nil, at: at(19), playerLag: 0, plays: hockey)
         rink.observe(clocks: [1148], score: nil, at: at(20), playerLag: 0, plays: hockey)
         precondition(rink.estimates.map(\.delay) == [20])
 
@@ -74,6 +106,7 @@ struct MobileAutoSyncChecks {
                       AutoSyncPlay(wallclock: at(1), clockSeconds: 53, period: "1st", awayScore: 0, homeScore: 0),
                       AutoSyncPlay(wallclock: at(8), clockSeconds: 60, period: "1st", awayScore: 0, homeScore: 0)]
         var late = AutoSyncTracker(clock: .remainingOfPeriods, margin: 0)
+        late.observe(clocks: [1149], score: nil, at: at(19), playerLag: 0, plays: [])
         late.observe(clocks: [1148], score: nil, at: at(20), playerLag: 0, plays: [])
         late.observe(clocks: [1147], score: nil, at: at(21), playerLag: 0, plays: [])
         precondition(late.estimates.isEmpty, "Nothing to match yet")
@@ -81,6 +114,24 @@ struct MobileAutoSyncChecks {
         precondition(late.estimates.map(\.delay) == [20, 20, 20] && late.delay == 20, "Matched once posted")
         late.observe(clocks: [], score: nil, at: at(700), playerLag: 0, plays: posted)
         precondition(late.estimates.isEmpty, "Ten minutes on, a reconnected stream may be a new delay")
+
+        // ESPN stamps every play in a stoppage with the moment it began: a
+        // free throw with its foul, though it went in half a minute later.
+        // Its score changing on screen is no measure; a basket's is.
+        let stoppage = [AutoSyncPlay(wallclock: at(90), clockSeconds: 390, period: "Q3", awayScore: 77, homeScore: 61),
+                        AutoSyncPlay(wallclock: at(100), clockSeconds: 381, period: "Q3", awayScore: 77, homeScore: 61),
+                        AutoSyncPlay(wallclock: at(100), clockSeconds: 381, period: "Q3", awayScore: 77, homeScore: 62),
+                        AutoSyncPlay(wallclock: at(140), clockSeconds: 365, period: "Q3", awayScore: 77, homeScore: 64)]
+        var line = AutoSyncTracker(clock: .remaining, margin: 0)
+        let readings: [(score: (away: Int, home: Int), seen: Double)] =
+            [((77, 61), 150), ((77, 61), 151), ((77, 62), 165), ((77, 62), 166)]
+        for reading in readings {
+            line.observe(clocks: [], score: reading.score, at: at(reading.seen), playerLag: 0, plays: stoppage)
+        }
+        precondition(line.estimates.isEmpty, "A free throw's score says nothing of when it changed")
+        line.observe(clocks: [], score: (77, 64), at: at(170), playerLag: 0, plays: stoppage)
+        line.observe(clocks: [], score: (77, 64), at: at(171), playerLag: 0, plays: stoppage)
+        precondition(line.estimates.map(\.delay) == [30], "A basket's does")
 
         // Soccer's clock never stops: every running reading is a moment.
         let soccer = [AutoSyncPlay(wallclock: at(0), clockSeconds: 1400, period: "1H", awayScore: 0, homeScore: 0)]
@@ -117,11 +168,12 @@ struct MobileAutoSyncChecks {
         // Estimates that disagree: the most that agree win, and nothing
         // outside ten minutes counts.
         var mixed = AutoSyncTracker(clock: .remaining, margin: 0)
-        let scattered = [(301, 10.0), (302, 30.0), (303, 30.5), (304, 31.0), (305, 55.0)]
-        let plays = scattered.map { AutoSyncPlay(wallclock: at(0), clockSeconds: Double($0.0), period: "Q1",
+        let scattered = [(301, 0.0, 10.0), (311, 100.0, 30.0), (321, 200.0, 30.5), (331, 300.0, 31.0), (341, 400.0, 55.0)]
+        let plays = scattered.map { AutoSyncPlay(wallclock: at($0.1), clockSeconds: Double($0.0), period: "Q1",
                                                  awayScore: 0, homeScore: 0) }
-        for (clock, delay) in scattered {
-            mixed.observe(clocks: [clock], score: nil, at: at(delay), playerLag: 0, plays: plays)
+        for (clock, happened, delay) in scattered {
+            mixed.observe(clocks: [clock + 1], score: nil, at: at(happened + delay - 1), playerLag: 0, plays: plays)
+            mixed.observe(clocks: [clock], score: nil, at: at(happened + delay), playerLag: 0, plays: plays)
         }
         precondition(mixed.delay == 31, "30.5 agreed by three, not 10 or 55")
         precondition(mixed.agreeing == 3)
