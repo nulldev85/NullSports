@@ -14,7 +14,10 @@ the loud words, Geist for reading, and Geist Mono for versions, SHAs and
 dates. Motion is quiet and eased. Behind the headline is a dot field lit by
 slow light and the pointer, and the hero stats count from the page itself.
 Downloads are two cards filled from the site repo's releases, with each device
-drawn in hairlines. Feature cards keep one markup,
+drawn in hairlines around the app's own icon. Both icons are small PNGs
+inside the page, cut from `iPhone/Assets.xcassets/LineupAppIcon.appiconset`
+and the flattened Apple TV brand assets, so a new icon means new copies
+there. Feature cards keep one markup,
 `.meta` (`.plats`, `.rels`, `.shas`) then `.copy` (`h3`, `p.lede`, `dl.how`
 or `ol.steps`, `p.stack`), so anything added copies an existing card and uses
 those classes.
