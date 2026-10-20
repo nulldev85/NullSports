@@ -6639,17 +6639,30 @@ struct TVEpisodeList {
     let load: @MainActor () async -> [TVEpisodeChoice]
 }
 
-/// The season's episodes along the bottom of the player, in place of the
-/// seek bar and buttons, as Apple's own player has them: each on its still,
-/// with its number, length and name. Select plays one; Back puts the
-/// controls back.
-private struct TVEpisodesPanel: View {
+/// The Episodes row, while it is up: the season, its episodes as far as they
+/// have come, and what choosing one and going Back do.
+private struct TVEpisodesShown {
     let season: String?
     let episodes: [TVEpisodeChoice]
     let loading: Bool
-    let focus: FocusState<TVPlayerControl?>.Binding
     let choose: (TVEpisodeChoice) -> Void
     let close: () -> Void
+}
+
+/// The season's episodes in the lower part of the player, in place of the
+/// seek bar and buttons, as Apple's own player has them: a grey panel only as
+/// tall as its row, running off the right of the screen, each episode on its
+/// still with its number, length and name. Select plays one; Back puts the
+/// controls back.
+private struct TVEpisodesPanel: View {
+    let row: TVEpisodesShown
+    let focus: FocusState<TVPlayerControl?>.Binding
+
+    /// Inside the panel, before the first still and between stills.
+    static let gutter: CGFloat = 30
+    /// How far the panel runs past the right of the screen, so it has no
+    /// right edge of its own.
+    static let overhang: CGFloat = 60
 
     /// Where the remote lands as the row opens: the episode after the one
     /// playing, else the one playing, else the first.
@@ -6659,95 +6672,135 @@ private struct TVEpisodesPanel: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: LineupPanelStyle.radius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 30, style: .continuous)
         VStack(alignment: .leading, spacing: 0) {
-            LineupPanelHeader(title: "Episodes", systemImage: "rectangle.stack.fill") {
-                if let season {
-                    Text(season).font(.inter(18, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                Text("Episodes").font(.inter(32, .bold)).foregroundStyle(LineupStyle.text)
+                if let season = row.season {
+                    Text(season).font(.inter(22, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
                 }
             }
-            .padding(.horizontal, LineupPanelStyle.inset).padding(.top, 24).padding(.bottom, 4)
-            if episodes.isEmpty {
+            .padding(.horizontal, Self.gutter + 4).padding(.top, 26)
+            if row.episodes.isEmpty {
                 // Somewhere for the remote to be while the list comes, or
                 // when the server has none to give.
-                TVSelectable(scale: LineupStyle.controlLift, action: close) {
-                    Text(loading ? "Finding this season's episodes…" : "No other episodes in this season")
-                        .font(.inter(20, .medium)).foregroundStyle(LineupPanelStyle.caption)
-                        .padding(.horizontal, 18).frame(height: 56)
+                TVSelectable(scale: LineupStyle.controlLift, action: row.close) {
+                    Text(row.loading ? "Finding this season's episodes…" : "No other episodes in this season")
+                        .font(.inter(22, .medium)).foregroundStyle(LineupPanelStyle.caption)
+                        .padding(.horizontal, 18).frame(height: 60)
                 }
                 .focused(focus, equals: .episode(""))
-                .padding(.horizontal, LineupPanelStyle.inset - 6).padding(.vertical, 24)
+                .padding(.horizontal, Self.gutter - 4).padding(.top, 18).padding(.bottom, 30)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(alignment: .top, spacing: 26) {
-                            ForEach(episodes) { episode in
-                                TVEpisodeTile(episode: episode, focus: focus) { choose(episode) }
+                        // The gap sits before each still, inside its id, so
+                        // the one scrolled to lands a gap in from the edge
+                        // rather than against it.
+                        // Not lazy: a season is a couple of dozen at most,
+                        // and the one scrolled to must be there to be found.
+                        HStack(alignment: .top, spacing: 0) {
+                            ForEach(row.episodes) { episode in
+                                TVEpisodeTile(episode: episode, focus: focus) { row.choose(episode) }
+                                    .padding(.leading, Self.gutter)
                                     .id(episode.id)
                             }
                         }
-                        .padding(.horizontal, LineupPanelStyle.inset).padding(.top, 18).padding(.bottom, 24)
+                        .padding(.trailing, Self.gutter + Self.overhang)
+                        // Room for the lift of the one the remote is on.
+                        .padding(.top, 22).padding(.bottom, 30)
                     }
-                    .scrollClipDisabled()
+                    // Its own height, not all the screen offers: a sideways
+                    // scroll view takes every point it is given.
+                    .fixedSize(horizontal: false, vertical: true)
                     .onAppear {
-                        if let landing = Self.landing(in: episodes) { proxy.scrollTo(landing, anchor: .leading) }
+                        if let landing = Self.landing(in: row.episodes) { proxy.scrollTo(landing, anchor: .leading) }
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .lineupLiquidGlass(shape, fallback: LineupPanelStyle.fill.opacity(0.94), border: LineupStyle.line)
+        .background(LineupPanelStyle.well.opacity(0.94), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .clipShape(shape)
+        .padding(.trailing, -Self.overhang)
         .focusSection()
-        .onExitCommand(perform: close)
+        .onExitCommand(perform: row.close)
+    }
+}
+
+/// Where the episode playing has got to, over the Episodes row: the time,
+/// and a pause mark while it is paused.
+private struct TVEpisodesClock: View {
+    @ObservedObject var controller: TVPlaybackController
+    @ObservedObject var clock: PlaybackClock
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(TVSeekBar.clock(clock.elapsed)).font(.interDigits(28, .semibold))
+            if !controller.isPlaying {
+                Image(systemName: "pause.fill").font(.system(size: 22, weight: .bold, design: .rounded))
+            }
+            if controller.duration > 0 {
+                Text("−" + TVSeekBar.clock(max(0, controller.duration - clock.elapsed)))
+                    .font(.interDigits(22, .medium)).opacity(0.66)
+            }
+        }
+        .foregroundStyle(LineupStyle.mediaText)
+        .shadow(color: .black.opacity(0.45), radius: 8, y: 2)
     }
 }
 
 /// One episode in the row: its still, marked when it is the one playing or
-/// one already watched, and its number, length and name under it.
+/// one already watched, and its number, length and name under it. The one
+/// the remote is on lifts, with a white rim round its still.
 private struct TVEpisodeTile: View {
     let episode: TVEpisodeChoice
     let focus: FocusState<TVPlayerControl?>.Binding
     let action: () -> Void
 
+    static let still = CGSize(width: 396, height: 223)
+
     var body: some View {
         let selected = focus.wrappedValue == .episode(episode.id)
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
                 ZStack(alignment: .bottom) {
                     LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
-                    LineupArtView(url: episode.image, width: 400) { loaded in
+                    LineupArtView(url: episode.image, width: Self.still.width) { loaded in
                         if let loaded { loaded.resizable().scaledToFill() }
                         else {
-                            Image(systemName: "film").font(.system(size: 34, weight: .light, design: .rounded))
+                            Image(systemName: "film").font(.system(size: 38, weight: .light, design: .rounded))
                                 .foregroundStyle(LineupPanelStyle.quiet)
                         }
                     }
                     if let progress = episode.progress, !episode.isCurrent {
                         LineupProgressBar(value: progress, height: 6, track: .white.opacity(0.28))
-                            .padding(.horizontal, 12).padding(.bottom, 12)
+                            .padding(.horizontal, 14).padding(.bottom, 14)
                     }
                 }
-                .frame(width: 336, height: 189)
+                .frame(width: Self.still.width, height: Self.still.height)
                 .clipShape(shape)
-                .overlay(shape.strokeBorder(Color.white.opacity(selected ? 0 : 0.08), lineWidth: 1))
-                .overlay(alignment: .topLeading) { mark.padding(10) }
-                .lineupFocusLayer(selected, in: shape)
-                VStack(alignment: .leading, spacing: 4) {
+                .overlay(shape.strokeBorder(selected ? Color.white : Color.white.opacity(0.1),
+                                            lineWidth: selected ? 4 : 1))
+                .overlay(alignment: .topLeading) { mark.padding(12) }
+                .shadow(color: .black.opacity(selected ? 0.5 : 0), radius: 22, y: 12)
+                VStack(alignment: .leading, spacing: 3) {
                     let facts = [episode.code, episode.runtime].compactMap { $0 }
                     if !facts.isEmpty {
                         Text(facts.joined(separator: " · "))
-                            .font(.interDigits(17, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                            .font(.interDigits(21, .semibold)).foregroundStyle(LineupPanelStyle.caption)
                     }
-                    Text(episode.title).font(.inter(21, .bold)).foregroundStyle(LineupStyle.text)
+                    Text(episode.title).font(.inter(25, .bold)).foregroundStyle(LineupStyle.text)
                         .lineLimit(1)
                 }
-                .padding(.horizontal, 4)
-                .frame(width: 336, alignment: .leading)
+                .padding(.horizontal, 2)
+                .frame(width: Self.still.width, alignment: .leading)
             }
-            .scaleEffect(selected ? LineupStyle.cardLift : 1)
-            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: selected)
+            .scaleEffect(selected ? 1.05 : 1)
+            .animation(.spring(response: 0.26, dampingFraction: 0.82), value: selected)
         }
         // The tile draws its own focus, so tvOS's plate would sit on top of
         // it as a second, larger highlight.
@@ -6758,15 +6811,15 @@ private struct TVEpisodeTile: View {
 
     @ViewBuilder private var mark: some View {
         if episode.isCurrent {
-            Text("PLAYING")
-                .font(.inter(13, .heavy)).tracking(0.8)
-                .foregroundStyle(LineupStyle.onHighlight)
-                .padding(.horizontal, 10).frame(height: 26)
-                .background(LineupStyle.highlight, in: Capsule())
+            Text("NOW PLAYING")
+                .font(.inter(14, .heavy)).tracking(0.8)
+                .foregroundStyle(LineupStyle.text)
+                .padding(.horizontal, 12).frame(height: 28)
+                .background(LineupPanelStyle.fill.opacity(0.9), in: Capsule())
         } else if episode.watched {
-            Image(systemName: "checkmark").font(.system(size: 13, weight: .bold, design: .rounded))
+            Image(systemName: "checkmark").font(.system(size: 14, weight: .bold, design: .rounded))
                 .foregroundStyle(LineupStyle.background)
-                .frame(width: 28, height: 28)
+                .frame(width: 30, height: 30)
                 .background(LineupStyle.lightPurple, in: Circle())
         }
     }
@@ -7129,16 +7182,12 @@ struct PlayerView: View {
                     onSubtitleSettings: isLive ? nil : { subtitleSettingsShown = true },
                     seekPreview: seekPreview.store,
                     onShowEpisodes: showsEpisodesButton ? showEpisodes : nil,
-                    episodesShown: episodesShown)
+                    episodes: episodesShown
+                        ? TVEpisodesShown(season: episodeList?.season, episodes: episodeChoices,
+                                          loading: !episodesLoaded, choose: chooseEpisode, close: closeEpisodes)
+                        : nil)
                     .padding(.trailing, statsInset)
                     .transition(.opacity)
-            }
-            if episodesShown && controlsVisible && controller.error == nil {
-                TVEpisodesPanel(season: episodeList?.season, episodes: episodeChoices, loading: !episodesLoaded,
-                                focus: $focusedControl, choose: chooseEpisode, close: closeEpisodes)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .padding(.horizontal, 72).padding(.bottom, 52)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             if statsShown, let statsGame {
                 TVGameStatsPanel(stats: gameStats, autoSync: autoSync, game: statsGame,
@@ -7756,9 +7805,9 @@ private struct TVPlayerChrome: View {
     let seekPreview: MobileSeekPreviewStore
     /// The season's other episodes, for an episode with some.
     let onShowEpisodes: (() -> Void)?
-    /// The Episodes row holds the bottom of the screen: the seek bar and
-    /// the buttons make way for it.
-    let episodesShown: Bool
+    /// The Episodes row, while it is up. The seek bar and the buttons make
+    /// way for it, and the time sits over it.
+    let episodes: TVEpisodesShown?
 
     private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
 
@@ -7834,9 +7883,16 @@ private struct TVPlayerChrome: View {
             // Lighter than it was: glass shows what is behind it, and over a
             // band of near-black there was nothing behind it to show.
             LinearGradient(colors: [.clear, .black.opacity(0.22), .black.opacity(0.62)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 340)
+                .frame(height: episodes == nil ? 340 : 640)
                 .overlay(alignment: .bottom) {
-                    if !episodesShown {
+                    if let episodes {
+                        VStack(alignment: .leading, spacing: 22) {
+                            if !isLive { TVEpisodesClock(controller: controller, clock: controller.clock) }
+                            TVEpisodesPanel(row: episodes, focus: focusedControl)
+                        }
+                        .padding(.leading, 72).padding(.bottom, 52)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    } else {
                     LineupGlassGroup {
                     VStack(alignment: .leading, spacing: 26) {
                     // What is playing and how -- the engine, the picture's
@@ -8284,7 +8340,7 @@ private struct TVSeekBar: View {
         onInteraction()
     }
 
-    private static func clock(_ seconds: TimeInterval) -> String {
+    static func clock(_ seconds: TimeInterval) -> String {
         let total = Int(seconds.rounded())
         let hours = total / 3600
         let minutes = (total % 3600) / 60
