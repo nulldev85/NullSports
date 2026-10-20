@@ -15,6 +15,7 @@ struct LiveGameActions {
     /// Channels and Catch Up, while the game is on. Catch Up is offered
     /// wherever the provider can keep recordings; whether a channel carrying
     /// this game keeps one is found out when it is chosen.
+    @MainActor
     func liveItems(for game: SportsGame, library: SportsLibrary) -> [TVChoice] {
         guard game.isLive else { return [] }
         var items = [TVChoice("Channels", symbol: "tv") { channels(game) }]
@@ -25,6 +26,7 @@ struct LiveGameActions {
     }
 
     /// Each side's page: its schedule, standing, roster, injuries, news.
+    @MainActor
     func teamItems(for game: SportsGame, library: SportsLibrary) -> [TVChoice] {
         library.followableSides(of: game).compactMap { side in
             MobileTeamPageTarget(side: side, competition: game.competition?.id).map { target in
