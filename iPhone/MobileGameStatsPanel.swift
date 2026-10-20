@@ -215,7 +215,19 @@ struct MobileGameStatsPanel: View {
         if reveal.catchingUp { return "Catching up to your stream · \(reveal.catchingUpFor ?? seconds)s" }
         if stats.needsFocus { return "Pick the match on your screen to sync" }
         if autoSync == .synced { return "Auto-synced · your stream is \(seconds)s behind live" }
-        if autoSync == .reading && !stats.calibrated { return "Auto Sync is reading the scoreboard…" }
+        if !stats.calibrated {
+            switch autoSync {
+            case .reading(.starting): return "Auto Sync is reading the scoreboard…"
+            case .reading(.noPicture): return "Auto Sync isn't getting a picture"
+            case .reading(.noScoreboard): return "Auto Sync is looking for the scoreboard…"
+            case .reading(.matching(let clock?, let agreeing, let needed)):
+                return "Auto Sync · \(MobileAutoSync.clock(clock)) · \(agreeing) of \(needed) plays matched"
+            case .reading(.matching(nil, let agreeing, let needed)):
+                return "Auto Sync · score read · \(agreeing) of \(needed) plays matched"
+            case .resting: return "Auto Sync paused: iPhone is warm"
+            case .off, .synced: break
+            }
+        }
         return stats.calibrated ? "In sync · your stream is \(seconds)s behind live"
                                 : "Held \(seconds)s behind live · tap to sync"
     }
@@ -721,7 +733,15 @@ private struct AutoSyncToggle: View {
         }
         switch autoSync.status {
         case .synced: return "In step with the scoreboard on your picture. It keeps watching in case your stream moves."
-        case .reading: return "Reading the clock and score on your picture. It takes a minute of play."
+        case .reading(.starting): return "Reading the clock and score on your picture. It takes a minute of play."
+        case .reading(.noPicture):
+            return "This player isn't handing Auto Sync its picture, so the scoreboard can't be read. Syncing by hand still works."
+        case .reading(.noScoreboard):
+            return "No game clock on your picture right now. Ads and replays hide the scoreboard; it's picked up again when it's back."
+        case .reading(.matching(let clock, let agreeing, let needed)):
+            let reading = clock.map { "the clock at \(MobileAutoSync.clock($0))" } ?? "the score"
+            return "Reading \(reading) on your picture. It locks on once \(needed) plays agree; \(agreeing) so far."
+        case .resting: return "Paused while your iPhone is warm. It carries on once it cools."
         case .off: return "Starts when the stats are open on a live game."
         }
     }

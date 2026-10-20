@@ -122,6 +122,19 @@ hot, and nothing leaves the device.
   correction). A game clock is minutes and seconds standing alone, not a time
   of day, not longer than the sport's longest period; a score is the number
   beside a side's code in the same line or the next one along.
+- **Where.** A scoreboard is a small box in a corner or along an edge, too
+  small to read reliably in the whole frame. Until a clock turns up, the top
+  third and bottom third are read in turn (and the whole frame every third
+  time), each through Vision's region of interest, which gives the text
+  several times the size. Once a clock is read, only a full-width band around
+  its line is read, until eight frames in a row find nothing there (ads,
+  replays); then the search starts again.
+- **What it says.** The panel's sync line shows how far it has got: reading,
+  no picture from the player, looking for the scoreboard, or the clock it
+  reads and how many plays of the three needed agree. With Settings ›
+  Diagnostics › Playback diagnostics on, the log records each frame's size and
+  format, where it was read, the clock and score found or the lines read
+  instead, every estimate, and the lock.
 - **Estimates.** A countdown clock (football, basketball) reaching a play's
   time, first seen then, gives one: seen minus happened, less the viewer's own
   pauses. Hockey's feed counts up within the period, so its plays are turned

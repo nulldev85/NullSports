@@ -10,13 +10,50 @@ struct ScoreboardText: Sendable {
     let height: Double
 }
 
+/// A part of the frame to read, in Vision's fractions of the frame (origin at
+/// the bottom left). A scoreboard is a small box at the top or the bottom;
+/// reading only that part gives the reader its text at several times the
+/// size, which is what a corner bug's digits need to be read at all.
+struct ScoreboardArea: Equatable, Sendable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+
+    static let whole = ScoreboardArea(x: 0, y: 0, width: 1, height: 1)
+    static let top = ScoreboardArea(x: 0, y: 0.66, width: 1, height: 0.34)
+    static let bottom = ScoreboardArea(x: 0, y: 0, width: 1, height: 0.34)
+    /// Where to look, in turn, while the scoreboard is not yet found.
+    static let search: [ScoreboardArea] = [.top, .bottom, .whole]
+
+    /// A line read inside this area, placed in the whole frame.
+    func placing(_ line: ScoreboardText) -> ScoreboardText {
+        ScoreboardText(text: line.text, x: x + line.x * width, y: y + line.y * height,
+                       width: line.width * width, height: line.height * height)
+    }
+
+    /// The band across the frame around a line the clock was read in: wide,
+    /// for a bar that spreads the score across the screen, and tall enough
+    /// for a box that stacks the teams.
+    static func around(_ line: ScoreboardText) -> ScoreboardArea {
+        let low = max(0, line.y - 0.08)
+        let high = min(1, line.y + line.height + 0.08)
+        return ScoreboardArea(x: 0, y: low, width: 1, height: high - low)
+    }
+}
+
 /// What a frame's scoreboard says, read from its text.
 enum ScoreboardReader {
     /// Every game clock on screen, in seconds: "4:52", "12:00", "67:13".
     /// A time of day ("8:15 PM") is not a clock, and neither is a reading
     /// longer than the sport's longest period.
     static func clocks(in texts: [ScoreboardText], maxMinutes: Int) -> Set<Int> {
-        var found: Set<Int> = []
+        Set(clockLines(in: texts, maxMinutes: maxMinutes).map(\.seconds))
+    }
+
+    /// Each clock with the line it was read in, so the scoreboard can be found.
+    static func clockLines(in texts: [ScoreboardText], maxMinutes: Int) -> [(seconds: Int, line: ScoreboardText)] {
+        var found: [(seconds: Int, line: ScoreboardText)] = []
         for line in texts {
             let text = line.text.uppercased() as NSString
             for match in clockPattern.matches(in: text as String, range: NSRange(location: 0, length: text.length)) {
@@ -26,7 +63,7 @@ enum ScoreboardReader {
                       let minutes = Int(text.substring(with: match.range(at: 1))),
                       let seconds = Int(text.substring(with: match.range(at: 2))),
                       minutes <= maxMinutes else { continue }
-                found.insert(minutes * 60 + seconds)
+                found.append((seconds: minutes * 60 + seconds, line: line))
             }
         }
         return found
@@ -43,6 +80,13 @@ enum ScoreboardReader {
             return nil
         }
         return (awayScore, homeScore)
+    }
+
+    /// The first line naming either side: where a scoreboard without a clock
+    /// (baseball's) is.
+    static func line(in texts: [ScoreboardText], naming codes: [String]) -> ScoreboardText? {
+        let codes = Set(codes.map { $0.uppercased() }.filter { !$0.isEmpty })
+        return texts.first { !Set(words($0.text)).isDisjoint(with: codes) }
     }
 
     private static func words(_ text: String) -> [String] {
@@ -245,12 +289,21 @@ struct AutoSyncTracker {
         return []
     }
 
+    /// How many estimates have to agree before the delay is the scoreboard's.
+    var needed: Int { clock == .none ? 2 : 3 }
+
+    /// How many agree so far: the largest group within a couple of seconds.
+    var agreeing: Int { bestGroup?.count ?? 0 }
+
     /// The delay most estimates agree on -- within a couple of seconds of
     /// one another -- once enough do, with the sport's margin added.
     var delay: TimeInterval? {
-        let needed = clock == .none ? 2 : 3
+        guard let best = bestGroup, best.count >= needed else { return nil }
+        return min(Self.range.upperBound, (best.median + margin).rounded())
+    }
+
+    private var bestGroup: (count: Int, median: TimeInterval)? {
         let sorted = estimates.map(\.delay).sorted()
-        guard sorted.count >= needed else { return nil }
         var best: (count: Int, median: TimeInterval)?
         var start = 0
         for end in sorted.indices {
@@ -261,7 +314,6 @@ struct AutoSyncTracker {
                 best = (count, median)
             }
         }
-        guard let best, best.count >= needed else { return nil }
-        return min(Self.range.upperBound, (best.median + margin).rounded())
+        return best
     }
 }

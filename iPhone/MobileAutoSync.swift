@@ -12,14 +12,32 @@ import Vision
 /// stream that reconnects. It rests while the phone is hot or the app is
 /// in the background. A sync made by hand stands until the scoreboard
 /// clearly says otherwise.
+///
+/// A scoreboard is a small box in a corner or along an edge, so the top and
+/// bottom of the picture are read in turn, each at several times the size a
+/// reading of the whole frame gives it, until a clock turns up; then only
+/// the band it is in is read, until it has been gone a while (ads, replays).
 @MainActor
 final class MobileAutoSync: ObservableObject {
     enum Status: Equatable {
         case off
         /// Watching the scoreboard; not enough readings agree yet.
-        case reading
+        case reading(Progress)
+        /// Paused while the phone is hot.
+        case resting
         /// The delay is the scoreboard's.
         case synced
+    }
+
+    /// How far a reading has got, so the viewer can see what it sees.
+    enum Progress: Equatable {
+        case starting
+        /// The player has not handed over a picture for a while.
+        case noPicture
+        /// Pictures are read, with no scoreboard in them.
+        case noScoreboard
+        /// The scoreboard is read, and plays are being matched to it.
+        case matching(clock: Int?, agreeing: Int, needed: Int)
     }
 
     static let enabledKey = "Lineup.stats.autoSync.v1"
@@ -37,6 +55,16 @@ final class MobileAutoSync: ObservableObject {
     private var following: String?
     private var tracker: AutoSyncTracker?
     private var releaseFrames: (() -> Void)?
+    /// The band the scoreboard was last read in, read alone while it is there.
+    private var area: ScoreboardArea?
+    private var searchTurn = 0
+    private var missedFrames = 0
+    private var blankFrames = 0
+    private var frameCount = 0
+    private var sawScoreboardYet = false
+    private var lastClock: Int?
+    private var estimateCount = 0
+    private let diagnostics = PlaybackDiagnostics.shared
 
     init() {
         isEnabled = UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool ?? true
@@ -60,7 +88,8 @@ final class MobileAutoSync: ObservableObject {
         // its estimates run short; a scoreboard's score changes after the
         // play, so baseball's run long already.
         tracker = AutoSyncTracker(clock: clock, margin: sport == "football" ? 4 : (sport == "baseball" ? 0 : 1))
-        status = .reading
+        status = .reading(.starting)
+        diagnostics.record("Auto Sync on: \(sport), \(teams.away.joined(separator: "/")) at \(teams.home.joined(separator: "/"))")
         loop = Task { [weak self, weak stats] in
             while !Task.isCancelled {
                 let settled = await self?.step(stats: stats, teams: teams, frames: frames) ?? false
@@ -71,12 +100,21 @@ final class MobileAutoSync: ObservableObject {
     }
 
     func stop() {
+        if loop != nil { diagnostics.record("Auto Sync off") }
         loop?.cancel()
         loop = nil
         following = nil
         tracker = nil
         releaseFrames?()
         releaseFrames = nil
+        area = nil
+        searchTurn = 0
+        missedFrames = 0
+        blankFrames = 0
+        frameCount = 0
+        sawScoreboardYet = false
+        lastClock = nil
+        estimateCount = 0
         status = .off
     }
 
@@ -84,24 +122,135 @@ final class MobileAutoSync: ObservableObject {
     private func step(stats: MobileGameStats?, teams: (away: [String], home: [String]),
                       frames: @MainActor () async -> MobilePlaybackController.CapturedFrame?) async -> Bool {
         guard let stats, var tracker, let key = following else { return false }
-        guard UIApplication.shared.applicationState == .active,
-              ProcessInfo.processInfo.thermalState != .serious,
-              ProcessInfo.processInfo.thermalState != .critical else { return status == .synced }
+        guard UIApplication.shared.applicationState == .active else { return status == .synced }
+        let thermal = ProcessInfo.processInfo.thermalState
+        guard thermal != .serious, thermal != .critical else {
+            if status != .synced, status != .resting {
+                status = .resting
+                diagnostics.record("Auto Sync resting: the phone is hot")
+            }
+            return status == .synced
+        }
         // When it was on screen, and the viewer's own pauses then.
         let seenAt = Date()
         let lag = stats.playerLag()
-        guard let frame = await frames() else { return status == .synced }
-        let texts = await Self.read(FrameBox(frame: frame))
+        guard let frame = await frames() else {
+            missedFrames += 1
+            if missedFrames == 5 { diagnostics.record("Auto Sync: the player hands over no picture") }
+            if missedFrames >= 5 { show(.noPicture) }
+            return status == .synced
+        }
+        missedFrames = 0
+        frameCount += 1
+        let place = area ?? ScoreboardArea.search[searchTurn % ScoreboardArea.search.count]
+        if area == nil { searchTurn += 1 }
+        let texts = await Self.read(FrameBox(frame: frame), in: place)
         // A new game or channel while the frame was read starts again.
         guard !Task.isCancelled, following == key else { return false }
-        tracker.observe(clocks: ScoreboardReader.clocks(in: texts, maxMinutes: tracker.clock.maxMinutes),
-                        score: ScoreboardReader.score(in: texts, away: teams.away, home: teams.home),
-                        at: seenAt, playerLag: lag, plays: stats.autoSyncPlays)
+
+        let clockLines = ScoreboardReader.clockLines(in: texts, maxMinutes: tracker.clock.maxMinutes)
+        let clocks = Set(clockLines.map(\.seconds))
+        let score = ScoreboardReader.score(in: texts, away: teams.away, home: teams.home)
+        let sawScoreboard = tracker.clock == .none ? score != nil : !clocks.isEmpty
+        if sawScoreboard {
+            blankFrames = 0
+            sawScoreboardYet = true
+            if let first = clockLines.first { lastClock = first.seconds }
+            let anchor = clockLines.first?.line
+                ?? ScoreboardReader.line(in: texts, naming: teams.away + teams.home)
+            if area == nil, let line = anchor {
+                area = .around(line)
+                diagnostics.record("Auto Sync found the scoreboard in \(Self.describe(place)): \"\(line.text)\"")
+            }
+        } else {
+            blankFrames += 1
+            if area != nil, blankFrames >= 8 {
+                area = nil
+                diagnostics.record("Auto Sync lost the scoreboard; looking again")
+            }
+        }
+        tracker.observe(clocks: clocks, score: score, at: seenAt, playerLag: lag, plays: stats.autoSyncPlays)
         self.tracker = tracker
-        guard let delay = tracker.delay else { return false }
-        stats.applyAutoSync(delay)
-        if status != .synced { status = .synced }
-        return true
+        record(frame: frame, place: place, texts: texts, clocks: clocks, score: score, tracker: tracker)
+
+        if let delay = tracker.delay {
+            stats.applyAutoSync(delay)
+            if status != .synced {
+                status = .synced
+                diagnostics.record("Auto Sync locked: the picture is \(Int(delay))s behind live")
+            }
+            return true
+        }
+        if blankFrames >= 8 || (!sawScoreboardYet && frameCount >= 6) {
+            show(.noScoreboard)
+        } else if sawScoreboardYet {
+            show(.matching(clock: lastClock, agreeing: tracker.agreeing, needed: tracker.needed))
+        } else {
+            show(.starting)
+        }
+        return false
+    }
+
+    /// What it is doing, until it has synced: a lock is not undone by a
+    /// moment without a scoreboard.
+    private func show(_ progress: Progress) {
+        guard status != .synced, status != .reading(progress) else { return }
+        // The clock it shows moves every few seconds, not every frame: each
+        // change redraws the Sports tab.
+        if case .reading(.matching(let shown?, let agreeing, let needed)) = status,
+           case .matching(let clock?, agreeing, needed) = progress, abs(clock - shown) < 5 { return }
+        status = .reading(progress)
+    }
+
+    /// The playback log's account of a frame, while it is switched on: every
+    /// fifth frame, and any frame that found nothing or made an estimate.
+    private func record(frame: MobilePlaybackController.CapturedFrame, place: ScoreboardArea, texts: [ScoreboardText],
+                        clocks: Set<Int>, score: (away: Int, home: Int)?, tracker: AutoSyncTracker) {
+        guard diagnostics.isEnabled else { return }
+        let added = tracker.estimates.count - estimateCount
+        estimateCount = tracker.estimates.count
+        if added > 0 {
+            for estimate in tracker.estimates.suffix(added) {
+                let seconds = (estimate.delay * 10).rounded() / 10
+                diagnostics.record("Auto Sync estimate: \(seconds)s behind live (\(tracker.agreeing) of \(tracker.needed) agree)")
+            }
+        }
+        guard frameCount <= 3 || frameCount % 5 == 0 || clocks.isEmpty && score == nil else { return }
+        var line = "Auto Sync frame \(frameCount): \(Self.describe(frame)), \(Self.describe(place)), \(texts.count) lines"
+        if !clocks.isEmpty { line += ", clock " + clocks.sorted().map(Self.clock).joined(separator: "/") }
+        if let score { line += ", score \(score.away)-\(score.home)" }
+        if clocks.isEmpty && score == nil && !texts.isEmpty {
+            line += ", read " + texts.prefix(6).map { "\"\($0.text.prefix(28))\"" }.joined(separator: " ")
+        }
+        diagnostics.record(line)
+    }
+
+    /// "9:12", "67:13".
+    nonisolated static func clock(_ seconds: Int) -> String {
+        let rest = seconds % 60
+        return "\(seconds / 60):\(rest < 10 ? "0" : "")\(rest)"
+    }
+
+    nonisolated private static func describe(_ place: ScoreboardArea) -> String {
+        switch place {
+        case .whole: return "the whole frame"
+        case .top: return "the top of the frame"
+        case .bottom: return "the bottom of the frame"
+        default: return String(format: "the band %.0f-%.0f%% up", place.y * 100, (place.y + place.height) * 100)
+        }
+    }
+
+    nonisolated private static func describe(_ frame: MobilePlaybackController.CapturedFrame) -> String {
+        switch frame {
+        case .pixelBuffer(let buffer):
+            let code = CVPixelBufferGetPixelFormatType(buffer)
+            let characters = [24, 16, 8, 0].map { Character(UnicodeScalar(UInt8((code >> $0) & 0xFF))) }
+            let format = characters.allSatisfy { $0.isLetter || $0.isNumber || $0 == " " }
+                ? String(characters) : String(code, radix: 16)
+            return "\(CVPixelBufferGetWidth(buffer))x\(CVPixelBufferGetHeight(buffer)) \(format)"
+        case .image(let image):
+            return "\(image.width)x\(image.height) snapshot"
+        }
     }
 
     /// A frame handed to Vision's thread. The pixels are not touched again
@@ -110,25 +259,29 @@ final class MobileAutoSync: ObservableObject {
         let frame: MobilePlaybackController.CapturedFrame
     }
 
-    /// Every line of text in the frame, where it is. Digits as they are:
-    /// language correction would turn "0:45" into a word.
-    nonisolated private static func read(_ box: FrameBox) async -> [ScoreboardText] {
+    /// Every line of text in that part of the frame, placed in the whole
+    /// frame. Digits as they are: language correction would turn "0:45"
+    /// into a word.
+    nonisolated private static func read(_ box: FrameBox, in place: ScoreboardArea) async -> [ScoreboardText] {
         await Task.detached(priority: .utility) { () -> [ScoreboardText] in
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = false
             request.recognitionLanguages = ["en-US"]
             request.minimumTextHeight = 0.015
+            request.regionOfInterest = CGRect(x: place.x, y: place.y, width: place.width, height: place.height)
             let handler: VNImageRequestHandler
             switch box.frame {
             case .pixelBuffer(let buffer): handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
             case .image(let image): handler = VNImageRequestHandler(cgImage: image, options: [:])
             }
             guard (try? handler.perform([request])) != nil else { return [] }
+            // Vision gives each box within the part it read.
             return (request.results ?? []).compactMap { observation in
                 guard let text = observation.topCandidates(1).first?.string else { return nil }
                 let box = observation.boundingBox
-                return ScoreboardText(text: text, x: box.minX, y: box.minY, width: box.width, height: box.height)
+                return place.placing(ScoreboardText(text: text, x: box.minX, y: box.minY,
+                                                    width: box.width, height: box.height))
             }
         }.value
     }
