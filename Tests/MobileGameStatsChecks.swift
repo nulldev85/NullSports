@@ -29,7 +29,9 @@ struct MobileGameStatsChecks {
         }
 
         // Reading.
-        let first = basketball(away: 50, home: 48, clock: "4:52",
+        // ESPN's header at the same clock and score as the latest play: the
+        // fetch stands for that play.
+        let first = basketball(away: 50, home: 48, clock: "4:21",
                                plays: [("p1", 1, t0.addingTimeInterval(-600), 48, 48, false),
                                        ("p2", 2, t0.addingTimeInterval(-20), 50, 48, true)],
                                received: t0)!
@@ -71,7 +73,7 @@ struct MobileGameStatsChecks {
         check(reached.awayScore == 50 && reached.homeWinProbability == 0.62, "Score and odds follow")
 
         // A score, five seconds after the first fetch, in the next one.
-        let second = basketball(away: 53, home: 48, clock: "4:32",
+        let second = basketball(away: 53, home: 48, clock: "4:21",
                                 plays: [("p1", 1, t0.addingTimeInterval(-600), 48, 48, false),
                                         ("p2", 2, t0.addingTimeInterval(-20), 50, 48, true),
                                         ("p3", 3, t0.addingTimeInterval(5), 53, 48, true)],
@@ -101,6 +103,37 @@ struct MobileGameStatsChecks {
         let bare = basketball(away: 53, home: 48, clock: "4:12", plays: [], received: t0.addingTimeInterval(20))!
         timeline.ingest(bare)
         check(timeline.snapshots.last?.moment == t0.addingTimeInterval(20), "Totals without plays wait for their fetch")
+
+        // ESPN's score and clock run ahead of its plays. A fetch past its
+        // latest play is held to when it came, not to that play: shown at
+        // the play's moment, it put a basket on screen before the picture.
+        let ahead = basketball(away: 56, home: 48, clock: "4:02",
+                               plays: [("p1", 1, t0.addingTimeInterval(-600), 48, 48, false),
+                                       ("p2", 2, t0.addingTimeInterval(-20), 50, 48, true),
+                                       ("p3", 3, t0.addingTimeInterval(5), 53, 48, true)],
+                               received: t0.addingTimeInterval(30))!
+        var leading = GameStatsTimeline()
+        leading.countsDown = true
+        leading.ingest(second)
+        leading.ingest(ahead)
+        check(leading.snapshots.last?.moment == t0.addingTimeInterval(30) && leading.snapshots.last?.timedByFetch == true,
+              "A fetch ahead of its plays waits for its own moment")
+        let early = leading.reveal(at: t0.addingTimeInterval(10))!
+        check(early.awayScore == 53 && early.status == "4:21 - 3rd",
+              "Until then, the score and clock are the latest play's, not the feed's")
+        let caughtUp = leading.reveal(at: t0.addingTimeInterval(30))!
+        check(caughtUp.awayScore == 56 && caughtUp.status == "4:02 - 3rd", "Then the fetch's own")
+        // A fetch held to when it came is behind the picture: a play shown
+        // since, later in the game, gives the clock.
+        let behind = basketball(away: 50, home: 48, clock: "4:52",
+                                plays: [("p2", 2, t0.addingTimeInterval(-30), 50, 48, true)], received: t0)!
+        var trailing = GameStatsTimeline()
+        trailing.countsDown = true
+        trailing.ingest(behind)
+        check(trailing.snapshots.last?.timedByFetch == true, "Another clock than its play's")
+        check(trailing.reveal(at: t0)!.status == "4:21 - 3rd", "The later clock of the two, never one still to come")
+        check(GameStatsTimeline.gameSeconds("35.5") == 35.5 && GameStatsTimeline.gameSeconds("4:21") == 261,
+              "A clock under a minute reads with its tenths")
 
         // The delay a viewer sets is kept for the channel.
         let defaults = UserDefaults(suiteName: "MobileGameStatsChecks")!

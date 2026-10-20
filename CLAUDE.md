@@ -8,9 +8,19 @@ repo holds one self-contained page, `index.html`, and `.nojekyll`. A push there
 is live a minute or two later; nothing in this repo deploys it, and it stays up
 while this repo is private.
 
-The page is drawn in the app's own look (SF Pro Rounded, the charcoal ground, panel
-cards with an icon tile and caption, capsule chips; see `Lineup/Design`), so
-anything added to it uses the same classes.
+The page has its own look, not the app's. It is dark only and monochrome,
+warm white on near-black, with no accent colour. Archivo at full width is for
+the loud words, Geist for reading, and Geist Mono for versions, SHAs and
+dates. Motion is quiet and eased. Behind the headline is a dot field lit by
+slow light and the pointer, and the hero stats count from the page itself.
+Downloads are two cards filled from the site repo's releases, with each device
+drawn in hairlines around the app's own icon. The app icon is also the top
+bar logo and the tab icon. All of them are small PNGs inside the page, cut
+from `iPhone/Assets.xcassets/LineupAppIcon.appiconset` and the flattened
+Apple TV brand assets, so a new icon means new copies there. Feature cards keep one markup,
+`.meta` (`.plats`, `.rels`, `.shas`) then `.copy` (`h3`, `p.lede`, `dl.how`
+or `ol.steps`, `p.stack`), so anything added copies an existing card and uses
+those classes.
 
 Every merge round into `main` ends with updating that page:
 
@@ -23,8 +33,8 @@ Every merge round into `main` ends with updating that page:
 - On a card for both apps, mark any line true of one app only with
   `data-only="iphone"` or `data-only="tv"`, so each filter shows only its own.
 - Add the release to the ledger at the top of the Releases list, newest first.
-- Update the footer's date by hand. The filter and ledger counts recount
-  themselves on load.
+- Update the footer's date by hand. The filter, ledger and hero counts
+  recount themselves on load.
 - Push to `main` of that repo and give the user the link with the build links.
 
 The page's Download panel offers the newest official IPA of each app, from the

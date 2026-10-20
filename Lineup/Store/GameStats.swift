@@ -291,6 +291,7 @@ final class MobileGameStats: ObservableObject {
     private func start(_ game: SportsGame) {
         guard let source = game.statsSource else { return }
         if case .tennis(_, let match?, _) = source { focus = match }
+        if case .summary(let sport, _) = source { timeline.countsDown = ["basketball", "football"].contains(sport) }
         poll = Task { [weak self] in
             guard let self else { return }
             if source.isBoard {
