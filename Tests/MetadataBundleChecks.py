@@ -1,4 +1,4 @@
-"""Validate the shared resource and iPhone-only service requirements."""
+"""Validate the shared resource and the services both apps require."""
 import json
 from pathlib import Path
 import subprocess
@@ -18,11 +18,11 @@ class MetadataBundleChecks(unittest.TestCase):
                 [sys.executable, "-B", str(ROOT / "Tools/check-metadata-bundle.py"), str(path), *flags],
                 capture_output=True, text=True)
 
-    def test_tvos_keeps_intentionally_empty_iphone_services(self):
+    def test_an_unflagged_check_accepts_empty_services(self):
         result = self.check_resource({"tmdb": "", "tvdb": "", "opensubtitles": "", "fanart": ""})
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_iphone_requires_both_injected_consumer_keys(self):
+    def test_both_apps_require_both_injected_consumer_keys(self):
         values = {"tmdb": "", "tvdb": "", "opensubtitles": "fixture-subtitle-key", "fanart": "fixture-art-key"}
         flags = ("--require-online-subtitles", "--require-fanart")
         result = self.check_resource(values, *flags)

@@ -1545,10 +1545,7 @@ final class MobilePlaybackController: ObservableObject {
 
     /// A picture taken from the stream: AVPlayer's and Aether's as decoded,
     /// VLC's as the PNG it writes.
-    enum CapturedFrame {
-        case pixelBuffer(CVPixelBuffer)
-        case image(CGImage)
-    }
+    typealias CapturedFrame = CapturedVideoFrame
 
     private var frameOutput: AVPlayerItemVideoOutput?
     private weak var frameOutputItem: AVPlayerItem?

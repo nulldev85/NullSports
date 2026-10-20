@@ -38,9 +38,7 @@ public final class AetherPlaybackSession {
     private var initialPosition: Double = 0
     private var sourceSeekableAtLoad: Bool?
     private var liveSource = false
-    #if os(iOS)
     private var subtitleDelay: Double = 0
-    #endif
     public private(set) var isOpen = false
     private var probedVideoSize: CGSize = .zero
     public var videoSize: CGSize {
@@ -131,11 +129,7 @@ public final class AetherPlaybackSession {
                 guard let self, self.isOpen, !self.loading else { return }
                 // Read the current session after the queue hop; queued cues
                 // from a stopped/replaced source must not reappear.
-                #if os(iOS)
                 let subtitleTime = self.engine.sourceTime - self.subtitleDelay
-                #else
-                let subtitleTime = self.engine.sourceTime
-                #endif
                 self.canvas.display(cues: self.engine.subtitleCues, at: subtitleTime,
                                     videoSize: self.videoSize)
             }.store(in: &subscriptions)
@@ -332,7 +326,6 @@ public final class AetherPlaybackSession {
     public func selectSubtitle(index: Int?) {
         if let index { engine.selectSubtitleTrack(index: index) } else { engine.clearSubtitle() }
     }
-    #if os(iOS)
     /// Host text appearance changes in place. Bitmap subtitles retain their art.
     /// Native PiP renditions keep their original appearance and timing.
     public func configureSubtitles(scale: Double, background: Bool, delay: Double) {
@@ -344,7 +337,6 @@ public final class AetherPlaybackSession {
         canvas.setNeedsLayout()
         canvas.layoutIfNeeded()
     }
-    #endif
     /// Mid-session sidecars are foreground tracks in the pinned engine. This
     /// does not reload the video or change native PiP's subtitle renditions.
     public func addSubtitle(url: URL, title: String, language: String) -> Int {
@@ -354,7 +346,6 @@ public final class AetherPlaybackSession {
     }
     public func selectAudio(index: Int) { engine.selectAudioTrack(index: index) }
 
-    #if os(iOS)
     /// The picture on screen now, for reading what it shows (Auto Sync's
     /// scoreboard): the software renderer's own frame. Nil on a route
     /// AVPlayer draws, whose item `currentPlayerItem` reads instead.
@@ -365,7 +356,6 @@ public final class AetherPlaybackSession {
 
     /// The item AVPlayer is drawing, on the routes it draws.
     public var currentPlayerItem: AVPlayerItem? { engine.currentAVPlayerItem }
-    #endif
 
     public static func openSourceNotices() -> String {
         guard let directory = Bundle(for: AetherPlaybackSession.self).resourceURL?
@@ -396,10 +386,8 @@ private final class AetherPlaybackCanvas: UIView {
     let picture = AetherPlayerView(frame: .zero)
     private var cues: [SubtitleCue] = []
     private var videoSize: CGSize = .zero
-    #if os(iOS)
     var subtitleScale: CGFloat = 1
     var subtitleBackground = false
-    #endif
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -485,7 +473,6 @@ private final class AetherPlaybackCanvas: UIView {
             ? AVMakeRect(aspectRatio: videoSize, insideRect: bounds) : bounds
         var bottom = video.maxY - 42
         for (cue, view) in zip(cues.reversed(), subviews.dropFirst().reversed()) {
-            #if os(iOS)
             if let label = view as? UILabel {
                 let text = NSMutableAttributedString(attributedString:
                     Self.styledText(cue, scale: max(12.0 / 42.0, bounds.width / 1920) * subtitleScale))
@@ -495,7 +482,6 @@ private final class AetherPlaybackCanvas: UIView {
                 }
                 label.attributedText = text
             }
-            #endif
             if case .image(let image) = cue.body {
                 let canvas = image.canvasSize.width > 0 ? image.canvasSize : video.size
                 let scale = canvas.width > 0 ? video.width / canvas.width : 1
