@@ -10,8 +10,8 @@ extension MediaLibrary {
     }
 }
 
-/// The viewer's own collections and their servers' own, from the Library's
-/// menu. Collections of the viewer's own are kept on this Apple TV, as the
+/// The viewer's own collections and their servers' own, from Settings ›
+/// Library. Collections of the viewer's own are kept on this Apple TV, as the
 /// phone keeps its own; a server's are opened as they are, never changed.
 struct TVCollectionsScreen: View {
     @Environment(MediaLibrary.self) private var media
@@ -62,6 +62,8 @@ struct TVCollectionsScreen: View {
         .fullScreenCover(item: Bindable(media).collectionSelectionItem) { item in
             TVCollectionPicker(item: item).environment(media)
         }
+        .onAppear { media.collectionsScreenShown = true }
+        .onDisappear { media.collectionsScreenShown = false }
     }
 
     private var list: some View {

@@ -2702,7 +2702,7 @@ private func liveAccessibilityLabel(_ game: SportsGame) -> String {
 
 private struct LiveSelectedPreview: View {
     @Environment(SportsLibrary.self) private var library
-    @StateObject private var controller = TVPlaybackController()
+    @StateObject private var controller = TVPlaybackController(place: .sports)
     @State private var choosingGame: SportsGame?
     @State private var pickedChannel: TVPickedChannel?
     @State private var scopingChannel: TVPickedChannel?
@@ -3319,7 +3319,7 @@ struct GuideView: View {
     /// The preview's one player, kept for as long as the Guide is. Resting
     /// on a channel opens it there and moving on stops it; nothing is built
     /// or torn down as the remote moves (see `GuidePreviewVideo`).
-    @StateObject private var previewPlayer = TVPlaybackController()
+    @StateObject private var previewPlayer = TVPlaybackController(place: .guide)
     @State private var previewHidden = false
     @State private var sidebarVisible = false
     @State private var reorderingFavorites = false
@@ -4809,8 +4809,21 @@ struct AccountView: View {
     @State private var managingTeamChannels = false
     @State private var managingTeams = false
     @State private var choosingAccent = false
-    @State private var choosingPlaybackEngine = false
+    /// The tab whose playback engine is being chosen.
+    @State private var choosingEngineFor: TVPlaybackPlace?
+    // What the Library tab's menu used to offer, now in Library below.
+    @State private var showingCollections = false
+    @State private var choosingShelf = false
+    @State private var removingShelf = false
+    @State private var reorderingShelves = false
+    @State private var clearingHistory = false
     @AppStorage(TVPlaybackEngine.storageKey) private var playbackEngine = TVPlaybackEngine.vlc.rawValue
+    // Each tab's own engine: empty until one is chosen, and the tab then
+    // plays with the one above, which every tab used before they had their own.
+    @AppStorage(TVPlaybackPlace.sports.storageKey) private var sportsEngine = ""
+    @AppStorage(TVPlaybackPlace.guide.storageKey) private var guideEngine = ""
+    @AppStorage(TVPlaybackPlace.library.storageKey) private var libraryEngine = ""
+    @AppStorage(TVPlaybackPlace.search.storageKey) private var searchEngine = ""
     @State private var pendingAccent: String?
     /// The accent, chosen here too: iCloud brings the phone's choice over
     /// once it is switched on, and until then the two are set by hand.
@@ -4847,11 +4860,14 @@ struct AccountView: View {
                 media.loadMDBListIntegrationIfNeeded()
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
-            .tvChoices("Playback Engine", symbol: "play.rectangle", isPresented: $choosingPlaybackEngine,
-                       message: "Used for the next stream you open, including previews and Multiview.") {
-                TVPlaybackEngine.allCases.map { engine in
-                    TVChoice(engine.title, namesEngine: true, isSelected: playbackEngine == engine.rawValue) {
-                        playbackEngine = engine.rawValue
+            .tvChoices("\(choosingEngineFor?.title ?? "Playback") Engine", symbol: "play.rectangle",
+                       isPresented: Binding(get: { choosingEngineFor != nil },
+                                            set: { if !$0 { choosingEngineFor = nil } }),
+                       message: "Used for the next stream you open in \(choosingEngineFor?.title ?? "this tab").") {
+                guard let place = choosingEngineFor else { return [] }
+                return TVPlaybackEngine.allCases.map { engine in
+                    TVChoice(engine.title, namesEngine: true, isSelected: self.engine(for: place) == engine) {
+                        setEngine(engine, for: place)
                     }
                 }
             }
@@ -4872,6 +4888,23 @@ struct AccountView: View {
             }
             .sheet(isPresented: $configuringMDBList) {
                 MDBListIntegrationView().environment(media)
+            }
+            .fullScreenCover(isPresented: $showingCollections) { TVCollectionsScreen().environment(media) }
+            .sheet(isPresented: $choosingShelf) { MediaShelfPicker().environment(media) }
+            .sheet(isPresented: $reorderingShelves) {
+                LibraryShelfOrderSheet().environment(media).preferredColorScheme(.dark)
+            }
+            .tvChoices("Remove a Shelf", symbol: "minus.rectangle", isPresented: $removingShelf,
+                       message: "Its titles stay on your server; only the shelf leaves the Library.") {
+                media.removableShelves.map { shelf in
+                    TVChoice(media.shelfName(shelf), id: "remove-\(shelf.id)", isDestructive: true) {
+                        media.removeShelf(shelf)
+                    }
+                }
+            }
+            .tvChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
+                       message: "This removes Continue Watching and local watched status from this Apple TV.") {
+                [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
             }
             .sheet(isPresented: $managingTeamChannels) {
                 TVPreferredChannelsView().environment(library)
@@ -4904,33 +4937,18 @@ struct AccountView: View {
         }
     }
 
-    // MARK: Sources
+    // MARK: Live TV
 
+    /// The IPTV side. The media servers are under Library, with the rest of
+    /// what the Library tab is made from.
     private var sources: some View {
         VStack(alignment: .leading, spacing: 22) {
-            AccountSectionHeading("SOURCES")
-            HStack(alignment: .top, spacing: gutter) {
-                providerCard
-                mediaCard
-            }
-            .fixedSize(horizontal: false, vertical: true)
+            AccountSectionHeading("LIVE TV")
+            providerCard
+                .fixedSize(horizontal: false, vertical: true)
             if library.activeProfile != nil {
                 providersRow
                 preferredChannelsRow
-            }
-            // Every server feeds the Library at once, so with more than one
-            // the card above speaks for all of them and this list for each:
-            // whether it answers, what it holds, and the way to remove it.
-            if media.profiles.count > 1 {
-                VStack(spacing: 0) {
-                    ForEach(Array(media.profiles.enumerated()), id: \.element.id) { index, profile in
-                        if index > 0 {
-                            Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 30)
-                        }
-                        AccountServerRow(profile: profile)
-                    }
-                }
-                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
         }
     }
@@ -5098,9 +5116,31 @@ struct AccountView: View {
 
     // MARK: Library
 
+    /// Everything the Library tab is made from and everything done to it:
+    /// its servers and lists, its hero and metadata, and what its menu used
+    /// to offer -- shelves, collections, refreshing, local tracking.
     private var libraryAndCatalogs: some View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("LIBRARY")
+            HStack(alignment: .top, spacing: gutter) {
+                mediaCard
+                catalogs
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            // Every server feeds the Library at once, so with more than one
+            // the card above speaks for all of them and this list for each:
+            // whether it answers, what it holds, and the way to remove it.
+            if media.profiles.count > 1 {
+                VStack(spacing: 0) {
+                    ForEach(Array(media.profiles.enumerated()), id: \.element.id) { index, profile in
+                        if index > 0 {
+                            Rectangle().fill(LineupStyle.line).frame(height: 1).padding(.horizontal, 30)
+                        }
+                        AccountServerRow(profile: profile)
+                    }
+                }
+                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
             HStack(alignment: .top, spacing: gutter) {
                 AccountLinkCard(
                     symbol: "sparkles.rectangle.stack",
@@ -5114,16 +5154,52 @@ struct AccountView: View {
                     LibraryHeroSettingsView().environment(media)
                 }
                 .disabled(!media.hasAnySource)
-                catalogs
+                AccountLinkCard(
+                    symbol: "text.book.closed", kind: "LIBRARY", title: "Metadata",
+                    detail: "Movies and shows: \(media.metadataSource.title) · Episodes: \(media.episodeDataSource.title)",
+                    action: "Choose Sources", actionSymbol: "slider.horizontal.3"
+                ) {
+                    LibraryMetadataSettingsView().environment(media)
+                }
             }
             .fixedSize(horizontal: false, vertical: true)
-            AccountLinkCard(
-                symbol: "text.book.closed", kind: "LIBRARY", title: "Metadata",
-                detail: "Movie and show metadata: \(media.metadataSource.title) · Episode data: \(media.episodeDataSource.title)",
-                action: "Choose Sources", actionSymbol: "slider.horizontal.3"
-            ) {
-                LibraryMetadataSettingsView().environment(media)
+            libraryActions
+        }
+    }
+
+    /// What the Library tab's menu offered, two to a row. One that has
+    /// nothing to act on stays in its place, dimmed, so the rest never move.
+    private var libraryActions: some View {
+        let own = media.personalCollections.count
+        let removable = media.removableShelves.count
+        return LazyVGrid(columns: [GridItem(.flexible(), spacing: gutter), GridItem(.flexible())],
+                         alignment: .leading, spacing: gutter) {
+            AccountActionRow(symbol: "folder.fill", title: "Collections",
+                             detail: own == 0 ? "Group titles your own way" : "\(own) of your own") {
+                showingCollections = true
             }
+            AccountActionRow(symbol: "plus.rectangle.on.rectangle", title: "Add Shelf",
+                             detail: "A library, genre or list as a row") { choosingShelf = true }
+                .disabled(!media.hasAnySource)
+            AccountActionRow(symbol: "minus.rectangle", title: "Remove a Shelf",
+                             detail: removable == 0 ? "No shelves to remove"
+                                : "\(removable) \(removable == 1 ? "shelf" : "shelves") on the Library tab") {
+                removingShelf = true
+            }
+            .disabled(removable == 0)
+            AccountActionRow(symbol: "arrow.up.arrow.down", title: "Edit Shelves",
+                             detail: "Put the Library's rows in order") { reorderingShelves = true }
+                .disabled(media.libraryRows.count < 2)
+            AccountActionRow(symbol: "arrow.clockwise", title: "Refresh Library",
+                             detail: media.isLoading ? "Updating…" : "Fetch every server's shelves again") {
+                Task { await media.reload() }
+            }
+            .disabled(!media.hasAnySource || media.isLoading)
+            AccountActionRow(symbol: "trash", title: "Clear Local Tracking",
+                             detail: "Continue Watching and watched marks here", destructive: true) {
+                clearingHistory = true
+            }
+            .disabled(media.continueWatching.isEmpty && media.watchHistory.isEmpty)
         }
     }
 
@@ -5184,25 +5260,37 @@ struct AccountView: View {
 
     // MARK: Appearance
 
+    /// A playback engine for each tab that plays video: a source one engine
+    /// struggles with can play on the other without moving everything.
     private var playbackSettings: some View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("PLAYBACK")
-            TVSelectable(scale: 1.015, fillRadius: 18, action: { choosingPlaybackEngine = true }) {
-                HStack(spacing: 20) {
-                    LineupIconTile(symbol: "play.rectangle", size: 48)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Playback Engine").font(.inter(24, .semibold))
-                        Text("Live TV, movies, shows, and Multiview")
-                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
-                    }
-                    Spacer()
-                    PlaybackEngineText((TVPlaybackEngine(rawValue: playbackEngine) ?? .vlc).title, size: 21)
-                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
-                    Image(systemName: "chevron.right").font(.inter(20, .semibold))
+            Text("Each tab plays with its own engine.")
+                .font(.inter(19)).foregroundStyle(LineupStyle.secondary)
+            VStack(spacing: 14) {
+                ForEach(TVPlaybackPlace.allCases) { place in
+                    AccountEngineRow(place: place, engine: engine(for: place)) { choosingEngineFor = place }
                 }
-                .padding(24)
-                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
+        }
+    }
+
+    private func engine(for place: TVPlaybackPlace) -> TVPlaybackEngine {
+        let own = switch place {
+        case .sports: sportsEngine
+        case .guide: guideEngine
+        case .library: libraryEngine
+        case .search: searchEngine
+        }
+        return TVPlaybackEngine(rawValue: own) ?? TVPlaybackEngine(rawValue: playbackEngine) ?? .vlc
+    }
+
+    private func setEngine(_ engine: TVPlaybackEngine, for place: TVPlaybackPlace) {
+        switch place {
+        case .sports: sportsEngine = engine.rawValue
+        case .guide: guideEngine = engine.rawValue
+        case .library: libraryEngine = engine.rawValue
+        case .search: searchEngine = engine.rawValue
         }
     }
 
@@ -5270,7 +5358,7 @@ private struct AccountSectionHeading: View {
     /// Each section's icon, by its name.
     private var symbol: String {
         switch title {
-        case "SOURCES": "antenna.radiowaves.left.and.right"
+        case "LIVE TV": "antenna.radiowaves.left.and.right"
         case "LIBRARY": "rectangle.stack"
         case "DIAGNOSTICS": "waveform.path.ecg"
         case "APPEARANCE": "paintpalette"
@@ -5710,6 +5798,65 @@ private struct AccountButtonFace: View {
     }
 }
 
+/// A tab and the engine it plays with, which choosing the row changes.
+private struct AccountEngineRow: View {
+    let place: TVPlaybackPlace
+    let engine: TVPlaybackEngine
+    let action: () -> Void
+
+    var body: some View {
+        TVSelectable(scale: 1.015, fillRadius: 18, action: action) {
+            HStack(spacing: 20) {
+                LineupIconTile(symbol: place.symbol, size: 48)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(place.title).font(.inter(24, .semibold))
+                    Text(place.detail).font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 16)
+                PlaybackEngineText(engine.title, size: 21)
+                    .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                Image(systemName: "chevron.right").font(.inter(20, .semibold))
+            }
+            .padding(24)
+            .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .accessibilityLabel("\(place.title) playback engine, \(engine.title)")
+    }
+}
+
+/// One of the Library's own actions: its tile, its name and a line on what it
+/// does, in the well the other Settings rows sit in.
+private struct AccountActionRow: View {
+    @Environment(\.isEnabled) private var enabled
+    let symbol: String
+    let title: String
+    let detail: String
+    var destructive = false
+    let action: () -> Void
+
+    var body: some View {
+        TVSelectable(scale: 1.015, fillRadius: 18, action: action) {
+            HStack(spacing: 20) {
+                LineupIconTile(symbol: symbol, size: 48)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title).font(.inter(24, .semibold))
+                        .foregroundStyle(destructive ? LineupIconTile.red : LineupStyle.text)
+                    Text(detail).font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 12)
+                Image(systemName: "chevron.right").font(.inter(20, .semibold))
+                    .foregroundStyle(LineupStyle.secondary)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .opacity(enabled ? 1 : 0.42)
+    }
+}
+
 /// A card that leads somewhere: what it sets, and a button that opens it. The
 /// same shape as a source card, so a row of the two lines up.
 private struct AccountLinkCard<Destination: View>: View {
@@ -5982,6 +6129,8 @@ private struct MultiviewChannelChoice: Identifiable {
 private struct MultiviewView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SportsLibrary.self) private var library
+    /// Sports or the TV Guide, whichever it was opened from.
+    @Environment(\.tvPlaybackPlace) private var place
     @StateObject private var players = MultiviewPlayers()
     @AppStorage("Lineup.multiviewLayout") private var storedLayout = MultiviewLayout.sideBySide.rawValue
     @FocusState private var focusedTile: Int?
@@ -6188,6 +6337,7 @@ private struct MultiviewView: View {
         // The second picture starts silent and at zero, so its sound has
         // somewhere to fade up from.
         players.tiles[1].fadeAudio(audible: false, over: 0)
+        for tile in players.tiles { tile.place = place }
         players.tiles[0].start(urls: primaryURLs, muted: false, channelID: primary.id)
         players.tiles[1].start(urls: secondaryURLs, muted: true, channelID: secondary.id)
         audibleTile = 0
@@ -6516,6 +6666,217 @@ struct TVNextEpisodeOffer {
     let play: () -> Void
 }
 
+/// One episode of the season playing, in the player's Episodes row.
+struct TVEpisodeChoice: Identifiable {
+    let id: String
+    /// Its season and number, as S3: E5.
+    let code: String?
+    /// Its length, as 58 min.
+    let runtime: String?
+    let title: String
+    let image: URL?
+    let isCurrent: Bool
+    let watched: Bool
+    /// How far into it the viewer got, from 0 to 1, when it was begun and
+    /// not finished.
+    let progress: Double?
+    /// Plays it at once, on the best stream there is, as Next Episode does.
+    let play: () -> Void
+}
+
+/// The season playing, for the player's Episodes button: what it is called,
+/// and its episodes, fetched as the player opens.
+struct TVEpisodeList {
+    let season: String?
+    let load: @MainActor () async -> [TVEpisodeChoice]
+}
+
+/// The Episodes row, while it is up: the season, its episodes as far as they
+/// have come, and what choosing one and going Back do.
+private struct TVEpisodesShown {
+    let season: String?
+    let episodes: [TVEpisodeChoice]
+    let loading: Bool
+    let choose: (TVEpisodeChoice) -> Void
+    let close: () -> Void
+}
+
+/// The season's episodes in the lower part of the player, in place of the
+/// seek bar and buttons, as Apple's own player has them: a grey panel only as
+/// tall as its row, running off the right of the screen, each episode on its
+/// still with its number, length and name. Select plays one; Back puts the
+/// controls back.
+private struct TVEpisodesPanel: View {
+    let row: TVEpisodesShown
+    let focus: FocusState<TVPlayerControl?>.Binding
+
+    /// Inside the panel, before the first still and between stills.
+    static let gutter: CGFloat = 30
+    /// How far the panel runs past the right of the screen, so it has no
+    /// right edge of its own.
+    static let overhang: CGFloat = 60
+
+    /// Where the remote lands as the row opens: the episode after the one
+    /// playing, else the one playing, else the first.
+    static func landing(in episodes: [TVEpisodeChoice]) -> String? {
+        guard let current = episodes.firstIndex(where: \.isCurrent) else { return episodes.first?.id }
+        return episodes.indices.contains(current + 1) ? episodes[current + 1].id : episodes[current].id
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 30, style: .continuous)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                Text("Episodes").font(.inter(32, .bold)).foregroundStyle(LineupStyle.text)
+                if let season = row.season {
+                    Text(season).font(.inter(22, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                }
+            }
+            .padding(.horizontal, Self.gutter + 4).padding(.top, 26)
+            if row.episodes.isEmpty {
+                // Somewhere for the remote to be while the list comes, or
+                // when the server has none to give.
+                TVSelectable(scale: LineupStyle.controlLift, action: row.close) {
+                    Text(row.loading ? "Finding this season's episodes…" : "No other episodes in this season")
+                        .font(.inter(22, .medium)).foregroundStyle(LineupPanelStyle.caption)
+                        .padding(.horizontal, 18).frame(height: 60)
+                }
+                .focused(focus, equals: .episode(""))
+                .padding(.horizontal, Self.gutter - 4).padding(.top, 18).padding(.bottom, 30)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        // The gap sits before each still, inside its id, so
+                        // the one scrolled to lands a gap in from the edge
+                        // rather than against it.
+                        // Not lazy: a season is a couple of dozen at most,
+                        // and the one scrolled to must be there to be found.
+                        HStack(alignment: .top, spacing: 0) {
+                            ForEach(row.episodes) { episode in
+                                TVEpisodeTile(episode: episode, focus: focus) { row.choose(episode) }
+                                    .padding(.leading, Self.gutter)
+                                    .id(episode.id)
+                            }
+                        }
+                        .padding(.trailing, Self.gutter + Self.overhang)
+                        // Room for the lift of the one the remote is on.
+                        .padding(.top, 22).padding(.bottom, 30)
+                    }
+                    // Its own height, not all the screen offers: a sideways
+                    // scroll view takes every point it is given.
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onAppear {
+                        if let landing = Self.landing(in: row.episodes) { proxy.scrollTo(landing, anchor: .leading) }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LineupPanelStyle.well.opacity(0.94), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .clipShape(shape)
+        .padding(.trailing, -Self.overhang)
+        .focusSection()
+        .onExitCommand(perform: row.close)
+    }
+}
+
+/// Where the episode playing has got to, over the Episodes row: the time,
+/// and a pause mark while it is paused.
+private struct TVEpisodesClock: View {
+    @ObservedObject var controller: TVPlaybackController
+    @ObservedObject var clock: PlaybackClock
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(TVSeekBar.clock(clock.elapsed)).font(.interDigits(28, .semibold))
+            if !controller.isPlaying {
+                Image(systemName: "pause.fill").font(.system(size: 22, weight: .bold, design: .rounded))
+            }
+            if controller.duration > 0 {
+                Text("−" + TVSeekBar.clock(max(0, controller.duration - clock.elapsed)))
+                    .font(.interDigits(22, .medium)).opacity(0.66)
+            }
+        }
+        .foregroundStyle(LineupStyle.mediaText)
+        .shadow(color: .black.opacity(0.45), radius: 8, y: 2)
+    }
+}
+
+/// One episode in the row: its still, marked when it is the one playing or
+/// one already watched, and its number, length and name under it. The one
+/// the remote is on lifts, with a white rim round its still.
+private struct TVEpisodeTile: View {
+    let episode: TVEpisodeChoice
+    let focus: FocusState<TVPlayerControl?>.Binding
+    let action: () -> Void
+
+    static let still = CGSize(width: 396, height: 223)
+
+    var body: some View {
+        let selected = focus.wrappedValue == .episode(episode.id)
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 14) {
+                ZStack(alignment: .bottom) {
+                    LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    LineupArtView(url: episode.image, width: Self.still.width) { loaded in
+                        if let loaded { loaded.resizable().scaledToFill() }
+                        else {
+                            Image(systemName: "film").font(.system(size: 38, weight: .light, design: .rounded))
+                                .foregroundStyle(LineupPanelStyle.quiet)
+                        }
+                    }
+                    if let progress = episode.progress, !episode.isCurrent {
+                        LineupProgressBar(value: progress, height: 6, track: .white.opacity(0.28))
+                            .padding(.horizontal, 14).padding(.bottom, 14)
+                    }
+                }
+                .frame(width: Self.still.width, height: Self.still.height)
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(selected ? Color.white : Color.white.opacity(0.1),
+                                            lineWidth: selected ? 4 : 1))
+                .overlay(alignment: .topLeading) { mark.padding(12) }
+                .shadow(color: .black.opacity(selected ? 0.5 : 0), radius: 22, y: 12)
+                VStack(alignment: .leading, spacing: 3) {
+                    let facts = [episode.code, episode.runtime].compactMap { $0 }
+                    if !facts.isEmpty {
+                        Text(facts.joined(separator: " · "))
+                            .font(.interDigits(21, .semibold)).foregroundStyle(LineupPanelStyle.caption)
+                    }
+                    Text(episode.title).font(.inter(25, .bold)).foregroundStyle(LineupStyle.text)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 2)
+                .frame(width: Self.still.width, alignment: .leading)
+            }
+            .scaleEffect(selected ? 1.05 : 1)
+            .animation(.spring(response: 0.26, dampingFraction: 0.82), value: selected)
+        }
+        // The tile draws its own focus, so tvOS's plate would sit on top of
+        // it as a second, larger highlight.
+        .lineupFlatButton().focused(focus, equals: .episode(episode.id)).focusEffectDisabled()
+        .accessibilityLabel([episode.code, episode.title, episode.isCurrent ? "playing now" : nil]
+            .compactMap { $0 }.joined(separator: ", "))
+    }
+
+    @ViewBuilder private var mark: some View {
+        if episode.isCurrent {
+            Text("NOW PLAYING")
+                .font(.inter(14, .heavy)).tracking(0.8)
+                .foregroundStyle(LineupStyle.text)
+                .padding(.horizontal, 12).frame(height: 28)
+                .background(LineupPanelStyle.fill.opacity(0.9), in: Capsule())
+        } else if episode.watched {
+            Image(systemName: "checkmark").font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(LineupStyle.background)
+                .frame(width: 30, height: 30)
+                .background(LineupStyle.lightPurple, in: Circle())
+        }
+    }
+}
+
 /// Next Episode, in the bottom corner over the picture: a panel with the
 /// panels' header, the episode's number and name, and Play Now. The whole
 /// card is the button; Back sends it away.
@@ -6627,9 +6988,25 @@ private struct TVPostCreditsNotice: View {
     }
 }
 
+private struct TVPlaybackPlaceKey: EnvironmentKey {
+    static let defaultValue: TVPlaybackPlace = .library
+}
+
+extension EnvironmentValues {
+    /// The tab a player is opened in, for that tab's playback engine. Each
+    /// tab says which it is; a title's streams are opened by the same screen
+    /// from the Library, Search and Settings, so this is how it knows.
+    var tvPlaybackPlace: TVPlaybackPlace {
+        get { self[TVPlaybackPlaceKey.self] }
+        set { self[TVPlaybackPlaceKey.self] = newValue }
+    }
+}
+
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SportsLibrary.self) private var library
+    /// The tab it was opened from, whose engine it plays with.
+    @Environment(\.tvPlaybackPlace) private var place
     let urls: [URL]
     var title: String = "Live TV"
     var program: CurrentProgram? = nil
@@ -6664,6 +7041,13 @@ struct PlayerView: View {
     /// The server's scrubbing thumbnails for the copy playing, where it
     /// has them.
     var seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil
+    /// An episode's season, for the Episodes button.
+    var episodeList: TVEpisodeList? = nil
+    /// The season's episodes, once fetched.
+    @State private var episodeChoices: [TVEpisodeChoice] = []
+    @State private var episodesLoaded = false
+    /// The Episodes row is up in place of the seek bar and buttons.
+    @State private var episodesShown = false
     @State private var findingSubtitles = false
     @State private var subtitleSettingsShown = false
     @State private var onlineSubtitleSession = UUID()
@@ -6755,6 +7139,7 @@ struct PlayerView: View {
          subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil,
          trackMemoryShow: String? = nil,
          seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil,
+         episodes: TVEpisodeList? = nil,
          continuing preview: TVPreviewHandoff? = nil, playbackController: TVPlaybackController? = nil) {
         self.urls = urls
         self.title = title
@@ -6774,6 +7159,7 @@ struct PlayerView: View {
         self.subtitleIdentityLookup = subtitleIdentityLookup
         self.trackMemoryShow = trackMemoryShow
         self.seekPreviewLookup = seekPreviewLookup
+        self.episodeList = episodes
         self.recordingOnly = recordingOnly
         _controller = StateObject(wrappedValue: preview?.controller ?? playbackController ?? TVPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
@@ -6862,7 +7248,12 @@ struct PlayerView: View {
                     onToggleStats: statsGame == nil ? nil : toggleStats,
                     onFindSubtitles: findSubtitlesAction,
                     onSubtitleSettings: isLive ? nil : { subtitleSettingsShown = true },
-                    seekPreview: seekPreview.store)
+                    seekPreview: seekPreview.store,
+                    onShowEpisodes: showsEpisodesButton ? showEpisodes : nil,
+                    episodes: episodesShown
+                        ? TVEpisodesShown(season: episodeList?.season, episodes: episodeChoices,
+                                          loading: !episodesLoaded, choose: chooseEpisode, close: closeEpisodes)
+                        : nil)
                     .padding(.trailing, statsInset)
                     .transition(.opacity)
             }
@@ -6934,7 +7325,9 @@ struct PlayerView: View {
         // closes the player from there. One press used to end the film even
         // when it was only meant to clear the screen.
         .onExitCommand {
-            if controlsVisible && controller.error == nil {
+            if episodesShown {
+                closeEpisodes()
+            } else if controlsVisible && controller.error == nil {
                 hideControls()
             } else {
                 close(because: "Back pressed")
@@ -6949,6 +7342,9 @@ struct PlayerView: View {
             // Nothing plays under full screen but its own player: two would
             // be two sounds at once.
             TVPreviewHandoff.stopPreviews(except: controller)
+            // Its tab's engine, before anything opens on it. A preview's own
+            // player already has its tab.
+            if !continuesPreview { controller.place = place }
             if continuesPreview && controller.isOpen {
                 PlaybackJournal.shared.note(openingNote + ", carried on from the preview")
             } else if openingRecording != nil || openingStartOver {
@@ -7053,6 +7449,18 @@ struct PlayerView: View {
             updateNextEpisode(at: position)
             updateSegments(at: position)
         }
+        // The season's episodes, fetched as the player opens so the
+        // Episodes row is full the moment it is asked for.
+        .task(id: urls) {
+            episodeChoices = []
+            episodesLoaded = false
+            guard !isLive, let episodeList else { return }
+            let found = await episodeList.load()
+            guard !Task.isCancelled else { return }
+            episodeChoices = found
+            episodesLoaded = true
+        }
+        .animation(.easeInOut(duration: 0.28), value: episodesShown)
         // IntroDB's answer for this title; nothing is shown until it comes.
         .task(id: urls) {
             segments = nil
@@ -7313,6 +7721,36 @@ struct PlayerView: View {
         close(because: "Next episode")
     }
 
+    /// Episodes, while there is a season to show: until the list has come,
+    /// and then only with an episode in it besides this one.
+    private var showsEpisodesButton: Bool {
+        !isLive && episodeList != nil && (!episodesLoaded || episodeChoices.contains { !$0.isCurrent })
+    }
+
+    /// The row in place of the seek bar and buttons, with the remote on the
+    /// episode after this one. The controls stay up while it is.
+    private func showEpisodes() {
+        episodesShown = true
+        chooserChanged(true)
+        PlaybackJournal.shared.note("Episodes opened")
+        let landing = TVEpisodesPanel.landing(in: episodeChoices).map(TVPlayerControl.episode) ?? .episode("")
+        Task { @MainActor in await Task.yield(); focusedControl = landing }
+    }
+
+    private func closeEpisodes() {
+        episodesShown = false
+        chooserChanged(false)
+        revealControls(focus: true, on: .episodes)
+    }
+
+    /// An episode from the row plays on its best stream, as Next Episode
+    /// does; the one already playing just puts the controls back.
+    private func chooseEpisode(_ episode: TVEpisodeChoice) {
+        guard !episode.isCurrent else { closeEpisodes(); return }
+        episode.play()
+        close(because: "Chose " + ([episode.code, episode.title].compactMap { $0 }.joined(separator: " ")) + " from Episodes")
+    }
+
     private func declineNextEpisode() {
         nextEpisodeDeclined = true
         surfaceFocused = true
@@ -7398,6 +7836,9 @@ struct PlayerView: View {
 
 private enum TVPlayerControl: Hashable {
     case scrubber, playPause, goLive, startOver, mute, lastChannel, chooseChannel, stats, alert, subtitles, audio, video, quality
+    case episodes
+    /// One of the season's episodes in the Episodes row, by its id.
+    case episode(String)
 }
 
 private struct TVPlayerChrome: View {
@@ -7433,6 +7874,11 @@ private struct TVPlayerChrome: View {
     let onSubtitleSettings: (() -> Void)?
     /// The server's scrubbing thumbnails, shown over the seek bar.
     let seekPreview: MobileSeekPreviewStore
+    /// The season's other episodes, for an episode with some.
+    let onShowEpisodes: (() -> Void)?
+    /// The Episodes row, while it is up. The seek bar and the buttons make
+    /// way for it, and the time sits over it.
+    let episodes: TVEpisodesShown?
 
     private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
 
@@ -7508,8 +7954,16 @@ private struct TVPlayerChrome: View {
             // Lighter than it was: glass shows what is behind it, and over a
             // band of near-black there was nothing behind it to show.
             LinearGradient(colors: [.clear, .black.opacity(0.22), .black.opacity(0.62)], startPoint: .top, endPoint: .bottom)
-                .frame(height: 340)
+                .frame(height: episodes == nil ? 340 : 640)
                 .overlay(alignment: .bottom) {
+                    if let episodes {
+                        VStack(alignment: .leading, spacing: 22) {
+                            if !isLive { TVEpisodesClock(controller: controller, clock: controller.clock) }
+                            TVEpisodesPanel(row: episodes, focus: focusedControl)
+                        }
+                        .padding(.leading, 72).padding(.bottom, 52)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    } else {
                     LineupGlassGroup {
                     VStack(alignment: .leading, spacing: 26) {
                     // What is playing and how -- the engine, the picture's
@@ -7539,6 +7993,12 @@ private struct TVPlayerChrome: View {
                             badge: isLive && controller.isAtLiveEdge, compact: compact, focus: focusedControl, id: .goLive) {
                                 controller.goLive(); onInteraction()
                             }
+                        if let onShowEpisodes {
+                            TVPlayerButton(title: "Episodes", symbol: "rectangle.stack.fill",
+                                           compact: compact, focus: focusedControl, id: .episodes) {
+                                onShowEpisodes()
+                            }
+                        }
                         if isLive && controller.canStartOver {
                             TVPlayerButton(title: "Start Over", symbol: "backward.end.fill",
                                            compact: compact, focus: focusedControl, id: .startOver) {
@@ -7660,6 +8120,7 @@ private struct TVPlayerChrome: View {
                     }
                     }
                     .padding(.horizontal, 72).padding(.bottom, 52)
+                    }
                 }
         }
         .ignoresSafeArea()
@@ -7950,7 +8411,7 @@ private struct TVSeekBar: View {
         onInteraction()
     }
 
-    private static func clock(_ seconds: TimeInterval) -> String {
+    static func clock(_ seconds: TimeInterval) -> String {
         let total = Int(seconds.rounded())
         let hours = total / 3600
         let minutes = (total % 3600) / 60
@@ -8076,17 +8537,21 @@ private struct PlaybackClockReader<Content: View>: View {
     private let uptime: @MainActor () -> TimeInterval
     private let connectionCooldown: TimeInterval
     private var sourceIsRecording = false
+    /// The tab this player plays in, whose engine it opens each stream with.
+    /// A preview's player keeps its tab when full screen carries it on.
+    var place: TVPlaybackPlace?
 
-    init(defaults: UserDefaults = .standard, primaryOutput: Bool = true,
+    init(place: TVPlaybackPlace? = nil, defaults: UserDefaults = .standard, primaryOutput: Bool = true,
          uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          connectionCooldown: TimeInterval = 1,
          backendFactory: @escaping @MainActor (TVPlaybackEngine) -> any TVPlaybackBackend = makeTVPlaybackBackend) {
+        self.place = place
         self.defaults = defaults
         self.primaryOutput = primaryOutput
         self.uptime = uptime
         self.connectionCooldown = connectionCooldown
         self.backendFactory = backendFactory
-        let selected = TVPlaybackEngine.selected(in: defaults)
+        let selected = TVPlaybackEngine.selected(for: place, in: defaults)
         let initial = backendFactory(selected)
         backend = initial
         engineKind = initial.kind
@@ -8103,7 +8568,7 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     private func selectConfiguredBackend() {
-        let selected = TVPlaybackEngine.selected(in: defaults)
+        let selected = TVPlaybackEngine.selected(for: place, in: defaults)
         guard selected != backend.kind else { return }
         backend.stop()
         backend = backendFactory(selected)

@@ -176,6 +176,13 @@ enum AutoSyncClock: Sendable {
 /// "seen at, happened at"; the difference, less the viewer's own pauses, is
 /// one estimate of the delay.
 ///
+/// A counting-down clock is timed by watching it run. Read running between
+/// two frames -- as many seconds gone on it as on the wall -- every second it
+/// passed was reached at its own moment, which a frame every few seconds
+/// would otherwise mostly miss. A clock that is simply there (back from an
+/// ad break, or already stopped when Auto Sync starts) has not just reached
+/// its time, and says nothing.
+///
 /// ESPN can post a play minutes after it happened -- in hockey, three and
 /// more -- often after a stream only a little behind live has shown it. So
 /// every moment the scoreboard showed is kept for ten minutes, and matched
@@ -207,7 +214,8 @@ struct AutoSyncTracker {
         let lag: TimeInterval
     }
 
-    private var lastSeen: [Int: Date] = [:]
+    /// The last counting-down clock read, to tell it running from the next.
+    private var lastReading: (value: Int, at: Date)?
     private var lastRunning: (value: Int, at: Date)?
     private var moments: [Moment] = []
     private var shownScore: (away: Int, home: Int)?
@@ -221,6 +229,10 @@ struct AutoSyncTracker {
     }
 
     static let range: ClosedRange<TimeInterval> = 0...600
+    /// Two readings this far apart or less, with as many seconds gone on the
+    /// clock as on the wall give or take this much, saw it running between.
+    static let longestRun: TimeInterval = 30
+    static let runTolerance: TimeInterval = 1.5
     /// How long a moment waits for its play: also how long an estimate
     /// counts, since a reconnected stream is a new delay.
     static let memory: TimeInterval = 600
@@ -232,12 +244,23 @@ struct AutoSyncTracker {
         let lag = max(0, playerLag)
         switch clock {
         case .remaining, .remainingOfPeriods:
-            for value in clocks {
-                // A clock is new when it was not on screen a minute ago:
-                // only then is this the moment it reached that time.
-                defer { lastSeen[value] = time }
-                if let seen = lastSeen[value], time.timeIntervalSince(seen) < 60 { continue }
-                moments.append(Moment(value: value, at: time, lag: lag))
+            // Two clocks at once is no telling which is the game's; none is a
+            // frame that missed it, and the last reading still stands.
+            if clocks.count == 1, let value = clocks.first {
+                if let previous = lastReading {
+                    let ran = previous.value - value
+                    let elapsed = time.timeIntervalSince(previous.at)
+                    if ran > 0, elapsed <= Self.longestRun, abs(elapsed - Double(ran)) <= Self.runTolerance {
+                        for passed in value..<previous.value {
+                            moments.append(Moment(value: passed,
+                                                  at: previous.at.addingTimeInterval(Double(previous.value - passed)),
+                                                  lag: lag))
+                        }
+                    }
+                }
+                lastReading = (value, time)
+            } else if clocks.count > 1 {
+                lastReading = nil
             }
         case .continuous:
             // Only a clock seen running: one held at 45:00 through stoppage
@@ -253,9 +276,8 @@ struct AutoSyncTracker {
         }
         noteScore(score, at: time, lag: lag)
         moments.removeAll { time.timeIntervalSince($0.at) > Self.memory }
-        if moments.count > 400 { moments.removeFirst(moments.count - 400) }
+        if moments.count > 1200 { moments.removeFirst(moments.count - 1200) }
         scoreChanges.removeAll { time.timeIntervalSince($0.at) > Self.memory }
-        lastSeen = lastSeen.filter { time.timeIntervalSince($0.value) < 60 }
         estimates = matched(plays)
     }
 
@@ -301,14 +323,19 @@ struct AutoSyncTracker {
             break
         }
         // The play that made each score: the first to have it, after one
-        // that did not.
+        // that did not. ESPN stamps every play in a stoppage with the moment
+        // it began -- a free throw with its foul, half a minute or more
+        // before it went in -- so a score made by a play stamped with the
+        // moment of the play before it says nothing of when it changed.
         for change in scoreChanges {
             var before: (away: Int, home: Int)?
+            var previousStamp: Date?
             for play in plays {
-                defer { before = (play.awayScore, play.homeScore) }
+                defer { before = (play.awayScore, play.homeScore); previousStamp = play.wallclock }
                 guard play.awayScore == change.away, play.homeScore == change.home,
                       let made = before, made != (change.away, change.home) else { continue }
-                if let estimate = measure(change.at, lag: change.lag, since: play.wallclock) {
+                let stamped = previousStamp.map { abs(play.wallclock.timeIntervalSince($0)) < 1 } ?? false
+                if !stamped, let estimate = measure(change.at, lag: change.lag, since: play.wallclock) {
                     found.append((at: change.at, delay: estimate))
                 }
                 break

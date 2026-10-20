@@ -168,6 +168,15 @@ final class MediaLibrary {
             withMutation(keyPath: \.collectionSelectionItem) { _collectionSelectionItem = newValue }
         }
     }
+    /// Whether the Apple TV's Collections screen is up. It presents the
+    /// collection picker itself, so the Library tab's own stands down.
+    @ObservationIgnored private var _collectionsScreenShown: Bool = false
+    var collectionsScreenShown: Bool {
+        get { access(keyPath: \.collectionsScreenShown); return _collectionsScreenShown }
+        set {
+            withMutation(keyPath: \.collectionsScreenShown) { _collectionsScreenShown = newValue }
+        }
+    }
     @ObservationIgnored private var _betterPosterIDs: [String: String] = [:]
     var betterPosterIDs: [String: String] {
         get { access(keyPath: \.betterPosterIDs); return _betterPosterIDs }
@@ -2080,6 +2089,34 @@ final class MediaLibrary {
         return next.isUnaired ? nil : next
     }
 
+    /// The episodes of an episode's season, in order, for the player's
+    /// Episodes row: a server's from its show's list, the IPTV provider's
+    /// from its catalog. Ones not yet on the air are left out, having
+    /// nothing to play.
+    func seasonEpisodes(of episode: MediaItem) async -> [MediaItem] {
+        guard episode.type == "Episode", !episode.isUpcomingPlaceholder else { return [] }
+        let all: [MediaItem]
+        var season = episode.parentIndexNumber
+        if case .episode(let seriesID, _)? = ProviderItem(id: episode.id) {
+            guard let profileID = providerVOD.profile?.id,
+                  let loaded = try? await providerVOD.catalog(),
+                  let show = loaded.index.show(seriesID: seriesID, in: loaded.catalog),
+                  let episodes = try? await providerVOD.episodes(of: show) else { return [] }
+            all = episodes.map { ProviderVOD.item(for: $0, of: show, provider: profileID) }
+        } else {
+            guard let profileID = serverID(of: episode),
+                  let profile = profiles.first(where: { $0.id == profileID }) else { return [] }
+            let tracked = episode.seriesID == nil ? ((try? await details(of: episode)) ?? episode) : episode
+            season = tracked.parentIndexNumber
+            guard let seriesID = tracked.seriesID,
+                  let episodes = try? await client(for: profile).episodes(userID: profile.userID, seriesID: seriesID)
+            else { return [] }
+            all = episodes.map { $0.servedBy(profile.id) }
+        }
+        return LocalEpisodeProgressionPolicy.ordered(all)
+            .filter { $0.parentIndexNumber == season && !$0.isUnaired }
+    }
+
     private func advanceAfterCompletedPlayback(_ episode: MediaItem, profileID: UUID) async {
         let generation = playbackGeneration
         if ProviderItem(id: episode.id) != nil {
@@ -3056,6 +3093,17 @@ final class MediaLibrary {
                         $0.type == "Episode" && $0.parentIndexNumber == season && $0.indexNumber == number
                     }) {
                         return match.servedBy(profile.id)
+                    }
+                    // No episode back means its metadata addon could not
+                    // describe the show, not that there are no streams: it
+                    // still answers a show it cannot describe, with a stand-in
+                    // that has no episodes. Its streams need only the id,
+                    // which is the episode itself, so that is what is asked.
+                    if let direct = packed.first {
+                        return MediaItem(id: direct.id, name: episode.name, type: "Episode", overview: nil,
+                                         productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                                         indexNumber: number, parentIndexNumber: season,
+                                         seriesName: showName, serverID: profile.id)
                     }
                 } catch {
                     if !Self.isCancellation(error) { lookup.idFailure = error.localizedDescription }

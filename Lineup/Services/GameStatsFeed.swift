@@ -66,6 +66,8 @@ struct GameStatsPlay: Identifiable, Equatable, Sendable {
     /// for soccer and hockey time gone. What Auto Sync matches the clock on
     /// screen to.
     var clockSeconds: Double? = nil
+    /// The period by number, as the summary's own status counts it.
+    var periodNumber: Int = 0
 
     /// When it happened, where that is known without the timeline: ESPN's
     /// own time, or the end of the window it was found in.
@@ -101,8 +103,12 @@ struct GameStatsSnapshot: Equatable, Sendable {
     let lines: [GameStatsLine]
     let leaders: [GameStatsLeader]
     /// The moment on the field these totals stand for: the latest play the
-    /// same fetch carried. Set as the fetch is taken in.
+    /// same fetch carried, when they agree on the score, else the moment
+    /// the fetch came. Set as the fetch is taken in.
     var eventTime: Date? = nil
+    /// Its moment is when the fetch came, not a play's: its clock is then
+    /// one the picture has reached by the time it shows.
+    var timedByFetch = false
     /// A scoreboard-only feed's whole account: a draw, a card, a race.
     var board: GameStatsBoard? = nil
     /// How old the answer may already have been when it came: ESPN serves
@@ -355,7 +361,8 @@ enum GameStatsParser {
                 homeScore: int(raw["homeScore"]) ?? 0,
                 teamID: string((raw["team"] as? [String: Any])?["id"]) ?? fallbackTeam,
                 drive: drive,
-                clockSeconds: sport == "baseball" ? nil : clockValue ?? clock.flatMap(clockSeconds))
+                clockSeconds: sport == "baseball" ? nil : clockValue ?? clock.flatMap(clockSeconds),
+                periodNumber: int(period?["number"]) ?? 0)
         }
         if let drives = root["drives"] as? [String: Any] {
             var all = drives["previous"] as? [[String: Any]] ?? []
@@ -518,6 +525,9 @@ struct GameStatsTimeline: Sendable {
     private(set) var away: GameStatsTeam?
     private(set) var home: GameStatsTeam?
     private(set) var snapshots: [GameStatsSnapshot] = []
+    /// The clock counts down within a period (basketball, football), so of
+    /// two clocks the lower is the later.
+    var countsDown = false
     private var plays: [String: (play: GameStatsPlay, firstSeen: Date)] = [:]
     private var winProbability: [String: Double] = [:]
     /// Numbers for plays worked out from boards, which come without any.
@@ -536,10 +546,23 @@ struct GameStatsTimeline: Sendable {
             if let board = snapshot.board {
                 snapshot.board = GameStatsBoardChanges.carryingServe(from: snapshots.last?.board, into: board)
             }
-            let latest = report.plays.compactMap(\.wallclock).filter { $0 <= received }.max()
+            let latest = report.plays.filter { ($0.wallclock ?? .distantFuture) <= received }
+                .max { ($0.wallclock!, $0.sequence) < ($1.wallclock!, $1.sequence) }
+            // ESPN's own score and clock run ahead of its plays: a play is
+            // posted from twenty seconds to a minute after it happened, the
+            // score and clock within seconds. A fetch past its latest play
+            // -- another score, or the clock run on -- is as far on as the
+            // moment it came, and held to that, or the score would be on
+            // screen before the picture had it.
+            let agrees = latest.map { play in
+                play.awayScore == snapshot.awayScore && play.homeScore == snapshot.homeScore
+                    && (snapshot.clock == nil || play.clock == snapshot.clock)
+            } ?? false
+            snapshot.timedByFetch = !agrees
             // Never earlier than the totals before it: the plays it carried
             // can't take the game backwards.
-            snapshot.eventTime = max(latest ?? received, snapshots.last?.moment ?? .distantPast)
+            snapshot.eventTime = max((agrees ? latest?.wallclock : nil) ?? received,
+                                     snapshots.last?.moment ?? .distantPast)
             // A board says what happened only against the one before it:
             // after that one's account was taken -- which may have been
             // before it came -- and by the time this one came.
@@ -591,6 +614,8 @@ struct GameStatsTimeline: Sendable {
         var status = snapshot?.status ?? ""
         if snapshot == nil, let lastPlay {
             status = [lastPlay.period, lastPlay.clock].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        } else if countsDown, let snapshot, let lastPlay {
+            status = Self.status(of: snapshot, against: lastPlay)
         }
         var waiting: Int?
         if snapshot == nil, let first = snapshots.first {
@@ -621,6 +646,27 @@ struct GameStatsTimeline: Sendable {
             board: snapshot?.board,
             earlierBoard: earlier,
             latestBoard: snapshots.last?.board)
+    }
+
+    /// The clock to show for a game whose clock counts down: never one the
+    /// picture has yet to reach. A fetch held to its latest play can carry
+    /// a clock past that play (ESPN's clock runs ahead of its plays), so its
+    /// play's clock is shown; a fetch held to when it came is behind the
+    /// picture, so of it and the latest play shown, the later.
+    static func status(of snapshot: GameStatsSnapshot, against play: GameStatsPlay) -> String {
+        guard snapshot.state == "in", play.periodNumber == snapshot.period,
+              let shownClock = snapshot.clock, let playClock = play.clock,
+              let shown = gameSeconds(shownClock), let played = gameSeconds(playClock),
+              snapshot.status.contains(shownClock) else { return snapshot.status }
+        let useFetch = snapshot.timedByFetch && shown <= played
+        return useFetch ? snapshot.status : snapshot.status.replacingOccurrences(of: shownClock, with: playClock)
+    }
+
+    /// "4:52" or "35.5", in seconds.
+    static func gameSeconds(_ display: String) -> Double? {
+        if let seconds = GameStatsParser.clockSeconds(display) { return seconds }
+        guard display.contains("."), let value = Double(display), value >= 0, value < 60 else { return nil }
+        return value
     }
 
     /// Plays with a moment of their own, oldest first: what syncing steps

@@ -36,7 +36,15 @@ until the viewer syncs.
 - A play with a time of its own (ESPN's `wallclock`) shows once that time
   plus the delay has passed.
 - A summary's box score stands for the latest play in the same fetch and
-  shows with it.
+  shows with it, when the two agree on the score and the clock. ESPN's own
+  score and clock run ahead of its plays: on an NBA game on Oct 20, plays
+  were posted 20 to 60 seconds after their time, the score and clock within
+  seconds. A fetch past its latest play is held to the moment it came, not
+  to that play; held to the play, its score was on screen before the
+  picture's, by about as long as ESPN took to post the play.
+- In basketball and football, the clock shown is never one the picture
+  has yet to reach: the latest play shown's, or a fetch held to when it came,
+  whichever is later.
 - A board is held to the time the fetch came back.
 - What changed between two boards (a game won, a takedown, a new leader) is
   worked out by comparing them, and placed between the two fetches: after
@@ -166,13 +174,23 @@ hot, and nothing leaves the device.
   Diagnostics › Playback diagnostics on, the log records each frame's size and
   format, where it was read, the clock and score found or the lines read
   instead, every estimate, and the lock.
-- **Estimates.** A countdown clock (football, basketball) reaching a play's
-  time, first seen then, gives one: seen minus happened, less the viewer's own
-  pauses. Hockey's feed counts up within the period, so its plays are turned
-  around. Soccer's clock never stops, so every running reading gives one from
-  the nearest play; a clock held at 45:00 is ignored. A score changing on
-  screen to one a play made gives one, timed from its first sighting and only
-  once read twice.
+- **Estimates.** A countdown clock (football, basketball, hockey) is timed by
+  watching it run: two readings with as many seconds gone on the clock as on
+  the wall (give or take a second and a half, at most thirty apart) saw every
+  second between reached at its own moment, and each play at one of those
+  seconds gives an estimate: reached minus happened, less the viewer's own
+  pauses. A frame every four seconds otherwise caught only the plays whose
+  second it landed on. A clock that is simply there -- back from an ad break,
+  or already stopped when Auto Sync starts -- has not just reached its time
+  and gives none; counted, it put the delay out by the length of the break.
+  Hockey's feed counts up within the period, so its plays are turned around.
+  Soccer's clock never stops, so every running reading gives one from the
+  nearest play; a clock held at 45:00 is ignored. A score changing on screen
+  to one a play made gives one, timed from its first sighting and only once
+  read twice -- unless ESPN stamped that play with the moment of the play
+  before it. ESPN stamps every play in a stoppage with the moment it began:
+  a free throw carries its foul's time, though it went in half a minute or
+  more later, and timing the score from it made the delay that much long.
 - **Late plays.** ESPN posts some plays minutes after they happened: in an
   NHL game on Oct 19, a shot appeared in the feed 177 seconds after its time
   and a hit 208 seconds after. A stream only a little behind live has shown
