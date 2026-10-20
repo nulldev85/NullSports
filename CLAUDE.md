@@ -8,9 +8,14 @@ repo holds one self-contained page, `index.html`, and `.nojekyll`. A push there
 is live a minute or two later; nothing in this repo deploys it, and it stays up
 while this repo is private.
 
-The page is drawn in the app's own look (SF Pro Rounded, the charcoal ground, panel
-cards with an icon tile and caption, capsule chips; see `Lineup/Design`), so
-anything added to it uses the same classes.
+The page has its own look, not the app's. Geist is for reading,
+Instrument Serif italic for the big words, Geist Mono for versions, SHAs and
+dates, and Doto for the scoreboard. iPhone is lime and Apple TV is lavender
+everywhere. Light and dark follow the device, with a toggle. Downloads are two
+tickets filled from the site repo's releases. Feature cards keep one markup,
+`.meta` (`.plats`, `.rels`, `.shas`) then `.copy` (`h3`, `p.lede`, `dl.how`
+or `ol.steps`, `p.stack`), so anything added copies an existing card and uses
+those classes.
 
 Every merge round into `main` ends with updating that page:
 
@@ -23,8 +28,8 @@ Every merge round into `main` ends with updating that page:
 - On a card for both apps, mark any line true of one app only with
   `data-only="iphone"` or `data-only="tv"`, so each filter shows only its own.
 - Add the release to the ledger at the top of the Releases list, newest first.
-- Update the footer's date by hand. The filter and ledger counts recount
-  themselves on load.
+- Update the footer's date by hand. The filter, ledger and scoreboard counts
+  recount themselves on load.
 - Push to `main` of that repo and give the user the link with the build links.
 
 The page's Download panel offers the newest official IPA of each app, from the
