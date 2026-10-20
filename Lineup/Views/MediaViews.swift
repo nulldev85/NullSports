@@ -83,9 +83,7 @@ struct MediaServersView: View {
         NavigationStack {
             Group {
             #if os(tvOS)
-            TVMediaServersHome(addingServer: $addingServer, choosingShelf: $choosingShelf,
-                               reorderingShelves: $reorderingShelves,
-                               searchingLibrary: $searchingLibrary)
+            TVMediaServersHome(addingServer: $addingServer, searchingLibrary: $searchingLibrary)
             #else
             Group {
                 if !media.hasAnySource {
@@ -555,58 +553,14 @@ struct LineupStatusDot: View {
 }
 
 #if os(tvOS)
+/// The Library tab on Apple TV: its shelves, or what stands in for them. What
+/// the Library's menu used to offer -- shelves, collections, refreshing --
+/// is in Settings › Library.
 private struct TVMediaServersHome: View {
     @Environment(MediaLibrary.self) private var media
     @Environment(\.tvTabBar) private var tabBar
     @Binding var addingServer: Bool
-    @Binding var choosingShelf: Bool
-    @Binding var reorderingShelves: Bool
     @Binding var searchingLibrary: Bool
-    @State private var removingShelf = false
-    @State private var clearingHistory = false
-    @State private var showingCollections = false
-
-    /// Whether the shelves are on screen, with the Library's menu at the top
-    /// right of the artwork above them; elsewhere the menu sits at the top.
-    private var showsShelves: Bool { media.hasAnySource && !media.roots.isEmpty }
-
-    /// Everything the Library's menu offers, in the order it lists it.
-    private var options: [TVLibraryOption] {
-        var options: [TVLibraryOption] = []
-        if !media.shelves.isEmpty {
-            options.append(TVLibraryOption(title: "Search the Library", symbol: "magnifyingglass") {
-                searchingLibrary = true
-            })
-        }
-        options.append(TVLibraryOption(title: "Collections", symbol: "folder.fill") {
-            showingCollections = true
-        })
-        options.append(TVLibraryOption(title: "Add Shelf", symbol: "plus.rectangle.on.rectangle") {
-            choosingShelf = true
-        })
-        if !media.removableShelves.isEmpty {
-            options.append(TVLibraryOption(title: "Remove a Shelf", symbol: "minus.rectangle") {
-                removingShelf = true
-            })
-        }
-        if media.libraryRows.count > 1 {
-            options.append(TVLibraryOption(title: "Edit Shelves", symbol: "arrow.up.arrow.down") {
-                reorderingShelves = true
-            })
-        }
-        if !media.isLoading {
-            options.append(TVLibraryOption(title: "Refresh", symbol: "arrow.clockwise") {
-                Task { await media.reload() }
-            })
-        }
-        options.append(TVLibraryOption(title: "Add Server", symbol: "plus") { addingServer = true })
-        if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-            options.append(TVLibraryOption(title: "Clear Local Tracking", symbol: "trash", destructive: true) {
-                clearingHistory = true
-            })
-        }
-        return options
-    }
 
     var body: some View {
         Group {
@@ -624,43 +578,22 @@ private struct TVMediaServersHome: View {
                     Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light, design: .rounded))
                     Text("No libraries found").font(.inter(.title2, .semibold))
                     Text(media.profiles.count > 1
-                         ? "Refresh your servers, or confirm these accounts can access a library."
-                         : "Refresh the server, or confirm this account can access a library.")
+                         ? "Reload your servers in Settings › Library, or confirm these accounts can access a library."
+                         : "Reload the server in Settings › Library, or confirm this account can access a library.")
                         .font(.inter(.callout)).opacity(0.68)
                 }
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary,
-                                    options: options)
-            }
-        }
-        .overlay(alignment: .top) {
-            // Only where there are no shelves to hang it above: while the
-            // libraries load, or when none are found.
-            if !showsShelves && media.hasAnySource {
-                TVLibraryMenuBar(options: options).padding(.top, 18)
+                MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
             }
         }
         // Back on the Library's own screen: no title's page is over it, so
         // the tab bar is up whatever the pages that closed did or did not say.
         .onAppear { tabBar?.reset() }
-        .tvChoices("Remove a Shelf", symbol: "minus.rectangle", isPresented: $removingShelf,
-                   message: "Its titles stay on your server; only the shelf leaves the Library.") {
-            media.removableShelves.map { shelf in
-                TVChoice(media.shelfName(shelf), id: "remove-\(shelf.id)", isDestructive: true) {
-                    media.removeShelf(shelf)
-                }
-            }
-        }
-        .tvChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
-                   message: "This removes Continue Watching and local watched status from this Apple TV.") {
-            [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
-        }
-        .fullScreenCover(isPresented: $showingCollections) { TVCollectionsScreen().environment(media) }
         // Collections from a card's hold menu, anywhere in the Library. The
-        // Collections screen has its own while it is up.
-        .fullScreenCover(item: Binding(get: { showingCollections ? nil : media.collectionSelectionItem },
+        // Collections screen, opened from Settings, has its own while it is up.
+        .fullScreenCover(item: Binding(get: { media.collectionsScreenShown ? nil : media.collectionSelectionItem },
                                        set: { media.collectionSelectionItem = $0 })) { item in
             TVCollectionPicker(item: item).environment(media)
         }
@@ -671,183 +604,6 @@ private struct TVMediaServersHome: View {
                     center: .topTrailing, startRadius: 30, endRadius: 760)
             }.ignoresSafeArea()
         )
-    }
-}
-
-/// One thing the Library's menu offers.
-struct TVLibraryOption: Identifiable {
-    let title: String
-    let symbol: String
-    var destructive = false
-    let action: () -> Void
-    var id: String { title }
-}
-
-/// The Library's menu: one button at the right of the screen that drops a
-/// list of the Library's actions beneath it.
-///
-/// A row of chips across the top of the shelves scrolled up over the title
-/// being previewed and covered its overview. One button at the right keeps
-/// clear of the preview, which is drawn from the left, and the whole width
-/// is one focus region, so pressing up from anywhere on the first shelf
-/// still lands on it.
-private struct TVLibraryMenuBar: View {
-    let options: [TVLibraryOption]
-    /// Told when the list opens and closes, so the screen can keep focus off
-    /// everything under it while it is open: a press in the list that the
-    /// focus engine carried onto a poster below closed the list under the
-    /// viewer.
-    var onOpenChange: (Bool) -> Void = { _ in }
-    @State private var open = false
-    /// Where focus is in the menu: its button, one of its rows, or nil once
-    /// it is somewhere else on the screen.
-    @FocusState private var focus: Place?
-
-    private enum Place: Hashable {
-        case button
-        case row(Int)
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            button
-                .overlay(alignment: .topTrailing) {
-                    if open {
-                        panel
-                            .alignmentGuide(.top) { $0[.top] - 64 }
-                            .transition(.opacity.combined(with: .offset(y: -8)))
-                    }
-                }
-        }
-        .padding(.horizontal, 54)
-        .lineupFocusRegion()
-        .onExitCommand(perform: open ? { close() } : nil)
-        // Focus gone from the button and every row: the list closes behind it.
-        .onChange(of: focus) { _, place in
-            if place == nil, open { open = false }
-        }
-        .onChange(of: open) { _, isOpen in onOpenChange(isOpen) }
-        .animation(.easeOut(duration: 0.16), value: open)
-    }
-
-    // A pill in the panels' own grey, as the phone's Sports menu opens
-    // from: its tile, its name and a chevron, a step lighter while open.
-    private var button: some View {
-        HStack(spacing: 12) {
-            LineupIconTile(symbol: "slider.horizontal.3", size: 34)
-            Text("Library").font(.inter(19, .semibold))
-            Image(systemName: open ? "chevron.up" : "chevron.down")
-                .font(.system(size: 14, weight: .heavy, design: .rounded))
-                .foregroundStyle(LineupPanelStyle.quiet)
-        }
-        .foregroundStyle(LineupStyle.text)
-        .padding(.leading, 9).padding(.trailing, 20)
-        .frame(height: 52)
-        .background(open ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Capsule())
-        .modifier(TVMenuFocus(focused: focus == .button, scale: LineupStyle.controlLift, radius: 26))
-        .focusable()
-        .focused($focus, equals: .button)
-        .focusEffectDisabled()
-        .onTapGesture {
-            if open { close() } else { open = true }
-        }
-        // While the list is open, down leads into it. Up the focus engine
-        // takes to the tab bar, and the list closes behind it.
-        .onMoveCommand(perform: open ? { direction in
-            switch direction {
-            case .down: focus = .row(0)
-            case .up: open = false
-            default: close()
-            }
-        } : nil)
-        .accessibilityLabel("Library options")
-    }
-
-    // A panel like every other: its header and hairline inside it, then a
-    // row a choice, each with its coloured tile.
-    private var panel: some View {
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        return VStack(alignment: .leading, spacing: 0) {
-            LineupPanelHeader("Library", systemImage: "rectangle.stack")
-                .padding(.horizontal, 22)
-                .frame(width: 400, height: 62, alignment: .leading)
-            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
-                .padding(.horizontal, 22)
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
-                    HStack(spacing: 16) {
-                        LineupIconTile(symbol: option.symbol, size: 38)
-                        Text(option.title)
-                        Spacer(minLength: 0)
-                    }
-                    .font(.inter(19, .semibold))
-                    .foregroundStyle(option.destructive ? LineupIconTile.red : LineupStyle.text)
-                    .padding(.horizontal, 14)
-                    .frame(width: 384, height: 60)
-                    .modifier(TVMenuFocus(focused: focus == .row(index), scale: 1.02, radius: 16))
-                    .focusable()
-                    .focused($focus, equals: .row(index))
-                    .focusEffectDisabled()
-                    .onTapGesture { choose(option) }
-                    .onMoveCommand { direction in move(direction, from: index) }
-                }
-            }
-            .padding(8)
-        }
-        .background(LineupPanelStyle.fill, in: shape)
-        // It floats over panels of its own colour: a hairline of light round
-        // its edge and a deep shadow under it.
-        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .shadow(color: .black.opacity(0.6), radius: 34, y: 18)
-        .fixedSize()
-        .onAppear { focus = .row(0) }
-    }
-
-    /// One row a press. tvOS moves focus for the press as well as calling
-    /// this, so the target is the row next to the one the handler sits on --
-    /// the row the engine goes to, so the two agree. Worked out from where
-    /// focus already was after the engine's move, every press went two rows.
-    /// The screen keeps everything under the list unfocusable while it is
-    /// open (`onOpenChange`), so the engine has nowhere else to go.
-    private func move(_ direction: MoveCommandDirection, from index: Int) {
-        switch direction {
-        case .down: focus = .row(min(index + 1, options.count - 1))
-        case .up: focus = index == 0 ? .button : .row(index - 1)
-        default: break
-        }
-    }
-
-    private func choose(_ option: TVLibraryOption) {
-        close()
-        option.action()
-    }
-
-    /// Back to the button before the list goes, so focus never falls loose
-    /// onto whatever was under it.
-    private func close() {
-        focus = .button
-        open = false
-    }
-}
-
-/// The app's focus look -- the light layer, a lift and a shadow -- for a
-/// control that keeps its focus in a parent's `FocusState` rather than its
-/// own, as the Library menu's button and rows do.
-private struct TVMenuFocus: ViewModifier {
-    let focused: Bool
-    let scale: CGFloat
-    let radius: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .environment(\.lineupTVSelectableFocused, focused)
-            .contentShape(Rectangle())
-            .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: radius, style: .continuous).inset(by: -6))
-            .scaleEffect(focused ? scale : 1)
-            .lineupShadow(.lifted, on: focused)
-            .zIndex(focused ? 10 : 0)
-            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
     }
 }
 
@@ -927,10 +683,6 @@ private struct MediaCatalogsScreen: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalogs: [MediaCatalog]
     @Binding var searchPresented: Bool
-    #if os(tvOS)
-    /// What the Library's menu offers, at the right above the shelves.
-    var options: [TVLibraryOption]? = nil
-    #endif
     @State private var query = ""
     // On tvOS the sheet edits a draft. Search only the submitted value: remote
     // typing otherwise launches and cancels a network search for every letter.
@@ -961,9 +713,6 @@ private struct MediaCatalogsScreen: View {
     /// Which way the last change of shelf went, for its transition.
     @State private var shelfStepDown = true
     @State private var heroIndex = 0
-    /// While the Library menu is open, Play and the shelf can't take focus,
-    /// so a press in the list can't land on them and close it.
-    @State private var menuOpen = false
     @State private var focusedCard: MediaItem?
     @State private var lastFocusedCard: MediaItem?
     #endif
@@ -1028,17 +777,13 @@ private struct MediaCatalogsScreen: View {
             } else {
                 if shownShelves.isEmpty && continueWatching.isEmpty
                     && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty {
-                    VStack(spacing: 0) {
-                        #if os(tvOS)
-                        if let options {
-                            TVLibraryMenuBar(options: options)
-                                .padding(.top, 40)
-                                .zIndex(1)
-                        }
-                        #endif
-                        LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
-                            description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Add Shelf."))
-                    }
+                    #if os(tvOS)
+                    LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
+                        description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Settings › Library › Add Shelf."))
+                    #else
+                    LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
+                        description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Add Shelf."))
+                    #endif
                 } else {
                     #if os(tvOS)
                     tvBrowser
@@ -1336,7 +1081,7 @@ private struct MediaCatalogsScreen: View {
     }
 
     private var canRotateLibraryPreview: Bool {
-        isVisible && scenePhase == .active && !voiceOver && !menuOpen
+        isVisible && scenePhase == .active && !voiceOver
             && !searchPresented && submittedQuery.isEmpty
             && pushed == nil && heroPlayableItem == nil
             && (tvFocus == nil || tvFocus == .hero)
@@ -1397,38 +1142,25 @@ private struct MediaCatalogsScreen: View {
         let rowShape: MediaArtShape = shelves.contains { MediaArtShape.forItems($0.items) == .poster } ? .poster : .still
         let blockHeight = tvShelfBlockHeight(for: rowShape)
         let heroHeight: CGFloat = heroItems.isEmpty ? 0 : 84
-        return ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 0) {
-                Spacer(minLength: 0)
-                // Each row is a focus region the full width of the screen.
-                // Play and the first cards sit at the left, nowhere under the
-                // Library button at the right, so without that a press down
-                // from the button found nothing below it and went nowhere.
-                if !heroItems.isEmpty {
-                    heroRow
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(height: heroHeight, alignment: .top)
-                        .lineupFocusRegion()
-                }
-                if !shelves.isEmpty {
-                    shelfBlock(shelves[index], index: index, count: shelves.count)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .overlay(alignment: .top) { shelfAboveStrip(shown: index > 0) }
-                        .frame(height: blockHeight, alignment: .bottom)
-                        .lineupFocusRegion()
-                }
+        return VStack(alignment: .leading, spacing: 0) {
+            Spacer(minLength: 0)
+            // Each row is a focus region the full width of the screen, so a
+            // press up from anywhere in it reaches the tab bar.
+            if !heroItems.isEmpty {
+                heroRow
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: heroHeight, alignment: .top)
+                    .lineupFocusRegion()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .disabled(menuOpen)
-            // At the top right of the artwork, clear of the title told on
-            // the left, and wholly below the tab bar: Down from the tab bar
-            // lands on it. Higher up it sat partly under the tab bar, which
-            // the focus engine doesn't count as below it, and Down went on
-            // past it to Play.
-            if let options {
-                TVLibraryMenuBar(options: options, onOpenChange: { menuOpen = $0 }).padding(.top, 156)
+            if !shelves.isEmpty {
+                shelfBlock(shelves[index], index: index, count: shelves.count)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .top) { shelfAboveStrip(shown: index > 0) }
+                    .frame(height: blockHeight, alignment: .bottom)
+                    .lineupFocusRegion()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         // Behind, as a background: whatever the artwork and the words about
         // it measure, they are drawn in the screen's frame and can never
         // resize it. In the stack, a picture or a block of words taller than
@@ -2351,7 +2083,7 @@ private struct FullBleedHeader: ViewModifier {
 /// promoted collections alone. An imported catalog is left unpromoted, so no
 /// number of them could put one in front of the viewer. The second
 /// group is the part that was missing.
-private struct MediaShelfPicker: View {
+struct MediaShelfPicker: View {
     @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var adding: Set<String> = []
@@ -5223,6 +4955,31 @@ private struct MediaSourcePicker: View {
             subtitle: facts([item.productionYear.map(String.init), item.formattedRuntime, item.officialRating]),
             detail: item.overview)
     }
+
+    /// The season playing, for the player's Episodes row: each episode on
+    /// its still, with its number, length and name as the series page has
+    /// them. Choosing one closes the player and plays it on its best
+    /// stream, the way Next Episode does.
+    private func seasonEpisodes(around playing: MediaItem) -> TVEpisodeList? {
+        guard playing.type == "Episode", !playing.isUpcomingPlaceholder else { return nil }
+        let library = media
+        return TVEpisodeList(season: playing.parentIndexNumber.map { $0 == 0 ? "Specials" : "Season \($0)" }) {
+            await library.seasonEpisodes(of: playing).map { original in
+                let episode = library.displayItem(original)
+                let playback = library.cardPlayback(for: episode, asShow: false)
+                return TVEpisodeChoice(
+                    id: episode.libraryKey,
+                    code: episode.indexNumber.map { "S\(episode.parentIndexNumber ?? 1): E\($0)" },
+                    runtime: episode.runtimeMinutes.map { "\($0) min" },
+                    title: episode.name,
+                    image: library.imageURL(for: episode, width: 640),
+                    isCurrent: original.id == playing.id,
+                    watched: playback?.watched == true,
+                    progress: playback.flatMap { $0.watched || $0.fraction <= 0 ? nil : $0.fraction },
+                    play: { advance = .playNext(original) })
+            }
+        }
+    }
     #endif
 
     @ViewBuilder
@@ -5260,7 +5017,8 @@ private struct MediaSourcePicker: View {
                        subtitleIdentityLookup: { await media.onlineSubtitleIdentity(for: trackedItem) },
                        trackMemoryShow: item.type == "Episode"
                            ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
-                       seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) })
+                       seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) },
+                       episodes: seasonEpisodes(around: trackedItem))
             .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
@@ -7273,7 +7031,11 @@ struct MDBListIntegrationView: View {
                 } header: {
                     Text(media.isMDBListConnected ? "Replace API Key" : "Connect MDBList")
                 } footer: {
+                    #if os(tvOS)
+                    Text("Create or copy a free API key from MDBList Preferences. Lineup stores it securely in this device’s Keychain. Your MDBList lists then appear in Settings › Library › Add Shelf.")
+                    #else
                     Text("Create or copy a free API key from MDBList Preferences. Lineup stores it securely in this device’s Keychain. Your MDBList lists then appear in Library → Add Shelf.")
+                    #endif
                 }
 
                 Section {
