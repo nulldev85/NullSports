@@ -176,6 +176,11 @@ enum AutoSyncClock: Sendable {
 /// "seen at, happened at"; the difference, less the viewer's own pauses, is
 /// one estimate of the delay.
 ///
+/// ESPN can post a play minutes after it happened -- in hockey, three and
+/// more -- often after a stream only a little behind live has shown it. So
+/// every moment the scoreboard showed is kept for ten minutes, and matched
+/// to plays as they arrive, not only to those there when it was seen.
+///
 /// Single estimates mislead -- a clock stopped on a play's time before the
 /// play, a misread digit -- so the delay is the one most estimates agree
 /// on, and nothing is said until enough do. Every way an estimate goes wrong
@@ -187,10 +192,27 @@ struct AutoSyncTracker {
     /// is a little after the moment a clock shows its time.
     let margin: TimeInterval
 
+    /// What the scoreboard showed, when, and the viewer's own pauses then.
+    private struct Moment {
+        let value: Int
+        let at: Date
+        let lag: TimeInterval
+    }
+
+    /// A score the scoreboard changed to, timed from its first sighting.
+    private struct ScoreChange {
+        let away: Int
+        let home: Int
+        let at: Date
+        let lag: TimeInterval
+    }
+
     private var lastSeen: [Int: Date] = [:]
     private var lastRunning: (value: Int, at: Date)?
+    private var moments: [Moment] = []
     private var shownScore: (away: Int, home: Int)?
     private var pendingScore: (away: Int, home: Int, since: Date)?
+    private var scoreChanges: [ScoreChange] = []
     private(set) var estimates: [(at: Date, delay: TimeInterval)] = []
 
     init(clock: AutoSyncClock, margin: TimeInterval) {
@@ -199,17 +221,15 @@ struct AutoSyncTracker {
     }
 
     static let range: ClosedRange<TimeInterval> = 0...600
+    /// How long a moment waits for its play: also how long an estimate
+    /// counts, since a reconnected stream is a new delay.
+    static let memory: TimeInterval = 600
 
     /// One frame: what it showed, the moment it was on screen, and how far
     /// the viewer's own pauses had put the picture behind by then.
     mutating func observe(clocks: Set<Int>, score: (away: Int, home: Int)?, at time: Date,
                           playerLag: TimeInterval, plays: [AutoSyncPlay]) {
         let lag = max(0, playerLag)
-        func estimate(_ happened: Date) -> TimeInterval? {
-            let delay = time.timeIntervalSince(happened) - lag
-            return Self.range.contains(delay) ? delay : nil
-        }
-        var found: [TimeInterval] = []
         switch clock {
         case .remaining, .remainingOfPeriods:
             for value in clocks {
@@ -217,57 +237,94 @@ struct AutoSyncTracker {
                 // only then is this the moment it reached that time.
                 defer { lastSeen[value] = time }
                 if let seen = lastSeen[value], time.timeIntervalSince(seen) < 60 { continue }
-                let matching = plays.compactMap { play -> TimeInterval? in
-                    guard let seconds = play.clockSeconds else { return nil }
-                    let onScreen = clock == .remaining ? seconds
-                        : Double(play.period == "OT" ? 300 : 1200) - seconds
-                    return Int(onScreen.rounded()) == value ? estimate(play.wallclock) : nil
-                }
-                // Plays at one clock a minute or two apart -- a foul and its
-                // free throws -- stand on one stopped clock, which reached
-                // that time with the first of them. Plays farther apart are
-                // the same time in different periods: no telling which.
-                if let shortest = matching.min(), let longest = matching.max(), longest - shortest <= 120 {
-                    found.append(longest)
-                }
+                moments.append(Moment(value: value, at: time, lag: lag))
             }
         case .continuous:
             // Only a clock seen running: one held at 45:00 through stoppage
             // time, or through half time, is not the time on the field.
             let previous = lastRunning
             lastRunning = clocks.count == 1 ? clocks.first.map { (value: $0, at: time) } : nil
-            guard let value = clocks.first, clocks.count == 1, let previous,
-                  value != previous.value,
-                  abs(Double(value - previous.value) - time.timeIntervalSince(previous.at)) <= 2 else { break }
-            do {
-                // Soccer's clock never stops, so any reading lands between
-                // two plays: time from the nearest is time on the field.
-                let near = plays.compactMap { play -> TimeInterval? in
-                    guard let seconds = play.clockSeconds, abs(seconds - Double(value)) <= 180 else { return nil }
-                    return estimate(play.wallclock.addingTimeInterval(Double(value) - seconds))
-                }.sorted()
-                if !near.isEmpty { found.append(near[near.count / 2]) }
+            if let value = clocks.first, clocks.count == 1, let previous, value != previous.value,
+               abs(Double(value - previous.value) - time.timeIntervalSince(previous.at)) <= 2 {
+                moments.append(Moment(value: value, at: time, lag: lag))
             }
         case .none:
             break
         }
-        found.append(contentsOf: scoreEstimates(score, at: time, lag: lag, plays: plays))
-        estimates.append(contentsOf: found.map { (at: time, delay: $0) })
-        // The last ten minutes: a reconnected stream is a new delay.
-        estimates.removeAll { time.timeIntervalSince($0.at) > 600 }
-        if estimates.count > 80 { estimates.removeFirst(estimates.count - 80) }
+        noteScore(score, at: time, lag: lag)
+        moments.removeAll { time.timeIntervalSince($0.at) > Self.memory }
+        if moments.count > 400 { moments.removeFirst(moments.count - 400) }
+        scoreChanges.removeAll { time.timeIntervalSince($0.at) > Self.memory }
+        lastSeen = lastSeen.filter { time.timeIntervalSince($0.value) < 60 }
+        estimates = matched(plays)
     }
 
-    /// A score on screen changing to one a play made. Read twice in a row
-    /// before it counts, so one misread digit is not a goal; timed from the
-    /// first of the two.
-    private mutating func scoreEstimates(_ score: (away: Int, home: Int)?, at time: Date, lag: TimeInterval,
-                                         plays: [AutoSyncPlay]) -> [TimeInterval] {
-        guard let score else { return [] }
-        if let shown = shownScore, shown == score { pendingScore = nil; return [] }
+    /// Every moment kept, matched to the plays ESPN has posted so far.
+    private func matched(_ plays: [AutoSyncPlay]) -> [(at: Date, delay: TimeInterval)] {
+        func measure(_ moment: Date, lag: TimeInterval, since happened: Date) -> TimeInterval? {
+            let delay = moment.timeIntervalSince(happened) - lag
+            return Self.range.contains(delay) ? delay : nil
+        }
+        var found: [(at: Date, delay: TimeInterval)] = []
+        switch clock {
+        case .remaining, .remainingOfPeriods:
+            // Each play under the time its scoreboard showed for it.
+            var byClock: [Int: [Date]] = [:]
+            for play in plays {
+                guard let seconds = play.clockSeconds else { continue }
+                let onScreen = clock == .remaining ? seconds : Double(play.period == "OT" ? 300 : 1200) - seconds
+                byClock[Int(onScreen.rounded()), default: []].append(play.wallclock)
+            }
+            for moment in moments {
+                let matching = (byClock[moment.value] ?? []).compactMap { measure(moment.at, lag: moment.lag, since: $0) }
+                // Plays at one clock a minute or two apart -- a foul and its
+                // free throws -- stand on one stopped clock, which reached
+                // that time with the first of them. Plays farther apart are
+                // the same time in different periods: no telling which.
+                if let shortest = matching.min(), let longest = matching.max(), longest - shortest <= 120 {
+                    found.append((at: moment.at, delay: longest))
+                }
+            }
+        case .continuous:
+            // Soccer's clock never stops, so any reading lands between
+            // two plays: time from the nearest is time on the field.
+            let timed = plays.compactMap { play in play.clockSeconds.map { (seconds: $0, at: play.wallclock) } }
+            for moment in moments {
+                let value = Double(moment.value)
+                let near = timed.compactMap { play -> TimeInterval? in
+                    guard abs(play.seconds - value) <= 180 else { return nil }
+                    return measure(moment.at, lag: moment.lag, since: play.at.addingTimeInterval(value - play.seconds))
+                }.sorted()
+                if !near.isEmpty { found.append((at: moment.at, delay: near[near.count / 2])) }
+            }
+        case .none:
+            break
+        }
+        // The play that made each score: the first to have it, after one
+        // that did not.
+        for change in scoreChanges {
+            var before: (away: Int, home: Int)?
+            for play in plays {
+                defer { before = (play.awayScore, play.homeScore) }
+                guard play.awayScore == change.away, play.homeScore == change.home,
+                      let made = before, made != (change.away, change.home) else { continue }
+                if let estimate = measure(change.at, lag: change.lag, since: play.wallclock) {
+                    found.append((at: change.at, delay: estimate))
+                }
+                break
+            }
+        }
+        return found.sorted { $0.at < $1.at }
+    }
+
+    /// A score on screen changing: read twice in a row before it counts, so
+    /// one misread digit is not a goal; timed from the first of the two.
+    private mutating func noteScore(_ score: (away: Int, home: Int)?, at time: Date, lag: TimeInterval) {
+        guard let score else { return }
+        if let shown = shownScore, shown == score { pendingScore = nil; return }
         guard let pending = pendingScore, pending.away == score.away, pending.home == score.home else {
             pendingScore = (score.away, score.home, time)
-            return []
+            return
         }
         let previous = shownScore
         shownScore = score
@@ -275,18 +332,8 @@ struct AutoSyncTracker {
         // The first reading only says where the game stands; a score that
         // went down or leapt was misread.
         guard let previous, score.away >= previous.away, score.home >= previous.home,
-              score.away + score.home - previous.away - previous.home <= 8 else { return [] }
-        // The play that made this score: the first to have it, after one
-        // that did not.
-        var before: (away: Int, home: Int)?
-        for play in plays {
-            defer { before = (play.awayScore, play.homeScore) }
-            guard play.awayScore == score.away, play.homeScore == score.home,
-                  let made = before, made != score else { continue }
-            let delay = pending.since.timeIntervalSince(play.wallclock) - lag
-            return Self.range.contains(delay) ? [delay] : []
-        }
-        return []
+              score.away + score.home - previous.away - previous.home <= 8 else { return }
+        scoreChanges.append(ScoreChange(away: score.away, home: score.home, at: pending.since, lag: lag))
     }
 
     /// How many estimates have to agree before the delay is the scoreboard's.

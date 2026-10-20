@@ -68,6 +68,20 @@ struct MobileAutoSyncChecks {
         rink.observe(clocks: [1148], score: nil, at: at(20), playerLag: 0, plays: hockey)
         precondition(rink.estimates.map(\.delay) == [20])
 
+        // ESPN posts plays minutes late: the moments the clock showed are
+        // kept, and matched when their plays come, for ten minutes.
+        let posted = [AutoSyncPlay(wallclock: at(0), clockSeconds: 52, period: "1st", awayScore: 0, homeScore: 0),
+                      AutoSyncPlay(wallclock: at(1), clockSeconds: 53, period: "1st", awayScore: 0, homeScore: 0),
+                      AutoSyncPlay(wallclock: at(8), clockSeconds: 60, period: "1st", awayScore: 0, homeScore: 0)]
+        var late = AutoSyncTracker(clock: .remainingOfPeriods, margin: 0)
+        late.observe(clocks: [1148], score: nil, at: at(20), playerLag: 0, plays: [])
+        late.observe(clocks: [1147], score: nil, at: at(21), playerLag: 0, plays: [])
+        precondition(late.estimates.isEmpty, "Nothing to match yet")
+        late.observe(clocks: [1140], score: nil, at: at(28), playerLag: 0, plays: posted)
+        precondition(late.estimates.map(\.delay) == [20, 20, 20] && late.delay == 20, "Matched once posted")
+        late.observe(clocks: [], score: nil, at: at(700), playerLag: 0, plays: posted)
+        precondition(late.estimates.isEmpty, "Ten minutes on, a reconnected stream may be a new delay")
+
         // Soccer's clock never stops: every running reading is a moment.
         let soccer = [AutoSyncPlay(wallclock: at(0), clockSeconds: 1400, period: "1H", awayScore: 0, homeScore: 0)]
         var pitch = AutoSyncTracker(clock: .continuous, margin: 1)

@@ -207,13 +207,11 @@ final class MobileAutoSync: ObservableObject {
     private func record(frame: MobilePlaybackController.CapturedFrame, place: ScoreboardArea, texts: [ScoreboardText],
                         clocks: Set<Int>, score: (away: Int, home: Int)?, tracker: AutoSyncTracker) {
         guard diagnostics.isEnabled else { return }
-        let added = tracker.estimates.count - estimateCount
-        estimateCount = tracker.estimates.count
-        if added > 0 {
-            for estimate in tracker.estimates.suffix(added) {
-                let seconds = (estimate.delay * 10).rounded() / 10
-                diagnostics.record("Auto Sync estimate: \(seconds)s behind live (\(tracker.agreeing) of \(tracker.needed) agree)")
-            }
+        // Estimates are matched afresh each frame, as late plays arrive.
+        if tracker.estimates.count != estimateCount {
+            estimateCount = tracker.estimates.count
+            let values = tracker.estimates.suffix(8).map { "\(Int($0.delay.rounded()))s" }.joined(separator: " ")
+            diagnostics.record("Auto Sync estimates: \(estimateCount) (latest \(values)), \(tracker.agreeing) of \(tracker.needed) agree")
         }
         guard frameCount <= 3 || frameCount % 5 == 0 || clocks.isEmpty && score == nil else { return }
         var line = "Auto Sync frame \(frameCount): \(Self.describe(frame)), \(Self.describe(place)), \(texts.count) lines"

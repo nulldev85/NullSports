@@ -142,6 +142,14 @@ hot, and nothing leaves the device.
   the nearest play; a clock held at 45:00 is ignored. A score changing on
   screen to one a play made gives one, timed from its first sighting and only
   once read twice.
+- **Late plays.** ESPN posts some plays minutes after they happened: in an
+  NHL game on Oct 19, a shot appeared in the feed 177 seconds after its time
+  and a hit 208 seconds after. A stream only a little behind live has shown
+  those plays well before ESPN has them. So every moment the scoreboard showed
+  is kept for ten minutes and matched again each frame against the plays
+  posted so far, instead of only against those there when it was seen.
+  Replayed against that game's plays with a stream 20 seconds behind, the
+  old way never locked; this way locks in two to three minutes.
 - **Agreement.** The delay is the median of the largest group of estimates
   within 2.5 seconds of each other (three, or two for baseball), from the last
   ten minutes, ties to the longer. The ways an estimate goes wrong that are not
