@@ -62,9 +62,9 @@ jobs:
           /tmp/mobile-guide-checks
           swiftc iPhone/MobilePlaybackPolicy.swift Tests/MobilePlaybackPolicyChecks.swift -o /tmp/mobile-playback-policy-checks
           /tmp/mobile-playback-policy-checks
-          swiftc iPhone/MobileSubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/mobile-subtitle-preference-checks
+          swiftc Lineup/Services/SubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/mobile-subtitle-preference-checks
           /tmp/mobile-subtitle-preference-checks
-          swiftc iPhone/MobileSubtitlePreferences.swift iPhone/MobileTrackMemory.swift Tests/MobileTrackMemoryChecks.swift -o /tmp/mobile-track-memory-checks
+          swiftc Lineup/Services/SubtitlePreferences.swift Lineup/Services/TrackMemory.swift Tests/MobileTrackMemoryChecks.swift -o /tmp/mobile-track-memory-checks
           /tmp/mobile-track-memory-checks
           swiftc Lineup/Services/TeamPageFeed.swift Tests/MobileTeamPageChecks.swift -o /tmp/mobile-team-page-checks
           /tmp/mobile-team-page-checks

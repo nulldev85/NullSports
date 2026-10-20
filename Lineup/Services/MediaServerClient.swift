@@ -37,9 +37,7 @@ protocol MediaServerClient: Sendable {
     func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo
     func playbackInfo(itemID: String, options: MediaPlaybackRequest) async throws -> MediaPlaybackInfo
     func playbackURL(itemID: String, mediaSourceID: String?, playSessionID: String?) -> URL?
-    #if os(iOS)
     func seekPreview(userID: String, itemID: String, mediaSourceID: String) async throws -> MobileSeekPreviewSource?
-    #endif
 
     // Nullfin's own routes. Any other server has none of them, and says so
     // the way a plain Jellyfin server does: by refusing.
@@ -62,9 +60,7 @@ enum MediaServerQuery {
 }
 
 extension MediaServerClient {
-    #if os(iOS)
     func seekPreview(userID: String, itemID: String, mediaSourceID: String) async throws -> MobileSeekPreviewSource? { nil }
-    #endif
     func items(userID: String, parent: MediaItem, sortBy: String, limit: Int) async throws -> [MediaItem] {
         try await items(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit)
     }

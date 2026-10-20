@@ -5253,7 +5253,14 @@ private struct MediaSourcePicker: View {
                        },
                        segmentsLookup: ["Episode", "Movie"].contains(item.type) ? {
                            await media.playbackSegments(for: trackedItem)
-                       } : nil)
+                       } : nil,
+                       // As on the phone: subtitles found online, the
+                       // show's kept tracks, and the server's scrubbing
+                       // thumbnails for this copy.
+                       subtitleIdentityLookup: { await media.onlineSubtitleIdentity(for: trackedItem) },
+                       trackMemoryShow: item.type == "Episode"
+                           ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
+                       seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) })
             .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }

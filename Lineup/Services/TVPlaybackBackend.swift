@@ -9,6 +9,21 @@ enum TVPlaybackState: Equatable {
     case stopped, opening, buffering, playing, paused, ended, error, esAdded
 }
 
+/// The languages a title opens with: a show's kept ones, else the viewer's
+/// subtitle preference. Empty is the engine's own choice.
+struct PlaybackLanguages: Equatable {
+    var audio: [String] = []
+    var subtitles: [String] = []
+}
+
+/// How text subtitles look and when they appear.
+struct PlaybackSubtitleStyle: Equatable {
+    var scale: Double = 1
+    var background = false
+    /// Seconds later than the file has them; less than zero, earlier.
+    var delay: Double = 0
+}
+
 /// Only the engine adapter knows its native player. Lineup owns recovery,
 /// catch-up, handoff, screen-awake policy, and local progress for both engines.
 @MainActor
@@ -48,6 +63,15 @@ protocol TVPlaybackBackend: AnyObject {
     func captureFrame() async -> CapturedVideoFrame?
     /// Done reading frames: anything attached to read them comes off.
     func releaseFrameOutput()
+    /// The languages the next `load` opens with.
+    func setOpeningLanguages(_ languages: PlaybackLanguages)
+    /// Text subtitles' size, background and timing. VLC takes the size and
+    /// background as a title opens and the timing at once; Aether all three
+    /// at once.
+    func styleSubtitles(_ style: PlaybackSubtitleStyle)
+    /// A subtitle file added to what is playing, and chosen. False if the
+    /// engine would not take it.
+    func addSubtitle(file: URL, title: String, language: String) -> Bool
 }
 
 @MainActor
@@ -121,6 +145,9 @@ final class TVVLCBackend: TVPlaybackBackend {
     }
     var selectedVideoIndex: Int? { Int(player.currentVideoTrackIndex) }
 
+    private var languages = PlaybackLanguages()
+    private var subtitleStyle = PlaybackSubtitleStyle()
+
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
         player.stop()
         let media = VLCMedia(url: url)
@@ -128,9 +155,38 @@ final class TVVLCBackend: TVPlaybackBackend {
         if isLive {
             media.addOption(":live-caching=5000")
             media.addOption(":audio-language=en")
-        } else if let startPosition { media.addOption(":start-time=\(startPosition)") }
+        } else {
+            if let startPosition { media.addOption(":start-time=\(startPosition)") }
+            // VLC reads each language by its code and its two-letter form.
+            if !languages.audio.isEmpty { media.addOption(":audio-language=" + Self.vlcLanguages(languages.audio)) }
+            if !languages.subtitles.isEmpty { media.addOption(":sub-language=" + Self.vlcLanguages(languages.subtitles)) }
+            media.addOption(":freetype-rel-fontsize=\(Int((16 / max(0.5, subtitleStyle.scale)).rounded()))")
+            media.addOption(":freetype-background-opacity=\(subtitleStyle.background ? 204 : 0)")
+            media.addOption(":freetype-background-color=0")
+        }
         media.addOption(":http-reconnect=true")
         player.media = media
+        player.currentVideoSubTitleDelay = Int((subtitleStyle.delay * 1_000_000).rounded())
+    }
+
+    private static func vlcLanguages(_ codes: [String]) -> String {
+        var seen: [String] = []
+        for code in codes {
+            for form in [code, String(code.prefix(2))] where !form.isEmpty && !seen.contains(form) { seen.append(form) }
+        }
+        return seen.joined(separator: ",")
+    }
+
+    func setOpeningLanguages(_ languages: PlaybackLanguages) { self.languages = languages }
+
+    func styleSubtitles(_ style: PlaybackSubtitleStyle) {
+        subtitleStyle = style
+        // Microseconds. The size and background wait for the next title.
+        player.currentVideoSubTitleDelay = Int((style.delay * 1_000_000).rounded())
+    }
+
+    func addSubtitle(file: URL, title: String, language: String) -> Bool {
+        player.addPlaybackSlave(file, type: .subtitle, enforce: true) == 0
     }
     func play() { player.play() }
     func pause() { player.pause() }
@@ -230,9 +286,33 @@ final class TVAetherBackend: TVPlaybackBackend {
     var videoTracks: [PlaybackStreamTrack] { [] }
     var selectedVideoIndex: Int? { nil }
 
+    private var languages = PlaybackLanguages()
+    private var subtitleStyle = PlaybackSubtitleStyle()
+
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
         session?.load(url: url, startPosition: startPosition, isLive: isLive,
-                      expectedDuration: expectedDuration, primary: primary, matchContent: matchContent)
+                      expectedDuration: expectedDuration, primary: primary, matchContent: matchContent,
+                      preferredSubtitleLanguages: isLive ? [] : languages.subtitles,
+                      preferredAudioLanguages: (isLive ? [] : languages.audio) + ["en", "eng"])
+        if !isLive { applySubtitleStyle() }
+    }
+
+    func setOpeningLanguages(_ languages: PlaybackLanguages) { self.languages = languages }
+
+    func styleSubtitles(_ style: PlaybackSubtitleStyle) {
+        subtitleStyle = style
+        applySubtitleStyle()
+    }
+
+    private func applySubtitleStyle() {
+        session?.configureSubtitles(scale: subtitleStyle.scale, background: subtitleStyle.background,
+                                    delay: subtitleStyle.delay)
+    }
+
+    func addSubtitle(file: URL, title: String, language: String) -> Bool {
+        guard let session else { return false }
+        _ = session.addSubtitle(url: file, title: title, language: language)
+        return true
     }
     func play() { session?.play() }
     func pause() { session?.pause() }

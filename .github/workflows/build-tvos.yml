@@ -57,7 +57,7 @@ jobs:
           swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/lineup-daily-cache-checks
           /tmp/lineup-daily-cache-checks
 
-      - name: Check live stats, Auto Sync, team page and title logo logic
+      - name: Check live stats, Auto Sync, team pages, title logos and track memory
         run: |
           set -euo pipefail
           swiftc Lineup/Services/GameStatsFeed.swift Lineup/Services/GameStatsBoards.swift Tests/MobileGameStatsChecks.swift -o /tmp/lineup-game-stats-checks
@@ -70,6 +70,10 @@ jobs:
           /tmp/lineup-team-page-checks
           swiftc Lineup/Services/FanartPolicy.swift Tests/MobileFanartPolicyChecks.swift -o /tmp/lineup-fanart-policy-checks
           /tmp/lineup-fanart-policy-checks
+          swiftc Lineup/Services/SubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/lineup-subtitle-preference-checks
+          /tmp/lineup-subtitle-preference-checks
+          swiftc Lineup/Services/SubtitlePreferences.swift Lineup/Services/TrackMemory.swift Tests/MobileTrackMemoryChecks.swift -o /tmp/lineup-track-memory-checks
+          /tmp/lineup-track-memory-checks
 
       - name: Install project generator
         run: brew install xcodegen

@@ -6657,6 +6657,19 @@ struct PlayerView: View {
     /// A Library title's intro, recap and credits from IntroDB, as the
     /// phone's player has them.
     var segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil
+    /// A Library title as OpenSubtitles knows it, for Find Subtitles Online.
+    var subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil
+    /// An episode's show: its sound and subtitles are kept for the next one.
+    var trackMemoryShow: String? = nil
+    /// The server's scrubbing thumbnails for the copy playing, where it
+    /// has them.
+    var seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil
+    @State private var findingSubtitles = false
+    @State private var subtitleSettingsShown = false
+    @State private var onlineSubtitleSession = UUID()
+    /// Holds the thumbnails without the player redrawing for each one: only
+    /// the seek bar watches them.
+    @StateObject private var seekPreview = MobileSeekPreviewSession()
     @StateObject private var controller: TVPlaybackController
     @ObservedObject private var alerts = GameAlertCenter.shared
     /// The channel on screen, which Up and Down change.
@@ -6739,6 +6752,9 @@ struct PlayerView: View {
          onChannelChange: ((XtreamStream) -> Void)? = nil,
          nextEpisode: TVNextEpisodeOffer? = nil, onReachedEnd: (() -> Void)? = nil,
          segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil,
+         subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil,
+         trackMemoryShow: String? = nil,
+         seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil,
          continuing preview: TVPreviewHandoff? = nil, playbackController: TVPlaybackController? = nil) {
         self.urls = urls
         self.title = title
@@ -6755,6 +6771,9 @@ struct PlayerView: View {
         self.nextEpisode = nextEpisode
         self.onReachedEnd = onReachedEnd
         self.segmentsLookup = segmentsLookup
+        self.subtitleIdentityLookup = subtitleIdentityLookup
+        self.trackMemoryShow = trackMemoryShow
+        self.seekPreviewLookup = seekPreviewLookup
         self.recordingOnly = recordingOnly
         _controller = StateObject(wrappedValue: preview?.controller ?? playbackController ?? TVPlaybackController())
         _continuesPreview = State(initialValue: preview != nil)
@@ -6840,7 +6859,10 @@ struct PlayerView: View {
                     onWatchAlert: { if let alert = visibleAlert { watch(alert.game) } },
                     onChooseChannel: chooseChannelAction,
                     compact: statsShown, statsShown: statsShown,
-                    onToggleStats: statsGame == nil ? nil : toggleStats)
+                    onToggleStats: statsGame == nil ? nil : toggleStats,
+                    onFindSubtitles: findSubtitlesAction,
+                    onSubtitleSettings: isLive ? nil : { subtitleSettingsShown = true },
+                    seekPreview: seekPreview.store)
                     .padding(.trailing, statsInset)
                     .transition(.opacity)
             }
@@ -6935,6 +6957,7 @@ struct PlayerView: View {
                 PlaybackJournal.shared.note(openingNote)
             } else {
                 PlaybackJournal.shared.note(openingNote)
+                controller.remembersTracks(forShow: isLive ? nil : trackMemoryShow)
                 controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition,
                                  channelID: channelID, isLive: isLive, expectedDuration: expectedDuration)
             }
@@ -6953,7 +6976,27 @@ struct PlayerView: View {
             bannerTask?.cancel()
             autoSync.stop()
             gameStats.stop()
+            seekPreview.store.cancel()
             finishPlayback()
+        }
+        .fullScreenCover(isPresented: $findingSubtitles, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
+            if let subtitleIdentityLookup {
+                TVOnlineSubtitlesScreen(name: synopsis?.title ?? title, identity: subtitleIdentityLookup) { data, subtitle in
+                    try await controller.addOnlineSubtitle(data, title: subtitle.title, language: subtitle.language,
+                                                           session: onlineSubtitleSession)
+                }
+            }
+        }
+        .fullScreenCover(isPresented: $subtitleSettingsShown, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
+            TVSubtitleSettingsScreen(controller: controller)
+        }
+        // The server's thumbnails for this copy, as the phone's player asks.
+        .task(id: urls) {
+            seekPreview.store.configure(nil)
+            guard !isLive, let seekPreviewLookup else { return }
+            let source = await seekPreviewLookup()
+            guard !Task.isCancelled else { return }
+            seekPreview.store.configure(source)
         }
         // The stats follow the game on screen from the moment it opens,
         // shown or not, so what the picture needs is there when they are.
@@ -7183,6 +7226,17 @@ struct PlayerView: View {
         gameStats.follow(statsGame, channelID: statsChannelID)
     }
 
+    /// Find Subtitles Online, where the title is one OpenSubtitles can be
+    /// asked about and the engine can take a file.
+    private var findSubtitlesAction: (() -> Void)? {
+        guard !isLive, subtitleIdentityLookup != nil, MobileOpenSubtitles.configured,
+              controller.canAttachOnlineSubtitles else { return nil }
+        return {
+            onlineSubtitleSession = controller.subtitleSession
+            findingSubtitles = true
+        }
+    }
+
     /// Stats from the controls: open, with the remote in them, or closed.
     private func toggleStats() {
         if statsShown { closeStats(); return }
@@ -7374,6 +7428,11 @@ private struct TVPlayerChrome: View {
     let statsShown: Bool
     /// The live stats, for a game ESPN keeps an account of.
     let onToggleStats: (() -> Void)?
+    /// Find Subtitles Online and Subtitle Settings, for a Library title.
+    let onFindSubtitles: (() -> Void)?
+    let onSubtitleSettings: (() -> Void)?
+    /// The server's scrubbing thumbnails, shown over the seek bar.
+    let seekPreview: MobileSeekPreviewStore
 
     private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
 
@@ -7463,8 +7522,8 @@ private struct TVPlayerChrome: View {
                             ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0, large: true) }
                         }
                         if !isLive && controller.duration > 0 {
-                            TVSeekBar(controller: controller, clock: controller.clock, focus: focusedControl,
-                                      onInteraction: onInteraction)
+                            TVSeekBar(controller: controller, clock: controller.clock, preview: seekPreview,
+                                      focus: focusedControl, onInteraction: onInteraction)
                         }
                         if showsTimeline {
                             TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
@@ -7513,21 +7572,35 @@ private struct TVPlayerChrome: View {
                                 onWatchAlert(); onInteraction()
                             }
                         }
-                        if !isLive && controller.subtitleTracks.count > 1 {
+                        // Every Library title: its own subtitles, any found
+                        // online, and how they look.
+                        if !isLive && (controller.subtitleTracks.count > 1 || onFindSubtitles != nil
+                                       || onSubtitleSettings != nil) {
                             TVSelectable(scale: LineupStyle.controlLift, action: { showingSubtitles = true }) {
                                 TVPlayerMenuLabel(title: "Subtitles · \(short(controller.selectedSubtitleTitle))",
                                                   symbol: "captions.bubble.fill",
                                                   focused: focusedControl.wrappedValue == .subtitles)
                             }
                             .focused(focusedControl, equals: .subtitles)
-                            .tvChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles) {
-                                controller.subtitleTracks.map { track in
+                            .tvChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles,
+                                       message: controller.trackMemoryShow == nil ? nil
+                                           : "Kept for every episode of this show.") {
+                                var choices = controller.subtitleTracks.map { track in
                                     TVChoice(track.title, id: "\(track.id)",
                                              isSelected: track.id == controller.selectedSubtitleID) {
                                         controller.selectSubtitle(track)
                                         onInteraction()
                                     }
                                 }
+                                if let onFindSubtitles {
+                                    choices.append(TVChoice("Find Subtitles Online", symbol: "magnifyingglass",
+                                                            id: "find-online", action: onFindSubtitles))
+                                }
+                                if let onSubtitleSettings {
+                                    choices.append(TVChoice("Subtitle Settings", symbol: "textformat.size",
+                                                            id: "settings", action: onSubtitleSettings))
+                                }
+                                return choices
                             } onCancel: { onInteraction() }
                         }
                         // A file with more than one audio stream -- languages,
@@ -7539,7 +7612,9 @@ private struct TVPlayerChrome: View {
                                                   focused: focusedControl.wrappedValue == .audio)
                             }
                             .focused(focusedControl, equals: .audio)
-                            .tvChoices("Audio", symbol: "waveform", isPresented: $showingAudio) {
+                            .tvChoices("Audio", symbol: "waveform", isPresented: $showingAudio,
+                                       message: controller.trackMemoryShow == nil ? nil
+                                           : "Kept for every episode of this show.") {
                                 controller.audioTracks.map { track in
                                     TVChoice(track.title, id: "\(track.id)",
                                              isSelected: track.id == controller.selectedAudioTrackID) {
@@ -7779,6 +7854,9 @@ private struct TVGameAlertBanner: View {
 private struct TVSeekBar: View {
     @ObservedObject var controller: TVPlaybackController
     @ObservedObject var clock: PlaybackClock
+    /// The server's thumbnails: the one for where the remote has got to
+    /// rides over the bar while it scrubs.
+    let preview: MobileSeekPreviewStore
     let focus: FocusState<TVPlayerControl?>.Binding
     let onInteraction: () -> Void
     @State private var target: Double?
@@ -7797,6 +7875,17 @@ private struct TVSeekBar: View {
         VStack(spacing: 12) {
             LineupProgressBar(value: progress,
                               height: selected ? 16 : LineupProgressBar.standardHeight)
+                .overlay(alignment: .topLeading) {
+                    if let target {
+                        GeometryReader { bar in
+                            let width = TVSeekPreviewBubble.size.width
+                            TVSeekPreviewBubble(store: preview, seconds: target)
+                                .offset(x: min(max(0, progress * bar.size.width - width / 2), max(0, bar.size.width - width)),
+                                        y: -TVSeekPreviewBubble.size.height - 34)
+                        }
+                        .allowsHitTesting(false)
+                    }
+                }
             HStack {
                 Text(Self.clock(shown))
                 Spacer(minLength: 0)
@@ -7817,6 +7906,7 @@ private struct TVSeekBar: View {
             guard controller.isScrubbing else { return }
             target = PlaybackSeekPolicy.clamped(controller.elapsed + direction * 10, duration: controller.duration)
             controller.previewScrubbing(at: target ?? controller.elapsed)
+            preview.request(at: target ?? controller.elapsed)
             onInteraction()
         }, onFrame: { direction, heldFor, delta in
             guard let target else { return }
@@ -7825,6 +7915,7 @@ private struct TVSeekBar: View {
             guard abs(next - target) > 0.001 else { return }
             self.target = next
             controller.previewScrubbing(at: next)
+            preview.request(at: next)
         }, onEnd: { finishScrubbing() }).frame(width: 0, height: 0))
         .onMoveCommand { direction in
             switch direction {
@@ -7844,6 +7935,7 @@ private struct TVSeekBar: View {
         .onDisappear {
             controller.finishScrubbing(resume: false)
             target = nil
+            preview.cancel()
         }
         .transaction { if target != nil { $0.animation = nil } }
         .accessibilityLabel("Playback position")
@@ -7854,6 +7946,7 @@ private struct TVSeekBar: View {
         guard let target else { return }
         controller.endScrubbing(at: target)
         self.target = nil
+        preview.cancel()
         onInteraction()
     }
 
@@ -7865,6 +7958,41 @@ private struct TVSeekBar: View {
         return hours > 0
             ? String(format: "%d:%02d:%02d", hours, minutes, secs)
             : String(format: "%d:%02d", minutes, secs)
+    }
+}
+
+/// The picture at the place being scrubbed to, from the server's
+/// thumbnails, with its time under it. Only drawn where the server has them.
+private struct TVSeekPreviewBubble: View {
+    static let size = CGSize(width: 336, height: 222)
+    @ObservedObject var store: MobileSeekPreviewStore
+    let seconds: Double
+
+    var body: some View {
+        if let info = store.source?.info {
+            let index = info.index(at: seconds)
+            let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+            VStack(spacing: 8) {
+                ZStack {
+                    Color.black
+                    if let frame = store.frame, frame.index == index {
+                        Image(decorative: frame.image, scale: 1).resizable().scaledToFill()
+                    } else {
+                        ProgressView().tint(.white)
+                    }
+                }
+                .frame(width: Self.size.width - 16, height: 180)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Text(PlaybackJournal.clock(seconds)).font(.interDigits(17, .bold))
+                    .foregroundStyle(LineupStyle.mediaText)
+            }
+            .padding(8)
+            .frame(width: Self.size.width, height: Self.size.height)
+            .background(Color.black.opacity(0.82), in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.14), lineWidth: 1))
+            .lineupShadow(.overlay)
+            .accessibilityHidden(true)
+        }
     }
 }
 
@@ -7963,6 +8091,7 @@ private struct PlaybackClockReader<Content: View>: View {
         backend = initial
         engineKind = initial.kind
         mountBackend()
+        subtitlePreferences = MobileSubtitlePreferences(defaults: defaults)
     }
 
     private func mountBackend() {
@@ -8103,6 +8232,28 @@ private struct PlaybackClockReader<Content: View>: View {
     private var chosenAudioTrack: Int?
     private var chosenVideoTrack: Int?
     private var chosenSubtitle: PlaybackSubtitleTrack?
+    /// The viewer's subtitle size, background and language, kept on this
+    /// Apple TV; and this title's subtitle timing, which is its alone.
+    @Published private(set) var subtitlePreferences = MobileSubtitlePreferences()
+    @Published private(set) var subtitleDelaySeconds: Double = 0
+    /// Subtitle files found online for this title: added again after a
+    /// reconnect reopens it, and thrown away with it.
+    private struct OnlineSubtitle { let file: URL; let title: String; let language: String }
+    private var onlineSubtitles: [OnlineSubtitle] = []
+    private var onlineSubtitlesToAdd: [OnlineSubtitle] = []
+    /// The engine chooses a subtitle as it is added; the next look at the
+    /// tracks makes that the viewer's choice, so it is kept through a
+    /// reconnect like any other.
+    private var adoptsAddedSubtitle = false
+    /// Which title the online subtitles are for, so one found for the last
+    /// title never lands on the next.
+    private(set) var subtitleSession = UUID()
+    /// The show whose episodes keep their sound and subtitles, and what was
+    /// kept; put back once an episode, as soon as its tracks are known.
+    private(set) var trackMemoryShow: String?
+    private var showTracks: MobileShowTracks?
+    private var appliedShowAudio = false
+    private var appliedShowSubtitle = false
     /// What the log last said the stream was doing, so it notes changes
     /// rather than ticks.
     private var loggedCondition: String?
@@ -8190,6 +8341,12 @@ private struct PlaybackClockReader<Content: View>: View {
             chosenAudioTrack = nil
             chosenVideoTrack = nil
             chosenSubtitle = nil
+            // Another title: its own timing, its own show's tracks put back,
+            // and no subtitles found for the last one.
+            subtitleDelaySeconds = 0
+            appliedShowAudio = false
+            appliedShowSubtitle = false
+            discardOnlineSubtitles()
         }
         currentChannelID = channelID
         if resetFailover {
@@ -8240,6 +8397,9 @@ private struct PlaybackClockReader<Content: View>: View {
             + (place.map { " at " + PlaybackJournal.clock($0) } ?? ""))
         let fullscreen: Bool
         if case .fullScreen? = watched { fullscreen = true } else { fullscreen = false }
+        backend.setOpeningLanguages(isLive ? PlaybackLanguages() : openingLanguages)
+        backend.styleSubtitles(isLive ? PlaybackSubtitleStyle() : subtitleStyle)
+        onlineSubtitlesToAdd = onlineSubtitles
         backend.load(url: urls[urlIndex], startPosition: place, isLive: isLive && !sourceIsRecording,
                      expectedDuration: !isLive && duration > 0 ? duration : nil,
                      primary: fullscreen || (watched != nil && primaryOutput), matchContent: fullscreen)
@@ -8373,8 +8533,10 @@ private struct PlaybackClockReader<Content: View>: View {
         updateProgress()
         if seekLanding.isWaiting(now: uptime()) { health = freshHealth(); return }
         followRecordingIntoNextProgramme()
+        addOnlineSubtitlesAgain()
         refreshSubtitleTracks()
         refreshStreamTracks()
+        applyShowTracks()
         restoreTrackChoices()
         holdScreenAwake()
         noteCondition()
@@ -8791,18 +8953,29 @@ private struct PlaybackClockReader<Content: View>: View {
                                        title: next.title, streamStart: catchUp.streamStart)
     }
 
-    func selectSubtitle(_ track: PlaybackSubtitleTrack) {
+    /// A subtitle track, or Off. Chosen by the viewer, it is kept for the
+    /// show's next episodes too.
+    func selectSubtitle(_ track: PlaybackSubtitleTrack, byViewer: Bool = true) {
         backend.selectSubtitle(index: track.engineIndex)
         selectedSubtitleID = track.id
         chosenSubtitle = track
+        adoptsAddedSubtitle = false
+        if byViewer {
+            appliedShowSubtitle = true
+            rememberSubtitle(track)
+        }
     }
 
     private func refreshSubtitleTracks() {
         let discovered = backend.subtitles
         if discovered != subtitleTracks { subtitleTracks = discovered }
-        let selected = discovered.first { $0.engineIndex == backend.selectedSubtitleIndex }?.id
-            ?? PlaybackSubtitleTrack.off.id
-        if selected != selectedSubtitleID { selectedSubtitleID = selected }
+        let selected = discovered.first { $0.engineIndex == backend.selectedSubtitleIndex }
+        if adoptsAddedSubtitle, let selected, selected.id != PlaybackSubtitleTrack.off.id {
+            adoptsAddedSubtitle = false
+            chosenSubtitle = selected
+        }
+        let selectedID = selected?.id ?? PlaybackSubtitleTrack.off.id
+        if selectedID != selectedSubtitleID { selectedSubtitleID = selectedID }
     }
 
     private func resetSubtitles() {
@@ -8814,10 +8987,166 @@ private struct PlaybackClockReader<Content: View>: View {
         selectedVideoTrackID = nil
     }
 
-    func selectAudioTrack(_ track: PlaybackStreamTrack) {
+    /// An audio track. Chosen by the viewer, it is kept for the show's next
+    /// episodes too.
+    func selectAudioTrack(_ track: PlaybackStreamTrack, byViewer: Bool = true) {
         backend.selectAudio(index: track.id)
         selectedAudioTrackID = track.id
         chosenAudioTrack = track.id
+        guard byViewer else { return }
+        appliedShowAudio = true
+        guard let show = trackMemoryShow else { return }
+        var kept = showTracks ?? MobileShowTracks()
+        kept.audio = MobileTrackMemory.choice(for: Self.option(track))
+        showTracks = kept
+        MobileTrackMemory.save(kept, for: show, defaults: defaults)
+    }
+
+    // MARK: Subtitle settings, online subtitles, and a show's tracks
+
+    func setSubtitlePreferences(_ value: MobileSubtitlePreferences) {
+        guard value != subtitlePreferences else { return }
+        subtitlePreferences = value
+        value.save(to: defaults)
+        if !isLive { backend.styleSubtitles(subtitleStyle) }
+    }
+
+    func setSubtitleDelay(_ seconds: Double) {
+        let delay = MobileSubtitlePreferences.delay(seconds)
+        guard delay != subtitleDelaySeconds else { return }
+        subtitleDelaySeconds = delay
+        if !isLive { backend.styleSubtitles(subtitleStyle) }
+    }
+
+    private var subtitleStyle: PlaybackSubtitleStyle {
+        PlaybackSubtitleStyle(scale: subtitlePreferences.scale, background: subtitlePreferences.background,
+                              delay: subtitleDelaySeconds)
+    }
+
+    /// VLC sets a title's subtitle size and background as it opens it.
+    var subtitleLooksApplyNextTitle: Bool { engineKind == .vlc }
+
+    /// What a title opens with: the show's kept languages, else the viewer's
+    /// subtitle language. Subtitles kept off open with none.
+    private var openingLanguages: PlaybackLanguages {
+        var languages = PlaybackLanguages()
+        if let showTracks, showTracks.hasSubtitleChoice {
+            languages.subtitles = showTracks.subtitlesOff ? [] : [showTracks.subtitle?.language].compactMap { $0 }
+        } else if !subtitlePreferences.language.isEmpty {
+            languages.subtitles = [subtitlePreferences.language]
+        }
+        if let audio = showTracks?.audio?.language { languages.audio = [audio] }
+        return languages
+    }
+
+    /// Keeps the sound and subtitles chosen for a show's episodes and puts
+    /// them back on the next one. Set before `start`, so the title opens on
+    /// the kept languages rather than switching to them.
+    func remembersTracks(forShow show: String?) {
+        trackMemoryShow = show
+        showTracks = show.flatMap { MobileTrackMemory.load($0, defaults: defaults) }
+    }
+
+    var canAttachOnlineSubtitles: Bool { !isLive && error == nil && !urls.isEmpty }
+
+    /// A subtitle file found online, for the title in `session`: checked,
+    /// written to a file of its own off the main thread, and added to what
+    /// is playing.
+    func addOnlineSubtitle(_ data: Data, title: String, language: String, session: UUID) async throws {
+        guard session == subtitleSession, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
+        let preparation = Task.detached(priority: .userInitiated) { () throws -> URL in
+            guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
+            try data.write(to: file, options: .atomic)
+            return file
+        }
+        let file = try await withTaskCancellationHandler(operation: { try await preparation.value },
+                                                         onCancel: { preparation.cancel() })
+        guard !Task.isCancelled, session == subtitleSession, canAttachOnlineSubtitles else {
+            try? FileManager.default.removeItem(at: file)
+            throw MobileSubtitleFailure.unsupported
+        }
+        guard backend.addSubtitle(file: file, title: title, language: language) else {
+            try? FileManager.default.removeItem(at: file)
+            throw MobileSubtitleFailure.invalidFile
+        }
+        onlineSubtitles.append(OnlineSubtitle(file: file, title: title, language: language))
+        chosenSubtitle = nil
+        adoptsAddedSubtitle = true
+        log("Added subtitles found online")
+    }
+
+    /// After a reconnect: the subtitles found online, added to the reopened
+    /// title once it is showing.
+    private func addOnlineSubtitlesAgain() {
+        guard !onlineSubtitlesToAdd.isEmpty, backend.hasVideoOut else { return }
+        for subtitle in onlineSubtitlesToAdd {
+            _ = backend.addSubtitle(file: subtitle.file, title: subtitle.title, language: subtitle.language)
+        }
+        onlineSubtitlesToAdd = []
+    }
+
+    private func discardOnlineSubtitles() {
+        for subtitle in onlineSubtitles { try? FileManager.default.removeItem(at: subtitle.file) }
+        onlineSubtitles = []
+        onlineSubtitlesToAdd = []
+        adoptsAddedSubtitle = false
+        subtitleSession = UUID()
+    }
+
+    private func rememberSubtitle(_ track: PlaybackSubtitleTrack) {
+        guard let show = trackMemoryShow else { return }
+        var kept = showTracks ?? MobileShowTracks()
+        if track.id == PlaybackSubtitleTrack.off.id {
+            kept.subtitlesOff = true
+            kept.subtitle = nil
+        } else {
+            kept.subtitlesOff = false
+            kept.subtitle = MobileTrackMemory.choice(for: Self.option(track))
+        }
+        showTracks = kept
+        MobileTrackMemory.save(kept, for: show, defaults: defaults)
+    }
+
+    /// The show's kept sound and subtitles, put back once an episode, as
+    /// soon as its tracks are known. A track the viewer picks meanwhile wins.
+    private func applyShowTracks() {
+        guard let showTracks, !isLive else { return }
+        if !appliedShowAudio, let audio = showTracks.audio, audioTracks.count > 1 {
+            appliedShowAudio = true
+            if let match = MobileTrackMemory.match(audio, in: audioTracks.map(Self.option)),
+               let track = audioTracks.first(where: { $0.id == match.engineIndex }), track.id != selectedAudioTrackID {
+                selectAudioTrack(track, byViewer: false)
+                log("Put back the sound kept for this show")
+            }
+        }
+        let offered = subtitleTracks.filter { $0.id != PlaybackSubtitleTrack.off.id }
+        if !appliedShowSubtitle, showTracks.hasSubtitleChoice, !offered.isEmpty {
+            appliedShowSubtitle = true
+            if showTracks.subtitlesOff {
+                if selectedSubtitleID != PlaybackSubtitleTrack.off.id { selectSubtitle(.off, byViewer: false) }
+            } else if let subtitle = showTracks.subtitle,
+                      let match = MobileTrackMemory.match(subtitle, in: offered.map(Self.option)),
+                      match.id != selectedSubtitleID,
+                      let track = offered.first(where: { $0.id == match.id }) {
+                selectSubtitle(track, byViewer: false)
+                log("Put back the subtitles kept for this show")
+            }
+        }
+    }
+
+    /// A track as the show memory reads it, its language from its name: the
+    /// engines' names carry it ("English · AC3 5.1", "Track 2 - [Spanish]").
+    private static func option(_ track: PlaybackStreamTrack) -> MobileTrackOption {
+        MobileTrackOption(id: "audio-\(track.id)", title: track.title,
+                          language: MobileTrackMemory.language(inTitle: track.title), engineIndex: track.id)
+    }
+
+    private static func option(_ track: PlaybackSubtitleTrack) -> MobileTrackOption {
+        MobileTrackOption(id: track.id, title: track.title,
+                          language: MobileTrackMemory.language(inTitle: track.title), engineIndex: track.engineIndex)
     }
 
     func selectVideoTrack(_ track: PlaybackStreamTrack) {
@@ -8887,6 +9216,7 @@ private struct PlaybackClockReader<Content: View>: View {
             skipTarget = nil
             catchUp = nil
             pausedAt = nil
+            discardOnlineSubtitles()
             holdScreenAwake()
         }
     }

@@ -103,3 +103,39 @@ Official references inspected:
 - https://developer.apple.com/documentation/avfoundation/avtextstylerule
 - Pinned AetherEngine 7.40.1 source, including setSoftwareSubtitleDelay and
   LoadOptions.preferredSubtitleLanguages, inspected locally.
+
+## Apple TV (Round 4 of the port)
+
+The models and services moved into `Lineup/Services` unchanged and both apps
+use them: `SubtitlePreferences.swift`, `TrackMemory.swift`, `OpenSubtitles.swift`
+(with the results filter) and `SeekPreview.swift`. Seek-preview fetching
+(`MediaServerClient.seekPreview`, `JellyfinClient.seekPreview`,
+`MediaLibrary.seekPreview`) and Aether's subtitle styling
+(`AetherPlaybackSession.configureSubtitles`) are no longer iPhone-only.
+
+- **Subtitles menu.** Every Library title now has one, even without
+  subtitles of its own: its tracks, then Find Subtitles Online (where
+  OpenSubtitles is configured and the title can be identified) and Subtitle
+  Settings. The Audio and Subtitles menus say when a choice is kept for the
+  show.
+- **Subtitle Settings.** Size (Small, Standard, Large, Extra Large),
+  background, the language a title opens with, and timing in quarter seconds
+  with Reset. Size, background and language are kept on the Apple TV; timing
+  resets for each video. Aether changes the look at once; VLC sets it as a
+  video opens, so it applies from the next one, and the screen says so.
+- **Find Subtitles Online.** A full-screen list of OpenSubtitles releases in
+  the chosen language. Select one: it is checked, written to its own file and
+  added to the engine (VLC's playback slave, Aether's external track), and the
+  engine chooses it. A reconnect adds it again once the picture is back. The
+  files go when the title closes.
+- **Per-show tracks.** As on the phone: an episode's show keeps the sound and
+  subtitles chosen in it, the next episode opens on those languages, and once
+  its tracks are listed it is put on the same track by name, else language.
+  Turning subtitles off is kept too.
+- **Seek previews.** On Jellyfin, the server's trickplay thumbnail for the
+  place being scrubbed to rides above the seek bar, with its time. The seek bar
+  alone watches the thumbnails, so the player does not redraw for each one.
+
+`Tests/tvOS/PlaybackEngineTests.swift` checks the kept sound coming back on
+the next episode by name and language, and that timing goes to the engine in
+quarter seconds and resets for the next title.

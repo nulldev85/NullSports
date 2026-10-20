@@ -37,6 +37,11 @@ SHARED = (
     "Lineup/Services/BetterPosters.swift",
     "Lineup/Services/Fanart.swift",
     "Lineup/Services/FanartPolicy.swift",
+    # Subtitle settings, Find Subtitles Online, seek previews, per-show tracks.
+    "Lineup/Services/SubtitlePreferences.swift",
+    "Lineup/Services/TrackMemory.swift",
+    "Lineup/Services/OpenSubtitles.swift",
+    "Lineup/Services/SeekPreview.swift",
 )
 
 
@@ -65,9 +70,7 @@ class SharedSourceMembershipChecks(unittest.TestCase):
         for source in ("iPhone/MobileLibraryShelf.swift", "iPhone/MobileLibraryArtwork.swift",
                        "iPhone/MobileLibraryCollections.swift",
                        "iPhone/MobileBetterPosters.swift", "iPhone/MobileGameReplaysView.swift",
-                       "iPhone/MobileOpenSubtitles.swift",
                        "iPhone/MobileOnlineSubtitlesSheet.swift", "iPhone/MobileSubtitleSettings.swift",
-                       "iPhone/MobileSeekPreview.swift", "iPhone/MobileSubtitlePreferences.swift",
                        "iPhone/MobileFanartTitle.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))

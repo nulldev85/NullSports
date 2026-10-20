@@ -2867,7 +2867,6 @@ final class MediaLibrary {
             mediaSourceID: source.selectionID, playSessionID: source.playSessionID)
     }
 
-    #if os(iOS)
     /// Optional server images for exactly the copy selected in the stream list.
     /// No addon resolution, video inspection, or change to playback startup.
     func seekPreview(for item: MediaItem, source: MediaPlaybackSource) async -> MobileSeekPreviewSource? {
@@ -2879,7 +2878,6 @@ final class MediaLibrary {
         guard !Task.isCancelled, contains(profile) else { return nil }
         return preview
     }
-    #endif
 
     /// An AIOStreams stream's own address: its path, when that is a web
     /// address. A path on any other server is the server's own business --
