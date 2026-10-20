@@ -2702,7 +2702,7 @@ private func liveAccessibilityLabel(_ game: SportsGame) -> String {
 
 private struct LiveSelectedPreview: View {
     @Environment(SportsLibrary.self) private var library
-    @StateObject private var controller = TVPlaybackController()
+    @StateObject private var controller = TVPlaybackController(place: .sports)
     @State private var choosingGame: SportsGame?
     @State private var pickedChannel: TVPickedChannel?
     @State private var scopingChannel: TVPickedChannel?
@@ -3319,7 +3319,7 @@ struct GuideView: View {
     /// The preview's one player, kept for as long as the Guide is. Resting
     /// on a channel opens it there and moving on stops it; nothing is built
     /// or torn down as the remote moves (see `GuidePreviewVideo`).
-    @StateObject private var previewPlayer = TVPlaybackController()
+    @StateObject private var previewPlayer = TVPlaybackController(place: .guide)
     @State private var previewHidden = false
     @State private var sidebarVisible = false
     @State private var reorderingFavorites = false
@@ -4809,7 +4809,8 @@ struct AccountView: View {
     @State private var managingTeamChannels = false
     @State private var managingTeams = false
     @State private var choosingAccent = false
-    @State private var choosingPlaybackEngine = false
+    /// The tab whose playback engine is being chosen.
+    @State private var choosingEngineFor: TVPlaybackPlace?
     // What the Library tab's menu used to offer, now in Library below.
     @State private var showingCollections = false
     @State private var choosingShelf = false
@@ -4817,6 +4818,12 @@ struct AccountView: View {
     @State private var reorderingShelves = false
     @State private var clearingHistory = false
     @AppStorage(TVPlaybackEngine.storageKey) private var playbackEngine = TVPlaybackEngine.vlc.rawValue
+    // Each tab's own engine: empty until one is chosen, and the tab then
+    // plays with the one above, which every tab used before they had their own.
+    @AppStorage(TVPlaybackPlace.sports.storageKey) private var sportsEngine = ""
+    @AppStorage(TVPlaybackPlace.guide.storageKey) private var guideEngine = ""
+    @AppStorage(TVPlaybackPlace.library.storageKey) private var libraryEngine = ""
+    @AppStorage(TVPlaybackPlace.search.storageKey) private var searchEngine = ""
     @State private var pendingAccent: String?
     /// The accent, chosen here too: iCloud brings the phone's choice over
     /// once it is switched on, and until then the two are set by hand.
@@ -4853,11 +4860,14 @@ struct AccountView: View {
                 media.loadMDBListIntegrationIfNeeded()
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
-            .tvChoices("Playback Engine", symbol: "play.rectangle", isPresented: $choosingPlaybackEngine,
-                       message: "Used for the next stream you open, including previews and Multiview.") {
-                TVPlaybackEngine.allCases.map { engine in
-                    TVChoice(engine.title, namesEngine: true, isSelected: playbackEngine == engine.rawValue) {
-                        playbackEngine = engine.rawValue
+            .tvChoices("\(choosingEngineFor?.title ?? "Playback") Engine", symbol: "play.rectangle",
+                       isPresented: Binding(get: { choosingEngineFor != nil },
+                                            set: { if !$0 { choosingEngineFor = nil } }),
+                       message: "Used for the next stream you open in \(choosingEngineFor?.title ?? "this tab").") {
+                guard let place = choosingEngineFor else { return [] }
+                return TVPlaybackEngine.allCases.map { engine in
+                    TVChoice(engine.title, namesEngine: true, isSelected: self.engine(for: place) == engine) {
+                        setEngine(engine, for: place)
                     }
                 }
             }
@@ -5250,25 +5260,37 @@ struct AccountView: View {
 
     // MARK: Appearance
 
+    /// A playback engine for each tab that plays video: a source one engine
+    /// struggles with can play on the other without moving everything.
     private var playbackSettings: some View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("PLAYBACK")
-            TVSelectable(scale: 1.015, fillRadius: 18, action: { choosingPlaybackEngine = true }) {
-                HStack(spacing: 20) {
-                    LineupIconTile(symbol: "play.rectangle", size: 48)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Playback Engine").font(.inter(24, .semibold))
-                        Text("Live TV, movies, shows, and Multiview")
-                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
-                    }
-                    Spacer()
-                    PlaybackEngineText((TVPlaybackEngine(rawValue: playbackEngine) ?? .vlc).title, size: 21)
-                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
-                    Image(systemName: "chevron.right").font(.inter(20, .semibold))
+            Text("Each tab plays with its own engine.")
+                .font(.inter(19)).foregroundStyle(LineupStyle.secondary)
+            VStack(spacing: 14) {
+                ForEach(TVPlaybackPlace.allCases) { place in
+                    AccountEngineRow(place: place, engine: engine(for: place)) { choosingEngineFor = place }
                 }
-                .padding(24)
-                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
+        }
+    }
+
+    private func engine(for place: TVPlaybackPlace) -> TVPlaybackEngine {
+        let own = switch place {
+        case .sports: sportsEngine
+        case .guide: guideEngine
+        case .library: libraryEngine
+        case .search: searchEngine
+        }
+        return TVPlaybackEngine(rawValue: own) ?? TVPlaybackEngine(rawValue: playbackEngine) ?? .vlc
+    }
+
+    private func setEngine(_ engine: TVPlaybackEngine, for place: TVPlaybackPlace) {
+        switch place {
+        case .sports: sportsEngine = engine.rawValue
+        case .guide: guideEngine = engine.rawValue
+        case .library: libraryEngine = engine.rawValue
+        case .search: searchEngine = engine.rawValue
         }
     }
 
@@ -5776,6 +5798,33 @@ private struct AccountButtonFace: View {
     }
 }
 
+/// A tab and the engine it plays with, which choosing the row changes.
+private struct AccountEngineRow: View {
+    let place: TVPlaybackPlace
+    let engine: TVPlaybackEngine
+    let action: () -> Void
+
+    var body: some View {
+        TVSelectable(scale: 1.015, fillRadius: 18, action: action) {
+            HStack(spacing: 20) {
+                LineupIconTile(symbol: place.symbol, size: 48)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(place.title).font(.inter(24, .semibold))
+                    Text(place.detail).font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 16)
+                PlaybackEngineText(engine.title, size: 21)
+                    .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                Image(systemName: "chevron.right").font(.inter(20, .semibold))
+            }
+            .padding(24)
+            .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .accessibilityLabel("\(place.title) playback engine, \(engine.title)")
+    }
+}
+
 /// One of the Library's own actions: its tile, its name and a line on what it
 /// does, in the well the other Settings rows sit in.
 private struct AccountActionRow: View {
@@ -6080,6 +6129,8 @@ private struct MultiviewChannelChoice: Identifiable {
 private struct MultiviewView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SportsLibrary.self) private var library
+    /// Sports or the TV Guide, whichever it was opened from.
+    @Environment(\.tvPlaybackPlace) private var place
     @StateObject private var players = MultiviewPlayers()
     @AppStorage("Lineup.multiviewLayout") private var storedLayout = MultiviewLayout.sideBySide.rawValue
     @FocusState private var focusedTile: Int?
@@ -6286,6 +6337,7 @@ private struct MultiviewView: View {
         // The second picture starts silent and at zero, so its sound has
         // somewhere to fade up from.
         players.tiles[1].fadeAudio(audible: false, over: 0)
+        for tile in players.tiles { tile.place = place }
         players.tiles[0].start(urls: primaryURLs, muted: false, channelID: primary.id)
         players.tiles[1].start(urls: secondaryURLs, muted: true, channelID: secondary.id)
         audibleTile = 0
@@ -6936,9 +6988,25 @@ private struct TVPostCreditsNotice: View {
     }
 }
 
+private struct TVPlaybackPlaceKey: EnvironmentKey {
+    static let defaultValue: TVPlaybackPlace = .library
+}
+
+extension EnvironmentValues {
+    /// The tab a player is opened in, for that tab's playback engine. Each
+    /// tab says which it is; a title's streams are opened by the same screen
+    /// from the Library, Search and Settings, so this is how it knows.
+    var tvPlaybackPlace: TVPlaybackPlace {
+        get { self[TVPlaybackPlaceKey.self] }
+        set { self[TVPlaybackPlaceKey.self] = newValue }
+    }
+}
+
 struct PlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SportsLibrary.self) private var library
+    /// The tab it was opened from, whose engine it plays with.
+    @Environment(\.tvPlaybackPlace) private var place
     let urls: [URL]
     var title: String = "Live TV"
     var program: CurrentProgram? = nil
@@ -7274,6 +7342,9 @@ struct PlayerView: View {
             // Nothing plays under full screen but its own player: two would
             // be two sounds at once.
             TVPreviewHandoff.stopPreviews(except: controller)
+            // Its tab's engine, before anything opens on it. A preview's own
+            // player already has its tab.
+            if !continuesPreview { controller.place = place }
             if continuesPreview && controller.isOpen {
                 PlaybackJournal.shared.note(openingNote + ", carried on from the preview")
             } else if openingRecording != nil || openingStartOver {
@@ -8466,17 +8537,21 @@ private struct PlaybackClockReader<Content: View>: View {
     private let uptime: @MainActor () -> TimeInterval
     private let connectionCooldown: TimeInterval
     private var sourceIsRecording = false
+    /// The tab this player plays in, whose engine it opens each stream with.
+    /// A preview's player keeps its tab when full screen carries it on.
+    var place: TVPlaybackPlace?
 
-    init(defaults: UserDefaults = .standard, primaryOutput: Bool = true,
+    init(place: TVPlaybackPlace? = nil, defaults: UserDefaults = .standard, primaryOutput: Bool = true,
          uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          connectionCooldown: TimeInterval = 1,
          backendFactory: @escaping @MainActor (TVPlaybackEngine) -> any TVPlaybackBackend = makeTVPlaybackBackend) {
+        self.place = place
         self.defaults = defaults
         self.primaryOutput = primaryOutput
         self.uptime = uptime
         self.connectionCooldown = connectionCooldown
         self.backendFactory = backendFactory
-        let selected = TVPlaybackEngine.selected(in: defaults)
+        let selected = TVPlaybackEngine.selected(for: place, in: defaults)
         let initial = backendFactory(selected)
         backend = initial
         engineKind = initial.kind
@@ -8493,7 +8568,7 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     private func selectConfiguredBackend() {
-        let selected = TVPlaybackEngine.selected(in: defaults)
+        let selected = TVPlaybackEngine.selected(for: place, in: defaults)
         guard selected != backend.kind else { return }
         backend.stop()
         backend = backendFactory(selected)

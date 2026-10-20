@@ -1,11 +1,17 @@
 # Apple TV playback engines
 
 Lineup supports VLC and AetherEngine on tvOS 18 and later. VLC remains the default.
-Choose Settings → Playback → Playback Engine. The choice is local to the Apple TV
-and takes effect when the next stream opens, including Sports and Guide previews,
-Library playback, provider recordings, and Multiview. Changing it does not replace
+Settings → Playback gives each tab that plays video its own engine: Sports (games,
+previews, Multiview), TV Guide (channels, previews, catch-up and recordings),
+Library (movies and shows from the servers and provider VOD, including titles
+opened from Settings) and Search (its channels and titles). A tab that has not
+been given one plays with the single engine every tab used before, so nothing
+changes until a tab is set. A source one engine struggles with can then play on
+the other without moving everything. The choices are local to the Apple TV and
+take effect when the next stream opens in that tab; changing one does not replace
 an already playing stream. A preview opened full screen keeps the same engine,
-connection, picture surface, and audio state.
+connection, picture surface, and audio state, and Multiview uses the engine of
+the tab it was opened from.
 
 The player info displays the **actual active engine**, not the saved preference:
 VLC or AetherEngine. Previews and Multiview labels also identify their engine.

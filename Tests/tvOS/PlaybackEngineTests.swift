@@ -116,6 +116,29 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(TVPlaybackEngine.selected(in: fixture.defaults), .vlc)
     }
 
+    func testEachTabKeepsItsOwnEngineAndOtherwiseUsesTheSharedOne() throws {
+        let fixture = try Fixture(.aether)
+        defer { fixture.clean() }
+        XCTAssertEqual(TVPlaybackEngine.selected(for: .library, in: fixture.defaults), .aether)
+        fixture.defaults.set("vlc", forKey: TVPlaybackPlace.library.storageKey)
+        XCTAssertEqual(TVPlaybackEngine.selected(for: .library, in: fixture.defaults), .vlc)
+        XCTAssertEqual(TVPlaybackEngine.selected(for: .sports, in: fixture.defaults), .aether)
+        XCTAssertEqual(TVPlaybackEngine.selected(for: nil, in: fixture.defaults), .aether)
+
+        // A player opens each stream with its own tab's engine.
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.place = .library
+        controller.start(urls: [Fixture.url])
+        XCTAssertEqual(controller.engineTitle, "VLC")
+        controller.place = .sports
+        controller.start(urls: [Fixture.url])
+        XCTAssertEqual(controller.engineTitle, "AetherEngine")
+
+        fixture.defaults.set("missing-engine", forKey: TVPlaybackPlace.library.storageKey)
+        XCTAssertEqual(TVPlaybackEngine.selected(for: .library, in: fixture.defaults), .aether)
+    }
+
     func testInfoReportsActualEngineAndSettingChangesApplyToTheNextStream() throws {
         let fixture = try Fixture()
         defer { fixture.clean() }
