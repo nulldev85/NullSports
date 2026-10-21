@@ -339,9 +339,18 @@ final class PlaybackEngineTests: XCTestCase {
             XCTAssertTrue(controller.reconnecting)
             fixture.now += 2
             controller.checkPlayback()
-            XCTAssertEqual(backend.loads.last?.startPosition, 598)
-            XCTAssertEqual(backend.loads.count, 2)
-            XCTAssertEqual(controller.engineKind, kind)
+            if kind == .mpv {
+                // MPV is a trial backend. An error intentionally retries the
+                // same VOD position on VLC instead of reopening MPV forever.
+                XCTAssertEqual(backend.loads.count, 1)
+                XCTAssertEqual(fixture.vlc.loads.last?.startPosition, 598)
+                XCTAssertEqual(fixture.vlc.loads.count, 1)
+                XCTAssertEqual(controller.engineKind, .vlc)
+            } else {
+                XCTAssertEqual(backend.loads.last?.startPosition, 598)
+                XCTAssertEqual(backend.loads.count, 2)
+                XCTAssertEqual(controller.engineKind, kind)
+            }
         }
     }
 

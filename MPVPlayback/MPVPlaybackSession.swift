@@ -368,8 +368,13 @@ private final class MPVPlaybackCore: @unchecked Sendable {
         let height = number(context, "video-params/h") ?? 0
         snapshot.size = CGSize(width: max(0, width), height: max(0, height))
         snapshot.hasVideoOut = width > 0 && height > 0
-        snapshot.videoCodec = text(context, "video-codec-name")
-        snapshot.audioCodec = text(context, "audio-codec-name")
+        // Read codec identity from the selected source tracks first. These are
+        // the same per-track values used in the track picker and remain tied
+        // to the stream the user is actually watching.
+        snapshot.videoCodec = selectedTrackText(context, type: "video", property: "codec")
+            ?? text(context, "video-codec-name")
+        snapshot.audioCodec = selectedTrackText(context, type: "audio", property: "codec")
+            ?? text(context, "audio-codec-name")
         snapshot.audioChannels = integer(context, "audio-params/channel-count")
         snapshot.audioLayout = text(context, "audio-params/hr-channels")
         snapshot.frameRate = number(context, "container-fps")
@@ -448,6 +453,16 @@ private final class MPVPlaybackCore: @unchecked Sendable {
             let prefix = "track-list/\(index)"
             if text(context, "\(prefix)/type") == type, bool(context, "\(prefix)/selected") {
                 return integer(context, "\(prefix)/id")
+            }
+        }
+        return nil
+    }
+    private func selectedTrackText(_ context: OpaquePointer, type: String, property: String) -> String? {
+        guard let count = integer(context, "track-list/count") else { return nil }
+        for index in 0..<min(count, 128) {
+            let prefix = "track-list/\(index)"
+            if text(context, "\(prefix)/type") == type, bool(context, "\(prefix)/selected") {
+                return text(context, "\(prefix)/\(property)")
             }
         }
         return nil

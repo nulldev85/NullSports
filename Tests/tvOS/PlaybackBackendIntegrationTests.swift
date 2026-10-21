@@ -43,7 +43,10 @@ final class PlaybackBackendIntegrationTests: XCTestCase {
                 backend.isPlaying && backend.hasVideoOut && backend.time > 0.2
             }
             XCTAssertEqual(backend.kind.title, kind.title)
-            try await waitUntil("\(kind.title) did not expose the actual video/audio formats") {
+            try await waitUntil("\(kind.title) did not expose the actual video/audio formats " +
+                                "(video=\(backend.mediaInfo.videoCodec ?? "nil"), " +
+                                "audio=\(backend.mediaInfo.audioCodec ?? "nil"), " +
+                                "badges=\(backend.mediaInfo.badges))") {
                 backend.mediaInfo.badges.contains("H.264") && backend.mediaInfo.badges.contains("AAC")
             }
             XCTAssertNil(backend.mediaInfo.dynamicRange)
@@ -133,12 +136,12 @@ final class PlaybackBackendIntegrationTests: XCTestCase {
         ([ (view as? UILabel)?.text ?? "" ] + view.subviews.map { subtitleText(in: $0) }).joined(separator: "\n")
     }
 
-    private func waitUntil(_ message: String, timeout: TimeInterval = 40,
+    private func waitUntil(_ message: @autoclosure () -> String, timeout: TimeInterval = 40,
                            condition: @MainActor () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
-        XCTAssertTrue(condition(), message)
+        XCTAssertTrue(condition(), message())
         if !condition() { throw NSError(domain: "PlaybackBackendIntegrationTests", code: 1,
-                                        userInfo: [NSLocalizedDescriptionKey: message]) }
+                                        userInfo: [NSLocalizedDescriptionKey: message()]) }
     }
 }
