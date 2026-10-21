@@ -1924,6 +1924,8 @@ final class MobilePlaybackController: ObservableObject {
         switch engine {
         case .aether:
             if let index = track.engineIndex { aetherSession?.selectAudio(index: index) }
+        case .mpv:
+            if let index = track.engineIndex { mpvSession?.selectAudio(index: index) }
         case .vlc:
             if let index = track.engineIndex { player.currentAudioTrackIndex = Int32(index) }
         case .system:

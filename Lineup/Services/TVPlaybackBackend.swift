@@ -436,5 +436,9 @@ final class TVMPVBackend: TVPlaybackBackend {
     func selectSubtitle(index: Int?) { session?.selectSubtitle(index: index) }
     func selectAudio(index: Int) { session?.selectAudio(index: index) }
     func selectVideo(index: Int) { session?.selectVideo(index: index) }
+    // MPVKit renders to a Metal surface and does not expose decoded-frame
+    // readback, so Auto Sync cannot sample the scoreboard with this backend.
+    func captureFrame() async -> CapturedVideoFrame? { nil }
+    func releaseFrameOutput() {}
 }
 #endif
