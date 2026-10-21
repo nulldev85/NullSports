@@ -17,6 +17,18 @@ RUNTIME_FRAMEWORKS = (
 MPV_BRIDGE = "LineupMPVPlayback.framework"
 
 
+def normalized_mpv_name(value):
+    """Accept XcodeGen's product name or the iOS target name for the bridge."""
+    if not isinstance(value, str) or not value:
+        return ""
+    name = Path(value).name
+    if name.endswith(".framework"):
+        name = name[:-len(".framework")]
+    if name.endswith("iOS"):
+        name = name[:-len("iOS")]
+    return name
+
+
 def inspect_project(project):
     """Check XcodeGen's actual copy/link phases before the expensive build."""
     objects = project["objects"]
@@ -35,16 +47,28 @@ def inspect_project(project):
             for file_id in phase.get("files", []):
                 build_file = objects[file_id]
                 reference = objects.get(build_file.get("fileRef"), {})
-                product = objects.get(build_file.get("productRef"), {}).get("productName", "")
+                product_reference = objects.get(build_file.get("productRef"), {})
+                product = product_reference.get("productName", "")
                 path = reference.get("path", "")
-                if product == "LineupMPVPlayback" or Path(path).name == MPV_BRIDGE:
+                mpv_names = (
+                    product,
+                    product_reference.get("path", ""),
+                    product_reference.get("name", ""),
+                    path,
+                    reference.get("name", ""),
+                )
+                is_mpv_bridge = any(
+                    normalized_mpv_name(value) == Path(MPV_BRIDGE).stem
+                    for value in mpv_names
+                )
+                if is_mpv_bridge:
                     if phase["isa"] == "PBXFrameworksBuildPhase":
-                        mpv_links[product or Path(path).stem] += 1
+                        mpv_links[MPV_BRIDGE] += 1
                     elif phase["isa"] == "PBXCopyFilesBuildPhase" and str(phase.get("dstSubfolderSpec")) == "10":
                         attributes = build_file.get("settings", {}).get("ATTRIBUTES", [])
                         if "CodeSignOnCopy" not in attributes:
                             raise ValueError(f"{name}: {MPV_BRIDGE} must be signed when embedded")
-                        mpv_copies[Path(path).name or f"{product}.framework"] += 1
+                        mpv_copies[MPV_BRIDGE] += 1
                     else:
                         raise ValueError(f"{name}: {MPV_BRIDGE} must be linked and copied into Frameworks")
                 if product.startswith("Aether"):
