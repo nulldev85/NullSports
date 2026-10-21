@@ -3,6 +3,11 @@ import Foundation
 enum PlaybackSeekPolicy {
     static let remoteTapSkip = 15.0
 
+    static func remoteCommandTarget(from seconds: Double, direction: Double, duration: Double) -> Double {
+        let step = direction < 0 ? -remoteTapSkip : remoteTapSkip
+        return clamped(seconds + step, duration: duration)
+    }
+
     static func clamped(_ seconds: Double, duration: Double) -> Double {
         guard seconds.isFinite, duration.isFinite, duration > 0 else { return 0 }
         return min(max(seconds, 0), max(duration - 1, 0))

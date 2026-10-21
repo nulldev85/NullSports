@@ -8357,6 +8357,9 @@ private struct TVSeekBar: View {
     let firstAction: TVPlayerControl
     let onInteraction: () -> Void
     @State private var target: Double?
+    @State private var nativeRemoteSeekActive = false
+    @State private var fallbackDirection: Double?
+    @State private var fallbackEndTask: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
 
     private var shown: Double { target ?? controller.elapsed }
@@ -8398,11 +8401,17 @@ private struct TVSeekBar: View {
         .focusable()
         .focused(focus, equals: .scrubber)
         .focusEffectDisabled()
-        .background(TVSeekRemoteInput(active: selected && scenePhase == .active, onTap: { direction in
-            beginRemoteSeek(direction: direction)
-            finishScrubbing()
-        }, onBegin: { direction in
-            beginRemoteSeek(direction: direction)
+        .background(TVSeekRemoteInput(active: selected && scenePhase == .active, onBegin: { direction in
+            nativeRemoteSeekActive = true
+            fallbackEndTask?.cancel()
+            fallbackEndTask = nil
+            // onMoveCommand can deliver the click before UIKit recognizes the
+            // same held press. Keep that first 15-second step and let the
+            // display-cadence hold continue from it instead of double-skipping.
+            if target == nil || fallbackDirection == nil {
+                beginRemoteSeek(direction: direction)
+            }
+            fallbackDirection = nil
         }, onFrame: { direction, heldFor, delta in
             guard let target else { return }
             let next = PlaybackSeekPolicy.clamped(target + direction * PlaybackSeekPolicy.rate(heldFor: heldFor) * delta,
@@ -8411,18 +8420,22 @@ private struct TVSeekBar: View {
             self.target = next
             controller.previewScrubbing(at: next)
             preview.request(at: next)
-        }, onEnd: { finishScrubbing() }).frame(width: 1, height: 1).accessibilityHidden(true))
+        }, onEnd: {
+            nativeRemoteSeekActive = false
+            finishScrubbing()
+        }).frame(width: 1, height: 1).accessibilityHidden(true))
         .onMoveCommand { direction in
             switch direction {
-            // Physical left/right press lifetimes, including release, belong
-            // to TVSeekRemoteInput. Handling those here as well caused a
-            // discrete seek to race the continuous held seek.
+            case .left:
+                handleRemoteMove(-1)
+            case .right:
+                handleRemoteMove(1)
             case .down, .up:
                 finishScrubbing()
                 focus.wrappedValue = firstAction
+                onInteraction()
             default: break
             }
-            onInteraction()
         }
         .onTapGesture {
             finishScrubbing()
@@ -8432,6 +8445,10 @@ private struct TVSeekBar: View {
         .onChange(of: selected) { _, active in if !active { finishScrubbing() } }
         .onChange(of: scenePhase) { _, phase in if phase != .active { finishScrubbing() } }
         .onDisappear {
+            fallbackEndTask?.cancel()
+            fallbackEndTask = nil
+            fallbackDirection = nil
+            nativeRemoteSeekActive = false
             controller.finishScrubbing(resume: false)
             target = nil
             preview.cancel()
@@ -8443,11 +8460,47 @@ private struct TVSeekBar: View {
     }
 
     private func finishScrubbing() {
+        fallbackEndTask?.cancel()
+        fallbackEndTask = nil
+        fallbackDirection = nil
         guard let target else { return }
         controller.endScrubbing(at: target)
         self.target = nil
         preview.cancel()
         onInteraction()
+    }
+
+    /// SwiftUI's standard directional command is the reliable click path on
+    /// tvOS. It also acts as a repeat fallback if UIKit does not own a held
+    /// press on a particular Siri Remote. Repeats advance in 15-second steps;
+    /// the native gesture, when available, takes over for smooth acceleration.
+    private func handleRemoteMove(_ direction: Double) {
+        guard !nativeRemoteSeekActive else { return }
+
+        if target == nil {
+            controller.beginScrubbing()
+            guard controller.isScrubbing else { return }
+        }
+        let base = target ?? controller.elapsed
+        let destination = PlaybackSeekPolicy.remoteCommandTarget(
+            from: base, direction: direction, duration: controller.duration)
+        target = destination
+        fallbackDirection = direction
+        controller.previewScrubbing(at: destination)
+        preview.request(at: destination)
+        scheduleFallbackFinish(direction: direction)
+        onInteraction()
+    }
+
+    private func scheduleFallbackFinish(direction: Double) {
+        fallbackEndTask?.cancel()
+        fallbackEndTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            guard !Task.isCancelled,
+                  !nativeRemoteSeekActive,
+                  fallbackDirection == direction else { return }
+            finishScrubbing()
+        }
     }
 
     private func beginRemoteSeek(direction: Double) {

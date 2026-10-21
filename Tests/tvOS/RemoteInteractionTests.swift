@@ -51,22 +51,11 @@ final class RemoteInteractionTests: XCTestCase {
         XCTAssertEqual(frames.count, count)
     }
 
-    func testShortDirectionalPressesSkipFifteenSecondsWithoutStartingAHold() {
-        let session = TVSeekPressSession()
-        var taps: [Double] = []
-        session.onTap = { taps.append($0) }
-
-        session.tap(-1)
-        session.tap(1)
-
+    func testDirectionalRemoteStepsAreFifteenSecondsAndClampAtDuration() {
         XCTAssertEqual(PlaybackSeekPolicy.remoteTapSkip, 15)
-        XCTAssertEqual(taps, [-1, 1])
-        XCTAssertNil(session.direction)
-        XCTAssertNil(session.id)
-
-        session.begin(1, at: 10)
-        session.tap(-1)
-        XCTAssertEqual(taps, [-1, 1], "A tap cannot interrupt or duplicate a held press")
-        session.end()
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 120, direction: -1, duration: 300), 105)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 120, direction: 1, duration: 300), 135)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 5, direction: -1, duration: 300), 0)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 295, direction: 1, duration: 300), 299)
     }
 }
