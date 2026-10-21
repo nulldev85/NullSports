@@ -268,7 +268,7 @@ final class TVMPVBackend: TVPlaybackBackend {
     var isOpen: Bool { session?.isOpen == true }
     var volume: Int32 {
         get { Int32(session?.volume ?? 100) }
-        set { session?.volume = min(max(newValue, 0), 100) }
+        set { session?.volume = min(max(Int(newValue), 0), 100) }
     }
     var isMuted: Bool {
         get { session?.isMuted == true }
