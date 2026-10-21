@@ -65,7 +65,7 @@ jobs:
           /tmp/guide-checks
           swiftc iPhone/MobileGuideWindow.swift Tests/MobileGuideWindowChecks.swift -o /tmp/mobile-guide-checks
           /tmp/mobile-guide-checks
-          swiftc iPhone/MobilePlaybackPolicy.swift Tests/MobilePlaybackPolicyChecks.swift -o /tmp/mobile-playback-policy-checks
+          swiftc Lineup/Models/PlaybackEngineVersions.swift iPhone/MobilePlaybackPolicy.swift Tests/MobilePlaybackPolicyChecks.swift -o /tmp/mobile-playback-policy-checks
           /tmp/mobile-playback-policy-checks
           swiftc Lineup/Services/SubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/mobile-subtitle-preference-checks
           /tmp/mobile-subtitle-preference-checks
