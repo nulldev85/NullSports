@@ -10,6 +10,9 @@ on:
     # someone to remember to dispatch a run is how a branch sits broken.
     branches: [main, iphone, 'claude/**']
 
+permissions:
+  contents: write
+
 # A newer push supersedes an unfinished check on the same branch. Never cancel
 # a run on main or iphone: those produce the shipping IPAs.
 concurrency:
@@ -320,3 +323,56 @@ jobs:
           pattern: Lineup-iPhone-unsigned-IPA-candidate
           delete-merged: true
           retention-days: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone') && 14 || 7 }}
+
+  source-release:
+    needs: [test, package, publish]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download verified IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: Lineup-iPhone-unsigned-IPA
+          path: release
+
+      - name: Read IPA metadata
+        env:
+          IPA: release/Lineup-iPhone-unsigned.ipa
+        run: |
+          python3 - "$IPA" "$RUNNER_TEMP/source-release-notes.md" <<'PY'
+          import plistlib
+          import sys
+          import zipfile
+
+          ipa_path, notes_path = sys.argv[1:]
+          with zipfile.ZipFile(ipa_path) as archive:
+              plist = plistlib.loads(archive.read("Payload/Lineup.app/Info.plist"))
+          bundle_id = plist["CFBundleIdentifier"]
+          if bundle_id != "com.nulldev85.NullSports.iOS":
+              raise SystemExit(f"Unexpected bundle identifier: {bundle_id}")
+          fields = {
+              "Source-App": "Lineup",
+              "Source-Bundle-Identifier": bundle_id,
+              "Source-Version": plist["CFBundleShortVersionString"],
+              "Source-Build-Version": plist["CFBundleVersion"],
+              "Source-Minimum-OS-Version": plist.get("MinimumOSVersion", "") or "unknown",
+              "Source-Branch": "main",
+              "Source-SHA": __import__("os").environ["GITHUB_SHA"],
+          }
+          with open(notes_path, "w", encoding="utf-8") as notes:
+              for key, value in fields.items():
+                  notes.write(f"{key}: {value}\n")
+          PY
+
+      - name: Publish public source release from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: source-${{ github.run_id }}
+        run: |
+          gh release create "$SOURCE_TAG" "release/Lineup-iPhone-unsigned.ipa#Lineup.ipa" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Lineup $(sed -n 's/^Source-Version: //p' "$RUNNER_TEMP/source-release-notes.md") ($(sed -n 's/^Source-Build-Version: //p' "$RUNNER_TEMP/source-release-notes.md"))" \
+            --notes-file "$RUNNER_TEMP/source-release-notes.md" \
+            --target "$GITHUB_SHA" \
+            --latest=false
