@@ -90,7 +90,8 @@ public final class MPVPlaybackSession {
     public var subtitles: [MPVPlaybackTrack] { subtitleTracks }
 
     public func load(url: URL, startPosition: Double? = nil, isLive: Bool = false,
-                     preferredSubtitleLanguage: String? = nil) {
+                     preferredSubtitleLanguage: String? = nil,
+                     preferredAudioLanguage: String? = nil) {
         phase = .loading
         errorMessage = nil
         isOpen = true
@@ -98,7 +99,8 @@ public final class MPVPlaybackSession {
         duration = 0
         hasVideoOut = false
         core.load(url: url, startPosition: startPosition, isLive: isLive,
-                  preferredSubtitleLanguage: preferredSubtitleLanguage)
+                  preferredSubtitleLanguage: preferredSubtitleLanguage,
+                  preferredAudioLanguage: preferredAudioLanguage)
     }
 
     public func play() { core.setFlag("pause", false) }
@@ -236,7 +238,7 @@ private final class MPVPlaybackCore: @unchecked Sendable {
     }
 
     func load(url: URL, startPosition: Double?, isLive: Bool,
-              preferredSubtitleLanguage: String?) {
+              preferredSubtitleLanguage: String?, preferredAudioLanguage: String?) {
         queue.async { [weak self] in
             guard let self, let context = self.context else { return }
             self.isOpen = true
@@ -248,6 +250,7 @@ private final class MPVPlaybackCore: @unchecked Sendable {
             snapshot.position = self.pendingStart ?? 0
             self.onSnapshot?(snapshot)
             _ = mpv_set_property_string(context, "slang", preferredSubtitleLanguage ?? "")
+            _ = mpv_set_property_string(context, "alang", preferredAudioLanguage ?? "")
             let result = self.command(context, ["loadfile", url.absoluteString, "replace"])
             if result < 0 {
                 self.isOpen = false

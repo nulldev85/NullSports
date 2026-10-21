@@ -426,8 +426,14 @@ final class TVMPVBackend: TVPlaybackBackend {
     }
     var selectedVideoIndex: Int? { session?.selectedVideoIndex }
 
+    private var languages = PlaybackLanguages()
+    private var subtitleStyle = PlaybackSubtitleStyle()
+
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
-        session?.load(url: url, startPosition: startPosition, isLive: isLive)
+        session?.load(url: url, startPosition: startPosition, isLive: isLive,
+                      preferredSubtitleLanguage: isLive || languages.subtitles.isEmpty ? nil : languages.subtitles.joined(separator: ","),
+                      preferredAudioLanguage: isLive || languages.audio.isEmpty ? nil : languages.audio.joined(separator: ","))
+        if !isLive { applySubtitleStyle() }
     }
     func play() { session?.play() }
     func pause() { session?.pause() }
@@ -436,6 +442,20 @@ final class TVMPVBackend: TVPlaybackBackend {
     func selectSubtitle(index: Int?) { session?.selectSubtitle(index: index) }
     func selectAudio(index: Int) { session?.selectAudio(index: index) }
     func selectVideo(index: Int) { session?.selectVideo(index: index) }
+    func setOpeningLanguages(_ languages: PlaybackLanguages) { self.languages = languages }
+    func styleSubtitles(_ style: PlaybackSubtitleStyle) {
+        subtitleStyle = style
+        applySubtitleStyle()
+    }
+    private func applySubtitleStyle() {
+        session?.configureSubtitles(scale: subtitleStyle.scale, background: subtitleStyle.background,
+                                    delay: subtitleStyle.delay, language: languages.subtitles.joined(separator: ","))
+    }
+    func addSubtitle(file: URL, title: String, language: String) -> Bool {
+        guard let session else { return false }
+        session.addSubtitle(url: file, title: title, language: language)
+        return true
+    }
     // MPVKit renders to a Metal surface and does not expose decoded-frame
     // readback, so Auto Sync cannot sample the scoreboard with this backend.
     func captureFrame() async -> CapturedVideoFrame? { nil }
