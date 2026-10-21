@@ -46,8 +46,11 @@ public final class MPVPlaybackSession {
     public private(set) var isOpen = false
     public private(set) var isPlaying = false
     public var isMuted: Bool {
-        get { snapshot.isMuted }
-        set { core.setFlag("mute", newValue) }
+        get { requestedMute ?? snapshot.isMuted }
+        set {
+            requestedMute = newValue
+            core.setFlag("mute", newValue)
+        }
     }
     public private(set) var hasVideoOut = false
     public private(set) var videoSize = CGSize.zero
@@ -74,6 +77,7 @@ public final class MPVPlaybackSession {
 
     private let core: MPVPlaybackCore
     private var snapshot = MPVPlaybackSnapshot()
+    private var requestedMute: Bool?
 
     public init() throws {
         let host = MPVMetalSurface(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
@@ -143,11 +147,11 @@ public final class MPVPlaybackSession {
 
     private func apply(_ value: MPVPlaybackSnapshot) {
         snapshot = value
+        if requestedMute == value.isMuted { requestedMute = nil }
         phase = value.phase
         errorMessage = value.error
         isOpen = value.isOpen
         isPlaying = value.isPlaying
-        isMuted = value.isMuted
         hasVideoOut = value.hasVideoOut
         videoSize = value.size
         duration = value.duration
@@ -191,6 +195,8 @@ private final class MPVPlaybackCore: @unchecked Sendable {
     private var context: OpaquePointer?
     private var timer: DispatchSourceTimer?
     private var pendingStart: Double?
+    private var lastKnownPosition = 0.0
+    private var lastKnownDuration = 0.0
     private var wantsToPlay = true
     private var isOpen = false
     private var terminalPhase: MPVPlaybackPhase?
@@ -246,6 +252,8 @@ private final class MPVPlaybackCore: @unchecked Sendable {
             self.terminalPhase = nil
             self.failureMessage = nil
             self.pendingStart = isLive ? nil : startPosition.flatMap { $0 > 0 && $0.isFinite ? $0 : nil }
+            self.lastKnownPosition = self.pendingStart ?? 0
+            self.lastKnownDuration = 0
             var snapshot = MPVPlaybackSnapshot(phase: .loading, isOpen: true)
             snapshot.position = self.pendingStart ?? 0
             self.onSnapshot?(snapshot)
@@ -271,6 +279,8 @@ private final class MPVPlaybackCore: @unchecked Sendable {
             self.isOpen = false
             self.pendingStart = nil
             self.failureMessage = nil
+            self.lastKnownPosition = 0
+            self.lastKnownDuration = 0
             self.terminalPhase = .idle
             self.command(context, ["stop"])
         }
@@ -364,8 +374,18 @@ private final class MPVPlaybackCore: @unchecked Sendable {
         snapshot.isOpen = isOpen
         snapshot.isMuted = bool(context, "mute")
         snapshot.volume = number(context, "volume") ?? 100
-        snapshot.duration = number(context, "duration") ?? 0
-        snapshot.position = number(context, "time-pos") ?? 0
+        if let duration = number(context, "duration"), duration.isFinite, duration > 0 {
+            lastKnownDuration = duration
+        }
+        snapshot.duration = lastKnownDuration
+        let reportedPosition = number(context, "time-pos")
+        if let reportedPosition, reportedPosition.isFinite,
+           terminalPhase != .ended || reportedPosition > 0 {
+            lastKnownPosition = reportedPosition
+        }
+        snapshot.position = terminalPhase == .ended
+            ? max(lastKnownPosition, lastKnownDuration)
+            : reportedPosition ?? lastKnownPosition
         snapshot.seekable = bool(context, "seekable")
         let width = number(context, "video-params/w") ?? 0
         let height = number(context, "video-params/h") ?? 0
