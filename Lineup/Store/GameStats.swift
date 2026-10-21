@@ -507,6 +507,25 @@ final class MobileGameStats: ObservableObject {
     }
 }
 
+/// A channel can be opened from the Guide without carrying its Sports-tab
+/// event through to the player. Use verified schedule matches only when one
+/// event is unambiguous; tennis tournament cards stand for their courts.
+enum LiveStatsGameSelection {
+    static func uniqueVerifiedGame(from candidates: [SportsGame]) -> SportsGame? {
+        let supported = candidates.filter { $0.statsSource != nil }
+        let leagues = Set(supported.map(\.league))
+        guard leagues.count == 1 else { return nil }
+        guard let league = leagues.first else { return nil }
+
+        if league.isTennis {
+            let tournaments = supported.filter(\.isEvent)
+            if tournaments.count == 1 { return tournaments[0] }
+            guard tournaments.isEmpty else { return nil }
+        }
+        return supported.count == 1 ? supported[0] : nil
+    }
+}
+
 extension MobileGameStats {
     /// The game as the rest of the screen should show it: the one being
     /// watched with its score held behind the picture, every other as it is.
