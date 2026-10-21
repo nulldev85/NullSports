@@ -10,11 +10,11 @@ headphones, tone mapping, passthrough or spatial rendering. A 4K/HEVC/10-bit
 picture does not establish HDR. E-AC-3, surround channel count, release names
 and channel names do not establish Atmos.
 
-AetherEngine 7.40.1 supplies `sourceVideoFormat`, `sourceVideoCodecName` and
+AetherEngine 7.45.0 supplies `sourceVideoFormat`, `sourceVideoCodecName` and
 `sourceVideoFrameRate`. Audio follows the selected track ID, using its codec,
 layout, JOC confirmation and decoder profile. Its `isAtmos` covers E-AC-3 JOC;
 TrueHD Atmos and DTS:X use their explicit decoder profiles. See the pinned
-[TrackInfo API](https://github.com/superuser404notfound/AetherEngine/blob/7.40.1/Sources/AetherEngine/PlayerState.swift)
+[TrackInfo API](https://github.com/superuser404notfound/AetherEngine/blob/7.45.0/Sources/AetherEngine/PlayerState.swift)
 and [FFmpeg profile names](https://github.com/FFmpeg/FFmpeg/blob/master/libavcodec/profiles.c).
 The source format is kept separate from Aether's display-dependent output format.
 

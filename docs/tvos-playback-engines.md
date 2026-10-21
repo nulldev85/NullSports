@@ -25,11 +25,12 @@ engines. Engine adapters supply native playback, clocks, and stream information.
 Movie and episode tracking continues through the existing local tracking policy;
 a dropped stream is not counted as a completed title.
 
-The Aether integration uses the unmodified **7.40.1** tag, revision
-`93d54e5067ca0ad856259c0ebc1693aeafa20677`, and pins FFmpegBuild 3.7.1 and
+The Aether integration uses the unmodified **7.45.0** tag, revision
+`52802afaaf035a7f729bba1043b640ad4d9ebb3e`, and pins FFmpegBuild 3.9.0 and
 LibDovi 2.1.0. It is built with Aether's default package traits, so the
 optional TrueHD and DTS:X object audio and Dolby Vision components are not
-compiled, and LibTrueHD and LibDTSX are not linked. Lineup never requests
+compiled. LibTrueHD is not linked; DTS:X uses FFmpegBuild's decoder rather than
+a separate LibDTSX library. Lineup never requests
 object audio rendering or the dual-layer route. XcodeGen cannot set package
 traits. It uses the fast-zap live
 profile, automatic source video selection, audio-track selection, and host-rendered

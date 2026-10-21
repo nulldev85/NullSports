@@ -810,7 +810,15 @@ private struct MobilePlaybackSettingsView: View {
                 ForEach(MobilePlaybackPreference.allCases) { choice in
                     Button { preference = choice.rawValue } label: {
                         HStack {
-                            PlaybackEngineText(choice.title, style: .body).foregroundStyle(LineupStyle.text)
+                            HStack(spacing: 8) {
+                                PlaybackEngineText(choice.title, style: .body).foregroundStyle(LineupStyle.text)
+                                if let version = choice.version {
+                                    Text(version)
+                                        .font(.inter(12, .medium))
+                                        .foregroundStyle(LineupPanelStyle.quiet)
+                                        .accessibilityLabel("version \(version)")
+                                }
+                            }
                             Spacer()
                             if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
                                 Image(systemName: "checkmark").foregroundStyle(LineupStyle.highlight)
@@ -836,7 +844,7 @@ private struct MobilePlaybackAcknowledgementsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                PlaybackEngineText("AetherEngine 7.40.1 and its decoder libraries", style: .subheadline)
+                PlaybackEngineText("AetherEngine \(PlaybackEngineVersions.aether) and its decoder libraries", style: .subheadline)
                     .font(.inter(.subheadline, .semibold)).foregroundStyle(LineupStyle.text)
                 Text(AetherPlaybackSession.openSourceNotices() + "\n\n" + MPVPlaybackSession.openSourceNotices())
                     .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)

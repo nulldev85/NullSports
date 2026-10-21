@@ -4867,7 +4867,7 @@ struct AccountView: View {
                        message: "Used for the next stream you open in \(choosingEngineFor?.title ?? "this tab"). MPVKit is a trial; if it cannot open a stream, Lineup falls back to AetherEngine, then VLC.") {
                 guard let place = choosingEngineFor else { return [] }
                 return TVPlaybackEngine.allCases.map { engine in
-                     TVChoice(engine.title, symbol: "play.rectangle", namesEngine: true,
+                     TVChoice(engine.title, symbol: "play.rectangle", namesEngine: true, version: engine.version,
                               isSelected: self.engine(for: place) == engine) {
                         setEngine(engine, for: place)
                     }

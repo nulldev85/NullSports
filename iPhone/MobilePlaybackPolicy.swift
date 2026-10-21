@@ -26,6 +26,14 @@ enum MobilePlaybackPreference: String, CaseIterable, Identifiable {
     var title: String {
         switch self { case .automatic: "Automatic"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit (Trial)" }
     }
+    var version: String? {
+        switch self {
+        case .automatic: nil
+        case .aether: PlaybackEngineVersions.aether
+        case .vlc: PlaybackEngineVersions.vlc
+        case .mpv: PlaybackEngineVersions.mpv
+        }
+    }
     static func selected(in defaults: UserDefaults = .standard) -> Self {
         defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .automatic
     }

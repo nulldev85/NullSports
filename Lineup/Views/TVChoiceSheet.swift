@@ -12,12 +12,15 @@ struct TVChoice: Identifiable {
     var imageName: String?
     /// The title names playback engines, each led by its logo.
     var namesEngine = false
+    /// Small version text shown beside a playback engine in Settings.
+    var version: String?
     var isSelected = false
     var isDestructive = false
     var isEnabled = true
     let action: () -> Void
 
     init(_ title: String, symbol: String? = nil, imageName: String? = nil, namesEngine: Bool = false,
+         version: String? = nil,
          id: String? = nil, isSelected: Bool = false,
          isDestructive: Bool = false, isEnabled: Bool = true, action: @escaping () -> Void) {
         self.id = id ?? title
@@ -25,6 +28,7 @@ struct TVChoice: Identifiable {
         self.symbol = symbol
         self.imageName = imageName
         self.namesEngine = namesEngine
+        self.version = version
         self.isSelected = isSelected
         self.isDestructive = isDestructive
         self.isEnabled = isEnabled
@@ -292,10 +296,19 @@ private struct TVChoiceSheet: View {
                 } else if let symbol = item.symbol {
                     LineupIconTile(symbol: symbol, size: 42)
                 }
-                (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 24) : Text(item.title))
-                    .font(.inter(24, .semibold))
-                    .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
-                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 9) {
+                    (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 24) : Text(item.title))
+                        .font(.inter(24, .semibold))
+                        .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
+                        .lineLimit(2)
+                    if item.namesEngine, let version = item.version {
+                        Text(version)
+                            .font(.inter(16, .medium))
+                            .foregroundStyle(LineupPanelStyle.quiet)
+                            .lineLimit(1)
+                            .accessibilityLabel("version \(version)")
+                    }
+                }
                 Spacer(minLength: 12)
                 if item.isSelected {
                     Image(systemName: "checkmark")

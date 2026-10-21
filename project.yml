@@ -18,7 +18,7 @@ packages:
     exactVersion: 3.6.0
   AetherEngine:
     url: https://github.com/superuser404notfound/AetherEngine
-    exactVersion: 7.40.1
+    exactVersion: 7.45.0
   # Trial engine. Use MPVKit's LGPL product only; never its MPVKit-GPL product.
   # Keep libmpv isolated from the copies embedded by VLC and Aether.
   MPVKit:
@@ -28,13 +28,12 @@ packages:
   # these exact builds, not a future patch selected on a fresh CI runner.
   FFmpegBuild:
     url: https://github.com/superuser404notfound/FFmpegBuild
-    exactVersion: 3.7.1
+    exactVersion: 3.9.0
   LibDovi:
     url: https://github.com/superuser404notfound/LibDovi
     exactVersion: 2.1.0
-  # LibTrueHD and LibDTSX are not pinned: since 7.39 Aether links them only
-  # behind its TrueHDObjectAudio / DTSXObjectAudio package traits, which are off
-  # (Lineup never asks for object audio rendering), so they are not in the app.
+  # LibTrueHD is not pinned: Aether links it only behind the off-by-default
+  # TrueHDObjectAudio trait. DTS:X uses FFmpegBuild's dca decoder in 7.45.0.
 targets:
   # Keep Aether's static engine in a separate dylib, where its FFmpeg symbol
   # references bind to AetherLib* rather than TVVLCKit's embedded FFmpeg.

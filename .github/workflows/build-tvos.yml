@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    # AetherEngine 7.40.1 is built and tested with Swift 6.4 / Xcode 27.
+    # AetherEngine 7.45.0 is built and tested with Swift 6.4 / Xcode 27.
     runs-on: xcode-27
     timeout-minutes: 45
     steps:
@@ -37,6 +37,7 @@ jobs:
           set -euo pipefail
           python3 -B Tests/SharedSourceMembershipChecks.py
           python3 -B Tests/PlaybackBundleProjectChecks.py
+          python3 -B Tests/PlaybackVersionChecks.py
           find Lineup iPhone AetherPlayback MPVPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
 
       - name: Check college channel matching policy

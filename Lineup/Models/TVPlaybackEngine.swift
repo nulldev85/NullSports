@@ -15,6 +15,14 @@ enum TVPlaybackEngine: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    var version: String {
+        switch self {
+        case .vlc: PlaybackEngineVersions.vlc
+        case .aether: PlaybackEngineVersions.aether
+        case .mpv: PlaybackEngineVersions.mpv
+        }
+    }
+
     static func selected(in defaults: UserDefaults = .standard) -> Self {
         defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .vlc
     }
