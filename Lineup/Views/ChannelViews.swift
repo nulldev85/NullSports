@@ -8239,7 +8239,7 @@ private struct TVCatchUpBar: View {
             }
             onInteraction()
         }
-        .onSelectCommand {
+        .onTapGesture {
             controller.togglePlayback()
             onInteraction()
         }
@@ -8423,7 +8423,7 @@ private struct TVSeekBar: View {
             }
             onInteraction()
         }
-        .onSelectCommand {
+        .onTapGesture {
             finishScrubbing()
             controller.togglePlayback()
             onInteraction()
