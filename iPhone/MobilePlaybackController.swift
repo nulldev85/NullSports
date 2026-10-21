@@ -5,6 +5,7 @@ import CoreMedia
 import VLCKitSPM
 import LineupAetherPlayback
 import LineupMPVPlayback
+import ImageIO
 
 /// Runs `body` on the main actor. AVFoundation delivers KVO on an unspecified
 /// queue, so every observer hops through here before touching controller state;
@@ -21,16 +22,23 @@ private func onMain(_ body: @escaping @MainActor () -> Void) {
 /// still queued, so the two can never land out of order.
 enum MobileAudioSession {
     private static let queue = DispatchQueue(label: "lineup.audio-session", qos: .userInitiated)
+    /// The players holding the session. With two on screen, one stopping
+    /// mustn't switch the sound off under the other.
+    @MainActor private static var holders = Set<ObjectIdentifier>()
 
-    static func activate() throws {
+    @MainActor
+    static func activate(for holder: AnyObject) throws {
         try queue.sync {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .moviePlayback)
             try session.setActive(true)
         }
+        holders.insert(ObjectIdentifier(holder))
     }
 
-    static func deactivate() {
+    @MainActor
+    static func deactivate(for holder: AnyObject) {
+        guard holders.remove(ObjectIdentifier(holder)) != nil, holders.isEmpty else { return }
         queue.async {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
@@ -98,6 +106,18 @@ final class MobilePlaybackController: ObservableObject {
     @Published private(set) var subtitleDelaySeconds: Double = 0
     private var explicitSubtitleChoice = false
     private var onlineSubtitleFiles: [URL] = []
+    /// The title's own sound tracks -- languages, commentary -- for a title
+    /// with an end. A channel keeps the one it plays.
+    @Published private(set) var audioTracks: [MobileTrackOption] = []
+    @Published private(set) var selectedAudioID: String?
+    /// The subtitle tracks' languages, by track, where the engine knows them.
+    private var subtitleLanguages: [String: String] = [:]
+    /// The show whose sound and subtitles this player keeps from episode to
+    /// episode, and what it kept.
+    private var trackMemoryShow: String?
+    private var showTracks: MobileShowTracks?
+    private var appliedShowAudio = false
+    private var appliedShowSubtitle = false
     var canAttachOnlineSubtitles: Bool { !isLive && monitor != nil && currentURL != nil && engine != .system && error == nil }
 
     /// How the controller reaches other channels for the game on screen. Left
@@ -164,6 +184,39 @@ final class MobilePlaybackController: ObservableObject {
     private(set) var recordingEndsWithProgramme = false
     /// When a live channel the provider records was paused, to pick up from.
     private var pausedAt: Date?
+    /// This player's sound is off: a picture sharing the screen with
+    /// another, whose sound is on. Held through reconnects and engine
+    /// changes, and through the start gate, which used to switch every
+    /// player's sound back on as its picture came up.
+    var audioMuted = false {
+        didSet { if audioMuted != oldValue { applyMute() } }
+    }
+    /// Leaving the app hands this picture to the system window. Off for a
+    /// picture sharing the screen with another.
+    var allowsPictureInPicture = true {
+        didSet {
+            pipController?.canStartPictureInPictureAutomaticallyFromInline = allowsPictureInPicture
+            aetherSession?.startsPictureInPictureAutomatically = allowsPictureInPicture
+        }
+    }
+    /// The player that owns the system's Now Playing and display. A second
+    /// picture on screen does not.
+    var isPrimaryOutput = true
+    /// Held to about 540p for a muted picture sharing the screen while the
+    /// phone runs hot. Only Apple's player can lower a stream, and only one
+    /// that offers more than one quality: anything else plays as it is.
+    var holdsQualityDown = false {
+        didSet {
+            guard holdsQualityDown != oldValue else { return }
+            applyQualityCeiling(to: systemPlayer.currentItem)
+            diag.record(holdsQualityDown ? "running hot: quality held down while muted" : "quality ceiling lifted")
+        }
+    }
+    /// Pauses on a channel playing live since it was last opened: the
+    /// picture falls behind the broadcast by each one, however the engine
+    /// then catches up, and nothing shown beside it may run ahead.
+    private var liveHoldSince: Date?
+    private var liveHeldSeconds: TimeInterval = 0
     private var skipTask: Task<Void, Never>?
     /// Holds a surface teardown back long enough for a replacement to arrive.
     private var pendingTeardown: Task<Void, Never>?
@@ -210,6 +263,8 @@ final class MobilePlaybackController: ObservableObject {
     private var systemNotifications: [NSObjectProtocol] = []
     private var systemSubtitleGroup: AVMediaSelectionGroup?
     private var systemSubtitleOptions: [String: AVMediaSelectionOption] = [:]
+    private var systemAudioGroup: AVMediaSelectionGroup?
+    private var systemAudioOptions: [String: AVMediaSelectionOption] = [:]
     /// Held apart from `systemObservers`: those are torn down on every channel
     /// change, and this one belongs to the layer, which outlives the item.
     private var pipObserver: NSKeyValueObservation?
@@ -337,6 +392,20 @@ final class MobilePlaybackController: ObservableObject {
     var selectedSubtitleTitle: String {
         subtitleTracks.first(where: { $0.id == selectedSubtitleID })?.title ?? "Off"
     }
+
+    var selectedAudioTitle: String {
+        audioTracks.first(where: { $0.id == selectedAudioID })?.title ?? "Default"
+    }
+
+    /// Keep the sound and subtitles chosen for a show's episodes, and put
+    /// them back on the next one. Set before `start`, so the engine opens on
+    /// the kept language rather than switching to it.
+    func remembersTracks(forShow show: String?) {
+        trackMemoryShow = show
+        showTracks = show.flatMap { MobileTrackMemory.load($0, defaults: defaults) }
+    }
+
+    var remembersShowTracks: Bool { trackMemoryShow != nil }
 
     // MARK: - Position
 
@@ -618,7 +687,7 @@ final class MobilePlaybackController: ObservableObject {
             // Backgrounding an inline player hands it to the system window
             // instead of stopping it. This is what "entering PiP preserves the
             // stream" means in practice: no new item, no new connection.
-            pipController?.canStartPictureInPictureAutomaticallyFromInline = true
+            pipController?.canStartPictureInPictureAutomaticallyFromInline = allowsPictureInPicture
             observePictureInPicturePossible()
         }
     }
@@ -748,15 +817,24 @@ final class MobilePlaybackController: ObservableObject {
         heldSoundSince = nil
         releaseGateOutput()
         switch engine {
-        case .aether: aetherSession?.isMuted = false
-        case .mpv: mpvSession?.isMuted = false
+        case .aether: aetherSession?.isMuted = audioMuted
+        case .mpv: mpvSession?.isMuted = audioMuted
         case .system:
-            systemPlayer.isMuted = false
+            systemPlayer.isMuted = audioMuted
             if systemPlayer.currentItem?.status == .readyToPlay { loading = false }
         case .vlc:
-            player.audio?.isMuted = false
+            player.audio?.isMuted = audioMuted
         }
         videoView?.holdPicture(false)
+    }
+
+    /// The sound as the viewer has it, once the start gate has let it out.
+    private func applyMute() {
+        guard startGateOpen else { return }
+        systemPlayer.isMuted = audioMuted
+        player.audio?.isMuted = audioMuted
+        aetherSession?.isMuted = audioMuted
+        mpvSession?.isMuted = audioMuted
     }
 
     /// The gate goes with the stream it held: nothing left muted or hidden.
@@ -766,10 +844,10 @@ final class MobilePlaybackController: ObservableObject {
         releaseGateOutput()
         heldSoundSince = nil
         startGateOpen = true
-        systemPlayer.isMuted = false
-        player.audio?.isMuted = false
-        aetherSession?.isMuted = false
-        mpvSession?.isMuted = false
+        systemPlayer.isMuted = audioMuted
+        player.audio?.isMuted = audioMuted
+        aetherSession?.isMuted = audioMuted
+        mpvSession?.isMuted = audioMuted
         videoView?.holdPicture(false)
     }
 
@@ -860,7 +938,7 @@ final class MobilePlaybackController: ObservableObject {
         // transport stream stays queued behind it. Apple TV keeps its own order.
         candidates = MobileEngineSelection.ordered(urls)
         do {
-            try MobileAudioSession.activate()
+            try MobileAudioSession.activate(for: self)
         } catch {
             self.error = "Audio could not start. Please try again."
             loading = false
@@ -890,7 +968,14 @@ final class MobilePlaybackController: ObservableObject {
                    self.videoView?.playerLayer?.isReadyForDisplay == true {
                     self.confirmWorkingChannel()
                 }
-                if self.engine == .vlc { self.refreshVLCSubtitleTracks() }
+                if self.engine == .vlc {
+                    self.refreshVLCSubtitleTracks()
+                    self.refreshVLCAudioTracks()
+                }
+                // VLC can bring its sound output back up unmuted as it
+                // reconnects; a quiet picture stays quiet.
+                if self.audioMuted, self.startGateOpen, self.engine == .vlc,
+                   self.player.audio?.isMuted == false { self.player.audio?.isMuted = true }
                 if self.engine == .aether { self.checkAetherPlayback() }
                 guard !self.suspended, !self.pausedByUser else { continue }
                 if let retryAt = self.retryAt {
@@ -1041,7 +1126,10 @@ final class MobilePlaybackController: ObservableObject {
         do {
             let session: AetherPlaybackSession
             if let existing = aetherSession { session = existing }
-            else { session = try AetherPlaybackSession(); aetherSession = session }
+            else {
+                session = try AetherPlaybackSession(); aetherSession = session
+                session.startsPictureInPictureAutomatically = allowsPictureInPicture
+            }
             session.onPictureInPictureChange = { [weak self] active in
                 guard let self, self.engine == .aether else { return }
                 self.pictureInPictureChanged(active: active)
@@ -1061,8 +1149,9 @@ final class MobilePlaybackController: ObservableObject {
             }
             session.load(url: url, startPosition: isLive ? nil : openingPlace,
                          isLive: isLive && !sourceIsRecording, expectedDuration: nil,
-                         primary: true, matchContent: false,
-                         preferredSubtitleLanguages: isLive || subtitlePreferences.language.isEmpty ? [] : [subtitlePreferences.language])
+                         primary: isPrimaryOutput, matchContent: false,
+                         preferredSubtitleLanguages: preferredSubtitleLanguages,
+                         preferredAudioLanguages: preferredAudioLanguages)
             applySubtitleAppearance()
             closeStartGate()
             UIApplication.shared.isIdleTimerDisabled = true
@@ -1108,12 +1197,23 @@ final class MobilePlaybackController: ObservableObject {
             if videoWidth != width { videoWidth = width }
             if videoHeight != height { videoHeight = height }
         }
-        let tracks: [PlaybackSubtitleTrack] = [.off] + session.subtitles.map {
+        let subtitles = session.subtitles
+        let tracks: [PlaybackSubtitleTrack] = [.off] + subtitles.map {
             .init(id: "aether-\($0.id)", title: $0.title, engineIndex: $0.id)
         }
         if tracks != subtitleTracks { subtitleTracks = tracks }
         let selected = tracks.first { $0.engineIndex == session.selectedSubtitleIndex }?.id ?? PlaybackSubtitleTrack.off.id
         if selected != selectedSubtitleID { selectedSubtitleID = selected }
+        if !isLive {
+            for subtitle in subtitles { subtitleLanguages["aether-\(subtitle.id)"] = subtitle.language }
+            let audio = session.audioTracks.map {
+                MobileTrackOption(id: "aether-audio-\($0.id)", title: $0.title, language: $0.language, engineIndex: $0.id)
+            }
+            if audio != audioTracks { audioTracks = audio }
+            let audioID = audio.first { $0.engineIndex == session.selectedAudioIndex }?.id
+            if audioID != selectedAudioID { selectedAudioID = audioID }
+            applyShowTracks()
+        }
         if session.hasPicture && session.isPlaying { confirmWorkingChannel() }
         // PiP and background audio have their own renderer lifecycle; never
         // mistake a deliberately detached foreground picture for a lost feed.
@@ -1240,9 +1340,11 @@ final class MobilePlaybackController: ObservableObject {
         }
         media.addOption(":http-reconnect=true")
         if !isLive {
-            if !subtitlePreferences.language.isEmpty {
-                let language = subtitlePreferences.language
+            if let language = preferredSubtitleLanguages.first {
                 media.addOption(":sub-language=\(language),\(language.prefix(2))")
+            }
+            if showTracks?.audio != nil, let language = preferredAudioLanguages.first {
+                media.addOption(":audio-language=\(language),\(language.prefix(2))")
             }
             media.addOption(":freetype-rel-fontsize=\(Int((16 / subtitlePreferences.scale).rounded()))")
             media.addOption(":freetype-background-opacity=\(subtitlePreferences.background ? 204 : 0)")
@@ -1254,9 +1356,16 @@ final class MobilePlaybackController: ObservableObject {
         startWhenVideoIsReady()
     }
 
+    private func applyQualityCeiling(to item: AVPlayerItem?) {
+        guard let item else { return }
+        item.preferredPeakBitRate = holdsQualityDown ? 2_500_000 : 0
+        item.preferredMaximumResolution = holdsQualityDown ? CGSize(width: 960, height: 540) : .zero
+    }
+
     private func openSystem(_ url: URL) {
         health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
         let item = AVPlayerItem(url: url)
+        applyQualityCeiling(to: item)
         systemPlayer.replaceCurrentItem(with: item)
         applySubtitleAppearance()
 
@@ -1273,6 +1382,7 @@ final class MobilePlaybackController: ObservableObject {
                     if self.startGateOpen { self.loading = false }
                     UIApplication.shared.isIdleTimerDisabled = true
                     self.loadSystemSubtitleTracks(for: item)
+                    self.loadSystemAudioTracks(for: item)
                 default: break
                 }
             }
@@ -1347,6 +1457,8 @@ final class MobilePlaybackController: ObservableObject {
         systemPlayer.replaceCurrentItem(with: nil)
         systemSubtitleGroup = nil
         systemSubtitleOptions.removeAll()
+        systemAudioGroup = nil
+        systemAudioOptions.removeAll()
         layerDetachedForBackground = false
     }
 
@@ -1372,6 +1484,12 @@ final class MobilePlaybackController: ObservableObject {
 
     func toggle() {
         pausedByUser.toggle()
+        if pausedByUser, isLive, catchUp == nil {
+            liveHoldSince = Date()
+        } else if !pausedByUser, let since = liveHoldSince {
+            liveHeldSeconds += Date().timeIntervalSince(since)
+            liveHoldSince = nil
+        }
         if pausedByUser {
             switch engine {
             case .aether: aetherSession?.pause()
@@ -1523,6 +1641,78 @@ final class MobilePlaybackController: ObservableObject {
         failover?.didPlay(id)
     }
 
+    // MARK: - Frames for Auto Sync
+
+    /// A picture taken from the stream: AVPlayer's and Aether's as decoded,
+    /// VLC's as the PNG it writes.
+    typealias CapturedFrame = CapturedVideoFrame
+
+    private var frameOutput: AVPlayerItemVideoOutput?
+    private weak var frameOutputItem: AVPlayerItem?
+
+    /// The picture on screen now, for Auto Sync to read the scoreboard in.
+    /// Nil while there is nothing to read, and for the first ask on a new
+    /// stream, whose output sees frames only from then on.
+    func captureFrame() async -> CapturedFrame? {
+        guard error == nil, !loading, isPlaying else { return nil }
+        switch engine {
+        case .system:
+            return systemPlayer.currentItem.flatMap(frame(from:)).map(CapturedFrame.pixelBuffer)
+        case .aether:
+            guard let session = aetherSession else { return nil }
+            if let shown = session.displayedFrame() { return .pixelBuffer(shown) }
+            return session.currentPlayerItem.flatMap(frame(from:)).map(CapturedFrame.pixelBuffer)
+        case .vlc:
+            return await vlcSnapshot().map(CapturedFrame.image)
+        case .mpv:
+            // MPVKit's Metal surface does not expose decoded-frame readback.
+            return nil
+        }
+    }
+
+    /// Done reading frames: the output comes off the item.
+    func releaseFrameOutput() {
+        if let output = frameOutput, let item = frameOutputItem { item.remove(output) }
+        frameOutput = nil
+        frameOutputItem = nil
+    }
+
+    private func frame(from item: AVPlayerItem) -> CVPixelBuffer? {
+        if frameOutputItem !== item {
+            releaseFrameOutput()
+            let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ])
+            item.add(output)
+            frameOutput = output
+            frameOutputItem = item
+            return nil
+        }
+        guard let output = frameOutput else { return nil }
+        let time = output.itemTime(forHostTime: CACurrentMediaTime())
+        return output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil)
+    }
+
+    /// VLC writes the picture to a file on its own thread; it is read once
+    /// it is whole, then thrown away.
+    private func vlcSnapshot() async -> CGImage? {
+        guard let handle = libVLCHandle else { return nil }
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lineup-scoreboard-\(UUID().uuidString).png")
+        let status = file.path.withCString { libvlc_video_take_snapshot(handle, 0, $0, 1280, 0) }
+        guard status == 0 else { return nil }
+        defer { try? FileManager.default.removeItem(at: file) }
+        for _ in 0..<15 {
+            try? await Task.sleep(for: .milliseconds(100))
+            guard let data = try? Data(contentsOf: file),
+                  let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  CGImageSourceGetStatus(source) == .statusComplete,
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { continue }
+            return image
+        }
+        return nil
+    }
+
     // MARK: - Subtitles
 
     func setSubtitlePreferences(_ value: MobileSubtitlePreferences) {
@@ -1602,8 +1792,12 @@ final class MobilePlaybackController: ObservableObject {
         }
     }
 
-    func selectSubtitle(_ track: PlaybackSubtitleTrack) {
+    func selectSubtitle(_ track: PlaybackSubtitleTrack, byViewer: Bool = true) {
         explicitSubtitleChoice = true
+        if byViewer {
+            appliedShowSubtitle = true
+            rememberSubtitle(track)
+        }
         switch engine {
         case .aether: aetherSession?.selectSubtitle(index: track.engineIndex)
         case .vlc:
@@ -1657,14 +1851,19 @@ final class MobilePlaybackController: ObservableObject {
                 } else {
                     self.selectedSubtitleID = PlaybackSubtitleTrack.off.id
                 }
-                if !self.explicitSubtitleChoice, !self.subtitlePreferences.language.isEmpty,
+                for (id, option) in options {
+                    self.subtitleLanguages[id] = option.extendedLanguageTag ?? option.locale?.identifier
+                }
+                if !self.explicitSubtitleChoice, self.showTracks?.hasSubtitleChoice != true,
+                   !self.subtitlePreferences.language.isEmpty,
                    let option = group.options.first(where: {
                        MobileSubtitlePreferences.matches($0.extendedLanguageTag ?? $0.locale?.identifier,
                                                          preferred: self.subtitlePreferences.language)
                    }), let id = options.first(where: { $0.value === option })?.key,
                    let track = tracks.first(where: { $0.id == id }) {
-                    self.selectSubtitle(track)
+                    self.selectSubtitle(track, byViewer: false)
                 }
+                self.applyShowTracks()
             } catch {
                 // No legible group is a normal answer for a title with no
                 // captions. Playback remains untouched and the button stays
@@ -1685,6 +1884,138 @@ final class MobilePlaybackController: ObservableObject {
         systemSubtitleGroup = nil
         systemSubtitleOptions.removeAll()
         systemPlayer.appliesMediaSelectionCriteriaAutomatically = true
+        subtitleLanguages.removeAll()
+        audioTracks = []
+        selectedAudioID = nil
+        systemAudioGroup = nil
+        systemAudioOptions.removeAll()
+        appliedShowAudio = false
+        appliedShowSubtitle = false
+    }
+
+    // MARK: - Sound tracks and a show's kept choices
+
+    /// What the engine opens with: the show's kept language, else the
+    /// viewer's subtitle preference. Subtitles kept off open with none.
+    private var preferredSubtitleLanguages: [String] {
+        guard !isLive else { return [] }
+        if let showTracks, showTracks.hasSubtitleChoice {
+            return showTracks.subtitlesOff ? [] : [showTracks.subtitle?.language].compactMap { $0 }
+        }
+        return subtitlePreferences.language.isEmpty ? [] : [subtitlePreferences.language]
+    }
+
+    private var preferredAudioLanguages: [String] {
+        let kept = isLive ? nil : showTracks?.audio?.language
+        return (kept.map { [$0] } ?? []) + ["en", "eng"]
+    }
+
+    func selectAudioTrack(_ track: MobileTrackOption) {
+        appliedShowAudio = true
+        applyAudio(track)
+        guard let show = trackMemoryShow else { return }
+        var kept = showTracks ?? MobileShowTracks()
+        kept.audio = MobileTrackMemory.choice(for: track)
+        showTracks = kept
+        MobileTrackMemory.save(kept, for: show, defaults: defaults)
+    }
+
+    private func applyAudio(_ track: MobileTrackOption) {
+        switch engine {
+        case .aether:
+            if let index = track.engineIndex { aetherSession?.selectAudio(index: index) }
+        case .vlc:
+            if let index = track.engineIndex { player.currentAudioTrackIndex = Int32(index) }
+        case .system:
+            guard let item = systemPlayer.currentItem, let group = systemAudioGroup,
+                  let option = systemAudioOptions[track.id] else { return }
+            systemPlayer.appliesMediaSelectionCriteriaAutomatically = false
+            item.select(option, in: group)
+        }
+        selectedAudioID = track.id
+    }
+
+    private func rememberSubtitle(_ track: PlaybackSubtitleTrack) {
+        guard let show = trackMemoryShow else { return }
+        var kept = showTracks ?? MobileShowTracks()
+        if track.id == PlaybackSubtitleTrack.off.id {
+            kept.subtitlesOff = true
+            kept.subtitle = nil
+        } else {
+            kept.subtitlesOff = false
+            kept.subtitle = MobileTrackMemory.choice(for: subtitleOption(track))
+        }
+        showTracks = kept
+        MobileTrackMemory.save(kept, for: show, defaults: defaults)
+    }
+
+    private func subtitleOption(_ track: PlaybackSubtitleTrack) -> MobileTrackOption {
+        MobileTrackOption(id: track.id, title: track.title, language: subtitleLanguages[track.id],
+                          engineIndex: track.engineIndex)
+    }
+
+    /// The show's kept sound and subtitles, put back once for each episode,
+    /// as soon as its tracks are known. A track the viewer picks themselves
+    /// in the meantime wins.
+    private func applyShowTracks() {
+        guard let showTracks, !isLive else { return }
+        if !appliedShowAudio, let audio = showTracks.audio, audioTracks.count > 1 {
+            appliedShowAudio = true
+            if let match = MobileTrackMemory.match(audio, in: audioTracks), match.id != selectedAudioID {
+                applyAudio(match)
+                diag.record("Put back the sound kept for this show")
+            }
+        }
+        let offered = subtitleTracks.filter { $0.id != PlaybackSubtitleTrack.off.id }
+        if !appliedShowSubtitle, showTracks.hasSubtitleChoice, !offered.isEmpty {
+            appliedShowSubtitle = true
+            if showTracks.subtitlesOff {
+                if selectedSubtitleID != PlaybackSubtitleTrack.off.id { selectSubtitle(.off, byViewer: false) }
+            } else if let subtitle = showTracks.subtitle,
+                      let match = MobileTrackMemory.match(subtitle, in: offered.map(subtitleOption)),
+                      match.id != selectedSubtitleID,
+                      let track = offered.first(where: { $0.id == match.id }) {
+                selectSubtitle(track, byViewer: false)
+                diag.record("Put back the subtitles kept for this show")
+            }
+        }
+    }
+
+    private func refreshVLCAudioTracks() {
+        guard !isLive else { return }
+        let tracks = PlaybackStreamTrack.vlcTracks(names: (player.audioTrackNames as? [String]) ?? [],
+            indexes: ((player.audioTrackIndexes as? [NSNumber]) ?? []).map(\.intValue), kind: "Audio")
+            .map { MobileTrackOption(id: "vlc-audio-\($0.id)", title: $0.title,
+                                     language: MobileTrackMemory.language(inTitle: $0.title), engineIndex: $0.id) }
+        if tracks != audioTracks { audioTracks = tracks }
+        let current = Int(player.currentAudioTrackIndex)
+        let selected = tracks.first { $0.engineIndex == current }?.id
+        if selected != selectedAudioID { selectedAudioID = selected }
+        applyShowTracks()
+    }
+
+    private func loadSystemAudioTracks(for item: AVPlayerItem) {
+        guard !isLive else { return }
+        Task { [weak self, weak item] in
+            guard let self, let item,
+                  let group = try? await item.asset.loadMediaSelectionGroup(for: .audible),
+                  self.systemPlayer.currentItem === item else { return }
+            self.systemAudioGroup = group
+            var tracks: [MobileTrackOption] = []
+            var options: [String: AVMediaSelectionOption] = [:]
+            for (offset, option) in group.options.enumerated() {
+                let id = "system-audio-\(offset)"
+                let title = option.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                tracks.append(MobileTrackOption(id: id, title: title.isEmpty ? "Audio \(offset + 1)" : title,
+                                                language: option.extendedLanguageTag ?? option.locale?.identifier))
+                options[id] = option
+            }
+            self.systemAudioOptions = options
+            self.audioTracks = tracks
+            let chosen = item.currentMediaSelection.selectedMediaOption(in: group)
+            self.selectedAudioID = chosen.flatMap { chosen in options.first { $0.value === chosen }?.key }
+            self.applyShowTracks()
+        }
     }
 
     private func refreshStats() {
@@ -1830,6 +2161,20 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     // MARK: - Catch-up
+
+    /// How far the picture is behind the live broadcast by the viewer's own
+    /// doing: a channel's recording played behind live, or pauses on a
+    /// channel playing live. The stream's own lag behind the broadcast is
+    /// not counted here; the viewer sets that against what they see.
+    var secondsBehindLive: TimeInterval {
+        guard isLive else { return 0 }
+        if let position = catchUpPosition {
+            return max(0, Date().timeIntervalSince(position) - CatchUpPolicy.liveLatency)
+        }
+        var held = liveHeldSeconds
+        if let liveHoldSince { held += Date().timeIntervalSince(liveHoldSince) }
+        return held
+    }
 
     /// What is on screen while a recording plays: a skip's destination while
     /// it waits, else where the stream has got to. Nil while live.
@@ -2185,9 +2530,11 @@ final class MobilePlaybackController: ObservableObject {
         skipTarget = nil
         catchUp = nil
         pausedAt = nil
+        liveHoldSince = nil
+        liveHeldSeconds = 0
         recordingElapsed = 0
         UIApplication.shared.isIdleTimerDisabled = false
-        MobileAudioSession.deactivate()
+        MobileAudioSession.deactivate(for: self)
     }
 
     func shutdown() {

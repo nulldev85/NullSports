@@ -334,6 +334,55 @@ final class TennisTests: XCTestCase {
                                                  game: rome, now: Date()), 200)
     }
 
+    // From a real iPhone: Tennis Channel's whip-around named five
+    // tournaments, and the Lyon card's picture was Almaty's match. A
+    // channel on a tournament alone comes first, and a shared one says
+    // what it is showing.
+    func testAChannelTournamentsShareSaysSo() {
+        let now = Date()
+        let lyon = tournamentCard("Grand Prix Auvergne-Rh\u{00F4}ne-Alpes", city: "Lyon, France")
+        let almaty = tournamentCard("Almaty Open", city: "Almaty, Kazakhstan")
+        let ningbo = tournamentCard("Ningbo Open", league: .wta, city: "Ningbo, China")
+        let board = SportsLibrary.tournamentBoard([lyon, almaty, ningbo])
+        let centerCourt = [program("Center Court Live : Brussels-ATP, Lyon-ATP, Almaty-ATP, Osaka-WTA & Ningbo-WTA Early Rounds")]
+        // Still the tournament's channel: shared is less sure, not wrong.
+        XCTAssertNotNil(SportsLibrary.tennisScore(channel: "US: Tennis Channel", listings: centerCourt,
+                                                  game: lyon, now: now))
+        XCTAssertEqual(SportsLibrary.sharedCoverageTitle(channel: "US: Tennis Channel", listings: centerCourt,
+                                                         game: lyon, board: board, now: now),
+                       "Center Court Live \u{00B7} 5 tournaments")
+        // Three tours' tags are shared coverage, whatever is on the board.
+        XCTAssertEqual(SportsLibrary.sharedCoverageTitle(channel: "US: Tennis Channel", listings: centerCourt,
+                                                         game: lyon, board: [], now: now),
+                       "Center Court Live \u{00B7} 5 tournaments")
+        // Another tournament on the board, named in the detail.
+        XCTAssertEqual(SportsLibrary.sharedCoverageTitle(
+            channel: "Sky Sports Tennis HD", listings: [program("Live Tennis", "ATP Almaty Open & WTA Ningbo Open")],
+            game: almaty, board: board, now: now), "Live Tennis \u{00B7} 2 tournaments")
+        // A title that names them is used as it stands.
+        XCTAssertEqual(SportsLibrary.sharedCoverageTitle(
+            channel: "Sky Sports Tennis HD", listings: [program("ATP Almaty & WTA Ningbo", "Early rounds")],
+            game: almaty, board: board, now: now), "ATP Almaty & WTA Ningbo")
+        // A channel on one tournament is labeled as before.
+        XCTAssertNil(SportsLibrary.sharedCoverageTitle(
+            channel: "beIN Sports 1", listings: [program("ATP Tennis", "Almaty Open: Round 1")],
+            game: almaty, board: board, now: now))
+        // A major's other tour is the same tournament, not another one.
+        let men = tournamentCard("US Open", city: "New York, NY")
+        let women = tournamentCard("US Open", league: .wta, city: "New York, NY")
+        let major = SportsLibrary.tournamentBoard([men, women])
+        XCTAssertEqual(major.count, 1)
+        XCTAssertNil(SportsLibrary.sharedCoverageTitle(
+            channel: "ESPN", listings: [program("US Open Tennis", "Men's and women's second round")],
+            game: men, board: major, now: now))
+        // The channel on the tournament alone is offered first, whatever
+        // either's picture; language still comes before it.
+        let fullHD: [Int: LiveChannelQuality] = [1: .init(height: 1080, frameRate: 60)]
+        XCTAssertTrue(SportsLibrary.ranksAhead((2, 220), of: (1, 210), foreign: [], qualities: fullHD, shared: [1]))
+        XCTAssertFalse(SportsLibrary.ranksAhead((1, 210), of: (2, 220), foreign: [], qualities: fullHD, shared: [1]))
+        XCTAssertTrue(SportsLibrary.ranksAhead((1, 210), of: (2, 220), foreign: [2], shared: [1]))
+    }
+
     // A tournament is one card a tour, live while any match is -- however
     // many days and time zones its matches cross.
     func testATournamentIsOneCard() throws {

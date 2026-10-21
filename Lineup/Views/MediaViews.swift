@@ -35,7 +35,7 @@ extension EnvironmentValues {
 }
 
 struct MediaServersView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @State private var addingServer = false
     @State private var choosingShelf = false
     @State private var reorderingShelves = false
@@ -60,8 +60,8 @@ struct MediaServersView: View {
             .fullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
             .sheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
-            .sheet(item: $media.collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environmentObject(media) }
-            .alert("New Collection", isPresented: $media.creatingCollection) {
+            .sheet(item: Bindable(media).collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environment(media) }
+            .alert("New Collection", isPresented: Bindable(media).creatingCollection) {
                 TextField("Collection name", text: $newCollectionName)
                 Button("Create") {
                     media.createCollection(named: newCollectionName, adding: media.collectionCreationItem)
@@ -83,9 +83,7 @@ struct MediaServersView: View {
         NavigationStack {
             Group {
             #if os(tvOS)
-            TVMediaServersHome(addingServer: $addingServer, choosingShelf: $choosingShelf,
-                               reorderingShelves: $reorderingShelves,
-                               searchingLibrary: $searchingLibrary)
+            TVMediaServersHome(addingServer: $addingServer, searchingLibrary: $searchingLibrary)
             #else
             Group {
                 if !media.hasAnySource {
@@ -135,14 +133,14 @@ struct MediaServersView: View {
             }
             .sheet(isPresented: $addingServer) {
                 MediaServerSetupView()
-                    .environmentObject(media)
+                    .environment(media)
                     .preferredColorScheme(.dark)
             }
             .sheet(isPresented: $choosingShelf) {
-                MediaShelfPicker().environmentObject(media)
+                MediaShelfPicker().environment(media)
             }
             .sheet(isPresented: $reorderingShelves) {
-                LibraryShelfOrderSheet().environmentObject(media)
+                LibraryShelfOrderSheet().environment(media)
                     .preferredColorScheme(.dark)
             }
             // Not `.task`. A task belongs to the view, and this work does not:
@@ -404,7 +402,7 @@ struct LineupAccountCard<Actions: View>: View {
 /// Shared, because the phone and the television show the same two cards and
 /// there is no version of this that should differ between them.
 struct ProviderAccountCard: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     let profile: XtreamProfile
     let openGuide: () -> Void
 
@@ -445,7 +443,7 @@ struct ProviderAccountCard: View {
 /// together. Counts come from the servers' total-record queries, never from
 /// the first page of shelf cards.
 struct MediaServerAccountCard: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let browse: () -> Void
 
     var body: some View {
@@ -555,54 +553,14 @@ struct LineupStatusDot: View {
 }
 
 #if os(tvOS)
+/// The Library tab on Apple TV: its shelves, or what stands in for them. What
+/// the Library's menu used to offer -- shelves, collections, refreshing --
+/// is in Settings › Library.
 private struct TVMediaServersHome: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.tvTabBar) private var tabBar
     @Binding var addingServer: Bool
-    @Binding var choosingShelf: Bool
-    @Binding var reorderingShelves: Bool
     @Binding var searchingLibrary: Bool
-    @State private var removingShelf = false
-    @State private var clearingHistory = false
-
-    /// Whether the shelves are on screen, with the Library's menu at the top
-    /// right of the artwork above them; elsewhere the menu sits at the top.
-    private var showsShelves: Bool { media.hasAnySource && !media.roots.isEmpty }
-
-    /// Everything the Library's menu offers, in the order it lists it.
-    private var options: [TVLibraryOption] {
-        var options: [TVLibraryOption] = []
-        if !media.shelves.isEmpty {
-            options.append(TVLibraryOption(title: "Search the Library", symbol: "magnifyingglass") {
-                searchingLibrary = true
-            })
-        }
-        options.append(TVLibraryOption(title: "Add Shelf", symbol: "plus.rectangle.on.rectangle") {
-            choosingShelf = true
-        })
-        if !media.removableShelves.isEmpty {
-            options.append(TVLibraryOption(title: "Remove a Shelf", symbol: "minus.rectangle") {
-                removingShelf = true
-            })
-        }
-        if media.libraryRows.count > 1 {
-            options.append(TVLibraryOption(title: "Edit Shelves", symbol: "arrow.up.arrow.down") {
-                reorderingShelves = true
-            })
-        }
-        if !media.isLoading {
-            options.append(TVLibraryOption(title: "Refresh", symbol: "arrow.clockwise") {
-                Task { await media.reload() }
-            })
-        }
-        options.append(TVLibraryOption(title: "Add Server", symbol: "plus") { addingServer = true })
-        if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-            options.append(TVLibraryOption(title: "Clear Local Tracking", symbol: "trash", destructive: true) {
-                clearingHistory = true
-            })
-        }
-        return options
-    }
 
     var body: some View {
         Group {
@@ -620,38 +578,24 @@ private struct TVMediaServersHome: View {
                     Image(systemName: "rectangle.stack.badge.exclamationmark").font(.system(size: 42, weight: .light, design: .rounded))
                     Text("No libraries found").font(.inter(.title2, .semibold))
                     Text(media.profiles.count > 1
-                         ? "Refresh your servers, or confirm these accounts can access a library."
-                         : "Refresh the server, or confirm this account can access a library.")
+                         ? "Reload your servers in Settings › Library, or confirm these accounts can access a library."
+                         : "Reload the server in Settings › Library, or confirm this account can access a library.")
                         .font(.inter(.callout)).opacity(0.68)
                 }
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary,
-                                    options: options)
-            }
-        }
-        .overlay(alignment: .top) {
-            // Only where there are no shelves to hang it above: while the
-            // libraries load, or when none are found.
-            if !showsShelves && media.hasAnySource {
-                TVLibraryMenuBar(options: options).padding(.top, 18)
+                MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
             }
         }
         // Back on the Library's own screen: no title's page is over it, so
         // the tab bar is up whatever the pages that closed did or did not say.
         .onAppear { tabBar?.reset() }
-        .tvChoices("Remove a Shelf", symbol: "minus.rectangle", isPresented: $removingShelf,
-                   message: "Its titles stay on your server; only the shelf leaves the Library.") {
-            media.removableShelves.map { shelf in
-                TVChoice(media.shelfName(shelf), id: "remove-\(shelf.id)", isDestructive: true) {
-                    media.removeShelf(shelf)
-                }
-            }
-        }
-        .tvChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
-                   message: "This removes Continue Watching and local watched status from this Apple TV.") {
-            [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
+        // Collections from a card's hold menu, anywhere in the Library. The
+        // Collections screen, opened from Settings, has its own while it is up.
+        .fullScreenCover(item: Binding(get: { media.collectionsScreenShown ? nil : media.collectionSelectionItem },
+                                       set: { media.collectionSelectionItem = $0 })) { item in
+            TVCollectionPicker(item: item).environment(media)
         }
         .background(
             ZStack {
@@ -660,183 +604,6 @@ private struct TVMediaServersHome: View {
                     center: .topTrailing, startRadius: 30, endRadius: 760)
             }.ignoresSafeArea()
         )
-    }
-}
-
-/// One thing the Library's menu offers.
-struct TVLibraryOption: Identifiable {
-    let title: String
-    let symbol: String
-    var destructive = false
-    let action: () -> Void
-    var id: String { title }
-}
-
-/// The Library's menu: one button at the right of the screen that drops a
-/// list of the Library's actions beneath it.
-///
-/// A row of chips across the top of the shelves scrolled up over the title
-/// being previewed and covered its overview. One button at the right keeps
-/// clear of the preview, which is drawn from the left, and the whole width
-/// is one focus region, so pressing up from anywhere on the first shelf
-/// still lands on it.
-private struct TVLibraryMenuBar: View {
-    let options: [TVLibraryOption]
-    /// Told when the list opens and closes, so the screen can keep focus off
-    /// everything under it while it is open: a press in the list that the
-    /// focus engine carried onto a poster below closed the list under the
-    /// viewer.
-    var onOpenChange: (Bool) -> Void = { _ in }
-    @State private var open = false
-    /// Where focus is in the menu: its button, one of its rows, or nil once
-    /// it is somewhere else on the screen.
-    @FocusState private var focus: Place?
-
-    private enum Place: Hashable {
-        case button
-        case row(Int)
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
-            button
-                .overlay(alignment: .topTrailing) {
-                    if open {
-                        panel
-                            .alignmentGuide(.top) { $0[.top] - 64 }
-                            .transition(.opacity.combined(with: .offset(y: -8)))
-                    }
-                }
-        }
-        .padding(.horizontal, 54)
-        .lineupFocusRegion()
-        .onExitCommand(perform: open ? { close() } : nil)
-        // Focus gone from the button and every row: the list closes behind it.
-        .onChange(of: focus) { _, place in
-            if place == nil, open { open = false }
-        }
-        .onChange(of: open) { _, isOpen in onOpenChange(isOpen) }
-        .animation(.easeOut(duration: 0.16), value: open)
-    }
-
-    // A pill in the panels' own grey, as the phone's Sports menu opens
-    // from: its tile, its name and a chevron, a step lighter while open.
-    private var button: some View {
-        HStack(spacing: 12) {
-            LineupIconTile(symbol: "slider.horizontal.3", size: 34)
-            Text("Library").font(.inter(19, .semibold))
-            Image(systemName: open ? "chevron.up" : "chevron.down")
-                .font(.system(size: 14, weight: .heavy, design: .rounded))
-                .foregroundStyle(LineupPanelStyle.quiet)
-        }
-        .foregroundStyle(LineupStyle.text)
-        .padding(.leading, 9).padding(.trailing, 20)
-        .frame(height: 52)
-        .background(open ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Capsule())
-        .modifier(TVMenuFocus(focused: focus == .button, scale: LineupStyle.controlLift, radius: 26))
-        .focusable()
-        .focused($focus, equals: .button)
-        .focusEffectDisabled()
-        .onTapGesture {
-            if open { close() } else { open = true }
-        }
-        // While the list is open, down leads into it. Up the focus engine
-        // takes to the tab bar, and the list closes behind it.
-        .onMoveCommand(perform: open ? { direction in
-            switch direction {
-            case .down: focus = .row(0)
-            case .up: open = false
-            default: close()
-            }
-        } : nil)
-        .accessibilityLabel("Library options")
-    }
-
-    // A panel like every other: its header and hairline inside it, then a
-    // row a choice, each with its coloured tile.
-    private var panel: some View {
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        return VStack(alignment: .leading, spacing: 0) {
-            LineupPanelHeader("Library", systemImage: "rectangle.stack")
-                .padding(.horizontal, 22)
-                .frame(width: 400, height: 62, alignment: .leading)
-            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
-                .padding(.horizontal, 22)
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
-                    HStack(spacing: 16) {
-                        LineupIconTile(symbol: option.symbol, size: 38)
-                        Text(option.title)
-                        Spacer(minLength: 0)
-                    }
-                    .font(.inter(19, .semibold))
-                    .foregroundStyle(option.destructive ? LineupIconTile.red : LineupStyle.text)
-                    .padding(.horizontal, 14)
-                    .frame(width: 384, height: 60)
-                    .modifier(TVMenuFocus(focused: focus == .row(index), scale: 1.02, radius: 16))
-                    .focusable()
-                    .focused($focus, equals: .row(index))
-                    .focusEffectDisabled()
-                    .onTapGesture { choose(option) }
-                    .onMoveCommand { direction in move(direction, from: index) }
-                }
-            }
-            .padding(8)
-        }
-        .background(LineupPanelStyle.fill, in: shape)
-        // It floats over panels of its own colour: a hairline of light round
-        // its edge and a deep shadow under it.
-        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .shadow(color: .black.opacity(0.6), radius: 34, y: 18)
-        .fixedSize()
-        .onAppear { focus = .row(0) }
-    }
-
-    /// One row a press. tvOS moves focus for the press as well as calling
-    /// this, so the target is the row next to the one the handler sits on --
-    /// the row the engine goes to, so the two agree. Worked out from where
-    /// focus already was after the engine's move, every press went two rows.
-    /// The screen keeps everything under the list unfocusable while it is
-    /// open (`onOpenChange`), so the engine has nowhere else to go.
-    private func move(_ direction: MoveCommandDirection, from index: Int) {
-        switch direction {
-        case .down: focus = .row(min(index + 1, options.count - 1))
-        case .up: focus = index == 0 ? .button : .row(index - 1)
-        default: break
-        }
-    }
-
-    private func choose(_ option: TVLibraryOption) {
-        close()
-        option.action()
-    }
-
-    /// Back to the button before the list goes, so focus never falls loose
-    /// onto whatever was under it.
-    private func close() {
-        focus = .button
-        open = false
-    }
-}
-
-/// The app's focus look -- the light layer, a lift and a shadow -- for a
-/// control that keeps its focus in a parent's `FocusState` rather than its
-/// own, as the Library menu's button and rows do.
-private struct TVMenuFocus: ViewModifier {
-    let focused: Bool
-    let scale: CGFloat
-    let radius: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .environment(\.lineupTVSelectableFocused, focused)
-            .contentShape(Rectangle())
-            .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: radius, style: .continuous).inset(by: -6))
-            .scaleEffect(focused ? scale : 1)
-            .lineupShadow(.lifted, on: focused)
-            .zIndex(focused ? 10 : 0)
-            .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
     }
 }
 
@@ -910,16 +677,12 @@ private struct LibraryHeroRotationKey: Equatable {
 }
 
 private struct MediaCatalogsScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalogs: [MediaCatalog]
     @Binding var searchPresented: Bool
-    #if os(tvOS)
-    /// What the Library's menu offers, at the right above the shelves.
-    var options: [TVLibraryOption]? = nil
-    #endif
     @State private var query = ""
     // On tvOS the sheet edits a draft. Search only the submitted value: remote
     // typing otherwise launches and cancels a network search for every letter.
@@ -950,9 +713,6 @@ private struct MediaCatalogsScreen: View {
     /// Which way the last change of shelf went, for its transition.
     @State private var shelfStepDown = true
     @State private var heroIndex = 0
-    /// While the Library menu is open, Play and the shelf can't take focus,
-    /// so a press in the list can't land on them and close it.
-    @State private var menuOpen = false
     @State private var focusedCard: MediaItem?
     @State private var lastFocusedCard: MediaItem?
     #endif
@@ -1017,17 +777,13 @@ private struct MediaCatalogsScreen: View {
             } else {
                 if shownShelves.isEmpty && continueWatching.isEmpty
                     && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty {
-                    VStack(spacing: 0) {
-                        #if os(tvOS)
-                        if let options {
-                            TVLibraryMenuBar(options: options)
-                                .padding(.top, 40)
-                                .zIndex(1)
-                        }
-                        #endif
-                        LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
-                            description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Add Shelf."))
-                    }
+                    #if os(tvOS)
+                    LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
+                        description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Settings › Library › Add Shelf."))
+                    #else
+                    LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
+                        description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Add Shelf."))
+                    #endif
                 } else {
                     #if os(tvOS)
                     tvBrowser
@@ -1325,7 +1081,7 @@ private struct MediaCatalogsScreen: View {
     }
 
     private var canRotateLibraryPreview: Bool {
-        isVisible && scenePhase == .active && !voiceOver && !menuOpen
+        isVisible && scenePhase == .active && !voiceOver
             && !searchPresented && submittedQuery.isEmpty
             && pushed == nil && heroPlayableItem == nil
             && (tvFocus == nil || tvFocus == .hero)
@@ -1386,38 +1142,25 @@ private struct MediaCatalogsScreen: View {
         let rowShape: MediaArtShape = shelves.contains { MediaArtShape.forItems($0.items) == .poster } ? .poster : .still
         let blockHeight = tvShelfBlockHeight(for: rowShape)
         let heroHeight: CGFloat = heroItems.isEmpty ? 0 : 84
-        return ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 0) {
-                Spacer(minLength: 0)
-                // Each row is a focus region the full width of the screen.
-                // Play and the first cards sit at the left, nowhere under the
-                // Library button at the right, so without that a press down
-                // from the button found nothing below it and went nowhere.
-                if !heroItems.isEmpty {
-                    heroRow
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(height: heroHeight, alignment: .top)
-                        .lineupFocusRegion()
-                }
-                if !shelves.isEmpty {
-                    shelfBlock(shelves[index], index: index, count: shelves.count)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .overlay(alignment: .top) { shelfAboveStrip(shown: index > 0) }
-                        .frame(height: blockHeight, alignment: .bottom)
-                        .lineupFocusRegion()
-                }
+        return VStack(alignment: .leading, spacing: 0) {
+            Spacer(minLength: 0)
+            // Each row is a focus region the full width of the screen, so a
+            // press up from anywhere in it reaches the tab bar.
+            if !heroItems.isEmpty {
+                heroRow
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: heroHeight, alignment: .top)
+                    .lineupFocusRegion()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .disabled(menuOpen)
-            // At the top right of the artwork, clear of the title told on
-            // the left, and wholly below the tab bar: Down from the tab bar
-            // lands on it. Higher up it sat partly under the tab bar, which
-            // the focus engine doesn't count as below it, and Down went on
-            // past it to Play.
-            if let options {
-                TVLibraryMenuBar(options: options, onOpenChange: { menuOpen = $0 }).padding(.top, 156)
+            if !shelves.isEmpty {
+                shelfBlock(shelves[index], index: index, count: shelves.count)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .top) { shelfAboveStrip(shown: index > 0) }
+                    .frame(height: blockHeight, alignment: .bottom)
+                    .lineupFocusRegion()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         // Behind, as a background: whatever the artwork and the words about
         // it measure, they are drawn in the screen's frame and can never
         // resize it. In the stack, a picture or a block of words taller than
@@ -2082,7 +1825,7 @@ struct MediaGridSection: Identifiable {
 }
 
 struct MediaGridScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let title: String
     let sections: [MediaGridSection]
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
@@ -2240,7 +1983,7 @@ struct MediaBrowseDestination: View {
 
 /// A trending row's See All: every title it holds, in the chart's order.
 private struct TrendingRowScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let id: String
     let title: String
 
@@ -2260,7 +2003,7 @@ private struct TrendingRowScreen: View {
 }
 
 private struct MediaFolderScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let folder: MediaItem
     @State private var items: [MediaItem] = []
     @State private var loading = true
@@ -2340,8 +2083,8 @@ private struct FullBleedHeader: ViewModifier {
 /// promoted collections alone. An imported catalog is left unpromoted, so no
 /// number of them could put one in front of the viewer. The second
 /// group is the part that was missing.
-private struct MediaShelfPicker: View {
-    @EnvironmentObject private var media: MediaLibrary
+struct MediaShelfPicker: View {
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var adding: Set<String> = []
 
@@ -2696,7 +2439,7 @@ private struct MediaShelfRow: View {
 /// description, no year, no running time, no rating. It gets this page too now,
 /// minus the parts a film has no answer for.
 private struct MediaDetailScreen: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     let item: MediaItem
@@ -3631,7 +3374,7 @@ private struct TVMediaActionSurface: ViewModifier {
 /// An episode card says which episode it is and what happens in it, so a viewer
 /// picks by the description rather than by guessing from a still.
 private struct MediaEpisodeCard: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     #if !os(tvOS)
     @Environment(\.displayScale) private var displayScale
     #endif
@@ -3765,7 +3508,7 @@ private struct MediaEpisodeCard: View {
 }
 
 private struct MediaPlayableCard: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.playMedia) private var playMedia
     let item: MediaItem
     var shape: MediaArtShape = .poster
@@ -3849,6 +3592,7 @@ extension MediaLibrary {
             })
         }
         if item.isPlayable { choices += tvEpisodeChoices(for: item) }
+        if let collections = tvCollectionChoice(for: item) { choices.append(collections) }
         return choices
     }
 
@@ -3989,7 +3733,7 @@ private struct TVLibraryShelf: Identifiable {
 /// It is fixed while shelves move, so focus changes the room rather than
 /// repainting a rectangle behind one row.
 private struct TVMediaCinematicBackdrop: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let item: MediaItem?
 
@@ -4039,7 +3783,7 @@ private struct TVMediaCinematicBackdrop: View {
 /// show what they have immediately; the detail fetch enriches the same view
 /// with logo, cast and metadata without changing its geometry.
 private struct TVMediaLibraryPreview: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let originalItem: MediaItem?
     private var item: MediaItem? { originalItem.map { media.displayItem($0) } }
@@ -4057,6 +3801,8 @@ private struct TVMediaLibraryPreview: View {
     /// Each title's ratings once found. The hero moves on every few seconds
     /// and comes back round, and a title it has shown keeps its chips.
     @State private var ratings: [String: MediaRatings] = [:]
+    /// Fanart.tv's title logos, for titles whose server has none of its own.
+    @State private var fanartLogos: [String: URL] = [:]
 
     var body: some View {
         Group {
@@ -4090,11 +3836,21 @@ private struct TVMediaLibraryPreview: View {
             let found = await media.ratings(for: item)
             ratings[item.libraryKey] = found
         }
+        // A server's own logo comes first; Fanart.tv fills in where there is
+        // none -- a provider's title, a list's -- as the phone's Title Logos do.
+        .task(id: originalItem.map { "\(media.metadataRequestKey(for: $0))|\(media.fanartEnabled)" }) {
+            guard let item, media.logoURL(for: item, width: 620) == nil,
+                  fanartLogos[item.libraryKey] == nil else { return }
+            if let logo = await media.fanartLogo(for: item), !Task.isCancelled {
+                fanartLogos[item.libraryKey] = logo
+            }
+        }
     }
 
     @ViewBuilder
     private func titleLockup(_ item: MediaItem) -> some View {
-        LineupArtView(url: media.logoURL(for: item, width: 620), width: 620) { loaded in
+        let fanart = media.fanartEnabled ? fanartLogos[item.libraryKey] : nil
+        LineupArtView(url: media.logoURL(for: item, width: 620) ?? fanart, width: 620) { loaded in
             if let loaded {
                 loaded.resizable().scaledToFit()
             } else {
@@ -4186,7 +3942,7 @@ private struct TVMediaLibraryPreview: View {
 /// four-second interval, so it never fights a swipe or immediately skips the
 /// title the viewer deliberately chose.
 private struct MediaLibraryHero: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
@@ -4549,7 +4305,7 @@ private struct MediaHeroButton: View {
 /// Keeping the choice here also gives it enough room to explain how many of a
 /// shelf's titles will be used instead of putting a settings icon over art.
 struct LibraryHeroSettingsView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
 
     /// Something the hero can feature: a shelf already on the Library, or
     /// any list the Library could add as one.
@@ -4902,7 +4658,7 @@ extension Notification.Name {
 }
 
 private struct MediaSourcePicker: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     /// The title the streams are for. An episode's end can move it on to the
     /// next one, so the list follows the viewer from one to the next.
@@ -5199,6 +4955,31 @@ private struct MediaSourcePicker: View {
             subtitle: facts([item.productionYear.map(String.init), item.formattedRuntime, item.officialRating]),
             detail: item.overview)
     }
+
+    /// The season playing, for the player's Episodes row: each episode on
+    /// its still, with its number, length and name as the series page has
+    /// them. Choosing one closes the player and plays it on its best
+    /// stream, the way Next Episode does.
+    private func seasonEpisodes(around playing: MediaItem) -> TVEpisodeList? {
+        guard playing.type == "Episode", !playing.isUpcomingPlaceholder else { return nil }
+        let library = media
+        return TVEpisodeList(season: playing.parentIndexNumber.map { $0 == 0 ? "Specials" : "Season \($0)" }) {
+            await library.seasonEpisodes(of: playing).map { original in
+                let episode = library.displayItem(original)
+                let playback = library.cardPlayback(for: episode, asShow: false)
+                return TVEpisodeChoice(
+                    id: episode.libraryKey,
+                    code: episode.indexNumber.map { "S\(episode.parentIndexNumber ?? 1): E\($0)" },
+                    runtime: episode.runtimeMinutes.map { "\($0) min" },
+                    title: episode.name,
+                    image: library.imageURL(for: episode, width: 640),
+                    isCurrent: original.id == playing.id,
+                    watched: playback?.watched == true,
+                    progress: playback.flatMap { $0.watched || $0.fraction <= 0 ? nil : $0.fraction },
+                    play: { advance = .playNext(original) })
+            }
+        }
+    }
     #endif
 
     @ViewBuilder
@@ -5226,7 +5007,18 @@ private struct MediaSourcePicker: View {
                        onReachedEnd: {
                            media.completePlayback(of: trackedItem, sessionID: sessionID)
                            if advance == nil { advance = .reachedEnd }
-                       })
+                       },
+                       segmentsLookup: ["Episode", "Movie"].contains(item.type) ? {
+                           await media.playbackSegments(for: trackedItem)
+                       } : nil,
+                       // As on the phone: subtitles found online, the
+                       // show's kept tracks, and the server's scrubbing
+                       // thumbnails for this copy.
+                       subtitleIdentityLookup: { await media.onlineSubtitleIdentity(for: trackedItem) },
+                       trackMemoryShow: item.type == "Episode"
+                           ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
+                       seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) },
+                       episodes: seasonEpisodes(around: trackedItem))
             .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
@@ -5241,6 +5033,8 @@ private struct MediaSourcePicker: View {
                              subtitleIdentityLookup: {
                                  await media.onlineSubtitleIdentity(for: trackedItem)
                              },
+                             trackMemoryShow: item.type == "Episode"
+                                 ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
                              seekPreviewLookup: {
                                  await media.seekPreview(for: trackedItem, source: source)
                              },
@@ -6057,47 +5851,98 @@ private struct BadgeFlow: Layout {
     }
 }
 
-/// IMDb, TMDB and Rotten Tomatoes as dark chips, each source named in its
-/// own colour the way the sites' own badges are.
+/// IMDb, TMDB, Rotten Tomatoes, Metacritic and Letterboxd as dark chips,
+/// each source named in its own colour the way the sites' own badges are.
 struct MediaRatingChips: View {
     let ratings: MediaRatings
 
     private typealias Metrics = MediaRatingMetrics
 
     var body: some View {
-        HStack(spacing: Metrics.gap) {
-            if let imdb = ratings.imdb {
-                chip("Rating-IMDb", spoken: "IMDb", value: String(format: "%.1f", imdb))
-            }
-            if let tmdb = ratings.tmdb {
-                chip("Rating-TMDB", spoken: "TMDB", value: String(format: "%.1f", tmdb))
-            }
-            if let tomatoes = ratings.rottenTomatoes {
-                chip("Rating-RT", spoken: "Rotten Tomatoes", value: "\(tomatoes)%")
+        #if os(iOS)
+        // Five sources can be wider than a phone: the chips tighten before
+        // they take a second line.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Metrics.gap) { chips(tight: false) }.fixedSize()
+            HStack(spacing: Metrics.tightGap) { chips(tight: true) }.fixedSize()
+            BadgeFlow(spacing: Metrics.tightGap) { chips(tight: true) }
+        }
+        #else
+        HStack(spacing: Metrics.gap) { chips(tight: false) }
+            .fixedSize()
+        #endif
+    }
+
+    @ViewBuilder
+    private func chips(tight: Bool) -> some View {
+        if let imdb = ratings.imdb {
+            let shown = String(format: "%.1f", imdb)
+            chip("Rating-IMDb", spoken: "IMDb", spokenValue: shown, tight: tight) { value(shown, tight: tight) }
+        }
+        if let tmdb = ratings.tmdb {
+            let shown = String(format: "%.1f", tmdb)
+            chip("Rating-TMDB", spoken: "TMDB", spokenValue: shown, tight: tight) { value(shown, tight: tight) }
+        }
+        if let tomatoes = ratings.rottenTomatoes {
+            chip("Rating-RT", spoken: "Rotten Tomatoes", spokenValue: "\(tomatoes)%", tight: tight) {
+                value("\(tomatoes)%", tight: tight)
             }
         }
-        .fixedSize()
+        if let metascore = ratings.metacritic {
+            chip("Rating-Metacritic", spoken: "Metacritic", spokenValue: "\(metascore)", tight: tight) {
+                metascoreBox(metascore, tight: tight)
+            }
+        }
+        if let stars = ratings.letterboxd {
+            // Three dots side by side: as wide as IMDb's badge at a little
+            // over half the height.
+            chip("Rating-Letterboxd", spoken: "Letterboxd", spokenValue: String(format: "%.1f out of 5", stars),
+                 logoScale: 0.62, tight: tight) {
+                value(String(format: "%.1f", stars), tight: tight)
+            }
+        }
+    }
+
+    private func value(_ text: String, tight: Bool) -> some View {
+        Text(text)
+            .font(.interDigits(tight ? Metrics.tightValueSize : Metrics.valueSize, .bold))
+            .foregroundStyle(Color.white)
+    }
+
+    /// The Metascore in the box Metacritic draws it in: green from 61,
+    /// yellow from 40, red below.
+    private func metascoreBox(_ score: Int, tight: Bool) -> some View {
+        let fill = score >= 61 ? Color(red: 0, green: 0.808, blue: 0.478)
+            : score >= 40 ? Color(red: 1, green: 0.741, blue: 0.247) : Color(red: 1, green: 0.408, blue: 0.455)
+        let size = tight ? Metrics.tightValueSize : Metrics.valueSize
+        return Text("\(score)")
+            .font(.interDigits(size, .bold))
+            .foregroundStyle(Color.black)
+            .padding(.horizontal, 4)
+            .frame(minWidth: size * 1.7, minHeight: size * 1.35)
+            .background(fill, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 
     /// Each site by its own mark rather than its name in letters: IMDb's
     /// yellow badge, TMDB's square mark and the Tomatometer's tomato, all
     /// the same height.
-    private func chip(_ logo: String, spoken: String, value: String) -> some View {
-        HStack(spacing: Metrics.inner) {
+    private func chip<Value: View>(_ logo: String, spoken: String, spokenValue: String,
+                                   logoScale: CGFloat = 1, tight: Bool,
+                                   @ViewBuilder value: () -> Value) -> some View {
+        let content = value()
+        return HStack(spacing: tight ? Metrics.tightInner : Metrics.inner) {
             Image(logo)
                 .resizable()
                 .scaledToFit()
-                .frame(height: Metrics.logo)
+                .frame(height: (tight ? Metrics.tightLogo : Metrics.logo) * logoScale)
                 .accessibilityHidden(true)
-            Text(value)
-                .font(.interDigits(Metrics.valueSize, .bold))
-                .foregroundStyle(Color.white)
+            content
         }
-        .padding(.horizontal, Metrics.padding)
+        .padding(.horizontal, tight ? Metrics.tightPadding : Metrics.padding)
         .frame(height: Metrics.height)
         .background(Metrics.fill, in: RoundedRectangle(cornerRadius: Metrics.radius, style: .continuous))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(spoken) \(value)")
+        .accessibilityLabel("\(spoken) \(spokenValue)")
     }
 }
 
@@ -6111,6 +5956,12 @@ private enum MediaRatingMetrics {
     static let logo: CGFloat = 26
     static let valueSize: CGFloat = 22
     static let radius: CGFloat = 10
+    // One row always fits a television.
+    static let tightPadding = padding
+    static let tightGap = gap
+    static let tightInner = inner
+    static let tightLogo = logo
+    static let tightValueSize = valueSize
     #else
     static let height: CGFloat = 30
     static let padding: CGFloat = 9
@@ -6119,8 +5970,36 @@ private enum MediaRatingMetrics {
     static let logo: CGFloat = 18
     static let valueSize: CGFloat = 15
     static let radius: CGFloat = 8
+    /// The same chips a little closer, for a row that would not fit.
+    static let tightPadding: CGFloat = 6
+    static let tightGap: CGFloat = 6
+    static let tightInner: CGFloat = 5
+    static let tightLogo: CGFloat = 15
+    static let tightValueSize: CGFloat = 13
     #endif
 }
+
+#if os(tvOS)
+/// BetterPosters' rated poster, drawn over the ordinary one, as the phone's
+/// `MobileRatedPoster` does: both through the same artwork cache, and the
+/// ordinary poster shown while the rated one loads and wherever it fails.
+struct TVRatedPoster<Content: View>: View {
+    let url: URL?
+    let fallback: URL?
+    let width: CGFloat
+    @ViewBuilder var content: (Image?) -> Content
+
+    var body: some View {
+        if let url, url != fallback {
+            LineupArtView(url: fallback, width: width) { ordinary in
+                LineupArtView(url: url, width: width) { rated in content(rated ?? ordinary) }
+            }
+        } else {
+            LineupArtView(url: fallback, width: width, content: content)
+        }
+    }
+}
+#endif
 
 /// An episode's primary image is a 16:9 still and a movie's is a portrait poster.
 /// Choosing per item is what left a shelf ragged, so a screen picks one shape
@@ -6140,7 +6019,7 @@ enum MediaArtShape {
 }
 
 struct MediaItemCard: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     #if !os(tvOS)
     @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .subheadline) private var titleHeight: CGFloat = 40
@@ -6226,11 +6105,9 @@ struct MediaItemCard: View {
         .task(id: media.metadataRequestKey(for: originalItem)) {
             await media.resolveMetadata(for: originalItem)
         }
-        #if !os(tvOS)
         .task(id: media.betterPostersEnabled ? originalItem.libraryKey : "") {
             await media.resolveBetterPosterIdentity(for: originalItem)
         }
-        #endif
     }
 
     private var artworkIsFocused: Bool {
@@ -6263,7 +6140,10 @@ struct MediaItemCard: View {
                 LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                     startPoint: .topLeading, endPoint: .bottomTrailing)
                 #if os(tvOS)
-                LineupArtView(url: artworkURL, width: artWidth) { loaded in
+                // BetterPosters' rated poster over the ordinary one, which
+                // stays while it loads and wherever it fails.
+                TVRatedPoster(url: shape.isPoster ? media.betterPosterURL(for: item) : nil,
+                              fallback: artworkURL, width: artWidth) { loaded in
                     if let image = loaded { image.resizable().scaledToFill() }
                     else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
                 }
@@ -6486,7 +6366,7 @@ private struct MediaProgressTrack: View {
 /// ever shown and hidden after that. Building one afresh on every move, text
 /// fields and all, is what made moving between them stutter.
 struct MediaServerSetupView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var software: MediaServerBrand = .jellyfin
     /// What has been typed for each kind, kept apart, so moving across to
@@ -6845,7 +6725,7 @@ private struct MediaServerPanel<Content: View>: View {
 
 /// Jellyfin's or Emby's sign-in: where the server is, and whose account.
 private struct MediaServerSignInPanel: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let brand: MediaServerBrand
     @Binding var form: MediaServerSignIn
     let connect: (MediaServerSignIn) -> Void
@@ -6971,7 +6851,7 @@ private struct MediaServerField: View {
 /// No password passes through Lineup. The account's token comes back to the
 /// device that asked for the code, and each server's own token with it.
 private struct PlexLinkPanel: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.openURL) private var openURL
     let onAdded: () -> Void
 
@@ -7114,7 +6994,7 @@ private struct PlexLinkPanel: View {
 }
 
 struct MDBListIntegrationView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var apiKey = ""
     @State private var disconnecting = false
@@ -7151,7 +7031,11 @@ struct MDBListIntegrationView: View {
                 } header: {
                     Text(media.isMDBListConnected ? "Replace API Key" : "Connect MDBList")
                 } footer: {
+                    #if os(tvOS)
+                    Text("Create or copy a free API key from MDBList Preferences. Lineup stores it securely in this device’s Keychain. Your MDBList lists then appear in Settings › Library › Add Shelf.")
+                    #else
                     Text("Create or copy a free API key from MDBList Preferences. Lineup stores it securely in this device’s Keychain. Your MDBList lists then appear in Library → Add Shelf.")
+                    #endif
                 }
 
                 Section {

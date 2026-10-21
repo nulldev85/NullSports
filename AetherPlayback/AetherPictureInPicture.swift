@@ -17,6 +17,11 @@ final class AetherPictureInPicture: NSObject, AVPictureInPictureControllerDelega
     private var skipTask: Task<Void, Never>?
     private var transitioning = false
     private(set) var route: String?
+    /// Leaving the app hands the picture to the system window. Off for a
+    /// picture that shares the screen, which is not the one to follow out.
+    var automatic = true {
+        didSet { controller?.canStartPictureInPictureAutomaticallyFromInline = automatic }
+    }
 
     init(session: AetherPlaybackSession) {
         self.session = session
@@ -60,7 +65,7 @@ final class AetherPictureInPicture: NSObject, AVPictureInPictureControllerDelega
         } else { return }
         controller = AVPictureInPictureController(contentSource: source)
         controller?.delegate = self
-        controller?.canStartPictureInPictureAutomaticallyFromInline = true
+        controller?.canStartPictureInPictureAutomaticallyFromInline = automatic
         layerID = newID
         route = newRoute
     }

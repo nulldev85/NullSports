@@ -27,7 +27,7 @@ private struct PendingRecording {
 }
 
 struct MobileGuideView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
@@ -62,6 +62,8 @@ struct MobileGuideView: View {
     /// The game an alert sent the player to, which a further alert about it
     /// would be no news of.
     @State private var watchingGame: SportsGame?
+    /// Two channels at once, full screen.
+    @State private var multiview: MobileMultiviewSession?
     /// The channel whose past programmes are listed, and the one picked from
     /// the list, played once the list has gone.
     @State private var catchUpChannel: XtreamStream?
@@ -310,13 +312,16 @@ struct MobileGuideView: View {
                     pendingRecording = PendingRecording(stream: stream, programme: programme)
                     catchUpChannel = nil
                 }
-                .environmentObject(library)
+                .environment(library)
                 .tint(LineupStyle.highlight)
                 .preferredColorScheme(.dark)
             }
+            .fullScreenCover(item: $multiview) { session in
+                MobileMultiviewView(session: session).environment(library)
+            }
             .sheet(isPresented: $reorderingFavorites) {
                 FavoritesOrderView()
-                    .environmentObject(library)
+                    .environment(library)
                     .tint(LineupStyle.highlight)
                     .preferredColorScheme(.dark)
             }
@@ -349,6 +354,16 @@ struct MobileGuideView: View {
             })
         } else {
             items.append(MobileMenuItem("Add Favorite", symbol: "star") { library.addFavorite(stream) })
+        }
+        // Beside the channel already playing, rather than instead of it.
+        if let current = selectedStream, current.id != stream.id, game == nil {
+            items.append(MobileMenuItem("Watch Side by Side", symbol: "rectangle.split.2x1") {
+                let tiles = [MobileMultiviewSession.Tile(stream: current, game: watchingGame),
+                             MobileMultiviewSession.Tile(stream: stream, game: nil)]
+                // Its connection goes before multiview opens two of its own.
+                closePlayer()
+                multiview = MobileMultiviewSession(tiles: tiles)
+            })
         }
         if stream.hasCatchUp && game == nil {
             items.append(MobileMenuItem("Start Over", symbol: "backward.end") {
@@ -753,7 +768,7 @@ private struct GuideHorizontalPosition: PreferenceKey {
 /// Favorites order drives the guide's channel order, so this list edits it directly:
 /// drag a row to move a channel, swipe or tap the minus to drop it.
 private struct FavoritesOrderView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

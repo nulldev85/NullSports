@@ -11,7 +11,7 @@ import SwiftUI
 /// the top, a row of days to jump between, and one list under it with each
 /// day's heading pinned while its programmes scroll.
 struct MobileCatchUpSheet: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     let stream: XtreamStream
     let onSelect: (CatchUpProgramme) -> Void

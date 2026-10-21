@@ -8,8 +8,8 @@ private struct MobileScheduleRefreshContext: Equatable {
 }
 
 struct MainView: View {
-    @EnvironmentObject private var library: SportsLibrary
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(SportsLibrary.self) private var library
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var tab = 0
@@ -97,7 +97,7 @@ struct MainView: View {
 struct ProfileSetupView: View {
     @Environment(\.dismiss) private var dismiss
     var addingProvider = false
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @State private var name = ""
     @State private var server = ""
     @State private var username = ""
@@ -195,7 +195,7 @@ struct ProfileSetupView: View {
 /// team turned the whole tab into a long scroll before reaching anything else.
 /// Everything here is unchanged; it simply is not in the way any more.
 private struct MobilePreferredChannelsView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @Binding var clearingPreferences: Bool
 
     var body: some View {
@@ -277,17 +277,20 @@ private struct MobilePreferredChannelsView: View {
 /// Channel matching and playback diagnostics, which are read when something is
 /// wrong rather than browsed, so they sit one tap in rather than inline.
 private struct MobileDiagnosticsView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @ObservedObject var playbackDiagnostics: PlaybackDiagnostics
 
     var body: some View {
         Form {
             Section {
-                NavigationLink { MatchDiagnosticsView().environmentObject(library) } label: {
+                NavigationLink { MatchDiagnosticsView().environment(library) } label: {
                     SettingsRow("Channel Matching", symbol: "tv")
                 }
                 NavigationLink { StartupTraceReportView() } label: {
                     SettingsRow("Launch Timing", symbol: "timer")
+                }
+                NavigationLink { DeviceReportsView() } label: {
+                    SettingsRow("Device Reports", symbol: "speedometer")
                 }
             }
             .lineupSettingsRows()
@@ -302,7 +305,7 @@ private struct MobileDiagnosticsView: View {
                     }
                 }
             } footer: {
-                Text("Launch timing is always recorded and shows where the last start spent its time. Playback diagnostics records what the player does while it is on — leave that off unless you are chasing a problem.")
+                Text("Launch timing is always recorded and shows where the last start spent its time. Device reports are Apple's daily account of launches, hangs, battery-heavy work and data use on this phone. Playback diagnostics records what the player does while it is on — leave that off unless you are chasing a problem.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -406,7 +409,7 @@ extension View {
 /// A connected media server. The Library uses every one of them at once, so
 /// the row says how its own server is doing rather than offering to switch.
 private struct MediaServerRow: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     let profile: MediaServerProfile
     let remove: () -> Void
 
@@ -479,7 +482,7 @@ private struct AccountSourceRow: View {
 /// one.
 private struct MobileIPTVSettingsView: View {
     @Binding var selectedTab: Int
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
     @State private var addingProvider = false
     @State private var removingProfile: XtreamProfile?
 
@@ -520,7 +523,7 @@ private struct MobileIPTVSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $addingProvider) {
             ProfileSetupView(addingProvider: true)
-                .environmentObject(library)
+                .environment(library)
                 .tint(LineupStyle.highlight)
                 .preferredColorScheme(.dark)
         }
@@ -538,7 +541,7 @@ private struct MobileIPTVSettingsView: View {
 /// Media servers: what they hold between them, each server, and adding one.
 private struct MobileMediaServerSettingsView: View {
     @Binding var selectedTab: Int
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @State private var addingMediaServer = false
     @State private var removingMediaProfile: MediaServerProfile?
 
@@ -571,7 +574,7 @@ private struct MobileMediaServerSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $addingMediaServer) {
             MediaServerSetupView()
-                .environmentObject(media)
+                .environment(media)
                 .tint(LineupStyle.highlight)
                 .preferredColorScheme(.dark)
         }
@@ -587,14 +590,14 @@ private struct MobileMediaServerSettingsView: View {
 
 /// The Library's hero, and the MDBList lists that become its shelves.
 private struct MobileLibrarySettingsView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @State private var configuringMDBList = false
 
     var body: some View {
         List {
             Section {
                 NavigationLink {
-                    LibraryHeroSettingsView().environmentObject(media)
+                    LibraryHeroSettingsView().environment(media)
                 } label: {
                     SettingsRow("Library Hero", symbol: "sparkles.rectangle.stack",
                                 value: media.heroCatalog?.title ?? "Choose")
@@ -632,7 +635,7 @@ private struct MobileLibrarySettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $configuringMDBList) {
             MDBListIntegrationView()
-                .environmentObject(media)
+                .environment(media)
                 .tint(LineupStyle.highlight)
                 .preferredColorScheme(.dark)
         }
@@ -645,8 +648,8 @@ private struct MobileLibrarySettingsView: View {
 private struct MobileAccountView: View {
     @Binding var selectedTab: Int
     @State private var homeRevision = 0
-    @EnvironmentObject private var library: SportsLibrary
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(SportsLibrary.self) private var library
+    @Environment(MediaLibrary.self) private var media
     @EnvironmentObject private var cloud: CloudSettingsSync
     @State private var clearingPreferences = false
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
@@ -682,13 +685,13 @@ private struct MobileAccountView: View {
             List {
                 Section {
                     NavigationLink {
-                        MobileIPTVSettingsView(selectedTab: $selectedTab).environmentObject(library)
+                        MobileIPTVSettingsView(selectedTab: $selectedTab).environment(library)
                     } label: {
                         SettingsRow("IPTV", symbol: "antenna.radiowaves.left.and.right",
                                     value: library.activeProfile?.name ?? "Add")
                     }
                     NavigationLink {
-                        MobileMediaServerSettingsView(selectedTab: $selectedTab).environmentObject(media)
+                        MobileMediaServerSettingsView(selectedTab: $selectedTab).environment(media)
                     } label: {
                         SettingsRow("Media Servers", symbol: "play.square.stack", value: mediaValue)
                     }
@@ -696,18 +699,18 @@ private struct MobileAccountView: View {
                 .lineupSettingsRows()
                 Section {
                     NavigationLink {
-                        MobileLibrarySettingsView().environmentObject(media)
+                        MobileLibrarySettingsView().environment(media)
                     } label: {
                         SettingsRow("Library", symbol: "rectangle.stack", value: media.heroCatalog?.title)
                     }
                     NavigationLink {
-                        LibraryMetadataSettingsView().environmentObject(media)
+                        LibraryMetadataSettingsView().environment(media)
                     } label: {
                         SettingsRow("Metadata", symbol: "text.book.closed", value: media.metadataSource.title)
                     }
                     NavigationLink {
                         MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
-                            .environmentObject(library)
+                            .environment(library)
                     } label: {
                         SettingsRow("Preferred Channels", symbol: "star.square.on.square", value: preferencesValue)
                     }
@@ -715,7 +718,7 @@ private struct MobileAccountView: View {
                 .lineupSettingsRows()
                 Section {
                     NavigationLink {
-                        SportsTeamsSettingsView().environmentObject(library)
+                        SportsTeamsSettingsView().environment(library)
                     } label: {
                         SettingsRow("My Teams", symbol: "star.fill", value: library.followedTeams.count.formatted())
                     }
@@ -758,12 +761,16 @@ private struct MobileAccountView: View {
                 Section {
                     SettingsRow("iCloud", symbol: "icloud", value: cloud.status)
                     NavigationLink { MobilePlaybackSettingsView() } label: {
-                        SettingsRow("Playback Engine", symbol: "play.rectangle",
-                                    value: (MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic).title)
+                        SettingsRow(title: "Playback Engine", symbol: "play.rectangle") {
+                            PlaybackEngineText((MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic).title, size: 17)
+                                .font(.inter(17))
+                                .foregroundStyle(LineupPanelStyle.listValue)
+                                .lineLimit(1)
+                        }
                     }
                     NavigationLink {
                         MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
-                            .environmentObject(library)
+                            .environment(library)
                     } label: {
                         SettingsRow("Diagnostics", symbol: "waveform.path.ecg")
                     }
@@ -803,10 +810,7 @@ private struct MobilePlaybackSettingsView: View {
                 ForEach(MobilePlaybackPreference.allCases) { choice in
                     Button { preference = choice.rawValue } label: {
                         HStack {
-                            if choice == .mpv {
-                                Image("Playback-MPV").resizable().scaledToFit().frame(width: 26, height: 26)
-                            }
-                            Text(choice.title).foregroundStyle(LineupStyle.text)
+                            PlaybackEngineText(choice.title, style: .body).foregroundStyle(LineupStyle.text)
                             Spacer()
                             if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
                                 Image(systemName: "checkmark").foregroundStyle(LineupStyle.highlight)
@@ -817,7 +821,7 @@ private struct MobilePlaybackSettingsView: View {
                     .accessibilityIdentifier("lineup.playback.preference.\(choice.rawValue)")
                 }
             } footer: {
-                Text("Used for the next video you open. Automatic keeps Lineup’s current player order. AetherEngine supports native and sample-buffer Picture in Picture; VLC does not. MPVKit (Trial) does not support Picture in Picture. If MPVKit cannot open a source, Lineup falls back to AetherEngine, then VLC.")
+                PlaybackEngineText("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture; VLC and MPVKit do not. MPVKit is a trial and falls back to AetherEngine, then VLC, if needed. Choosing VLC always uses VLC.", size: 13)
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -831,9 +835,14 @@ private struct MobilePlaybackSettingsView: View {
 private struct MobilePlaybackAcknowledgementsView: View {
     var body: some View {
         ScrollView {
-            Text(AetherPlaybackSession.openSourceNotices() + "\n\n" + MPVPlaybackSession.openSourceNotices())
-                .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20).textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 16) {
+                PlaybackEngineText("AetherEngine 7.40.1 and its decoder libraries", style: .subheadline)
+                    .font(.inter(.subheadline, .semibold)).foregroundStyle(LineupStyle.text)
+                Text(AetherPlaybackSession.openSourceNotices() + "\n\n" + MPVPlaybackSession.openSourceNotices())
+                    .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .padding(20)
         }
         .background(LineupStyle.background)
         .navigationTitle("Acknowledgements")
@@ -844,7 +853,7 @@ private struct MobilePlaybackAcknowledgementsView: View {
 /// Why each game matched the channel it did. A game that opens the wrong feed
 /// should be able to name the rule that chose it, without a device log.
 private struct MatchDiagnosticsView: View {
-    @EnvironmentObject private var library: SportsLibrary
+    @Environment(SportsLibrary.self) private var library
 
     private var games: [SportsGame] {
         library.games(for: nil).filter { $0.isLive || $0.isUpcoming }

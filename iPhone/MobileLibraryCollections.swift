@@ -1,16 +1,5 @@
 import SwiftUI
 
-struct MobileLibraryCollection: Codable, Identifiable, Equatable {
-    var id = UUID()
-    var name: String
-    var items: [MediaItem] = []
-
-    mutating func add(_ item: MediaItem) {
-        guard ["Movie", "Series"].contains(item.type), !items.contains(where: { $0.libraryKey == item.libraryKey }) else { return }
-        items.append(item.withMetadata(nil))
-    }
-}
-
 extension MediaLibrary {
     func collectionMenu(for item: MediaItem) -> MobileMenuItem? {
         guard ["Movie", "Series"].contains(item.type) else { return nil }
@@ -18,20 +7,10 @@ extension MediaLibrary {
             self.collectionSelectionItem = item
         }
     }
-
-    @discardableResult
-    func createCollection(named name: String, adding item: MediaItem? = nil) -> UUID? {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name.count <= 80 else { return nil }
-        var collection = MobileLibraryCollection(name: name)
-        if let item { collection.add(item) }
-        personalCollections.append(collection)
-        return collection.id
-    }
 }
 
 struct MobileAddToCollectionView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     let item: MediaItem
@@ -74,7 +53,7 @@ struct MobileAddToCollectionView: View {
 /// Server collections keep their original parent IDs and routes. Personal
 /// collections keep original source-scoped items and never mutate a server.
 struct MobileLibraryCollectionsView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
 
     var body: some View {
         List {
@@ -122,7 +101,7 @@ struct MobileLibraryCollectionsView: View {
 }
 
 struct MobilePersonalCollectionView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var renaming = false
@@ -173,7 +152,7 @@ struct MobilePersonalCollectionView: View {
 /// Compact collection cards lead into a collection instead of another catalog
 /// row. No eager fetching of every collection's members on Library startup.
 struct MobileLibraryCollectionsRow: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {

@@ -1,6 +1,6 @@
 # iPhone playback and Picture in Picture
 
-Lineup requires **iOS 18** and embeds unmodified **AetherEngine 7.36.0** alongside
+Lineup requires **iOS 18** and embeds unmodified **AetherEngine 7.40.1** alongside
 the existing Apple and VLC players. Settings → Playback Engine offers:
 
 - **Automatic** (default): Apple's AVPlayer for HLS, AetherEngine for other URLs.

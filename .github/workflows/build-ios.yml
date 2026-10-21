@@ -10,6 +10,9 @@ on:
     # someone to remember to dispatch a run is how a branch sits broken.
     branches: [main, iphone, 'claude/**']
 
+permissions:
+  contents: write
+
 # A newer push supersedes an unfinished check on the same branch. Never cancel
 # a run on main or iphone: those produce the shipping IPAs.
 concurrency:
@@ -17,14 +20,12 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/iphone' }}
 
 jobs:
-  build:
+  # The simulator tests and the release build don't depend on each other, so
+  # they run side by side on two runners instead of one after the other. Every
+  # check and test still runs; only the waiting goes.
+  test:
     runs-on: xcode-27
     timeout-minutes: 45
-    env:
-      # Packaging an installable build is for the shipping branches and for
-      # anyone who asks for one by hand. Every other branch stops after the
-      # tests, so a check costs a fraction of the runner time.
-      PACKAGES_IPA: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone' }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
@@ -65,11 +66,21 @@ jobs:
           /tmp/mobile-guide-checks
           swiftc iPhone/MobilePlaybackPolicy.swift Tests/MobilePlaybackPolicyChecks.swift -o /tmp/mobile-playback-policy-checks
           /tmp/mobile-playback-policy-checks
-          swiftc iPhone/MobileSubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/mobile-subtitle-preference-checks
+          swiftc Lineup/Services/SubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/mobile-subtitle-preference-checks
           /tmp/mobile-subtitle-preference-checks
-          swiftc iPhone/MobilePlaybackSegments.swift Tests/MobilePlaybackSegmentChecks.swift -o /tmp/mobile-playback-segment-checks
+          swiftc Lineup/Services/SubtitlePreferences.swift Lineup/Services/TrackMemory.swift Tests/MobileTrackMemoryChecks.swift -o /tmp/mobile-track-memory-checks
+          /tmp/mobile-track-memory-checks
+          swiftc Lineup/Services/TeamPageFeed.swift Tests/MobileTeamPageChecks.swift -o /tmp/mobile-team-page-checks
+          /tmp/mobile-team-page-checks
+          swiftc Lineup/Services/AutoSyncLogic.swift Tests/MobileAutoSyncChecks.swift -o /tmp/mobile-auto-sync-checks
+          /tmp/mobile-auto-sync-checks
+          swiftc Lineup/Services/PlaybackSegments.swift Tests/MobilePlaybackSegmentChecks.swift -o /tmp/mobile-playback-segment-checks
           /tmp/mobile-playback-segment-checks
-          swiftc iPhone/MobileFanartPolicy.swift Tests/MobileFanartPolicyChecks.swift -o /tmp/mobile-fanart-policy-checks
+          swiftc Lineup/Services/GameStatsFeed.swift Lineup/Services/GameStatsBoards.swift Tests/MobileGameStatsChecks.swift -o /tmp/mobile-game-stats-checks
+          /tmp/mobile-game-stats-checks
+          swiftc Lineup/Services/GameStatsFeed.swift Lineup/Services/GameStatsBoards.swift Tests/MobileGameBoardChecks.swift -o /tmp/mobile-game-board-checks
+          /tmp/mobile-game-board-checks
+          swiftc Lineup/Services/FanartPolicy.swift Tests/MobileFanartPolicyChecks.swift -o /tmp/mobile-fanart-policy-checks
           /tmp/mobile-fanart-policy-checks
           swiftc iPhone/PlaybackDiagnosticsLog.swift Tests/PlaybackDiagnosticsLogChecks.swift -o /tmp/playback-diagnostics-checks
           /tmp/playback-diagnostics-checks
@@ -138,13 +149,6 @@ jobs:
           path: navigation-previews
           if-no-files-found: ignore
           retention-days: 3
-      - name: Build unsigned iPhone app
-        if: env.PACKAGES_IPA == 'true'
-        run: |
-          set -euo pipefail
-          xcodebuild -project Lineup.xcodeproj -scheme LineupiOS \
-            -configuration Release -destination 'generic/platform=iOS' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
       - name: Check Inter is bundled
         run: |
           set -euo pipefail
@@ -152,12 +156,11 @@ jobs:
           # file is silent: Font.custom falls back to the system font and the
           # app looks the way it did before Inter. So the bundle is the thing
           # to check, not the code.
-          # The release bundle where one was built, the simulator bundle
-          # otherwise: a branch that stops after the tests still gets this
+          # Run on the simulator bundle here and on the release bundle in the
+          # package job: a branch that stops after the tests still gets this
           # check, and it is the check that has already caught a capability
           # silently missing from a shipped build.
-          app="build/Build/Products/Release-iphoneos/Lineup.app"
-          [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
+          app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
           test -d "$app"
           python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart
           missing=0
@@ -176,12 +179,99 @@ jobs:
           # work at all. It is silent when missing -- the app simply stops on
           # background -- and it lives in the built plist, not in code, so the
           # bundle is the thing to check.
-          # The release bundle where one was built, the simulator bundle
-          # otherwise: a branch that stops after the tests still gets this
+          # Run on the simulator bundle here and on the release bundle in the
+          # package job: a branch that stops after the tests still gets this
           # check, and it is the check that has already caught a capability
           # silently missing from a shipped build.
+          app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
+          plist="$app/Info.plist"
+          test -f "$plist"
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$plist"
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes:0" "$plist" | grep -qx audio
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" != ""
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = "Lineup"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = "Lineup"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = "com.nulldev85.NullSports.iOS"
+          icons=$(find "$app" -maxdepth 1 -name 'LineupAppIcon*.png')
+          test -n "$icons"
+          legacy_icons=$(find "$app" -maxdepth 1 -name 'AppIcon*.png')
+          test -z "$legacy_icons"
+
+      - name: Check AetherEngine linkage, resources, and iOS minimum
+        run: |
+          set -euo pipefail
+          app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
+          python3 -B Tests/AetherBundleChecks.py
+          python3 Tools/check-aether-bundle.py "$app"
+
+
+  package:
+    # Packaging an installable build is for the shipping branches and for
+    # anyone who asks for one by hand. Every other branch stops after the
+    # tests, so a check costs a fraction of the runner time.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone' }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Configure Library metadata services
+        env:
+          LINEUP_TMDB_TOKEN: ${{ secrets.LINEUP_TMDB_TOKEN }}
+          LINEUP_TVDB_API_KEY: ${{ secrets.LINEUP_TVDB_API_KEY }}
+          LINEUP_OPENSUBTITLES_API_KEY: ${{ secrets.LINEUP_OPENSUBTITLES_API_KEY }}
+          LINEUP_FANART_API_KEY: ${{ secrets.LINEUP_FANART_API_KEY }}
+        run: |
+          python3 -B Tools/configure-metadata.py
+          python3 -B Tools/check-metadata-bundle.py Lineup/Resources --require-online-subtitles --require-fanart
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "27.0"
+      - name: Generate project
+        run: |
+          set -euo pipefail
+          test -d iPhone/Assets.xcassets/LineupAppIcon.appiconset
+          test ! -e iPhone/Assets.xcassets/AppIcon.appiconset
+          grep -q 'ASSETCATALOG_COMPILER_APPICON_NAME: LineupAppIcon' project.yml
+          brew install xcodegen
+          xcodegen generate
+          python3 -B Tools/check-aether-bundle.py --project Lineup.xcodeproj/project.pbxproj
+      - name: Build unsigned iPhone app
+        run: |
+          set -euo pipefail
+          xcodebuild -project Lineup.xcodeproj -scheme LineupiOS \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+      - name: Check Inter is bundled
+        run: |
+          set -euo pipefail
+          # The font is registered at launch from the bundle, and a missing
+          # file is silent: Font.custom falls back to the system font and the
+          # app looks the way it did before Inter. So the bundle is the thing
+          # to check, not the code.
+          # The bundle that ships, checked as it is packaged.
           app="build/Build/Products/Release-iphoneos/Lineup.app"
-          [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
+          test -d "$app"
+          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart
+          missing=0
+          for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
+            if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then
+              echo "Inter-$face.ttf is not in the app bundle"
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+
+      - name: Check background audio capability is in the bundle
+        run: |
+          set -euo pipefail
+          # The capability that makes background playback and Picture in Picture
+          # work at all. It is silent when missing -- the app simply stops on
+          # background -- and it lives in the built plist, not in code, so the
+          # bundle is the thing to check.
+          # The bundle that ships, checked as it is packaged.
+          app="build/Build/Products/Release-iphoneos/Lineup.app"
           plist="$app/Info.plist"
           test -f "$plist"
           /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$plist"
@@ -199,12 +289,10 @@ jobs:
         run: |
           set -euo pipefail
           app="build/Build/Products/Release-iphoneos/Lineup.app"
-          [ -d "$app" ] || app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
           python3 -B Tests/AetherBundleChecks.py
           python3 Tools/check-aether-bundle.py "$app"
 
       - name: Package IPA
-        if: env.PACKAGES_IPA == 'true'
         run: |
           set -euo pipefail
           app="build/Build/Products/Release-iphoneos/Lineup.app"
@@ -213,11 +301,79 @@ jobs:
           cp -R "$app" package/Payload/
           cd package
           zip -qry ../Lineup-iPhone-unsigned.ipa Payload
-      - name: Upload IPA
-        if: env.PACKAGES_IPA == 'true'
+      - name: Upload IPA for the tests to clear
         uses: actions/upload-artifact@v4
         with:
-          name: Lineup-iPhone-unsigned-IPA
+          name: Lineup-iPhone-unsigned-IPA-candidate
           path: Lineup-iPhone-unsigned.ipa
           if-no-files-found: error
+          retention-days: 1
+
+  # The installable build is published only once the tests have passed, as
+  # it was when one job did both in turn. The candidate is renamed, not
+  # rebuilt, so what is published is exactly what the package job built.
+  publish:
+    needs: [test, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Publish IPA
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: Lineup-iPhone-unsigned-IPA
+          pattern: Lineup-iPhone-unsigned-IPA-candidate
+          delete-merged: true
           retention-days: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone') && 14 || 7 }}
+
+  source-release:
+    needs: [test, package, publish]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download verified IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: Lineup-iPhone-unsigned-IPA
+          path: release
+
+      - name: Read IPA metadata
+        env:
+          IPA: release/Lineup-iPhone-unsigned.ipa
+        run: |
+          python3 - "$IPA" "$RUNNER_TEMP/source-release-notes.md" <<'PY'
+          import plistlib
+          import sys
+          import zipfile
+
+          ipa_path, notes_path = sys.argv[1:]
+          with zipfile.ZipFile(ipa_path) as archive:
+              plist = plistlib.loads(archive.read("Payload/Lineup.app/Info.plist"))
+          bundle_id = plist["CFBundleIdentifier"]
+          if bundle_id != "com.nulldev85.NullSports.iOS":
+              raise SystemExit(f"Unexpected bundle identifier: {bundle_id}")
+          fields = {
+              "Source-App": "Lineup",
+              "Source-Bundle-Identifier": bundle_id,
+              "Source-Version": plist["CFBundleShortVersionString"],
+              "Source-Build-Version": plist["CFBundleVersion"],
+              "Source-Minimum-OS-Version": plist.get("MinimumOSVersion", "") or "unknown",
+              "Source-Branch": "main",
+              "Source-SHA": __import__("os").environ["GITHUB_SHA"],
+          }
+          with open(notes_path, "w", encoding="utf-8") as notes:
+              for key, value in fields.items():
+                  notes.write(f"{key}: {value}\n")
+          PY
+
+      - name: Publish public source release from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: source-${{ github.run_id }}
+        run: |
+          gh release create "$SOURCE_TAG" "release/Lineup-iPhone-unsigned.ipa#Lineup.ipa" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Lineup $(sed -n 's/^Source-Version: //p' "$RUNNER_TEMP/source-release-notes.md") ($(sed -n 's/^Source-Build-Version: //p' "$RUNNER_TEMP/source-release-notes.md"))" \
+            --notes-file "$RUNNER_TEMP/source-release-notes.md" \
+            --target "$GITHUB_SHA" \
+            --latest=false

@@ -2,8 +2,8 @@ import SwiftUI
 import Foundation
 
 struct RootView: View {
-    @EnvironmentObject private var library: SportsLibrary
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(SportsLibrary.self) private var library
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.scenePhase) private var scenePhase
     /// Watched so the app's tint follows the accent; the tabs below redraw
     /// themselves for it.
@@ -49,8 +49,8 @@ struct RootView: View {
         // Every refresh of the scores is looked at for the viewer's teams:
         // a game starting, close at the end, or going to overtime is held
         // for a player to show over the picture.
-        .onReceive(library.$gamesByLeague) { games in
-            GameAlertCenter.shared.observe(games.values.flatMap { $0 }, isFollowing: library.isFollowing)
+        .onChange(of: library.gamesRevision, initial: true) {
+            GameAlertCenter.shared.observe(library.gamesByLeague.values.flatMap { $0 }, isFollowing: library.isFollowing)
         }
         #if os(tvOS)
         .tvChoices("Couldn’t Connect", symbol: "exclamationmark.triangle",
@@ -123,16 +123,19 @@ struct MainView: View {
         // page takes it away (`TVTabBarState`).
         TabView(selection: $selectedTab) {
             LiveView(isActive: selectedTab == 0)
+                .environment(\.tvPlaybackPlace, .sports)
                 .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Sports", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
                 .tag(0)
             GuideView(isActive: selectedTab == 1)
+                .environment(\.tvPlaybackPlace, .guide)
                 .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("TV Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
                 .tag(1)
             MediaServersView()
+                .environment(\.tvPlaybackPlace, .library)
                 .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Library", systemImage: selectedTab == 2 ? "play.square.stack.fill" : "play.square.stack") }
@@ -140,6 +143,7 @@ struct MainView: View {
             // Everything at once -- the Library, live TV, the guide and VOD --
             // each result saying which of the other tabs it lives in.
             AppSearchView()
+                .environment(\.tvPlaybackPlace, .search)
                 .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
@@ -147,6 +151,7 @@ struct MainView: View {
             // Not rebuilt for a new accent: the accent is chosen here, and
             // rebuilding would throw the remote off the swatch it is on.
             AccountView(selectedTab: $selectedTab)
+                .environment(\.tvPlaybackPlace, .library)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Settings", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
                 .tag(3)

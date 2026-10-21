@@ -41,6 +41,12 @@ actor MobileIntroDB {
 
     init(session: URLSession = .shared) { self.session = session }
 
+    #if os(tvOS)
+    private static let userAgent = "Lineup/0.19 (tvOS; IntroDB integration)"
+    #else
+    private static let userAgent = "Lineup/0.19 (iOS; IntroDB integration)"
+    #endif
+
     func intro(for identity: MobileIntroIdentity) async -> MobileIntroSegment? {
         await segments(for: identity.segmentsIdentity)?.intro
     }
@@ -53,7 +59,7 @@ actor MobileIntroDB {
         let task = Task<Entry, Never> {
             var request = URLRequest(url: identity.url, timeoutInterval: 5)
             request.setValue("application/json", forHTTPHeaderField: "Accept")
-            request.setValue("Lineup/0.19 (iOS; IntroDB integration)", forHTTPHeaderField: "User-Agent")
+            request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
             do {
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {

@@ -426,7 +426,6 @@ struct JellyfinClient: Sendable {
         return authenticatedURL(path: "videos/\(itemID)/stream", query: query)
     }
 
-    #if os(iOS)
     func seekPreview(userID: String, itemID: String, mediaSourceID: String) async throws -> MobileSeekPreviewSource? {
         guard software == .jellyfin, MobileSeekPreviewSource.versionKey(itemID) != nil,
               MobileSeekPreviewSource.versionKey(mediaSourceID) != nil else { return nil }
@@ -441,7 +440,6 @@ struct JellyfinClient: Sendable {
         tile.setValue("image/jpeg", forHTTPHeaderField: "Accept")
         return MobileSeekPreviewSource(info: info, firstTile: tile)
     }
-    #endif
 
     private func request(path: String, method: String = "GET", query: [URLQueryItem] = [],
                          timeout: TimeInterval = 20) throws -> URLRequest {

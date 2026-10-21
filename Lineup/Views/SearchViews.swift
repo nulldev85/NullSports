@@ -9,8 +9,8 @@ import SwiftUI
 /// server, a channel to tune to, a showing in the guide on Thursday, or a
 /// copy on the provider's VOD shelves.
 struct AppSearchView: View {
-    @EnvironmentObject private var library: SportsLibrary
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(SportsLibrary.self) private var library
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.scenePhase) private var scenePhase
     #if !os(tvOS)
     /// Plays a channel full screen. On the phone the player belongs to the

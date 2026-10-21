@@ -1,31 +1,5 @@
 import SwiftUI
 
-enum MobileBetterPosters {
-    static let defaultTemplate = "https://btttr.cc/poster/imdb/poster-default/{imdb_id}.jpg"
-
-    /// Accept only the image pattern produced by the official configurator.
-    /// Never accept manifests, third-party proxies, or credentials in a URL.
-    static func validTemplate(_ text: String) -> Bool {
-        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.count <= 1024, text.components(separatedBy: "{imdb_id}").count == 2,
-              let url = URLComponents(string: text.replacingOccurrences(of: "{imdb_id}", with: "tt0903747")),
-              url.scheme == "https", url.host?.lowercased() == "btttr.cc",
-              url.port == nil, url.user == nil, url.password == nil, url.fragment == nil,
-              url.path.range(of: "^/poster(-[gnrqa]+)?/imdb/poster-default/tt0903747\\.jpg$",
-                             options: .regularExpression) != nil else { return false }
-        let allowed: Set<String> = ["tag", "lang", "rs"]
-        return (url.queryItems ?? []).allSatisfy { allowed.contains($0.name) && !($0.value ?? "").isEmpty }
-    }
-
-    static func url(for item: MediaItem, template: String) -> URL? {
-        guard ["Movie", "Series"].contains(item.type), validTemplate(template),
-              let imdb = LibraryMetadataIdentity.ids(item)["imdb"],
-              imdb.range(of: "^tt[0-9]{7,}$", options: .regularExpression) != nil else { return nil }
-        return URL(string: template.trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "{imdb_id}", with: imdb))
-    }
-}
-
 /// Keep the ordinary poster visible during a provider request and on failure.
 /// Both downloads go through the same bounded, off-main artwork cache.
 struct MobileRatedPoster<Content: View>: View {
@@ -45,30 +19,8 @@ struct MobileRatedPoster<Content: View>: View {
     }
 }
 
-extension MediaLibrary {
-    func betterPosterURL(for item: MediaItem) -> URL? {
-        guard betterPostersEnabled else { return nil }
-        let item = displayItem(item)
-        if let url = MobileBetterPosters.url(for: item, template: betterPostersTemplate) { return url }
-        guard let imdb = betterPosterIDs[item.libraryKey] else { return nil }
-        let identity = item.withMetadata(LibraryMetadata(source: .provider, title: item.name, externalIDs: ["imdb": imdb]))
-        return MobileBetterPosters.url(for: identity, template: betterPostersTemplate)
-    }
-
-    func resolveBetterPosterIdentity(for item: MediaItem) async {
-        guard betterPostersEnabled, ["Movie", "Series"].contains(item.type),
-              LibraryMetadataIdentity.ids(displayItem(item))["imdb"] == nil,
-              betterPosterIDs[item.libraryKey] == nil else { return }
-        await resolveMetadata(for: item)
-        guard !Task.isCancelled, LibraryMetadataIdentity.ids(displayItem(item))["imdb"] == nil else { return }
-        let matched = await libraryExternalIdentity(item)
-        guard !Task.isCancelled, let imdb = LibraryMetadataIdentity.ids(matched)["imdb"] else { return }
-        betterPosterIDs[item.libraryKey] = imdb
-    }
-}
-
 struct MobileBetterPostersSettings: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @State private var template = ""
 

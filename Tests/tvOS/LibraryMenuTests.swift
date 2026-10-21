@@ -7,10 +7,11 @@ final class LibraryMenuTests: XCTestCase {
         let (library, defaults, suite) = try makeLibrary()
         defer { defaults.removePersistentDomain(forName: suite) }
         let movie = item(type: "Movie")
-        XCTAssertEqual(library.tvCardChoices(for: movie).map(\.title), ["Mark Watched", "Add to Favorites"])
+        XCTAssertEqual(library.tvCardChoices(for: movie).map(\.title), ["Mark Watched", "Add to Favorites", "Collections"])
         library.setLocallyPlayed(true, for: movie)
         library.setLocalFavorite(true, for: movie)
-        XCTAssertEqual(library.tvCardChoices(for: movie).map(\.title), ["Mark Unwatched", "Remove from Favorites"])
+        XCTAssertEqual(library.tvCardChoices(for: movie).map(\.title),
+                       ["Mark Unwatched", "Remove from Favorites", "Collections"])
     }
 
     func testEpisodeMenuReflectsLocalWatchedAndUnwatchedMarks() throws {
@@ -21,6 +22,8 @@ final class LibraryMenuTests: XCTestCase {
         XCTAssertEqual(library.tvEpisodeChoices(for: episode).first?.title, "Mark Unwatched")
         library.setLocallyPlayed(false, for: episode)
         XCTAssertEqual(library.tvEpisodeChoices(for: episode).first?.title, "Mark Watched")
+        // Collections hold movies and shows, not episodes.
+        XCTAssertFalse(library.tvCardChoices(for: episode).map(\.title).contains("Collections"))
     }
 
     func testResumeMovieStillOffersTrackingActions() throws {
@@ -29,7 +32,7 @@ final class LibraryMenuTests: XCTestCase {
         let movie = item(type: "Movie")
         library.trackPlayback(of: movie, position: 300, duration: 3_600)
         XCTAssertEqual(library.tvCardChoices(for: movie).map(\.title),
-                       ["Remove from Continue Watching", "Mark Watched", "Add to Favorites"])
+                       ["Remove from Continue Watching", "Mark Watched", "Add to Favorites", "Collections"])
     }
 
     private func item(type: String) -> MediaItem {

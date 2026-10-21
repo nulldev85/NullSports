@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LibraryMetadataSettingsView: View {
-    @EnvironmentObject private var media: MediaLibrary
+    @Environment(MediaLibrary.self) private var media
     #if os(tvOS)
     @State private var choosingMetadata = false
     @State private var choosingEpisodes = false
@@ -26,6 +26,24 @@ struct LibraryMetadataSettingsView: View {
                     sourceButton("Episode data:", symbol: "tv", value: media.episodeDataSource) { choosingEpisodes = true }
                 }
                 Text("Metadata source applies to movies and shows. Episode data applies to episode titles, summaries, and stills. Your provider's data is used when a match is unavailable.")
+                    .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                Text("Playback").font(.inter(30, .bold)).padding(.top, 12)
+                VStack(spacing: 16) {
+                    switchRow("Skip Intro", symbol: "forward.end.fill", isOn: Bindable(media).introDBEnabled)
+                    switchRow("Skip Recap", symbol: "backward.end.fill", isOn: Bindable(media).recapSkippingEnabled)
+                    switchRow("Next Episode During Credits", symbol: "play.rectangle.on.rectangle",
+                              isOn: Bindable(media).creditsPromptEnabled)
+                    switchRow("Post-Credit Scene Notices", symbol: "film.stack", isOn: Bindable(media).postCreditsNoticeEnabled)
+                }
+                Text("Uses matching community timestamps from IntroDB for Library playback. Missing credit timestamps keep the normal prompt near the end. Nothing skips automatically.")
+                    .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                Text("Artwork").font(.inter(30, .bold)).padding(.top, 12)
+                VStack(spacing: 16) {
+                    switchRow("BetterPosters", symbol: "photo.on.rectangle.angled",
+                              isOn: Bindable(media).betterPostersEnabled)
+                    switchRow("Title Logos", symbol: "textformat", isOn: Bindable(media).fanartEnabled)
+                }
+                Text("BetterPosters draws movie and show posters with their ratings, in its default style, for titles with an IMDb match. Your own artwork stays wherever one can't load. Title Logos shows a logo from Fanart.tv on titles whose server has none. Artwork provided by BetterPosters and Fanart.tv.")
                     .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
                 availability
                 credits
@@ -65,17 +83,17 @@ struct LibraryMetadataSettingsView: View {
             }
             .lineupSettingsRows()
             Section {
-                Toggle(isOn: $media.introDBEnabled) {
+                Toggle(isOn: Bindable(media).introDBEnabled) {
                     sourceLabel("Skip Intro", symbol: "forward.end.fill")
                 }
                 .tint(LineupStyle.highlight)
-                Toggle(isOn: $media.recapSkippingEnabled) {
+                Toggle(isOn: Bindable(media).recapSkippingEnabled) {
                     sourceLabel("Skip Recap", symbol: "backward.end.fill")
                 }.tint(LineupStyle.highlight)
-                Toggle(isOn: $media.creditsPromptEnabled) {
+                Toggle(isOn: Bindable(media).creditsPromptEnabled) {
                     sourceLabel("Next Episode During Credits", symbol: "play.rectangle.on.rectangle")
                 }.tint(LineupStyle.highlight)
-                Toggle(isOn: $media.postCreditsNoticeEnabled) {
+                Toggle(isOn: Bindable(media).postCreditsNoticeEnabled) {
                     sourceLabel("Post-Credit Scene Notices", symbol: "film.stack")
                 }.tint(LineupStyle.highlight)
                 Link("Timestamps provided by IntroDB", destination: URL(string: "https://introdb.app")!)
@@ -84,7 +102,7 @@ struct LibraryMetadataSettingsView: View {
               footer: { Text("Uses matching community timestamps for Library playback. Next Episode keeps Lineup's existing episode choice and Play Now action. Missing credit timestamps keep the normal prompt near the end. Post-credit notices appear only when a movie has matching scene data; nothing skips automatically.").lineupSettingsFooter() }
               .lineupSettingsRows()
             Section {
-                Toggle(isOn: $media.betterPostersEnabled) {
+                Toggle(isOn: Bindable(media).betterPostersEnabled) {
                     sourceLabel("BetterPosters", symbol: "photo.on.rectangle.angled")
                 }
                 .tint(LineupStyle.highlight)
@@ -95,7 +113,7 @@ struct LibraryMetadataSettingsView: View {
               footer: { Text("Uses BetterPosters for movie and show posters with an IMDb match. Your original artwork remains available when a poster cannot load. Episode stills and hero artwork keep their current style.").lineupSettingsFooter() }
               .lineupSettingsRows()
             Section {
-                Toggle(isOn: $media.fanartEnabled) {
+                Toggle(isOn: Bindable(media).fanartEnabled) {
                     sourceLabel("Title Logos", symbol: "textformat")
                 }.tint(LineupStyle.highlight)
                 Link("Artwork provided by Fanart.tv", destination: URL(string: "https://fanart.tv")!)
@@ -139,6 +157,23 @@ struct LibraryMetadataSettingsView: View {
             .padding(24)
             .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
+    }
+
+    /// A setting that is on or off: Select flips it, and the state says so
+    /// in the accent, as the source rows say theirs.
+    private func switchRow(_ title: String, symbol: String, isOn: Binding<Bool>) -> some View {
+        TVSelectable(scale: 1.015, fillRadius: 18, action: { isOn.wrappedValue.toggle() }) {
+            HStack(spacing: 20) {
+                LineupIconTile(symbol: symbol, size: 42)
+                Text(title).font(.inter(26, .semibold))
+                Spacer()
+                Text(isOn.wrappedValue ? "On" : "Off").font(.inter(25))
+                    .foregroundStyle(isOn.wrappedValue ? LineupStyle.highlight : LineupPanelStyle.quiet)
+            }
+            .padding(24)
+            .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
     }
 
     private func choices(episodes: Bool) -> [TVChoice] {

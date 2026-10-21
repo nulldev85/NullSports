@@ -14,6 +14,34 @@ SHARED = (
     "Lineup/Services/M3UPlaylist.swift",
     "Lineup/Services/MediaPlaybackRequest.swift",
     "Lineup/Services/SportsIndexFacts.swift",
+    # IntroDB's skip prompts play on both: the phone's player and the TV's.
+    "Lineup/Services/PlaybackSegments.swift",
+    "Lineup/Services/IntroDB.swift",
+    # Live stats and Auto Sync: beside the phone's picture and the TV's.
+    "Lineup/Services/GameStatsFeed.swift",
+    "Lineup/Services/GameStatsBoards.swift",
+    "Lineup/Services/AutoSyncLogic.swift",
+    "Lineup/Services/AutoSync.swift",
+    "Lineup/Store/GameStats.swift",
+    "Lineup/Design/GameStatsRows.swift",
+    "Lineup/Design/GameStatsBoardViews.swift",
+    # Team pages, Game Replays and Catch Up from a live game.
+    "Lineup/Services/TeamPageFeed.swift",
+    "Lineup/Services/TeamPageClient.swift",
+    "Lineup/Services/TeamPageTarget.swift",
+    "Lineup/Services/GameReplayPolicy.swift",
+    "Lineup/Store/GameReplayStore.swift",
+    "Lineup/Services/SportsCatchUp.swift",
+    # Collections, BetterPosters, title logos.
+    "Lineup/Models/LibraryCollection.swift",
+    "Lineup/Services/BetterPosters.swift",
+    "Lineup/Services/Fanart.swift",
+    "Lineup/Services/FanartPolicy.swift",
+    # Subtitle settings, Find Subtitles Online, seek previews, per-show tracks.
+    "Lineup/Services/SubtitlePreferences.swift",
+    "Lineup/Services/TrackMemory.swift",
+    "Lineup/Services/OpenSubtitles.swift",
+    "Lineup/Services/SeekPreview.swift",
 )
 
 
@@ -40,14 +68,10 @@ class SharedSourceMembershipChecks(unittest.TestCase):
     def test_mobile_library_rows_and_artwork_are_iphone_only(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
         for source in ("iPhone/MobileLibraryShelf.swift", "iPhone/MobileLibraryArtwork.swift",
-                       "iPhone/MobileLibraryCollections.swift", "iPhone/MobileIntroDB.swift",
-                       "iPhone/MobileBetterPosters.swift", "iPhone/MobileGameReplayPolicy.swift",
-                       "iPhone/MobileGameReplayStore.swift", "iPhone/MobileGameReplaysView.swift",
-                       "iPhone/MobileSportsCatchUp.swift", "iPhone/MobileOpenSubtitles.swift",
+                       "iPhone/MobileLibraryCollections.swift",
+                       "iPhone/MobileBetterPosters.swift", "iPhone/MobileGameReplaysView.swift",
                        "iPhone/MobileOnlineSubtitlesSheet.swift", "iPhone/MobileSubtitleSettings.swift",
-                       "iPhone/MobileSeekPreview.swift", "iPhone/MobileSubtitlePreferences.swift",
-                       "iPhone/MobilePlaybackSegments.swift", "iPhone/MobileFanart.swift",
-                       "iPhone/MobileFanartPolicy.swift", "iPhone/MobileFanartTitle.swift"):
+                       "iPhone/MobileFanartTitle.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))
             self.assertFalse(is_included(project, "Lineup", source))

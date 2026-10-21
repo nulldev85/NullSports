@@ -43,7 +43,7 @@ final class PlaybackEngineTests: XCTestCase {
                     if position == 615, !didReport { didReport = true; reported.fulfill() }
                     if position == 617, !didClose { didClose = true; closed.fulfill() }
                 }, playbackController: controller)
-                .environmentObject(SportsLibrary(profileDefaults: fixture.defaults))
+                .environment(SportsLibrary(profileDefaults: fixture.defaults))
             let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
             let previous = scene.windows.first(where: \.isKeyWindow)
             let window = UIWindow(windowScene: scene)
@@ -117,6 +117,29 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(TVPlaybackEngine.mpv.title, "MPVKit (Trial)")
         fixture.defaults.set("missing-engine", forKey: TVPlaybackEngine.storageKey)
         XCTAssertEqual(TVPlaybackEngine.selected(in: fixture.defaults), .vlc)
+    }
+
+    func testEachTabKeepsItsOwnEngineAndOtherwiseUsesTheSharedOne() throws {
+        let fixture = try Fixture(.aether)
+        defer { fixture.clean() }
+        XCTAssertEqual(TVPlaybackEngine.selected(for: .library, in: fixture.defaults), .aether)
+        fixture.defaults.set("vlc", forKey: TVPlaybackPlace.library.storageKey)
+        XCTAssertEqual(TVPlaybackEngine.selected(for: .library, in: fixture.defaults), .vlc)
+        XCTAssertEqual(TVPlaybackEngine.selected(for: .sports, in: fixture.defaults), .aether)
+        XCTAssertEqual(TVPlaybackEngine.selected(for: nil, in: fixture.defaults), .aether)
+
+        // A player opens each stream with its own tab's engine.
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.place = .library
+        controller.start(urls: [Fixture.url])
+        XCTAssertEqual(controller.engineTitle, "VLC")
+        controller.place = .sports
+        controller.start(urls: [Fixture.url])
+        XCTAssertEqual(controller.engineTitle, "AetherEngine")
+
+        fixture.defaults.set("missing-engine", forKey: TVPlaybackPlace.library.storageKey)
+        XCTAssertEqual(TVPlaybackEngine.selected(for: .library, in: fixture.defaults), .aether)
     }
 
     func testInfoReportsActualEngineAndSettingChangesApplyToTheNextStream() throws {
@@ -363,6 +386,72 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(fixture.aether.loads.last?.isLive, false)
     }
 
+    /// The sound chosen for a show is kept, and its next episode opens on
+    /// that language and is put on that track once the tracks are known.
+    func testAShowsChosenSoundIsPutBackOnItsNextEpisode() throws {
+        let fixture = try Fixture(.vlc)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        let backend = fixture.backend(.vlc)
+        let tracks = [PlaybackStreamTrack(id: 1, title: "English · AC3 5.1"), PlaybackStreamTrack(id: 2, title: "Spanish · AAC")]
+        controller.remembersTracks(forShow: "the show")
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+        XCTAssertEqual(backend.openingLanguages, PlaybackLanguages())
+        backend.audioTracks = tracks
+        backend.selectedAudioIndex = 1
+        controller.checkPlayback()
+        controller.selectAudioTrack(tracks[1])
+        XCTAssertEqual(MobileTrackMemory.load("the show", defaults: fixture.defaults)?.audio?.title, "Spanish · AAC")
+
+        controller.remembersTracks(forShow: "the show")
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+        XCTAssertEqual(backend.openingLanguages.audio, ["es"])
+        backend.audioTracks = tracks
+        backend.selectedAudioIndex = 1
+        controller.checkPlayback()
+        XCTAssertEqual(backend.selectedAudioIndex, 2, "The kept track, found by its name")
+    }
+
+    /// Subtitle timing goes to the engine at once, in quarter seconds, and
+    /// starts again at zero for the next title.
+    func testSubtitleTimingIsTheTitlesOwn() throws {
+        let fixture = try Fixture(.aether)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        let backend = fixture.backend(.aether)
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+        controller.setSubtitleDelay(1.3)
+        XCTAssertEqual(controller.subtitleDelaySeconds, 1.25)
+        XCTAssertEqual(backend.subtitleStyle.delay, 1.25)
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+        XCTAssertEqual(controller.subtitleDelaySeconds, 0)
+        XCTAssertEqual(backend.subtitleStyle.delay, 0)
+    }
+
+    /// The live stats hold back by the viewer's own pauses: a live channel
+    /// paused and played on from its buffer stays that far behind, until it
+    /// goes live again.
+    func testAPauseOnALiveChannelHoldsTheStatsBackUntilItGoesLive() throws {
+        let fixture = try Fixture(.vlc)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url], isLive: true)
+        XCTAssertEqual(controller.secondsBehindLive, 0)
+        controller.togglePlayback()
+        Thread.sleep(forTimeInterval: 0.05)
+        let paused = controller.secondsBehindLive
+        XCTAssertGreaterThanOrEqual(paused, 0.05)
+        controller.togglePlayback()
+        XCTAssertGreaterThanOrEqual(controller.secondsBehindLive, paused)
+        Thread.sleep(forTimeInterval: 0.05)
+        XCTAssertLessThan(controller.secondsBehindLive, paused + 0.04, "Playing, it falls no further behind")
+        controller.goLive()
+        XCTAssertEqual(controller.secondsBehindLive, 0)
+    }
+
     @MainActor private final class Fixture {
         static let url = URL(string: "https://example.invalid/movie.mkv")!
         let suite = "PlaybackEngineTests.\(UUID())"
@@ -443,4 +532,12 @@ private final class MockTVBackend: TVPlaybackBackend {
     func selectSubtitle(index: Int?) { selectedSubtitleIndex = index }
     func selectAudio(index: Int) { selectedAudioIndex = index }
     func selectVideo(index: Int) { selectedVideoIndex = index }
+    func captureFrame() async -> CapturedVideoFrame? { nil }
+    func releaseFrameOutput() {}
+    var openingLanguages = PlaybackLanguages()
+    var subtitleStyle = PlaybackSubtitleStyle()
+    var addedSubtitles: [URL] = []
+    func setOpeningLanguages(_ languages: PlaybackLanguages) { openingLanguages = languages }
+    func styleSubtitles(_ style: PlaybackSubtitleStyle) { subtitleStyle = style }
+    func addSubtitle(file: URL, title: String, language: String) -> Bool { addedSubtitles.append(file); return true }
 }

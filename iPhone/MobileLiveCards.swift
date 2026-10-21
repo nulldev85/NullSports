@@ -14,11 +14,6 @@ extension SportsGame {
         return first
     }
 
-    static func code(_ abbreviation: String, _ name: String) -> String {
-        let trimmed = abbreviation.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? String(name.prefix(3)).uppercased() : trimmed
-    }
-
     /// "Number 5 Georgia" for a ranked college team, to be read aloud.
     static func spokenName(_ name: String, rank: Int?) -> String {
         rank.map { "Number \($0) \(name)" } ?? name

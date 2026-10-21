@@ -18,18 +18,13 @@ struct MobilePlayerHeader<Actions: View, Details: View>: View {
 struct MobilePlaybackEngineBadge: View {
     let engine: MobileStreamEngine
     var body: some View {
-        HStack(spacing: 5) {
-            if engine == .mpv {
-                Image("Playback-MPV").resizable().scaledToFit().frame(width: 16, height: 16)
-            }
-            Text(engine.title).font(.inter(.caption2, .bold)).lineLimit(1)
-        }
-        .fixedSize()
-        .padding(.horizontal, 8).padding(.vertical, 5)
-        .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
-        .foregroundStyle(.white).allowsHitTesting(false)
-        .accessibilityLabel("Playback engine: " + engine.title)
-        .accessibilityIdentifier("lineup.playback.activeEngine")
+        PlaybackEngineText(engine.title, style: .caption2).font(.inter(.caption2, .bold)).lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(.white).allowsHitTesting(false)
+            .accessibilityLabel("Playback engine: " + engine.title)
+            .accessibilityIdentifier("lineup.playback.activeEngine")
     }
 }
 

@@ -28,6 +28,11 @@ existing reporting paths.
 
 Movies with both usable credits and a later post-credit scene show a small
 noninteractive notice during credits. It disappears when the scene begins.
+
+The IntroDB client and segment model live in Lineup/Services and are shared by
+both apps. The Apple TV Library player offers the same Skip Intro and Skip
+Recap prompts, the same credits timing for Next Episode and the same
+post-credits notice, under the same four settings.
 Missing scene data never promises a scene. No automatic credits skip or seek is
 introduced. Timestamp coverage and cut-specific accuracy depend on community
 data; matching IMDb identity does not guarantee every release has the same edit.
@@ -68,9 +73,12 @@ consumer credentials, a bundled project key can be extracted from an installed
 app. Do not use an account credential. No personal client_key or VIP purchase is
 required for the implemented API route.
 
-iPhone configuration checks require the key before dependency resolution and
-again in the packaged app. tvOS keeps an intentionally empty Fanart field and
-does not reference the new iPhone services or UI.
+Both builds' configuration checks require the key before dependency
+resolution and again in the packaged app. The service and its policy are
+shared (`Lineup/Services/Fanart.swift`, `FanartPolicy.swift`), as is the
+lookup, `MediaLibrary.fanartLogo(for:)`. The Apple TV draws a Fanart logo in
+its Library preview and title page where the server has no logo of its own;
+Settings › Metadata › Title Logos switches it, as on the phone.
 
 ## Validation
 

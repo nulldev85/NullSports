@@ -1,11 +1,17 @@
 # Apple TV playback engines
 
 Lineup supports VLC and AetherEngine on tvOS 18 and later. VLC remains the default.
-Choose Settings → Playback → Playback Engine. The choice is local to the Apple TV
-and takes effect when the next stream opens, including Sports and Guide previews,
-Library playback, provider recordings, and Multiview. Changing it does not replace
+Settings → Playback gives each tab that plays video its own engine: Sports (games,
+previews, Multiview), TV Guide (channels, previews, catch-up and recordings),
+Library (movies and shows from the servers and provider VOD, including titles
+opened from Settings) and Search (its channels and titles). A tab that has not
+been given one plays with the single engine every tab used before, so nothing
+changes until a tab is set. A source one engine struggles with can then play on
+the other without moving everything. The choices are local to the Apple TV and
+take effect when the next stream opens in that tab; changing one does not replace
 an already playing stream. A preview opened full screen keeps the same engine,
-connection, picture surface, and audio state.
+connection, picture surface, and audio state, and Multiview uses the engine of
+the tab it was opened from.
 
 The player info displays the **actual active engine**, not the saved preference:
 VLC or AetherEngine. Previews and Multiview labels also identify their engine.
@@ -19,9 +25,13 @@ engines. Engine adapters supply native playback, clocks, and stream information.
 Movie and episode tracking continues through the existing local tracking policy;
 a dropped stream is not counted as a completed title.
 
-The Aether integration uses the unmodified **7.36.0** tag, revision
-`c6365cc3c8850bdb670654ca26dcd21f73670875`, and pins FFmpegBuild 3.7.1,
-LibDovi 2.1.0, LibTrueHD 2.3.0, and LibDTSX 1.0.1. It uses the fast-zap live
+The Aether integration uses the unmodified **7.40.1** tag, revision
+`93d54e5067ca0ad856259c0ebc1693aeafa20677`, and pins FFmpegBuild 3.7.1 and
+LibDovi 2.1.0. It is built with Aether's default package traits, so the
+optional TrueHD and DTS:X object audio and Dolby Vision components are not
+compiled, and LibTrueHD and LibDTSX are not linked. Lineup never requests
+object audio rendering or the dual-layer route. XcodeGen cannot set package
+traits. It uses the fast-zap live
 profile, automatic source video selection, audio-track selection, and host-rendered
 text, styled text, and bitmap subtitles. Provider catch-up remains Lineup's own
 recording timeline. Aether's separate DVR buffer is not enabled.
@@ -77,7 +87,7 @@ The result bundle exports decoder-labelled screenshots as the
 decoded frame; the tests also require the backend's picture-ready signal.
 
 Release compilation and the packaged-runtime checks passed in run 38658173076.
-The bridge retains measured seekability across Aether 7.36's software audio-track
+The bridge retains measured seekability across Aether's software audio-track
 rebuild, which clears the engine's source flag without probing it again. Live and
 forward-only sources remain ineligible. Simulator sessions request software
 decoding; physical hardware-decoder coverage is still required.
