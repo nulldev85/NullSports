@@ -9803,8 +9803,14 @@ private struct PlaybackClockReader<Content: View>: View {
 
     static func hold(_ holds: Bool, for owner: AnyObject) {
         let id = ObjectIdentifier(owner)
-        let changed = holds ? holders.insert(id).inserted : holders.remove(id) != nil
-        guard changed else { return }
+        if holds {
+            holders.insert(id)
+        } else {
+            holders.remove(id)
+        }
+        // Playback checks call this repeatedly. Reconcile the app-wide flag
+        // even when this player's claim is unchanged, in case another tvOS
+        // component reset it while a stream was still playing.
         apply()
     }
 
