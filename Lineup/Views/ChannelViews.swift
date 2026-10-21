@@ -8344,8 +8344,9 @@ private struct TVGameAlertBanner: View {
 
 /// A minimal transport bar for recorded media.
 ///
-/// A press steps ten seconds; a held left/right press moves a local destination
-/// at display cadence and accelerates. Decoder previews are coalesced separately.
+/// A short left/right click skips fifteen seconds; a held press moves a local
+/// destination at display cadence and accelerates. Decoder previews are
+/// coalesced separately.
 private struct TVSeekBar: View {
     @ObservedObject var controller: TVPlaybackController
     @ObservedObject var clock: PlaybackClock
@@ -8397,13 +8398,11 @@ private struct TVSeekBar: View {
         .focusable()
         .focused(focus, equals: .scrubber)
         .focusEffectDisabled()
-        .background(TVSeekRemoteInput(active: selected && scenePhase == .active, onBegin: { direction in
-            controller.beginScrubbing()
-            guard controller.isScrubbing else { return }
-            target = PlaybackSeekPolicy.clamped(controller.elapsed + direction * 10, duration: controller.duration)
-            controller.previewScrubbing(at: target ?? controller.elapsed)
-            preview.request(at: target ?? controller.elapsed)
-            onInteraction()
+        .background(TVSeekRemoteInput(active: selected && scenePhase == .active, onTap: { direction in
+            beginRemoteSeek(direction: direction)
+            finishScrubbing()
+        }, onBegin: { direction in
+            beginRemoteSeek(direction: direction)
         }, onFrame: { direction, heldFor, delta in
             guard let target else { return }
             let next = PlaybackSeekPolicy.clamped(target + direction * PlaybackSeekPolicy.rate(heldFor: heldFor) * delta,
@@ -8448,6 +8447,18 @@ private struct TVSeekBar: View {
         controller.endScrubbing(at: target)
         self.target = nil
         preview.cancel()
+        onInteraction()
+    }
+
+    private func beginRemoteSeek(direction: Double) {
+        controller.beginScrubbing()
+        guard controller.isScrubbing else { return }
+        let destination = PlaybackSeekPolicy.clamped(
+            controller.elapsed + direction * PlaybackSeekPolicy.remoteTapSkip,
+            duration: controller.duration)
+        target = destination
+        controller.previewScrubbing(at: destination)
+        preview.request(at: destination)
         onInteraction()
     }
 
