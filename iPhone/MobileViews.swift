@@ -1,5 +1,6 @@
 import SwiftUI
 import LineupAetherPlayback
+import LineupMPVPlayback
 
 private struct MobileScheduleRefreshContext: Equatable {
     let scenePhase: ScenePhase
@@ -802,6 +803,9 @@ private struct MobilePlaybackSettingsView: View {
                 ForEach(MobilePlaybackPreference.allCases) { choice in
                     Button { preference = choice.rawValue } label: {
                         HStack {
+                            if choice == .mpv {
+                                Image("Playback-MPV").resizable().scaledToFit().frame(width: 26, height: 26)
+                            }
                             Text(choice.title).foregroundStyle(LineupStyle.text)
                             Spacer()
                             if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
@@ -813,7 +817,7 @@ private struct MobilePlaybackSettingsView: View {
                     .accessibilityIdentifier("lineup.playback.preference.\(choice.rawValue)")
                 }
             } footer: {
-                Text("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture. If a source needs the VLC fallback, PiP is unavailable. Choosing VLC always uses VLC.")
+                Text("Used for the next video you open. Automatic keeps Lineup’s current player order. AetherEngine supports native and sample-buffer Picture in Picture; VLC does not. MPVKit (Trial) does not support Picture in Picture. If MPVKit cannot open a source, Lineup falls back to AetherEngine, then VLC.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -827,7 +831,7 @@ private struct MobilePlaybackSettingsView: View {
 private struct MobilePlaybackAcknowledgementsView: View {
     var body: some View {
         ScrollView {
-            Text(AetherPlaybackSession.openSourceNotices())
+            Text(AetherPlaybackSession.openSourceNotices() + "\n\n" + MPVPlaybackSession.openSourceNotices())
                 .font(.inter(.caption)).frame(maxWidth: .infinity, alignment: .leading)
                 .padding(20).textSelection(.enabled)
         }

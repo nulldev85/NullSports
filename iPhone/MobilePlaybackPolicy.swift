@@ -12,19 +12,19 @@ enum MobileRecordingSeekPolicy {
 }
 
 enum MobileStreamEngine: String, Hashable {
-    case system, aether, vlc
+    case system, aether, vlc, mpv
     var title: String {
-        switch self { case .system: "AVPlayer"; case .aether: "AetherEngine"; case .vlc: "VLC" }
+        switch self { case .system: "AVPlayer"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit" }
     }
-    var supportsPictureInPicture: Bool { self != .vlc }
+    var supportsPictureInPicture: Bool { self == .system || self == .aether }
 }
 
 enum MobilePlaybackPreference: String, CaseIterable, Identifiable {
-    case automatic, aether, vlc
+    case automatic, aether, vlc, mpv
     static let storageKey = "Lineup.mobile.playbackEngine.v1"
     var id: String { rawValue }
     var title: String {
-        switch self { case .automatic: "Automatic"; case .aether: "AetherEngine"; case .vlc: "VLC" }
+        switch self { case .automatic: "Automatic"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit (Trial)" }
     }
     static func selected(in defaults: UserDefaults = .standard) -> Self {
         defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .automatic
@@ -44,6 +44,7 @@ enum MobileEngineSelection {
                 ? [.system, .aether, .vlc] : [.aether, .vlc]
         case .aether: order = [.aether, .vlc]
         case .vlc: order = [.vlc]
+        case .mpv: order = [.mpv, .aether, .vlc]
         }
         return order.first { !failed.contains($0) }
     }

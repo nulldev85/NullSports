@@ -17,7 +17,7 @@ final class PlaybackBackendIntegrationTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(quality.frameRate), 23.976, accuracy: 0.0001)
     }
 
-    func testVLCAndAetherRenderSeekSelectTracksAndReachTheEnd() async throws {
+    func testVLCAndAetherAndMPVKitRenderSeekSelectTracksAndReachTheEnd() async throws {
         let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback", withExtension: "mkv",
                                                               subdirectory: "Fixtures"))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)

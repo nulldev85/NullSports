@@ -244,7 +244,7 @@ struct MobilePlayerView: View {
                 }
             }
             if offersOnlineSubtitles {
-                items.append(MobileMenuItem(controller.canAttachOnlineSubtitles ? "Find Subtitles Online" : "Use AetherEngine or VLC for Online Subtitles",
+                items.append(MobileMenuItem(controller.canAttachOnlineSubtitles ? "Find Subtitles Online" : "Use AetherEngine, VLC, or MPVKit for Online Subtitles",
                     symbol: "magnifyingglass", id: "online-subtitles", isEnabled: controller.canAttachOnlineSubtitles) {
                     onlineSubtitleSession = controller.subtitleSessionID
                     showingOnlineSubtitles = true

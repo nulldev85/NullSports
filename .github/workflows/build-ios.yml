@@ -46,7 +46,7 @@ jobs:
           set -euo pipefail
           python3 -B Tests/SharedSourceMembershipChecks.py
           python3 -B Tests/MetadataBundleChecks.py
-          find Lineup iPhone AetherPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
+          find Lineup iPhone AetherPlayback MPVPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
       - name: Check shared sports logic
         run: |
           set -euo pipefail

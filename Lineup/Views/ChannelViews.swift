@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import LineupAetherPlayback
+import LineupMPVPlayback
 
 struct LiveView: View {
     @EnvironmentObject private var library: SportsLibrary
@@ -4744,9 +4745,11 @@ struct AccountView: View {
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
             .tvChoices("Playback Engine", symbol: "play.rectangle", isPresented: $choosingPlaybackEngine,
-                       message: "Used for the next stream you open, including previews and Multiview.") {
+                       message: "Used for the next stream you open, including previews and Multiview. MPVKit is an experimental trial; if it cannot open a stream, Lineup switches to VLC.") {
                 TVPlaybackEngine.allCases.map { engine in
-                    TVChoice(engine.title, symbol: "play.rectangle", isSelected: playbackEngine == engine.rawValue) {
+                    TVChoice(engine.title, symbol: engine == .mpv ? nil : "play.rectangle",
+                             imageName: engine == .mpv ? "Playback-MPV" : nil,
+                             isSelected: playbackEngine == engine.rawValue) {
                         playbackEngine = engine.rawValue
                     }
                 }
@@ -5085,7 +5088,11 @@ struct AccountView: View {
             AccountSectionHeading("PLAYBACK")
             TVSelectable(scale: 1.015, fillRadius: 18, action: { choosingPlaybackEngine = true }) {
                 HStack(spacing: 20) {
-                    LineupIconTile(symbol: "play.rectangle", size: 48)
+                    if (TVPlaybackEngine(rawValue: playbackEngine) ?? .vlc) == .mpv {
+                        Image("Playback-MPV").resizable().scaledToFit().frame(width: 48, height: 48)
+                    } else {
+                        LineupIconTile(symbol: "play.rectangle", size: 48)
+                    }
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Playback Engine").font(.inter(24, .semibold))
                         Text("Live TV, movies, shows, and Multiview")
@@ -5140,7 +5147,7 @@ struct AccountView: View {
                 AccountRow(label: "Version",
                            value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.3.1")
             }
-            AccountTile(title: "Playback acknowledgements", detail: "AetherEngine and decoder licenses",
+            AccountTile(title: "Playback acknowledgements", detail: "AetherEngine, MPVKit, and decoder licenses",
                         symbol: "doc.text") { TVPlaybackLicensesView() }
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -7998,6 +8005,10 @@ private struct PlaybackClockReader<Content: View>: View {
         // opened, or once it has had long enough to; before that it is judged
         // by whether a picture comes at all.
         let state = backend.state
+        if state == .error, engineKind == .mpv {
+            fallbackFromMPVToVLC("MPV reported a playback error")
+            return
+        }
         let failed = state == .error
             || ((state == .ended || state == .stopped)
                 && (!isLive || health.hasShownPicture || health.age(now: now) >= 8))
@@ -8031,6 +8042,10 @@ private struct PlaybackClockReader<Content: View>: View {
             if height > 0, height != videoHeight { videoHeight = height }
         }
         guard recover else { return }
+        if engineKind == .mpv, !health.hasShownPicture {
+            fallbackFromMPVToVLC("MPV did not produce a picture")
+            return
+        }
         let reason: String
         switch health.stall {
         case .frozenWhileArriving:
@@ -8074,6 +8089,30 @@ private struct PlaybackClockReader<Content: View>: View {
         if neverPlayed, retries.attempts > 1 { urlIndex = (urlIndex + 1) % urls.count }
         reconnecting = true
         retryAt = now + delay
+    }
+
+    /// MPV is an opt-in trial. Preserve the current title and position, then
+    /// move this playback session to VLC if MPV rejects or cannot render it.
+    private func fallbackFromMPVToVLC(_ reason: String) {
+        guard engineKind == .mpv, !urls.isEmpty else { return }
+        log(reason + ". Switching to VLC")
+        backend.stop()
+        backend = backendFactory(.vlc)
+        engineKind = backend.kind
+        mountBackend()
+        if !isLive, reopenPosition == nil, elapsed > 0 {
+            reopenPosition = max(0, elapsed - 2)
+        }
+        retryAt = nil
+        reconnecting = true
+        error = nil
+        failoverNotice = "MPV trial could not play this stream. Switched to VLC."
+        noticeTask?.cancel()
+        noticeTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(6)) } catch { return }
+            self?.failoverNotice = nil
+        }
+        openCurrent()
     }
 
     private func switchToNextChannel() -> Bool {
@@ -8558,14 +8597,17 @@ private struct PlaybackClockReader<Content: View>: View {
 private struct TVPlaybackEngineBadge: View {
     let engine: TVPlaybackEngine
     var body: some View {
-        Text(engine.title)
-            .font(.inter(13, .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(LineupPanelStyle.fill.opacity(0.9), in: RoundedRectangle(cornerRadius: 6))
-            .accessibilityLabel("Playback engine: \(engine.title)")
-            .accessibilityIdentifier("lineup.playback.activeEngine")
-            .allowsHitTesting(false)
+        HStack(spacing: 5) {
+            if engine == .mpv {
+                Image("Playback-MPV").resizable().scaledToFit().frame(width: 16, height: 16)
+            }
+            Text(engine.title).font(.inter(13, .semibold)).foregroundStyle(.white)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .background(LineupPanelStyle.fill.opacity(0.9), in: RoundedRectangle(cornerRadius: 6))
+        .accessibilityLabel("Playback engine: \(engine.title)")
+        .accessibilityIdentifier("lineup.playback.activeEngine")
+        .allowsHitTesting(false)
     }
 }
 
