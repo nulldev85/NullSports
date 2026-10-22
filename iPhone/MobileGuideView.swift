@@ -697,7 +697,7 @@ struct MobileGuideView: View {
     }
 
     private func channelList(now: Date) -> some View {
-        MobileGuideChannelScroll(resetToken: resetPosition) {
+        MobileGuideChannelScroll(resetToken: resetPosition, protectsTop: true) {
             LazyVStack(spacing: 9) {
                 ForEach(channels) { stream in
                     channelListRow(stream, now: now)
@@ -1100,13 +1100,16 @@ struct MobileGuideViewport<Content: View>: View {
 /// under the native glass bar. Reserve the measured overlap as a content
 /// margin on the actual scroller, not by shortening its outer SwiftUI region.
 struct MobileGuideChannelScroll<Content: View>: View {
+    @State private var topClearance: CGFloat = 0
     @State private var bottomClearance: CGFloat = 0
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     private let resetToken: UUID?
+    private let protectsTop: Bool
     private let content: Content
 
-    init(resetToken: UUID? = nil, @ViewBuilder content: () -> Content) {
+    init(resetToken: UUID? = nil, protectsTop: Bool = false, @ViewBuilder content: () -> Content) {
         self.resetToken = resetToken
+        self.protectsTop = protectsTop
         self.content = content()
     }
 
@@ -1114,9 +1117,14 @@ struct MobileGuideChannelScroll<Content: View>: View {
         ScrollView(.vertical) {
             content.background(MobileGuideScrollConfiguration(horizontal: false,
                 usesLineupNavigation: usesLineupNavigation, resetToken: resetToken,
+                onTopOverlap: protectsTop ? { topClearance = $0 } : nil,
                 onBottomOverlap: { bottomClearance = $0 }))
         }
-        .contentMargins(.top, 0, for: .scrollContent)
+        // A reset token changing must recreate the actual SwiftUI scroll view;
+        // setting UIKit's offset alone can lose a race with SwiftUI restoring
+        // the prior position during the same update.
+        .id(resetToken)
+        .contentMargins(.top, protectsTop ? topClearance : 0, for: .scrollContent)
         .contentMargins(.bottom, bottomClearance, for: .scrollContent)
         .contentMargins(.bottom, bottomClearance, for: .scrollIndicators)
         // The measured overlap already includes the home indicator. SwiftUI
@@ -1133,6 +1141,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     let horizontal: Bool
     var usesLineupNavigation: Bool? = nil
     var resetToken: UUID? = nil
+    var onTopOverlap: ((CGFloat) -> Void)? = nil
     var onBottomOverlap: ((CGFloat) -> Void)? = nil
 
     func makeUIView(context: Context) -> Probe {
@@ -1147,11 +1156,13 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         probe.horizontal = horizontal
         probe.usesLineupNavigation = usesLineupNavigation
         probe.resetToken = resetToken
+        probe.onTopOverlap = onTopOverlap
         probe.onBottomOverlap = onBottomOverlap
         probe.requestRefresh()
     }
 
     static func dismantleUIView(_ probe: Probe, coordinator: ()) {
+        probe.onTopOverlap = nil
         probe.onBottomOverlap = nil
         probe.detachObserver()
     }
@@ -1186,12 +1197,27 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         return max(0, (viewBottom - barTop).rounded())
     }
 
+    /// Height of a visible navigation bar covering the top of this actual
+    /// scroll viewport. SwiftUI's zero scroll-content margin can let the first
+    /// row slide beneath a translucent toolbar, so List mode reserves only
+    /// the overlap that is physically present.
+    static func topOverlap(of view: UIView) -> CGFloat {
+        guard let window = view.window,
+              let bar = navigationBar(for: view),
+              !bar.isHidden, bar.alpha > 0.01, bar.window === window else { return 0 }
+        let viewTop = view.convert(view.bounds, to: window).minY
+        let barBottom = bar.convert(bar.bounds, to: window).maxY
+        return max(0, (barBottom - viewTop).rounded())
+    }
+
     final class Probe: UIView {
         var horizontal = false
         var usesLineupNavigation: Bool?
         var resetToken: UUID?
+        var onTopOverlap: ((CGFloat) -> Void)?
         var onBottomOverlap: ((CGFloat) -> Void)?
         private(set) var reported: CGFloat?
+        private(set) var reportedTop: CGFloat?
         private var scheduled = false
         private weak var observedScroll: UIScrollView?
         private weak var resetScroll: UIScrollView?
@@ -1246,7 +1272,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
                     scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: top), animated: false)
                 }
             }
-            guard !horizontal, onBottomOverlap != nil else { detachObserver(); return }
+            guard !horizontal, onTopOverlap != nil || onBottomOverlap != nil else { detachObserver(); return }
             if observedScroll !== scroll {
                 detachObserver()
                 observedScroll = scroll
@@ -1272,11 +1298,21 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
                 NotificationCenter.default.addObserver(self, selector: #selector(boundaryGeometryDidChange(_:)),
                     name: MobileLineupNavigationBoundary.geometryDidChange, object: window)
             }
-            let overlap = MobileGuideScrollConfiguration.bottomOverlap(of: scroll,
-                usesLineupNavigation: usesLineupNavigation)
-            guard reported == nil || abs((reported ?? 0) - overlap) > 0.5 else { return }
-            reported = overlap
-            onBottomOverlap?(overlap)
+            if onTopOverlap != nil {
+                let top = MobileGuideScrollConfiguration.topOverlap(of: scroll)
+                if reportedTop == nil || abs((reportedTop ?? 0) - top) > 0.5 {
+                    reportedTop = top
+                    onTopOverlap?(top)
+                }
+            }
+            if onBottomOverlap != nil {
+                let bottom = MobileGuideScrollConfiguration.bottomOverlap(of: scroll,
+                    usesLineupNavigation: usesLineupNavigation)
+                if reported == nil || abs((reported ?? 0) - bottom) > 0.5 {
+                    reported = bottom
+                    onBottomOverlap?(bottom)
+                }
+            }
         }
 
         @objc private func boundaryGeometryDidChange(_ notification: Notification) {
@@ -1294,6 +1330,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             resetScroll = nil
             appliedResetToken = nil
             reported = nil
+            reportedTop = nil
         }
 
         /// The content probe may be thousands of points tall and never resize.
@@ -1315,5 +1352,16 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             return search(controller.presentedViewController)
         }
         return search(window.rootViewController)
+    }
+
+    private static func navigationBar(for view: UIView) -> UINavigationBar? {
+        var responder: UIResponder? = view
+        while let current = responder {
+            if let navigation = current as? UINavigationController { return navigation.navigationBar }
+            if let controller = current as? UIViewController,
+               let navigation = controller.navigationController { return navigation.navigationBar }
+            responder = current.next
+        }
+        return nil
     }
 }

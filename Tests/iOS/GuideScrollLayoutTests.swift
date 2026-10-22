@@ -49,6 +49,84 @@ final class GuideScrollLayoutTests: XCTestCase {
                        "A guide data/order reset must place the real list viewport at its first row")
     }
 
+    @MainActor
+    func testFavoritesReserveVisibleNavigationBarOverlapAboveFirstRow() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let page = UIViewController()
+        page.view.backgroundColor = .black
+        let navigation = UINavigationController(rootViewController: page)
+        navigation.navigationBar.isHidden = false
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = navigation
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+        navigation.view.layoutIfNeeded()
+
+        // Model List mode's scroll view extending behind the translucent
+        // navigation header. The first channel must begin below that header.
+        let scroll = UIScrollView(frame: navigation.view.bounds)
+        scroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        scroll.contentSize = CGSize(width: scroll.bounds.width, height: 2_400)
+        navigation.view.addSubview(scroll)
+        let probe = MobileGuideScrollConfiguration.Probe(frame: CGRect(origin: .zero, size: scroll.contentSize))
+        probe.horizontal = false
+        var measuredTop: CGFloat?
+        probe.onTopOverlap = { measuredTop = $0 }
+        scroll.addSubview(probe)
+        try await settle { measuredTop != nil }
+
+        let overlap = try XCTUnwrap(measuredTop)
+        let bar = navigation.navigationBar
+        let barBottom = bar.convert(bar.bounds, to: window).maxY
+        let scrollTop = scroll.convert(scroll.bounds, to: window).minY
+        XCTAssertGreaterThan(overlap, 0, "The fixture must overlap the visible navigation header")
+        XCTAssertEqual(overlap, barBottom - scrollTop, accuracy: 1)
+
+        // This is the scroll-content top margin applied by List mode.
+        scroll.contentInset.top = overlap + MobileGuideLayoutMetrics.listFirstRowTopInset
+        scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
+        let firstRowTop = scrollTop + scroll.adjustedContentInset.top
+        XCTAssertEqual(firstRowTop, barBottom + MobileGuideLayoutMetrics.listFirstRowTopInset, accuracy: 1,
+                       "The first favorite must begin below the entire navigation header")
+    }
+
+    @MainActor
+    func testFavoritesListPlacesItsFirstRowBelowTheLiveNavigationHeader() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let model = GuideTopReservationTestState()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: GuideTopReservationHarness(model: model))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        try await settle { model.firstRowFrame != nil && window.firstSubview(of: UINavigationBar.self) != nil }
+        let bar = try XCTUnwrap(window.firstSubview(of: UINavigationBar.self) {
+            !$0.isHidden && $0.alpha > 0.01
+        })
+        try await settle {
+            guard let rowTop = model.firstRowFrame?.minY else { return false }
+            let barBottom = bar.convert(bar.bounds, to: window).maxY
+            return abs(rowTop - barBottom - MobileGuideLayoutMetrics.listFirstRowTopInset) < 3
+        }
+        window.layoutIfNeeded()
+        let rowTop = try XCTUnwrap(model.firstRowFrame?.minY)
+        let barBottom = bar.convert(bar.bounds, to: window).maxY
+        XCTAssertGreaterThan(rowTop, barBottom,
+                             "The first favorite row must not start beneath the Guide toolbar")
+        XCTAssertEqual(rowTop, barBottom + MobileGuideLayoutMetrics.listFirstRowTopInset, accuracy: 3,
+                       "List mode should preserve its designed top gap after clearing the toolbar")
+
+        let scroll = try XCTUnwrap(window.firstSubview(of: UIScrollView.self) { $0.contentSize.height > 1_000 })
+        scroll.setContentOffset(CGPoint(x: 0, y: 320), animated: false)
+        try await settle { (model.firstRowFrame?.minY ?? rowTop) < rowTop - 200 }
+        model.resetToken = UUID()
+        try await settle { abs((model.firstRowFrame?.minY ?? 0) - rowTop) < 3 }
+        XCTAssertEqual(model.firstRowFrame?.minY ?? 0, rowTop, accuracy: 3,
+                       "Refreshing favorites must recreate the real list at its first channel")
+    }
+
     /// Scrolled to the end, the last channel rests right on top of the tab
     /// bar: not under it, and not with a gap above it. Built the way the TV
     /// Guide tab is, a vertical list inside the horizontal timeline, inside a
@@ -277,6 +355,51 @@ private struct GuideEndHarness: View {
             .safeAreaPadding(.horizontal)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+    }
+}
+
+private struct GuideFirstRowFrame: PreferenceKey {
+    static var defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        if let next = nextValue() { value = next }
+    }
+}
+
+@MainActor
+private final class GuideTopReservationTestState: ObservableObject {
+    @Published var firstRowFrame: CGRect?
+    @Published var resetToken = UUID()
+}
+
+private struct GuideTopReservationHarness: View {
+    @ObservedObject var model: GuideTopReservationTestState
+
+    var body: some View {
+        NavigationStack {
+            MobileGuideChannelScroll(resetToken: model.resetToken, protectsTop: true) {
+                LazyVStack(spacing: 9) {
+                    Text("First favorite")
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 68)
+                        .background {
+                            GeometryReader { row in
+                                Color.clear.preference(key: GuideFirstRowFrame.self,
+                                    value: row.frame(in: .global))
+                            }
+                        }
+                    ForEach(0..<20, id: \.self) { index in
+                        Text("Favorite \(index)").frame(height: 68)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, MobileGuideLayoutMetrics.listFirstRowTopInset)
+            }
+            .toolbar {
+                ToolbarItem(placement: .principal) { Text("Favorites") }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .onPreferenceChange(GuideFirstRowFrame.self) { model.firstRowFrame = $0 }
     }
 }
 
