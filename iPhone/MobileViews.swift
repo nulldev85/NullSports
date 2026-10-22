@@ -443,6 +443,8 @@ private struct AccountSourceRow: View {
     let name: String
     let detail: String
     let isActive: Bool
+    let selectionDisabled: Bool
+    let removalDisabled: Bool
     let select: () -> Void
     let remove: () -> Void
 
@@ -467,12 +469,14 @@ private struct AccountSourceRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(selectionDisabled)
             .accessibilityLabel("\(name), \(isActive ? "active provider" : "switch provider")")
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
                     .foregroundStyle(LineupPanelStyle.listValue)
             }
             .buttonStyle(.borderless)
+            .disabled(removalDisabled)
             .accessibilityLabel("Remove \(name)")
         }
     }
@@ -500,10 +504,11 @@ private struct MobileIPTVSettingsView: View {
                         name: profile.name,
                         detail: profile.username,
                         isActive: library.activeProfile?.id == profile.id,
+                        selectionDisabled: library.isSwitchingProfile || library.channelsAreSyncing,
+                        removalDisabled: library.isSwitchingProfile,
                         select: { Task { await library.selectProfile(profile) } },
                         remove: { removingProfile = profile }
                     )
-                    .disabled(library.isSwitchingProfile || library.channelsAreSyncing)
                 }
                 Button { addingProvider = true } label: {
                     SettingsRow("Add Provider", symbol: "plus")
