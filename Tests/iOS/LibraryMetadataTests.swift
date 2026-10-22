@@ -3,6 +3,7 @@ import XCTest
 @testable import Lineup
 #else
 @testable import LineupiOS
+import UIKit
 #endif
 
 final class LibraryMetadataTests: XCTestCase {
@@ -165,7 +166,10 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(genres.count, 18)
         XCTAssertEqual(Set(genres.map(\.assetName)).count, genres.count)
         XCTAssertEqual(Set(genres.map(\.title)).count, genres.count)
-        XCTAssertTrue(genres.allSatisfy { $0.assetName.hasPrefix("SearchGenre") })
+        for genre in genres {
+            XCTAssertTrue(genre.assetName.hasPrefix("SearchGenre"))
+            XCTAssertNotNil(UIImage(named: genre.assetName), "\(genre.title) art must be in the iPhone app's asset catalog")
+        }
 
         let movieGenres = [TMDBCatalogGenre(id: 28, name: "Action"),
                            TMDBCatalogGenre(id: 12, name: "Adventure"),

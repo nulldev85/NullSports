@@ -7,8 +7,18 @@ struct MobileFanartTitle<Fallback: View>: View {
     let item: MediaItem
     let width: CGFloat
     let height: CGFloat
+    let alignment: Alignment
     @ViewBuilder var fallback: () -> Fallback
     @State private var logo: URL?
+
+    init(item: MediaItem, width: CGFloat, height: CGFloat, alignment: Alignment = .leading,
+         @ViewBuilder fallback: @escaping () -> Fallback) {
+        self.item = item
+        self.width = width
+        self.height = height
+        self.alignment = alignment
+        self.fallback = fallback
+    }
 
     private var requestID: String {
         let ids = LibraryMetadataIdentity.ids(item)
@@ -17,13 +27,13 @@ struct MobileFanartTitle<Fallback: View>: View {
     }
     var body: some View {
         MobileLibraryArtView(url: media.fanartEnabled ? logo : nil, pixels: max(32, Int(ceil(width * max(1, scale))))) { image in
-            ZStack(alignment: .leading) {
+            ZStack(alignment: alignment) {
                 fallback().opacity(image == nil ? 1 : 0)
                 if let image {
-                    image.resizable().scaledToFit().frame(width: width, height: height, alignment: .leading)
+                    image.resizable().scaledToFit().frame(width: width, height: height, alignment: alignment)
                         .shadow(color: .black.opacity(0.65), radius: 8, y: 3)
                 }
-            }.frame(width: width, height: height, alignment: .leading)
+            }.frame(width: width, height: height, alignment: alignment)
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: image != nil)
         }
         .accessibilityElement(children: .ignore).accessibilityLabel(item.name)

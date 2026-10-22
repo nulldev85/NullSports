@@ -4112,7 +4112,8 @@ private struct MediaLibraryHero: View {
                         .frame(width: readableWidth, alignment: .center)
                         .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
                     #else
-                    MobileFanartTitle(item: item, width: readableWidth, height: min(100, titleSize * 2.2)) {
+                    MobileFanartTitle(item: item, width: readableWidth,
+                                      height: min(100, titleSize * 2.2), alignment: .center) {
                         Text(item.name)
                             .font(.inter(titleSize, .bold))
                             .foregroundStyle(.white)
