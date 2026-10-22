@@ -1202,12 +1202,26 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     /// row slide beneath a translucent toolbar, so List mode reserves only
     /// the overlap that is physically present.
     static func topOverlap(of view: UIView) -> CGFloat {
-        guard let window = view.window,
-              let bar = navigationBar(for: view),
-              !bar.isHidden, bar.alpha > 0.01, bar.window === window else { return 0 }
-        let viewTop = view.convert(view.bounds, to: window).minY
-        let barBottom = bar.convert(bar.bounds, to: window).maxY
-        return max(0, (barBottom - viewTop).rounded())
+        guard let window = view.window else { return 0 }
+        let viewport = view.convert(view.bounds, to: window)
+        var largestOverlap: CGFloat = 0
+
+        // A SwiftUI NavigationStack may host its UINavigationBar in a private
+        // controller that is not in the scroll view's responder chain. Search
+        // the visible window hierarchy so List mode measures the same bar that
+        // UIKit is actually drawing above the favorites.
+        var pendingViews = window.subviews
+        while let candidate = pendingViews.popLast() {
+            pendingViews.append(contentsOf: candidate.subviews)
+            guard let bar = candidate as? UINavigationBar,
+                  bar.window === window, !bar.isHidden, bar.alpha > 0.01 else { continue }
+
+            let frame = bar.convert(bar.bounds, to: window)
+            guard frame.maxX > viewport.minX, frame.minX < viewport.maxX,
+                  frame.maxY > viewport.minY, frame.minY < viewport.maxY else { continue }
+            largestOverlap = max(largestOverlap, frame.maxY - viewport.minY)
+        }
+        return max(0, largestOverlap.rounded())
     }
 
     final class Probe: UIView {
@@ -1354,14 +1368,4 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         return search(window.rootViewController)
     }
 
-    private static func navigationBar(for view: UIView) -> UINavigationBar? {
-        var responder: UIResponder? = view
-        while let current = responder {
-            if let navigation = current as? UINavigationController { return navigation.navigationBar }
-            if let controller = current as? UIViewController,
-               let navigation = controller.navigationController { return navigation.navigationBar }
-            responder = current.next
-        }
-        return nil
-    }
 }
