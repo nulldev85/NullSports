@@ -11,7 +11,8 @@ struct MobileWelcomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedField: ProviderField?
 
-    @State private var posters: [TMDBWelcomePoster] = []
+    @State private var moviePosters: [TMDBWelcomePoster] = []
+    @State private var seriesPosters: [TMDBWelcomePoster] = []
     @State private var playlistConnection = false
     @State private var profileName = "My IPTV"
     @State private var serverURL = ""
@@ -68,15 +69,13 @@ struct MobileWelcomeView: View {
         }
         .task {
             guard media.metadataAvailable(.tmdb) else { return }
-            var movies: [TMDBWelcomePoster] = []
-            var series: [TMDBWelcomePoster] = []
             await withTaskGroup(of: (TMDBCatalogMediaKind, [TMDBWelcomePoster]).self) { group in
                 group.addTask { (.movie, await media.tmdbWelcomePosters(for: .movie)) }
                 group.addTask { (.series, await media.tmdbWelcomePosters(for: .series)) }
                 for await (kind, batch) in group {
                     guard !Task.isCancelled else { return }
-                    if kind == .movie { movies = batch } else { series = batch }
-                    posters = Self.interleaveWelcomePosters(movies, series)
+                    if kind == .movie { moviePosters = Array(batch.prefix(6)) }
+                    else { seriesPosters = Array(batch.prefix(6)) }
                 }
             }
         }
@@ -276,12 +275,14 @@ struct MobileWelcomeView: View {
             && (playlistConnection || (!username.isEmpty && !password.isEmpty))
     }
 
-    private static func interleaveWelcomePosters(_ movies: [TMDBWelcomePoster],
-                                                  _ series: [TMDBWelcomePoster]) -> [TMDBWelcomePoster] {
-        var result: [TMDBWelcomePoster] = []
-        for index in 0..<max(movies.count, series.count) {
-            if movies.indices.contains(index) { result.append(movies[index]) }
-            if series.indices.contains(index) { result.append(series[index]) }
+    /// Keep each medium in a permanent set of slots. When one catalog responds
+    /// first, its posters fill their alternating positions while the other
+    /// positions remain placeholders; the whole rail never reorders later.
+    private var posters: [TMDBWelcomePoster?] {
+        var result: [TMDBWelcomePoster?] = []
+        for index in 0..<6 {
+            result.append(moviePosters.indices.contains(index) ? moviePosters[index] : nil)
+            result.append(seriesPosters.indices.contains(index) ? seriesPosters[index] : nil)
         }
         return result
     }
@@ -312,7 +313,7 @@ struct MobileWelcomeView: View {
 }
 
 private struct MobileWelcomePosterBackdrop: View {
-    let posters: [TMDBWelcomePoster]
+    let posters: [TMDBWelcomePoster?]
     let isActive: Bool
 
     private let rowCount = 6
@@ -340,19 +341,18 @@ private struct MobileWelcomePosterBackdrop: View {
         .accessibilityHidden(true)
     }
 
-    private func rowPosters(_ row: Int) -> [TMDBWelcomePoster] {
-        guard !posters.isEmpty else { return [] }
-        let visible = Array(posters.prefix(posterSlotCount))
+    private func rowPosters(_ row: Int) -> [TMDBWelcomePoster?] {
+        let visible = posters
         let shift = (row * 3) % visible.count
         let rotated = Array(visible.dropFirst(shift)) + Array(visible.prefix(shift))
-        // TMDB can return fewer usable poster paths than the row reserves.
-        // Repeat official results to fill the strip instead of leaving dark gaps.
+        // The fixed movie/series slots are repeated to fill each strip without
+        // leaving dark gaps while either official catalog is still loading.
         return (0..<posterSlotCount).map { rotated[$0 % rotated.count] }
     }
 }
 
 private struct MobileWelcomePosterRow: View {
-    let posters: [TMDBWelcomePoster]
+    let posters: [TMDBWelcomePoster?]
     let rowIndex: Int
     let rowCount: Int
     let posterCount: Int
@@ -374,8 +374,8 @@ private struct MobileWelcomePosterRow: View {
                 ForEach(0..<2, id: \.self) { _ in
                     HStack(spacing: spacing) {
                         ForEach(0..<posterCount, id: \.self) { index in
-                            if posters.indices.contains(index) {
-                                posterCell(posters[index])
+                            if posters.indices.contains(index), let poster = posters[index] {
+                                posterCell(poster)
                             } else {
                                 posterPlaceholder
                             }

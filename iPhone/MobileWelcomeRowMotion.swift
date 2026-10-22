@@ -16,7 +16,11 @@ struct MobileWelcomeRowMotion {
 
         let index = ((rowIndex % rowCount) + rowCount) % rowCount
         let phase = period * CGFloat(index) / CGFloat(rowCount)
-        startOffset = -phase
-        endOffset = startOffset + (rowIndex.isMultiple(of: 2) ? -period : period)
+        let movesLeft = index.isMultiple(of: 2)
+        // The track contains two copies laid out left-to-right. A left-moving
+        // row starts on the first copy; a right-moving row must start on the
+        // second copy so that it never runs out of posters at the right edge.
+        startOffset = movesLeft ? -phase : -period - phase
+        endOffset = startOffset + (movesLeft ? -period : period)
     }
 }
