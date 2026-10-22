@@ -1,5 +1,5 @@
 import XCTest
-@testable import Lineup
+@testable import LineupiOS
 
 final class MobileGuideViewModeTests: XCTestCase {
     func testGuideIsTheDefaultAndUnknownValuesRecoverSafely() {
