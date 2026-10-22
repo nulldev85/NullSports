@@ -32,10 +32,13 @@ struct MobileGuideView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
     @State private var query = ""
     @State private var showsSearch = false
     /// The TV Guide's options, dropped from the bar's ellipsis.
     @State private var optionsOpen = false
+    /// Channel categories and favorites live in the centered selector pill.
+    @State private var filterMenuOpen = false
     @FocusState private var searchFocused: Bool
     /// What the viewer picked; until they pick, `filter` decides.
     @State private var chosenFilter: MobileGuideFilter?
@@ -83,6 +86,8 @@ struct MobileGuideView: View {
     /// The phone is on its side. Every iPhone has a compact height there and
     /// only there.
     private var sideways: Bool { verticalSizeClass == .compact }
+
+    private var guideViewMode: MobileGuideViewMode { MobileGuideViewMode.restored(guideViewModeValue) }
 
     /// The player fills the screen when asked to, and whenever the phone is
     /// on its side -- worked out from the orientation, so it happens inside
@@ -210,8 +215,8 @@ struct MobileGuideView: View {
                     }
                 }
             }
-            .background(LineupStyle.background)
-            .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+            .background(Color.black)
+            .navigationTitle(game == nil ? "" : title).navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: 0) {
                 if showsSearch && !fillsScreen {
                     HStack(spacing: 10) {
@@ -243,18 +248,40 @@ struct MobileGuideView: View {
                 }
             }
             .overlay {
-                MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
-                                    symbol: "list.bullet.rectangle", sections: optionsSections) {
-                    setOptions(false)
+                ZStack {
+                    MobileDropdownLayer(isPresented: filterMenuOpen && !fillsScreen && game == nil && !showsSearch,
+                                        title: "Channels", symbol: "tv", sections: filterSections,
+                                        alignment: .top, horizontalInset: 0, backdropOpacity: 0.2,
+                                        transitionAnchor: .top) {
+                        setFilterMenu(false)
+                    }
+                    MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
+                                        symbol: "list.bullet.rectangle", sections: optionsSections,
+                                        alignment: .topLeading, transitionAnchor: .topLeading) {
+                        setOptions(false)
+                    }
                 }
             }
             .toolbar {
                 if game != nil {
                     LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
-                }
-                LineupToolbarItem(placement: .primaryAction) {
-                    MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
-                        setOptions(!optionsOpen)
+                    LineupToolbarItem(placement: .primaryAction) {
+                        MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                            setOptions(!optionsOpen)
+                        }
+                    }
+                } else {
+                    LineupToolbarItem(placement: .navigationBarLeading) {
+                        MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                            setOptions(!optionsOpen)
+                        }
+                    }
+                    LineupToolbarItem(placement: .principal) {
+                        if showsSearch {
+                            Text("Search").font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text)
+                        } else {
+                            guideFilterButton
+                        }
                     }
                 }
             }
@@ -274,7 +301,7 @@ struct MobileGuideView: View {
                 if playing, let stream = selectedStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: fillsScreen) { _, value in
-                if value { searchFocused = false; optionsOpen = false }
+                if value { searchFocused = false; optionsOpen = false; filterMenuOpen = false }
                 onFullscreenChange(value)
             }
             .onChange(of: sideways) { _, value in
@@ -290,6 +317,7 @@ struct MobileGuideView: View {
                 if !active {
                     searchFocused = false
                     optionsOpen = false
+                    filterMenuOpen = false
                     if !playback.pictureInPictureActive { closePlayer() }
                 } else { returnToNow() }
             }
@@ -376,16 +404,66 @@ struct MobileGuideView: View {
 
     private func setOptions(_ open: Bool) {
         guard optionsOpen != open else { return }
-        if open { searchFocused = false }
+        if open { searchFocused = false; filterMenuOpen = false }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
             optionsOpen = open
         }
     }
 
-    /// What the TV Guide's dropdown offers: getting about, which channels the
-    /// guide lists -- the categories a list of their own inside it -- and a
-    /// refresh.
-    private var optionsSections: [MobileMenuSection] {
+    private func setFilterMenu(_ open: Bool) {
+        guard filterMenuOpen != open else { return }
+        if open { optionsOpen = false }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
+            filterMenuOpen = open
+        }
+    }
+
+    private var guideFilterButton: some View {
+        Button { setFilterMenu(!filterMenuOpen) } label: {
+            HStack(spacing: 7) {
+                Image(systemName: filterSymbol)
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(LineupStyle.highlight)
+                Text(filterTitle)
+                    .font(.inter(14, .heavy))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(LineupStyle.text)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .foregroundStyle(LineupPanelStyle.quiet)
+            }
+            .padding(.horizontal, 13)
+            .frame(height: 36)
+            .frame(maxWidth: 220)
+            .background(LineupPanelStyle.fill, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Channel filter: \(filterTitle)")
+        .accessibilityHint("Choose favorites, a category, or all channels")
+    }
+
+    private var filterTitle: String {
+        switch filter {
+        case .favorites: "Favorites"
+        case .recents: "Recently Watched"
+        case .all: "All Channels"
+        case .category(let id): library.categories.first { $0.id == id }?.categoryName ?? "TV Guide"
+        }
+    }
+
+    private var filterSymbol: String {
+        switch filter {
+        case .favorites: "star.fill"
+        case .recents: "clock.arrow.circlepath"
+        case .all: "tv"
+        case .category: "square.stack.3d.up.fill"
+        }
+    }
+
+    private var filterSections: [MobileMenuSection] {
         let categories = library.categories.map { category in
             MobileMenuItem(category.categoryName, id: "category-\(category.id)",
                            isSelected: filter == .category(category.id)) {
@@ -394,13 +472,6 @@ struct MobileGuideView: View {
         }
         let inCategory: Bool = { if case .category = filter { return true } else { return false } }()
         return [
-            MobileMenuSection(id: "move", items: [
-                MobileMenuItem("Return to Now", symbol: "clock") { returnToNow() },
-                MobileMenuItem(showsSearch ? "Close Search" : "Search Channels",
-                               symbol: showsSearch ? "xmark" : "magnifyingglass") {
-                    if showsSearch { closeSearch() } else { showsSearch = true }
-                }
-            ]),
             MobileMenuSection(id: "channels", items: [
                 MobileMenuItem("Favorites", symbol: "star", isSelected: filter == .favorites) {
                     chosenFilter = .favorites
@@ -416,14 +487,38 @@ struct MobileGuideView: View {
                 MobileMenuItem("Categories", symbol: "square.stack", isSelected: inCategory,
                                isEnabled: !categories.isEmpty,
                                children: [MobileMenuSection(id: "categories", items: categories)])
-            ]),
-            MobileMenuSection(id: "refresh", items: [
-                MobileMenuItem("Refresh Guide", symbol: "arrow.clockwise",
-                               isEnabled: !library.channelsAreSyncing) {
-                    Task { await library.reload() }
+            ])
+        ]
+    }
+
+    /// What the TV Guide's dropdown offers: getting about, which channels the
+    /// guide displays, playback modes, and refresh actions. Channel filters
+    /// belong to the centered selector on the main Guide, and remain in this
+    /// menu while picking a channel for a sports event.
+    private var optionsSections: [MobileMenuSection] {
+        var sections = [
+            MobileMenuSection(id: "view-mode", title: "View Mode", items: MobileGuideViewMode.allCases.map { mode in
+                MobileMenuItem(mode.title, symbol: mode.symbol, id: "view-\(mode.rawValue)",
+                               isSelected: guideViewMode == mode) {
+                    guideViewModeValue = mode.rawValue
+                }
+            }),
+            MobileMenuSection(id: "move", items: [
+                MobileMenuItem("Return to Now", symbol: "clock") { returnToNow() },
+                MobileMenuItem(showsSearch ? "Close Search" : "Search Channels",
+                               symbol: showsSearch ? "xmark" : "magnifyingglass") {
+                    if showsSearch { closeSearch() } else { showsSearch = true }
                 }
             ])
         ]
+        if game != nil { sections.append(contentsOf: filterSections) }
+        sections.append(MobileMenuSection(id: "refresh", items: [
+            MobileMenuItem("Refresh Guide", symbol: "arrow.clockwise",
+                           isEnabled: !library.channelsAreSyncing) {
+                Task { await library.reload() }
+            }
+        ]))
+        return sections
     }
 
     private func selectChannel(_ stream: XtreamStream) {
@@ -570,7 +665,103 @@ struct MobileGuideView: View {
         resetPosition = UUID()
     }
 
+    @ViewBuilder
     private func guide(now: Date) -> some View {
+        switch guideViewMode {
+        case .tvGuide:
+            guideGrid(now: now)
+        case .list:
+            channelList(now: now)
+        }
+    }
+
+    private func channelList(now: Date) -> some View {
+        MobileGuideChannelScroll {
+            LazyVStack(spacing: 9) {
+                ForEach(channels) { stream in
+                    channelListRow(stream, now: now)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 14)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .refreshable { await library.reload() }
+        .id(resetPosition)
+    }
+
+    private func channelListRow(_ stream: XtreamStream, now: Date) -> some View {
+        let programs = library.guidePrograms(for: stream)
+        let program = programs.first { $0.start <= now && now < $0.end }
+        let tint = MobileChannelListPalette.fill(for: stream)
+        let quality = LiveChannelQuality(name: stream.name).label?
+            .split(separator: "·", maxSplits: 1).first.map(String.init)
+        let shape = RoundedRectangle(cornerRadius: 15, style: .continuous)
+
+        return Button { selectChannel(stream) } label: {
+            HStack(spacing: 0) {
+                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 118) { loaded in
+                    if let image = loaded {
+                        image.resizable().scaledToFit().padding(9)
+                    } else {
+                        Image(systemName: "tv")
+                            .font(.system(size: 27, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.82))
+                    }
+                }
+                .frame(width: 118, height: 80)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(stream.name)
+                        .font(.inter(12, .semibold))
+                        .foregroundStyle(Color.white.opacity(0.66))
+                        .lineLimit(1)
+                    Text(program?.title ?? "Program guide not available")
+                        .font(.inter(15, .heavy))
+                        .foregroundStyle(program == nil ? Color.white.opacity(0.38) : LineupStyle.text)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    HStack(spacing: 6) {
+                        if let program {
+                            if program.start <= now && now < program.end {
+                                MobileLiveDot()
+                                Text("LIVE")
+                                    .foregroundStyle(LineupStyle.liveStatus)
+                            } else {
+                                Text(program.start, format: .dateTime.hour().minute())
+                                    .foregroundStyle(Color.white.opacity(0.6))
+                            }
+                        }
+                        if let quality {
+                            Text(quality.uppercased())
+                                .foregroundStyle(Color.white.opacity(0.78))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.black.opacity(0.22), in: Capsule())
+                        }
+                    }
+                    .font(.inter(9, .heavy))
+                    .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 10)
+                .padding(.trailing, 12)
+            }
+            .frame(minHeight: 80)
+            .background(tint)
+            .clipShape(shape)
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+        .lineupHoldMenu(stream.name, symbol: "tv", press: .dim, items: { channelMenuItems(stream) }) {
+            selectChannel(stream)
+        }
+        .accessibilityLabel("Watch \(stream.name) live\(program.map { ", \($0.title)" } ?? ", no guide information")\(library.isFavorite(stream) ? ", favorite" : "")")
+    }
+
+    private func guideGrid(now: Date) -> some View {
         MobileGuideViewport { viewport, listHeight in
             // One horizontal scroller moves every program row and the ruler together.
             // The nested vertical scroller moves logos and programs as a single row.
@@ -581,10 +772,12 @@ struct MobileGuideView: View {
                     MobileGuideChannelScroll {
                         LazyVStack(spacing: 0) {
                             ForEach(channels) { stream in
+                                let tint = MobileChannelListPalette.fill(for: stream)
                                 HStack(spacing: 0) {
-                                    channelTile(stream)
+                                    channelTile(stream, tint: tint)
                                         .offset(x: horizontalOffset).zIndex(2)
-                                    programRow(stream, now: now, viewportWidth: viewport.size.width - logoWidth)
+                                    programRow(stream, now: now, viewportWidth: viewport.size.width - logoWidth,
+                                               tint: tint)
                                 }.frame(height: rowHeight)
                             }
                         }
@@ -626,7 +819,7 @@ struct MobileGuideView: View {
                     .font(.interDigits(.caption2, .semibold))
             }
                 .frame(width: logoWidth, height: 40)
-                .background(LineupStyle.background)
+                .background(Color.black)
                 .offset(x: horizontalOffset).zIndex(2)
             ZStack(alignment: .topLeading) {
                 ForEach(window.ticks, id: \.self) { date in
@@ -637,7 +830,7 @@ struct MobileGuideView: View {
                 }
             }.frame(width: window.width, height: 40, alignment: .topLeading)
         }
-        .background(LineupStyle.background)
+        .background(Color.black)
         .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
     }
 
@@ -646,7 +839,7 @@ struct MobileGuideView: View {
         game != nil && stream.id == recommendedStreamID
     }
 
-    private func channelTile(_ stream: XtreamStream) -> some View {
+    private func channelTile(_ stream: XtreamStream, tint: Color) -> some View {
         Group {
             ZStack(alignment: .center) {
                 LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: logoWidth) { loaded in
@@ -682,7 +875,7 @@ struct MobileGuideView: View {
             .frame(width: logoWidth, height: rowHeight, alignment: .center)
             .contentShape(Rectangle())
             // The frozen column masks scrolling programs with the guide's base color.
-            .background(LineupStyle.background)
+            .background(tint)
         }
         .lineupHoldMenu(stream.name, symbol: "tv", press: .dim, items: { channelMenuItems(stream) }) {
             selectChannel(stream)
@@ -690,7 +883,7 @@ struct MobileGuideView: View {
         .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
     }
 
-    private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat) -> some View {
+    private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat, tint: Color) -> some View {
         let programs = library.guidePrograms(for: stream)
         let segments = window.segments(programs.map { (start: $0.start, end: $0.end) })
         return ZStack(alignment: .leading) {
@@ -703,7 +896,7 @@ struct MobileGuideView: View {
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(live ? LineupStyle.focused : LineupStyle.raised)
+                            .fill(tint)
                         if program != nil, live {
                             // The app's progress bar along the foot of what is
                             // on now, its fill ending where the timeline says
@@ -763,6 +956,28 @@ struct MobileGuideView: View {
 private struct GuideHorizontalPosition: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+private enum MobileChannelListPalette {
+    static func fill(for stream: XtreamStream) -> Color {
+        let name = stream.name.lowercased()
+        if name.contains("tnt sports") { return color(0x30172F) }
+        if name.contains("sky sports") || name.contains("espn") { return color(0x301819) }
+        if name.contains("big ten") || name.contains("btn network") { return color(0x172A31) }
+        if name.contains("cbs sports") || name.contains("fox") { return color(0x2B2B2C) }
+
+        let palette: [UInt32] = [0x2C1B20, 0x1B292D, 0x30231B, 0x26232D, 0x2D1E1C, 0x25292B]
+        let hash = stream.name.utf8.reduce(UInt64(14_695_981_039_346_656_037)) {
+            ($0 ^ UInt64($1)) &* 1_099_511_628_211
+        }
+        return color(palette[Int(hash % UInt64(palette.count))])
+    }
+
+    private static func color(_ value: UInt32) -> Color {
+        Color(red: Double((value >> 16) & 0xFF) / 255,
+              green: Double((value >> 8) & 0xFF) / 255,
+              blue: Double(value & 0xFF) / 255)
+    }
 }
 
 /// Favorites order drives the guide's channel order, so this list edits it directly:

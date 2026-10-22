@@ -37,7 +37,14 @@ struct MobileMenuItem: Identifiable {
 /// Rows that belong together, with a hairline between one group and the next.
 struct MobileMenuSection: Identifiable {
     let id: String
+    let title: String?
     let items: [MobileMenuItem]
+
+    init(id: String, title: String? = nil, items: [MobileMenuItem]) {
+        self.id = id
+        self.title = title
+        self.items = items
+    }
 }
 
 /// The app's dropdown, in place of the system's menu: a panel like every
@@ -78,6 +85,7 @@ struct MobileDropdownPanel: View {
         let rows = list.reduce(0) { $0 + $1.items.count }
         let content = CGFloat(rows) * Self.rowHeight
             + CGFloat(max(0, list.count - 1)) * Self.rule + Self.inset * 2
+            + CGFloat(list.filter { $0.title != nil }.count) * 23
         VStack(spacing: 0) {
             header
                 .padding(.horizontal, LineupPanelStyle.inset)
@@ -91,10 +99,20 @@ struct MobileDropdownPanel: View {
                             Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
                                 .padding(.horizontal, 12).padding(.vertical, 4)
                         }
-                        ForEach(section.items) { item in
-                            row(item)
-                                .opacity(shown ? 1 : 0)
-                                .offset(y: shown || reduceMotion ? 0 : -6)
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let title = section.title {
+                                Text(title)
+                                    .font(.inter(12, .semibold))
+                                    .foregroundStyle(LineupPanelStyle.quiet)
+                                    .padding(.horizontal, 10)
+                                    .padding(.top, 2)
+                                    .padding(.bottom, 4)
+                            }
+                            ForEach(section.items) { item in
+                                row(item)
+                                    .opacity(shown ? 1 : 0)
+                                    .offset(y: shown || reduceMotion ? 0 : -6)
+                            }
                         }
                     }
                 }
@@ -197,23 +215,27 @@ struct MobileMenuRow: View {
     }
 }
 
-/// The dropdown hung under the bar button that opens it, at the screen's top
-/// trailing corner, with everything under it stepping back. A tap outside
-/// closes it, as the button does.
+/// A dropdown below its top-bar control. It can sit at either corner or under
+/// a centered selector, with the screen stepping back behind the panel. A tap
+/// outside closes it, as the button does.
 struct MobileDropdownLayer: View {
     let isPresented: Bool
     let title: String
     let symbol: String
     let sections: [MobileMenuSection]
+    var alignment: Alignment = .topTrailing
+    var horizontalInset: CGFloat = 16
+    var backdropOpacity: Double = 0.45
+    var transitionAnchor: UnitPoint = .topTrailing
     let close: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack(alignment: .topTrailing) {
+            ZStack(alignment: alignment) {
                 if isPresented {
-                    Color.black.opacity(0.45)
+                    Color.black.opacity(backdropOpacity)
                         .contentShape(Rectangle())
                         .onTapGesture(perform: close)
                         .transition(.opacity)
@@ -221,18 +243,18 @@ struct MobileDropdownLayer: View {
                     MobileDropdownPanel(title: title, symbol: symbol, sections: sections,
                                         maxHeight: proxy.size.height - 24, dismiss: close)
                         .frame(width: min(300, proxy.size.width - 32))
-                        .padding(.trailing, 16)
+                        .padding(.horizontal, horizontalInset)
                         .padding(.top, 6)
                         // Opens with a little growth from the button; closes
                         // as one flat layer fading out at once.
                         .compositingGroup()
                         .transition(.asymmetric(
                             insertion: reduceMotion ? AnyTransition.opacity
-                                : AnyTransition.scale(scale: 0.94, anchor: .topTrailing).combined(with: .opacity),
+                                : AnyTransition.scale(scale: 0.94, anchor: transitionAnchor).combined(with: .opacity),
                             removal: AnyTransition.opacity.animation(.easeOut(duration: 0.14))))
                 }
             }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topTrailing)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: alignment)
         }
         .allowsHitTesting(isPresented)
     }

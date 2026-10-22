@@ -307,7 +307,7 @@ struct MobileLiveView: View {
                     }
                 }
             }
-            .background(LineupStyle.background)
+            .background(Color.black)
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
@@ -573,23 +573,25 @@ struct MobileLiveView: View {
         .accessibilityAddTraits(onlyFollowed ? .isSelected : [])
     }
 
-    /// One part of the slate as a panel: icon, caption and count over a
-    /// hairline, then its games, each divided from the next by a hairline of
-    /// its own.
-    private func slatePanel(_ title: String, systemImage: String, detail: String,
-                            games: [SportsGame], showsDay: Bool = false) -> some View {
-        LineupPanel(title: title, systemImage: systemImage, padded: false) {
-            Text(detail.uppercased()).font(.inter(13, .heavy)).tracking(0.4)
-                .foregroundStyle(LineupPanelStyle.quiet)
-        } content: {
-            VStack(spacing: 0) {
-                ForEach(Array(games.enumerated()), id: \.element.id) { index, game in
-                    if index > 0 {
-                        Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
-                            .padding(.horizontal, LineupPanelStyle.inset)
-                    }
-                    matchup(game, showsDay: showsDay)
-                }
+    /// A compact section heading followed by independent list rows. Keeping
+    /// each event row separate lets its team colors identify it at a glance.
+    private func slateSection(_ title: String, systemImage: String, detail: String,
+                              games: [SportsGame], showsDay: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundStyle(title == "On Air" ? LineupStyle.liveStatus : LineupPanelStyle.quiet)
+                Text(title.uppercased())
+                    .font(.inter(13, .heavy)).tracking(0.65)
+                    .foregroundStyle(LineupStyle.text)
+                Spacer(minLength: 6)
+                Text(detail.uppercased())
+                    .font(.inter(11, .heavy)).tracking(0.35)
+                    .foregroundStyle(title == "On Air" ? LineupStyle.liveStatus : LineupPanelStyle.quiet)
+            }
+            LazyVStack(spacing: 9) {
+                ForEach(games) { game in matchup(game, showsDay: showsDay) }
             }
         }
         .padding(.horizontal, Self.inset)
@@ -611,17 +613,17 @@ struct MobileLiveView: View {
                 }
                 if !slate.mine.isEmpty {
                     let onNow = slate.mine.filter(\.isLive).count
-                    slatePanel("My Teams", systemImage: "star",
+                    slateSection("My Teams", systemImage: "star",
                                detail: onNow > 0 ? "\(onNow) live" : "\(slate.mine.count) today",
                                games: slate.mine, showsDay: true)
                 }
                 if !slate.live.isEmpty {
-                    slatePanel("On Air", systemImage: "dot.radiowaves.left.and.right",
+                    slateSection("On Air", systemImage: "dot.radiowaves.left.and.right",
                                detail: "\(slate.live.count) live", games: slate.live)
                 }
                 ForEach(slate.days, id: \.day) { day, dayGames in
                     let today = Calendar.current.isDateInToday(day)
-                    slatePanel(today ? "Up Next" : day.formatted(.dateTime.weekday(.wide)),
+                    slateSection(today ? "Up Next" : day.formatted(.dateTime.weekday(.wide)),
                                systemImage: today ? "clock" : "calendar",
                                detail: day.formatted(.dateTime.month(.abbreviated).day()),
                                games: dayGames)
@@ -1034,6 +1036,10 @@ private struct MobileMatchupRow: View {
     private var whereItIs: String? { game.placeLine }
 
     var body: some View {
+        let awayColor = MobileTeamColor.readable(game.awayColor) ?? LineupStyle.leagueColor(game.league)
+        let homeColor = MobileTeamColor.readable(game.homeColor) ?? awayColor
+        let shape = RoundedRectangle(cornerRadius: 15, style: .continuous)
+
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
                 if isEvent {
@@ -1065,7 +1071,6 @@ private struct MobileMatchupRow: View {
                     if let detail = game.soccer?.detail { place(detail) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            Rectangle().fill(LineupStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
                 SportsMark(league: game.league, competition: game.competition, size: 26)
                 if game.isLive {
@@ -1095,10 +1100,14 @@ private struct MobileMatchupRow: View {
             }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
         }
         .fixedSize(horizontal: false, vertical: true)
-        // A row of its section's panel: the panel draws the card and the
-        // hairlines between games, the live mark and status say it is on.
-        .padding(.horizontal, LineupPanelStyle.inset).padding(.vertical, 14)
-        .contentShape(Rectangle())
+        // Keep a single rounded event tile, like each channel in Guide List,
+        // with the visual weight carried by the teams' own colors.
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(minHeight: 78)
+        .background(LinearGradient(colors: [awayColor.opacity(0.19), homeColor.opacity(0.19)],
+                                   startPoint: .leading, endPoint: .trailing), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+        .contentShape(shape)
     }
 
     /// One line, quiet, and only when there is something to say. The card
