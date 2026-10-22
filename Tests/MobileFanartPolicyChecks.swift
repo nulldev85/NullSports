@@ -42,6 +42,26 @@ struct MobileFanartPolicyChecks {
         check(tv.request(key: "fixture-project-key")?.url?.path == "/v3.2/tv/121361", "Use the official TV route")
         check(request.value(forHTTPHeaderField: "Authorization") == nil, "No server or account authorization travels to Fanart")
         check(request.timeoutInterval == 5, "Artwork requests have a bounded timeout")
-        print("Fanart policy: exact movie/TV identities, logo selection and safe asset URLs passed")
+
+        func tmdb(_ id: Int, _ logos: [[String: Any]]) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["id": id, "logos": logos])
+        }
+        let neutral: [String: Any] = ["file_path": "/neutral.png", "iso_639_1": NSNull(),
+            "width": 900, "height": 300, "vote_average": 10, "vote_count": 100]
+        let movieLogo: [String: Any] = ["file_path": "/english.png", "iso_639_1": "en",
+            "width": 800, "height": 250, "vote_average": 8, "vote_count": 4]
+        let localized: [String: Any] = ["file_path": "/spanish.png", "iso_639_1": "es",
+            "width": 800, "height": 250, "vote_average": 10, "vote_count": 1000]
+        let tmdbLogo = TMDBTitleLogoPolicy.logo(try tmdb(603, [neutral, localized, movieLogo]), expectedID: 603)
+        check(tmdbLogo?.absoluteString == "https://image.tmdb.org/t/p/w1280/english.png",
+              "TMDB logo fallback prefers English and builds a safe image URL")
+        check(TMDBTitleLogoPolicy.logo(try tmdb(604, [movieLogo]), expectedID: 603) == nil,
+              "TMDB images for another title are rejected")
+        check(TMDBTitleLogoPolicy.logo(try tmdb(603, [localized]), expectedID: 603) == nil,
+              "Localized-only title logos preserve the readable text fallback")
+        check(TMDBTitleLogoPolicy.logo(try tmdb(603, [["file_path": "/../secret.png", "iso_639_1": "en",
+              "width": 800, "height": 250]]), expectedID: 603) == nil,
+              "Unsafe TMDB image paths are rejected")
+        print("Fanart/TMDB title artwork policies: exact identities, language ranking and safe image URLs passed")
     }
 }

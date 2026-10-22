@@ -862,6 +862,10 @@ final class MediaLibrary {
         try await metadataResolver.discover(genreID: genreID, kind: kind, page: page)
     }
 
+    func tmdbTitleLogo(for item: MediaItem) async -> URL? {
+        await metadataResolver.titleLogo(for: item)
+    }
+
     func metadataRequestKey(for item: MediaItem) -> String {
         let source = item.type == "Episode" ? episodeDataSource : metadataSource
         if source == .provider { return "provider|" + item.libraryKey }

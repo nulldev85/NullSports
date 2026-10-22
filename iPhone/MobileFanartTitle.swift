@@ -39,7 +39,7 @@ struct MobileFanartTitle<Fallback: View>: View {
         .accessibilityElement(children: .ignore).accessibilityLabel(item.name)
         .task(id: requestID) {
             logo = nil
-            let found = await media.fanartLogo(for: item)
+            let found = await media.titleLogo(for: item)
             guard !Task.isCancelled else { return }
             logo = found
         }

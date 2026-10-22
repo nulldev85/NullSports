@@ -3801,8 +3801,8 @@ private struct TVMediaLibraryPreview: View {
     /// Each title's ratings once found. The hero moves on every few seconds
     /// and comes back round, and a title it has shown keeps its chips.
     @State private var ratings: [String: MediaRatings] = [:]
-    /// Fanart.tv's title logos, for titles whose server has none of its own.
-    @State private var fanartLogos: [String: URL] = [:]
+    /// Catalog title logos, for titles whose server has none of its own.
+    @State private var titleLogos: [String: URL] = [:]
 
     var body: some View {
         Group {
@@ -3836,21 +3836,21 @@ private struct TVMediaLibraryPreview: View {
             let found = await media.ratings(for: item)
             ratings[item.libraryKey] = found
         }
-        // A server's own logo comes first; Fanart.tv fills in where there is
-        // none -- a provider's title, a list's -- as the phone's Title Logos do.
+        // A server's own logo comes first; catalog title logos fill in where
+        // there is none -- a provider's title, a list's -- as on the phone.
         .task(id: originalItem.map { "\(media.metadataRequestKey(for: $0))|\(media.fanartEnabled)" }) {
             guard let item, media.logoURL(for: item, width: 620) == nil,
-                  fanartLogos[item.libraryKey] == nil else { return }
-            if let logo = await media.fanartLogo(for: item), !Task.isCancelled {
-                fanartLogos[item.libraryKey] = logo
+                  titleLogos[item.libraryKey] == nil else { return }
+            if let logo = await media.titleLogo(for: item), !Task.isCancelled {
+                titleLogos[item.libraryKey] = logo
             }
         }
     }
 
     @ViewBuilder
     private func titleLockup(_ item: MediaItem) -> some View {
-        let fanart = media.fanartEnabled ? fanartLogos[item.libraryKey] : nil
-        LineupArtView(url: media.logoURL(for: item, width: 620) ?? fanart, width: 620) { loaded in
+        let titleLogo = media.fanartEnabled ? titleLogos[item.libraryKey] : nil
+        LineupArtView(url: media.logoURL(for: item, width: 620) ?? titleLogo, width: 620) { loaded in
             if let loaded {
                 loaded.resizable().scaledToFit()
             } else {

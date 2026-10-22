@@ -154,6 +154,21 @@ actor LibraryMetadataResolver {
         return try JSONDecoder().decode(TMDBCatalogPage.self, from: data)
     }
 
+    /// TMDB's logo artwork is a fallback for Fanart.tv when a title has no
+    /// eligible Fanart logo. The request is tied to the resolved TMDB ID and
+    /// shares the resolver's coalescing, response cache, and request limits.
+    func titleLogo(for item: MediaItem) async -> URL? {
+        guard ["Movie", "Series"].contains(item.type), credentials.contains(.tmdb) else { return nil }
+        let resolvedID: String?
+        do { resolvedID = try await tmdbID(item.withMetadata(nil)) }
+        catch { return nil }
+        guard let resolvedID, let numericID = Int(resolvedID), numericID > 0 else { return nil }
+        let kind = item.isSeries ? "tv" : "movie"
+        guard let data = try? await tmdbCatalogData("\(kind)/\(numericID)/images",
+            query: ["include_image_language": "en-US,null"], lifetime: 86_400) else { return nil }
+        return TMDBTitleLogoPolicy.logo(data, expectedID: numericID)
+    }
+
     private func tmdbCatalogData(_ path: String, query: [String: String], lifetime: TimeInterval) async throws -> Data {
         guard credentials.contains(.tmdb) else { throw Failure.unavailable }
         let cacheKey = ([path] + query.keys.sorted().map { "\($0)=\(query[$0] ?? "")" }).joined(separator: "?")

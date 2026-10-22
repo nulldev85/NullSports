@@ -49,18 +49,24 @@ extension MediaLibrary {
 }
 
 extension MediaLibrary {
-    /// Fanart.tv's title logo for a movie or show, once its IDs are known:
-    /// nil while Title Logos is off, without a key, or where it has none.
-    func fanartLogo(for item: MediaItem) async -> URL? {
-        guard fanartEnabled, MobileFanart.configured, ["Movie", "Series"].contains(item.type) else { return nil }
+    /// A server logo remains first choice. For title artwork, Fanart.tv is
+    /// preferred, then TMDB's matching logo artwork, with the title text as
+    /// the final fallback when neither catalog has a usable asset.
+    func titleLogo(for item: MediaItem) async -> URL? {
+        guard fanartEnabled, ["Movie", "Series"].contains(item.type) else { return nil }
         await resolveMetadata(for: item)
         guard !Task.isCancelled else { return nil }
         var matched = displayItem(item)
         if MobileFanartIdentity(item: matched) == nil {
             matched = await libraryExternalIdentity(item, requiring: item.isSeries ? "tvdb" : "imdb")
         }
-        guard !Task.isCancelled, let identity = MobileFanartIdentity(item: matched) else { return nil }
-        return await MobileFanart.shared.logo(for: identity)
+        guard !Task.isCancelled else { return nil }
+        if MobileFanart.configured, let identity = MobileFanartIdentity(item: matched),
+           let logo = await MobileFanart.shared.logo(for: identity) {
+            return logo
+        }
+        guard !Task.isCancelled else { return nil }
+        return await tmdbTitleLogo(for: matched)
     }
 }
 
