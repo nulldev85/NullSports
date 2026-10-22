@@ -226,18 +226,26 @@ struct MobileGuideView: View {
                             .autocorrectionDisabled()
                             .submitLabel(.search)
                             .focused($searchFocused)
-                            .onSubmit { searchFocused = false }
+                            .onSubmit {
+                                if MobileGuideSearchPolicy.shouldCloseAfterSubmission(query) {
+                                    closeSearch()
+                                } else {
+                                    searchFocused = false
+                                }
+                            }
                             .task { searchFocused = true }
-                        if !query.isEmpty {
-                            Button {
+                        Button {
+                            if query.isEmpty {
+                                closeSearch()
+                            } else {
                                 query = ""
                                 searchFocused = true
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .frame(width: 44, height: 44)
                             }
-                            .accessibilityLabel("Clear search")
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .frame(width: 44, height: 44)
                         }
+                        .accessibilityLabel(query.isEmpty ? "Close search" : "Clear search")
                     }
                     .padding(.leading, 14).padding(.trailing, 4)
                     .frame(minHeight: 44)
@@ -314,7 +322,7 @@ struct MobileGuideView: View {
                 // while the PiP window is showing this stream, which the viewer
                 // asked to keep watching.
                 if !active {
-                    searchFocused = false
+                    closeSearch()
                     optionsOpen = false
                     filterMenuOpen = false
                     if !playback.pictureInPictureActive { closePlayer() }
@@ -403,7 +411,11 @@ struct MobileGuideView: View {
 
     private func setOptions(_ open: Bool) {
         guard optionsOpen != open else { return }
-        if open { searchFocused = false; filterMenuOpen = false }
+        if open {
+            if showsSearch && query.isEmpty { closeSearch() }
+            else { searchFocused = false }
+            filterMenuOpen = false
+        }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
             optionsOpen = open
         }
@@ -522,7 +534,7 @@ struct MobileGuideView: View {
 
     private func selectChannel(_ stream: XtreamStream) {
         cancelQualityCheck()
-        searchFocused = false
+        if showsSearch { closeSearch() } else { searchFocused = false }
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         // The manual game picker still returns its selection to the Live screen.
         guard game == nil else { onPlay(stream); return }
@@ -682,7 +694,10 @@ struct MobileGuideView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .padding(.top, 10)
+            // The standalone List scroller has no timeline ruler to separate
+            // it from the navigation controls. Keep the first favorite clear
+            // of that chrome on both compact and regular phones.
+            .padding(.top, MobileGuideLayoutMetrics.listFirstRowTopInset)
             .padding(.bottom, 14)
         }
         .scrollDismissesKeyboard(.interactively)
@@ -765,7 +780,7 @@ struct MobileGuideView: View {
 
     private func guideGrid(now: Date) -> some View {
         MobileGuideViewport { viewport, listHeight in
-            let logoRailWidth = MobileGuideGridMetrics.channelLogoRailWidth(for: viewport.size.width)
+            let logoRailWidth = MobileGuideLayoutMetrics.channelLogoRailWidth(for: viewport.size.width)
             // One horizontal scroller moves every program row and the ruler together.
             // The nested vertical scroller moves logos and programs as a single row.
             // Counter-offset logo tiles keep the channel column frozen horizontally.
@@ -786,7 +801,7 @@ struct MobileGuideView: View {
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                         // Leave a little air below the ruler so the first
                         // favorite never appears tucked under its divider.
-                        .padding(.top, MobileGuideGridMetrics.firstRowTopInset)
+                        .padding(.top, MobileGuideLayoutMetrics.gridFirstRowTopInset)
                     }
                     .frame(height: listHeight)
                     .scrollDismissesKeyboard(.interactively)
@@ -915,8 +930,8 @@ struct MobileGuideView: View {
                                 now.timeIntervalSince($0.start) / $0.end.timeIntervalSince($0.start)
                             } ?? 0
                             Rectangle()
-                                .fill(Color.white.opacity(0.14))
-                                .frame(width: MobileGuideGridMetrics.liveProgressWidth(cardWidth: width,
+                                .fill(Color.black.opacity(MobileGuideLayoutMetrics.liveProgressOverlayOpacity))
+                                .frame(width: MobileGuideLayoutMetrics.liveProgressWidth(cardWidth: width,
                                                                                          progress: progress),
                                        height: cardHeight)
                                 .allowsHitTesting(false)
@@ -952,7 +967,7 @@ struct MobileGuideView: View {
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             // Only what is on now is edged, in the accent; the
                             // rest are panels, told apart by their corners.
-                            .strokeBorder(live ? LineupStyle.liveDot.opacity(0.45) : Color.clear, lineWidth: 1)
+                            .strokeBorder(live ? LineupStyle.liveDot.opacity(0.32) : Color.clear, lineWidth: 1)
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
@@ -964,9 +979,12 @@ struct MobileGuideView: View {
     }
 }
 
-/// Geometry shared by the time-grid guide and its focused layout tests.
-enum MobileGuideGridMetrics {
-    static let firstRowTopInset: CGFloat = 8
+/// Geometry and restrained surface treatments shared by the Guide layouts
+/// and their focused tests.
+enum MobileGuideLayoutMetrics {
+    static let gridFirstRowTopInset: CGFloat = 8
+    static let listFirstRowTopInset: CGFloat = 24
+    static let liveProgressOverlayOpacity = 0.26
 
     /// The channel artwork occupies the same strong left-hand column as the
     /// reference guide, while remaining bounded on narrow and wide devices.
@@ -977,6 +995,12 @@ enum MobileGuideGridMetrics {
     static func liveProgressWidth(cardWidth: CGFloat, progress: Double) -> CGFloat {
         guard cardWidth.isFinite, cardWidth > 0, progress.isFinite else { return 0 }
         return cardWidth * CGFloat(min(1, max(0, progress)))
+    }
+}
+
+enum MobileGuideSearchPolicy {
+    static func shouldCloseAfterSubmission(_ query: String) -> Bool {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

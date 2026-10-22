@@ -147,15 +147,15 @@ private enum ChannelLogoTintSampler {
 
         guard let dominant = weights.indices.max(by: { weights[$0] < weights[$1] }),
               weights[dominant] > 0 else {
-            // Most broadcast logos are white-on-transparent. Neutral gray is
-            // the reference treatment for those marks (for example CBS).
-            return 0x2B2B2C
+            // Most broadcast logos are white-on-transparent. Use the same
+            // subdued charcoal as the reference treatment (for example CBS).
+            return 0x242425
         }
         var hue = atan2(hueSin[dominant], hueCos[dominant]) / (2 * .pi)
         if hue < 0 { hue += 1 }
         let sourceSaturation = saturations[dominant] / weights[dominant]
         let saturation = min(0.46, max(0.28, sourceSaturation * 0.52))
-        return rgb(hue: hue, saturation: saturation, brightness: 0.18)
+        return rgb(hue: hue, saturation: saturation, brightness: 0.14)
     }
 
     private static func rgb(hue: Double, saturation: Double, brightness: Double) -> UInt32 {
