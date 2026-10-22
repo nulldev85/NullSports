@@ -71,7 +71,7 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                        "iPhone/MobileLibraryCollections.swift",
                        "iPhone/MobileBetterPosters.swift", "iPhone/MobileGameReplaysView.swift",
                        "iPhone/MobileOnlineSubtitlesSheet.swift", "iPhone/MobileSubtitleSettings.swift",
-                       "iPhone/MobileFanartTitle.swift"):
+                       "iPhone/MobileFanartTitle.swift", "iPhone/MobileWelcomeRowMotion.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))
             self.assertFalse(is_included(project, "Lineup", source))

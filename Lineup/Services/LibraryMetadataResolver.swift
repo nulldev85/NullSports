@@ -185,6 +185,15 @@ actor LibraryMetadataResolver {
         return Array(posters.prefix(24))
     }
 
+    /// Fetches one artwork rail independently so the welcome screen can show
+    /// whichever TMDB catalog responds first instead of waiting for both.
+    func welcomePosters(for kind: TMDBCatalogMediaKind) async -> [TMDBWelcomePoster] {
+        let path = kind == .movie ? "trending/movie/week" : "trending/tv/week"
+        guard let data = try? await tmdbCatalogData(path, query: [:], lifetime: 14_400),
+              let page = try? JSONDecoder().decode(TMDBCatalogPage.self, from: data) else { return [] }
+        return page.results.compactMap { welcomePoster($0, kind: kind) }
+    }
+
     private func welcomePoster(_ title: TMDBCatalogTitle, kind: TMDBCatalogMediaKind) -> TMDBWelcomePoster? {
         let name = (kind == .movie ? title.title : title.name)?
             .trimmingCharacters(in: .whitespacesAndNewlines)

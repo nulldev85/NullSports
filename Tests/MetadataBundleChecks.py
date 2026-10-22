@@ -22,13 +22,16 @@ class MetadataBundleChecks(unittest.TestCase):
         result = self.check_resource({"tmdb": "", "tvdb": "", "opensubtitles": "", "fanart": ""})
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_both_apps_require_both_injected_consumer_keys(self):
+    def test_release_apps_require_metadata_and_artwork_credentials(self):
         values = {"tmdb": "", "tvdb": "", "opensubtitles": "fixture-subtitle-key", "fanart": "fixture-art-key"}
-        flags = ("--require-online-subtitles", "--require-fanart")
+        flags = ("--require-online-subtitles", "--require-fanart", "--require-tmdb")
+        result = self.check_resource(values, *flags)
+        self.assertNotEqual(result.returncode, 0, "The welcome artwork feed must have its TMDB key")
+        values["tmdb"] = "fixture-tmdb-key"
         result = self.check_resource(values, *flags)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("fixture-", result.stdout + result.stderr)
-        for name in ("opensubtitles", "fanart"):
+        for name in ("opensubtitles", "fanart", "tmdb"):
             missing = dict(values, **{name: " "})
             rejected = self.check_resource(missing, *flags)
             self.assertNotEqual(rejected.returncode, 0)

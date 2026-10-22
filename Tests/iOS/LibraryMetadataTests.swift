@@ -189,6 +189,32 @@ final class LibraryMetadataTests: XCTestCase {
                        "Movie and series trending results are reused from the resolver cache")
     }
 
+    func testWelcomeArtworkCanRenderTheFirstCatalogFeedWithoutWaitingForTheOther() async throws {
+        MetadataTestProtocol.install { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-read-token")
+            switch request.url!.path {
+            case "/3/trending/movie/week":
+                return (200, #"{"page":1,"total_pages":1,"results":[{"id":603,"title":"The Matrix","poster_path":"/matrix.jpg"}]}"#)
+            case "/3/trending/tv/week":
+                return (200, #"{"page":1,"total_pages":1,"results":[{"id":1396,"name":"Breaking Bad","poster_path":"/breaking-bad.jpg"}]}"#)
+            default:
+                XCTFail("Unexpected welcome-artwork endpoint: \(request.url!.path)")
+                return (404, "{}")
+            }
+        }
+
+        let service = resolver()
+        let moviePosters = await service.welcomePosters(for: .movie)
+        XCTAssertEqual(moviePosters.map(\.title), ["The Matrix"])
+        XCTAssertEqual(moviePosters.map(\.imageURL.absoluteString), ["https://image.tmdb.org/t/p/w342/matrix.jpg"])
+        XCTAssertEqual(MetadataTestProtocol.requestCount, 1,
+                       "The first completed catalog feed can paint official posters immediately")
+
+        let seriesPosters = await service.welcomePosters(for: .series)
+        XCTAssertEqual(seriesPosters.map(\.title), ["Breaking Bad"])
+        XCTAssertEqual(MetadataTestProtocol.requestCount, 2)
+    }
+
     #if !os(tvOS)
     func testSearchGenreArtworkAndTMDBMappingsAreUniqueAndGenreSpecific() {
         let genres = AppSearchGenre.all

@@ -36,10 +36,10 @@ struct MobileWelcomeView: View {
                     .ignoresSafeArea()
 
                 LinearGradient(stops: [
-                    .init(color: .black.opacity(0.08), location: 0),
-                    .init(color: .black.opacity(0.16), location: 0.27),
-                    .init(color: .black.opacity(0.54), location: 0.51),
-                    .init(color: .black.opacity(0.91), location: 0.72),
+                    .init(color: .black.opacity(0.02), location: 0),
+                    .init(color: .black.opacity(0.08), location: 0.35),
+                    .init(color: .black.opacity(0.32), location: 0.65),
+                    .init(color: .black.opacity(0.88), location: 0.84),
                     .init(color: .black, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
@@ -47,7 +47,7 @@ struct MobileWelcomeView: View {
 
                 ScrollView {
                     VStack(spacing: 0) {
-                        Color.clear.frame(height: max(geometry.size.height * 0.28, 190))
+                        Color.clear.frame(height: max(geometry.size.height * 0.16, 96))
                         welcomeForm
                             .padding(.bottom, max(geometry.safeAreaInsets.bottom, 16) + 12)
                     }
@@ -68,7 +68,17 @@ struct MobileWelcomeView: View {
         }
         .task {
             guard media.metadataAvailable(.tmdb) else { return }
-            posters = await media.tmdbWelcomePosters()
+            var movies: [TMDBWelcomePoster] = []
+            var series: [TMDBWelcomePoster] = []
+            await withTaskGroup(of: (TMDBCatalogMediaKind, [TMDBWelcomePoster]).self) { group in
+                group.addTask { (.movie, await media.tmdbWelcomePosters(for: .movie)) }
+                group.addTask { (.series, await media.tmdbWelcomePosters(for: .series)) }
+                for await (kind, batch) in group {
+                    guard !Task.isCancelled else { return }
+                    if kind == .movie { movies = batch } else { series = batch }
+                    posters = Self.interleaveWelcomePosters(movies, series)
+                }
+            }
         }
         .sheet(isPresented: $showingMediaSetup) {
             MediaServerSetupView()
@@ -194,7 +204,7 @@ struct MobileWelcomeView: View {
             .padding(.top, 3)
         }
         .padding(15)
-        .background(.black.opacity(0.54), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .background(.black.opacity(0.30), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .stroke(.white.opacity(0.11), lineWidth: 1)
@@ -266,6 +276,16 @@ struct MobileWelcomeView: View {
             && (playlistConnection || (!username.isEmpty && !password.isEmpty))
     }
 
+    private static func interleaveWelcomePosters(_ movies: [TMDBWelcomePoster],
+                                                  _ series: [TMDBWelcomePoster]) -> [TMDBWelcomePoster] {
+        var result: [TMDBWelcomePoster] = []
+        for index in 0..<max(movies.count, series.count) {
+            if movies.indices.contains(index) { result.append(movies[index]) }
+            if series.indices.contains(index) { result.append(series[index]) }
+        }
+        return result
+    }
+
     private func connect() {
         guard canConnect, !connecting else { return }
         focusedField = nil
@@ -297,12 +317,15 @@ private struct MobileWelcomePosterBackdrop: View {
 
     private let rowCount = 6
     private let posterSlotCount = 16
+    private let rowSpacing: CGFloat = 8
 
     var body: some View {
         GeometryReader { geometry in
-            let width = min(108, max(78, (geometry.size.width - 40) / 3.45))
+            let preferredWidth = min(108, max(78, (geometry.size.width - 40) / 3.45))
+            let fittingHeight = max(80, (geometry.size.height - rowSpacing * CGFloat(rowCount - 1)) / CGFloat(rowCount))
+            let width = min(preferredWidth, fittingHeight / 1.48)
             let height = width * 1.48
-            VStack(spacing: 8) {
+            VStack(spacing: rowSpacing) {
                 ForEach(0..<rowCount, id: \.self) { index in
                     MobileWelcomePosterRow(posters: rowPosters(index), rowIndex: index,
                                            rowCount: rowCount, posterCount: posterSlotCount,
@@ -344,11 +367,8 @@ private struct MobileWelcomePosterRow: View {
     var body: some View {
         GeometryReader { geometry in
             let span = CGFloat(posterCount) * (posterWidth + spacing)
-            let phase = span * CGFloat(rowIndex) / CGFloat(max(1, rowCount))
-            let movesLeft = rowIndex.isMultiple(of: 2)
-            let initialOffset = movesLeft ? span - phase : -phase
-            let finalOffset = movesLeft ? -phase : span - phase
-            let currentOffset = hasStarted ? finalOffset : initialOffset
+            let motion = MobileWelcomeRowMotion(rowIndex: rowIndex, rowCount: rowCount, period: span)
+            let currentOffset = hasStarted ? motion.endOffset : motion.startOffset
 
             HStack(spacing: spacing) {
                 ForEach(0..<2, id: \.self) { _ in
