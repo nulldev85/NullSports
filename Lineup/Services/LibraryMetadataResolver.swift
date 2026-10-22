@@ -22,6 +22,60 @@ struct LibraryMetadataCredentials: Sendable {
     }
 }
 
+enum TMDBCatalogMediaKind: String, Sendable, Hashable {
+    case movie
+    case series = "tv"
+}
+
+struct TMDBCatalogGenre: Decodable, Identifiable, Hashable, Sendable {
+    let id: Int
+    let name: String
+}
+
+struct TMDBCatalogGenres: Decodable, Sendable {
+    let movies: [TMDBCatalogGenre]
+    let series: [TMDBCatalogGenre]
+}
+
+struct TMDBCatalogPage: Decodable, Sendable {
+    let page: Int
+    let total_pages: Int
+    let results: [TMDBCatalogTitle]
+}
+
+struct TMDBCatalogTitle: Decodable, Identifiable, Hashable, Sendable {
+    let id: Int
+    let title: String?
+    let name: String?
+    let overview: String?
+    let release_date: String?
+    let first_air_date: String?
+    let poster_path: String?
+    let backdrop_path: String?
+
+    var productionYear: Int? {
+        (release_date ?? first_air_date).flatMap { Int($0.prefix(4)) }
+    }
+
+    func mediaItem(kind: TMDBCatalogMediaKind) -> MediaItem? {
+        let displayName = (kind == .movie ? title : name)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let displayName, !displayName.isEmpty, id > 0 else { return nil }
+        return MediaItem(id: "tmdb-catalog|\(kind.rawValue)|\(id)", name: displayName,
+            type: kind == .movie ? "Movie" : "Series", overview: overview,
+            productionYear: productionYear, primaryImageAspectRatio: nil, childCount: nil,
+            providerIDs: ["tmdb": String(id)], posterURL: Self.imageURL(poster_path, size: "w500"),
+            backdropURL: Self.imageURL(backdrop_path, size: "w1280"))
+    }
+
+    private static func imageURL(_ path: String?, size: String) -> String? {
+        guard let path, path.hasPrefix("/"), !path.contains(".."),
+              path.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "/-_.0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ").contains($0) }) else {
+            return nil
+        }
+        return "https://image.tmdb.org/t/p/\(size)\(path)"
+    }
+}
+
 /// Shared by every shelf and detail page. Coalesces identical lookups, bounds
 /// network work, and caches successful matches on disk without storing keys.
 actor LibraryMetadataResolver {
@@ -42,6 +96,9 @@ actor LibraryMetadataResolver {
     private var activeRequests = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var retryAfter: [String: Date] = [:]
+    private struct CatalogEntry { let data: Data; let expires: Date }
+    private var catalogCache: [String: CatalogEntry] = [:]
+    private var catalogInFlight: [String: Task<Data, Error>] = [:]
 
     init(credentials: LibraryMetadataCredentials = .bundled,
          session: URLSession = .shared,
@@ -76,6 +133,71 @@ actor LibraryMetadataResolver {
         let result = await task.value
         inFlight[key] = nil
         return result
+    }
+
+    func browseGenres() async throws -> TMDBCatalogGenres {
+        let movieData = try await tmdbCatalogData("genre/movie/list", query: [:], lifetime: 86_400)
+        let seriesData = try await tmdbCatalogData("genre/tv/list", query: [:], lifetime: 86_400)
+        let movies = try JSONDecoder().decode(TMDBGenreList.self, from: movieData).genres
+        let series = try JSONDecoder().decode(TMDBGenreList.self, from: seriesData).genres
+        return TMDBCatalogGenres(movies: movies, series: series)
+    }
+
+    func discover(genreID: Int, kind: TMDBCatalogMediaKind, page: Int) async throws -> TMDBCatalogPage {
+        guard genreID > 0, (1...500).contains(page) else { throw Failure.unavailable }
+        let data = try await tmdbCatalogData("discover/\(kind.rawValue)", query: [
+            "with_genres": String(genreID),
+            "sort_by": "popularity.desc",
+            "include_adult": "false",
+            "page": String(page)
+        ], lifetime: 900)
+        return try JSONDecoder().decode(TMDBCatalogPage.self, from: data)
+    }
+
+    /// TMDB's logo artwork is a fallback for Fanart.tv when a title has no
+    /// eligible Fanart logo. The request is tied to the resolved TMDB ID and
+    /// shares the resolver's coalescing, response cache, and request limits.
+    func titleLogo(for item: MediaItem) async -> URL? {
+        guard ["Movie", "Series"].contains(item.type), credentials.contains(.tmdb) else { return nil }
+        let resolvedID: String?
+        do { resolvedID = try await tmdbID(item.withMetadata(nil)) }
+        catch { return nil }
+        guard let resolvedID, let numericID = Int(resolvedID), numericID > 0 else { return nil }
+        let kind = item.isSeries ? "tv" : "movie"
+        guard let data = try? await tmdbCatalogData("\(kind)/\(numericID)/images",
+            query: ["include_image_language": "en-US,null"], lifetime: 86_400) else { return nil }
+        return TMDBTitleLogoPolicy.logo(data, expectedID: numericID)
+    }
+
+    private func tmdbCatalogData(_ path: String, query: [String: String], lifetime: TimeInterval) async throws -> Data {
+        guard credentials.contains(.tmdb) else { throw Failure.unavailable }
+        let cacheKey = ([path] + query.keys.sorted().map { "\($0)=\(query[$0] ?? "")" }).joined(separator: "?")
+        if let entry = catalogCache[cacheKey], entry.expires > Date() { return entry.data }
+        if let task = catalogInFlight[cacheKey] { return try await task.value }
+        let task = Task<Data, Error> { try await self.tmdbData(path, query: query) }
+        catalogInFlight[cacheKey] = task
+        do {
+            let data = try await task.value
+            catalogInFlight[cacheKey] = nil
+            catalogCache[cacheKey] = CatalogEntry(data: data, expires: Date().addingTimeInterval(lifetime))
+            if catalogCache.count > 80 {
+                catalogCache = catalogCache.filter { $0.value.expires > Date() }
+            }
+            return data
+        } catch {
+            catalogInFlight[cacheKey] = nil
+            throw error
+        }
+    }
+
+    private func tmdbData(_ path: String, query: [String: String]) async throws -> Data {
+        var query = query
+        query["language"] = "en-US"
+        let credential = credentials.tmdb.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = credential.range(of: "^[a-fA-F0-9]{32}$", options: .regularExpression) != nil
+        if apiKey { query["api_key"] = credential }
+        return try await requestData(base: "https://api.themoviedb.org/3/", path: path, query: query,
+                                     bearer: apiKey ? nil : credential)
     }
 
     private func fetch(_ item: MediaItem, source: LibraryMetadataSource, parent: MediaItem?) async throws -> LibraryMetadata? {
@@ -229,6 +351,12 @@ actor LibraryMetadataResolver {
 
     private func request<T: Decodable>(base: String, path: String, query: [String: String] = [:],
                                        bearer: String? = nil, body: Data? = nil) async throws -> T {
+        let data = try await requestData(base: base, path: path, query: query, bearer: bearer, body: body)
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func requestData(base: String, path: String, query: [String: String] = [:],
+                             bearer: String? = nil, body: Data? = nil) async throws -> Data {
         await acquire()
         defer { release() }
         try Task.checkCancellation()
@@ -251,7 +379,7 @@ actor LibraryMetadataResolver {
             retryAfter[base] = Date().addingTimeInterval(max(1, seconds))
         }
         guard (200..<300).contains(http.statusCode) else { throw Failure.http(http.statusCode) }
-        return try JSONDecoder().decode(T.self, from: data)
+        return data
     }
 
     private func restore() {
@@ -283,6 +411,7 @@ actor LibraryMetadataResolver {
 }
 
 private struct TMDBSearch: Decodable { let results: [TMDBRecord] }
+private struct TMDBGenreList: Decodable { let genres: [TMDBCatalogGenre] }
 private struct TMDBFind: Decodable { let movie_results: [TMDBRecord]; let tv_results: [TMDBRecord] }
 private struct TMDBExternalIDs: Decodable { let imdb_id: String?; let tvdb_id: Int? }
 private struct MetadataGenre: Decodable { let name: String? }

@@ -854,6 +854,18 @@ final class MediaLibrary {
 
     func metadataAvailable(_ source: LibraryMetadataSource) -> Bool { metadataCredentials.contains(source) }
 
+    func tmdbBrowseGenres() async throws -> TMDBCatalogGenres {
+        try await metadataResolver.browseGenres()
+    }
+
+    func tmdbDiscover(genreID: Int, kind: TMDBCatalogMediaKind, page: Int) async throws -> TMDBCatalogPage {
+        try await metadataResolver.discover(genreID: genreID, kind: kind, page: page)
+    }
+
+    func tmdbTitleLogo(for item: MediaItem) async -> URL? {
+        await metadataResolver.titleLogo(for: item)
+    }
+
     func metadataRequestKey(for item: MediaItem) -> String {
         let source = item.type == "Episode" ? episodeDataSource : metadataSource
         if source == .provider { return "provider|" + item.libraryKey }

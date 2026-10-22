@@ -4,6 +4,7 @@ import AVFoundation
 import ImageIO
 import VLCKitSPM
 import LineupAetherPlayback
+import LineupMPVPlayback
 
 enum TVPlaybackState: Equatable {
     case stopped, opening, buffering, playing, paused, ended, error, esAdded
@@ -79,6 +80,7 @@ func makeTVPlaybackBackend(_ kind: TVPlaybackEngine) -> any TVPlaybackBackend {
     switch kind {
     case .vlc: TVVLCBackend()
     case .aether: TVAetherBackend()
+    case .mpv: TVMPVBackend()
     }
 }
 
@@ -351,5 +353,112 @@ final class TVAetherBackend: TVPlaybackBackend {
         frameOutput = nil
         frameOutputItem = nil
     }
+}
+
+@MainActor
+final class TVMPVBackend: TVPlaybackBackend {
+    let kind = TVPlaybackEngine.mpv
+    private let session: MPVPlaybackSession?
+    private let initializationError: String?
+    var surface: UIView { session?.surface ?? fallbackSurface }
+    private let fallbackSurface = UIView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+
+    init() {
+        do {
+            let session = try MPVPlaybackSession()
+            self.session = session
+            initializationError = nil
+        } catch {
+            session = nil
+            initializationError = error.localizedDescription
+        }
+    }
+
+    var state: TVPlaybackState {
+        guard let session else { return .error }
+        switch session.phase {
+        case .idle: return .stopped
+        case .loading: return .opening
+        case .buffering: return .buffering
+        case .playing: return .playing
+        case .paused: return .paused
+        case .ended: return .ended
+        case .failed: return .error
+        }
+    }
+    var errorMessage: String? { initializationError ?? session?.errorMessage }
+    var isPlaying: Bool { session?.isPlaying == true }
+    var hasVideoOut: Bool { session?.hasVideoOut == true }
+    var videoSize: CGSize { session?.videoSize ?? .zero }
+    var mediaInfo: PlaybackMediaInfo {
+        guard let session else { return PlaybackMediaInfo() }
+        return PlaybackMediaInfo(dynamicRange: session.dynamicRange, videoCodec: session.videoCodec,
+            frameRate: session.frameRate, audioCodec: session.audioCodec,
+            audioProfile: session.audioProfile, audioChannels: session.audioChannels,
+            audioLayout: session.audioLayout)
+    }
+    var duration: TimeInterval { session?.duration ?? 0 }
+    var time: TimeInterval { session?.position ?? 0 }
+    var frames: Int? { nil }
+    var bytes: Int? { nil }
+    var isSeekable: Bool { session?.isSeekable == true }
+    var isOpen: Bool { session?.isOpen == true }
+    var volume: Int32 {
+        get { Int32(session?.volume ?? 100) }
+        set { session?.volume = min(max(Int(newValue), 0), 100) }
+    }
+    var isMuted: Bool {
+        get { session?.isMuted == true }
+        set { session?.isMuted = newValue }
+    }
+    var subtitles: [PlaybackSubtitleTrack] {
+        [.off] + (session?.subtitleTracks ?? []).map {
+            PlaybackSubtitleTrack(id: "mpv-\($0.id)", title: $0.title, engineIndex: $0.id)
+        }
+    }
+    var selectedSubtitleIndex: Int? { session?.selectedSubtitleIndex }
+    var audioTracks: [PlaybackStreamTrack] {
+        (session?.audioTracks ?? []).map { PlaybackStreamTrack(id: $0.id, title: $0.title) }
+    }
+    var selectedAudioIndex: Int? { session?.selectedAudioIndex }
+    var videoTracks: [PlaybackStreamTrack] {
+        (session?.videoTracks ?? []).map { PlaybackStreamTrack(id: $0.id, title: $0.title) }
+    }
+    var selectedVideoIndex: Int? { session?.selectedVideoIndex }
+
+    private var languages = PlaybackLanguages()
+    private var subtitleStyle = PlaybackSubtitleStyle()
+
+    func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
+        session?.load(url: url, startPosition: startPosition, isLive: isLive,
+                      preferredSubtitleLanguage: isLive || languages.subtitles.isEmpty ? nil : languages.subtitles.joined(separator: ","),
+                      preferredAudioLanguage: isLive || languages.audio.isEmpty ? nil : languages.audio.joined(separator: ","))
+        if !isLive { applySubtitleStyle() }
+    }
+    func play() { session?.play() }
+    func pause() { session?.pause() }
+    func stop() { session?.stop() }
+    func seek(to seconds: TimeInterval) { session?.seek(to: seconds) }
+    func selectSubtitle(index: Int?) { session?.selectSubtitle(index: index) }
+    func selectAudio(index: Int) { session?.selectAudio(index: index) }
+    func selectVideo(index: Int) { session?.selectVideo(index: index) }
+    func setOpeningLanguages(_ languages: PlaybackLanguages) { self.languages = languages }
+    func styleSubtitles(_ style: PlaybackSubtitleStyle) {
+        subtitleStyle = style
+        applySubtitleStyle()
+    }
+    private func applySubtitleStyle() {
+        session?.configureSubtitles(scale: subtitleStyle.scale, background: subtitleStyle.background,
+                                    delay: subtitleStyle.delay, language: languages.subtitles.joined(separator: ","))
+    }
+    func addSubtitle(file: URL, title: String, language: String) -> Bool {
+        guard let session else { return false }
+        session.addSubtitle(url: file, title: title, language: language)
+        return true
+    }
+    // MPVKit renders to a Metal surface and does not expose decoded-frame
+    // readback, so Auto Sync cannot sample the scoreboard with this backend.
+    func captureFrame() async -> CapturedVideoFrame? { nil }
+    func releaseFrameOutput() {}
 }
 #endif

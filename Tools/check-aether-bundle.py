@@ -14,6 +14,19 @@ RUNTIME_FRAMEWORKS = (
     "AetherLibswresample", "AetherLibswscale", "AetherLibavfilter",
     "AetherLibdav1d", "AetherLibzimg", "AetherLibzvbi",
 )
+MPV_BRIDGE = "LineupMPVPlayback.framework"
+
+
+def normalized_mpv_name(value):
+    """Accept XcodeGen's product name or the iOS target name for the bridge."""
+    if not isinstance(value, str) or not value:
+        return ""
+    name = Path(value).name
+    if name.endswith(".framework"):
+        name = name[:-len(".framework")]
+    if name.endswith("iOS"):
+        name = name[:-len("iOS")]
+    return name
 
 
 def inspect_project(project):
@@ -27,13 +40,37 @@ def inspect_project(project):
         name = target["name"]
         checked.add(name)
         copies = Counter()
+        mpv_links = Counter()
+        mpv_copies = Counter()
         for phase_id in target.get("buildPhases", []):
             phase = objects[phase_id]
             for file_id in phase.get("files", []):
                 build_file = objects[file_id]
                 reference = objects.get(build_file.get("fileRef"), {})
-                product = objects.get(build_file.get("productRef"), {}).get("productName", "")
+                product_reference = objects.get(build_file.get("productRef"), {})
+                product = product_reference.get("productName", "")
                 path = reference.get("path", "")
+                mpv_names = (
+                    product,
+                    product_reference.get("path", ""),
+                    product_reference.get("name", ""),
+                    path,
+                    reference.get("name", ""),
+                )
+                is_mpv_bridge = any(
+                    normalized_mpv_name(value) == Path(MPV_BRIDGE).stem
+                    for value in mpv_names
+                )
+                if is_mpv_bridge:
+                    if phase["isa"] == "PBXFrameworksBuildPhase":
+                        mpv_links[MPV_BRIDGE] += 1
+                    elif phase["isa"] == "PBXCopyFilesBuildPhase" and str(phase.get("dstSubfolderSpec")) == "10":
+                        attributes = build_file.get("settings", {}).get("ATTRIBUTES", [])
+                        if "CodeSignOnCopy" not in attributes:
+                            raise ValueError(f"{name}: {MPV_BRIDGE} must be signed when embedded")
+                        mpv_copies[MPV_BRIDGE] += 1
+                    else:
+                        raise ValueError(f"{name}: {MPV_BRIDGE} must be linked and copied into Frameworks")
                 if product.startswith("Aether"):
                     raise ValueError(f"{name}: Aether package product {product} must stay inside the bridge")
                 if Path(path).name == "AetherEngine_AetherEngine.bundle":
@@ -52,17 +89,20 @@ def inspect_project(project):
                 copies[path] += 1
         if copies != expected:
             raise ValueError(f"{name}: incorrect runtime copies: missing={dict(expected - copies)}, duplicate={dict(copies - expected)}")
+        if sum(mpv_links.values()) != 1 or sum(mpv_copies.values()) != 1:
+            raise ValueError(f"{name}: MPV playback bridge must be linked and embedded exactly once")
     if checked != {"Lineup", "LineupiOS"}:
         raise ValueError("Both app targets must be checked for Aether packaging")
-    return "Aether project passed: both app targets copy nine real frameworks once, without app linkage."
+    return "Playback project passed: both app targets isolate Aether runtimes and link/embed one MPV bridge."
 
 
 def bundled_files(app):
     app = Path(app)
     images = [app / "Frameworks" / f"{name}.framework" / name
-              for name in ("LineupAetherPlayback", *RUNTIME_FRAMEWORKS)]
+              for name in ("LineupAetherPlayback", "LineupMPVPlayback", *RUNTIME_FRAMEWORKS)]
     notices = app / "Frameworks/LineupAetherPlayback.framework/AetherLicenses/AetherEngine.txt"
-    missing = [path.relative_to(app).as_posix() for path in [*images, notices] if not path.is_file()]
+    mpv_license = app / "Frameworks/LineupMPVPlayback.framework/MPVLicenses/LGPL-3.0.txt"
+    missing = [path.relative_to(app).as_posix() for path in [*images, notices, mpv_license] if not path.is_file()]
     bundles = list(app.rglob("AetherEngine_AetherEngine.bundle"))
     if not any((bundle / "silent-atmos.mp4").is_file() for bundle in bundles):
         missing.append("AetherEngine_AetherEngine.bundle/silent-atmos.mp4")

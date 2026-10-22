@@ -39,9 +39,9 @@ final class TVSeekPressSession {
     }
 }
 
-/// A window-level recognizer sees remote press end/cancel even after the focus
-/// engine consumes directional commands. It accepts only left/right while this
-/// seek bar is focused; all other controls and remote buttons keep their input.
+/// Attach the hold recognizers to the active player host view, where tvOS
+/// delivers Siri Remote press events. The seek bar's SwiftUI move command
+/// handles short clicks; this recognizer owns the held-press lifecycle.
 struct TVSeekRemoteInput: UIViewRepresentable {
     let active: Bool
     let onBegin: (Double) -> Void
@@ -55,6 +55,7 @@ struct TVSeekRemoteInput: UIViewRepresentable {
         view.session.onFrame = onFrame
         view.session.onEnd = onEnd
         view.active = active
+        view.installRecognizersIfNeeded()
         if !active {
             DispatchQueue.main.async { [weak view] in
                 guard let view, !view.active else { return }
@@ -68,37 +69,58 @@ struct TVSeekRemoteInput: UIViewRepresentable {
     final class Probe: UIView, UIGestureRecognizerDelegate {
         let session = TVSeekPressSession()
         var active = false
-        private weak var installedWindow: UIWindow?
+        private weak var installedView: UIView?
         private var recognizers: [UILongPressGestureRecognizer] = []
         private var displayLink: CADisplayLink?
         private lazy var displayTarget = DisplayTarget(owner: self)
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            guard installedWindow !== window else { return }
+            installRecognizersIfNeeded()
+        }
+
+        override func didMoveToSuperview() {
+            super.didMoveToSuperview()
+            installRecognizersIfNeeded()
+        }
+
+        func installRecognizersIfNeeded() {
+            guard let window, let host = playerHostView, host.window === window else { return }
+            guard installedView !== host else { return }
             detach()
-            guard let window else { return }
-            installedWindow = window
+            installedView = host
             for type in [UIPress.PressType.leftArrow, .rightArrow] {
                 let press = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
-                press.minimumPressDuration = 0
+                // Short clicks are handled by SwiftUI's onMoveCommand.
+                press.minimumPressDuration = 0.22
                 press.allowedPressTypes = [NSNumber(value: type.rawValue)]
-                press.allowedTouchTypes = []
+                press.cancelsTouchesInView = false
                 press.delegate = self
-                window.addGestureRecognizer(press)
+                host.addGestureRecognizer(press)
                 recognizers.append(press)
             }
         }
 
+        private var playerHostView: UIView? {
+            var responder: UIResponder? = self
+            while let current = responder {
+                if let controller = current as? UIViewController {
+                    return controller.view
+                }
+                responder = current.next
+            }
+            return window?.rootViewController?.view
+        }
+
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive press: UIPress) -> Bool {
-            active && window != nil && UIApplication.shared.applicationState == .active
+            active && installedView?.window != nil && UIApplication.shared.applicationState == .active
                 && (press.type == .leftArrow || press.type == .rightArrow)
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool { false }
 
         @objc private func pressed(_ recognizer: UILongPressGestureRecognizer) {
-            let direction = recognizer.allowedPressTypes.first?.intValue == UIPress.PressType.leftArrow.rawValue ? -1.0 : 1.0
+            let direction = direction(for: recognizer.allowedPressTypes)
             switch recognizer.state {
             case .began where active:
                 session.begin(direction, at: ProcessInfo.processInfo.systemUptime)
@@ -112,6 +134,10 @@ struct TVSeekRemoteInput: UIViewRepresentable {
                 if session.direction == nil { displayLink?.invalidate(); displayLink = nil }
             default: break
             }
+        }
+
+        private func direction(for pressTypes: [NSNumber]) -> Double {
+            pressTypes.first?.intValue == UIPress.PressType.leftArrow.rawValue ? -1 : 1
         }
 
         func frame() {
@@ -128,9 +154,9 @@ struct TVSeekRemoteInput: UIViewRepresentable {
         func detach() {
             displayLink?.invalidate()
             displayLink = nil
-            for recognizer in recognizers { installedWindow?.removeGestureRecognizer(recognizer) }
+            for recognizer in recognizers { installedView?.removeGestureRecognizer(recognizer) }
             recognizers.removeAll()
-            installedWindow = nil
+            installedView = nil
             // Removing a representable can happen during a SwiftUI update.
             if let id = session.id {
                 DispatchQueue.main.async { [session] in

@@ -99,6 +99,47 @@ final class MobileSegmentAndFanartTests: XCTestCase {
         XCTAssertNil(absent); XCTAssertEqual(SegmentArtworkProtocol.count, 0)
     }
 
+    func testTMDBTitleLogoFallbackUsesExactMovieIDAndPrefersEnglish() async throws {
+        SegmentArtworkProtocol.install { request in
+            XCTAssertEqual(request.url?.host, "api.themoviedb.org")
+            XCTAssertEqual(request.url?.path, "/3/movie/603/images")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-token")
+            let query = Dictionary(uniqueKeysWithValues: (URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? [])
+                .compactMap { item in item.value.map { (item.name, $0) } })
+            XCTAssertEqual(query["include_image_language"], "en-US,null")
+            XCTAssertEqual(query["language"], "en-US")
+            return (200, [:], #"{"id":603,"logos":[{"file_path":"/neutral.png","iso_639_1":null,"width":900,"height":300,"vote_average":10,"vote_count":100},{"file_path":"/english.png","iso_639_1":"en","width":800,"height":250,"vote_average":8,"vote_count":4},{"file_path":"/spanish.png","iso_639_1":"es","width":800,"height":250,"vote_average":10,"vote_count":1000}]}"#)
+        }
+        let session = self.session()
+        defer { session.invalidateAndCancel() }
+        let resolver = LibraryMetadataResolver(credentials: .init(tmdb: "fixture-token", tvdb: ""),
+                                               session: session, cacheURL: nil)
+        let movie = MediaItem(id: "server-local-603", name: "Title", type: "Movie", overview: nil,
+            productionYear: 2026, primaryImageAspectRatio: nil, childCount: nil, providerIDs: ["tmdb": "603"])
+        let first = await resolver.titleLogo(for: movie)
+        let second = await resolver.titleLogo(for: movie)
+        XCTAssertEqual(first?.absoluteString, "https://image.tmdb.org/t/p/w1280/english.png")
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(SegmentArtworkProtocol.count, 1, "Repeated hero appearances should use the image-response cache")
+    }
+
+    func testTMDBTitleLogoFallbackRejectsWrongIdentityUnsafePathAndOtherLanguages() throws {
+        func response(id: Int, logos: [[String: Any]]) throws -> Data {
+            try JSONSerialization.data(withJSONObject: ["id": id, "logos": logos])
+        }
+        let english: [String: Any] = ["file_path": "/logo.png", "iso_639_1": "en",
+            "width": 800, "height": 250, "vote_average": 8, "vote_count": 3]
+        let spanish: [String: Any] = ["file_path": "/spanish.png", "iso_639_1": "es",
+            "width": 800, "height": 250, "vote_average": 10, "vote_count": 200]
+        let unsafe: [String: Any] = ["file_path": "/../logo.png", "iso_639_1": "en",
+            "width": 800, "height": 250]
+        XCTAssertNil(TMDBTitleLogoPolicy.logo(try response(id: 604, logos: [english]), expectedID: 603))
+        XCTAssertNil(TMDBTitleLogoPolicy.logo(try response(id: 603, logos: [spanish]), expectedID: 603))
+        XCTAssertNil(TMDBTitleLogoPolicy.logo(try response(id: 603, logos: [unsafe]), expectedID: 603))
+        XCTAssertEqual(TMDBTitleLogoPolicy.logo(try response(id: 603, logos: [spanish, english]), expectedID: 603)?.lastPathComponent,
+                       "logo.png")
+    }
+
     @MainActor
     func testTitleArtworkUsesCorrectExternalIDsAndNewSettingsPersistIndependently() throws {
         func item(_ type: String, ids: [String: String]) -> MediaItem {

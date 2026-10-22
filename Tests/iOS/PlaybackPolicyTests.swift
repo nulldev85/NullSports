@@ -7,6 +7,13 @@ import UIKit
 /// three player surfaces. Pulling them into `MobileBackgroundPolicy` is what
 /// makes them checkable without a device.
 final class PlaybackPolicyTests: XCTestCase {
+    func testSettingsExposeVersionsForPackagedPlaybackEngines() {
+        XCTAssertNil(MobilePlaybackPreference.automatic.version)
+        XCTAssertEqual(MobilePlaybackPreference.aether.version, "7.45.0")
+        XCTAssertEqual(MobilePlaybackPreference.vlc.version, "3.6.0")
+        XCTAssertEqual(MobilePlaybackPreference.mpv.version, "1.1.0-n9.0.2")
+    }
+
     private func action(background: Bool, pip: Bool = false, paused: Bool = false,
                         backgroundAudio: Bool = true) -> MobilePlaybackPhaseAction {
         MobileBackgroundPolicy.action(enteringBackground: background,
@@ -137,6 +144,11 @@ final class PlaybackPolicyTests: XCTestCase {
     func testExplicitPreferencesAndFailureFallbackAreBounded() {
         XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .aether), .aether)
         XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .vlc), .vlc)
+        XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .mpv), .mpv)
+        XCTAssertEqual(MobileEngineSelection.engine(for: ts, preference: .mpv, failed: [.mpv]), .aether)
+        XCTAssertEqual(MobileEngineSelection.engine(for: ts, preference: .mpv, failed: [.mpv, .aether]), .vlc)
+        XCTAssertFalse(MobileStreamEngine.mpv.supportsPictureInPicture)
+        XCTAssertEqual(MobilePlaybackPreference.mpv.title, "MPVKit (Trial)")
         XCTAssertFalse(MobileEngineSelection.canPictureInPicture([ts], preference: .vlc))
         XCTAssertEqual(MobileEngineSelection.engine(for: hls, failed: [.system]), .aether)
         XCTAssertEqual(MobileEngineSelection.engine(for: hls, failed: [.system, .aether]), .vlc)
@@ -150,6 +162,8 @@ final class PlaybackPolicyTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .automatic)
+        defaults.set("mpv", forKey: MobilePlaybackPreference.storageKey)
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .mpv)
         defaults.set("aether", forKey: MobilePlaybackPreference.storageKey)
         XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .aether)
         defaults.set("old-or-unknown", forKey: MobilePlaybackPreference.storageKey)

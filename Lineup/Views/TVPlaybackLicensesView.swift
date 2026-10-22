@@ -2,14 +2,15 @@
 import SwiftUI
 import UIKit
 import LineupAetherPlayback
+import LineupMPVPlayback
 
 struct TVPlaybackLicensesView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             Text("Playback acknowledgements").font(.inter(36, .bold))
-            PlaybackEngineText("AetherEngine 7.40.1 and its decoder libraries", size: 21)
+            PlaybackEngineText("AetherEngine \(PlaybackEngineVersions.aether), MPVKit (LGPL), and their decoder libraries", size: 21)
                 .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
-            TVPlaybackLicenseText(text: AetherPlaybackSession.openSourceNotices())
+            TVPlaybackLicenseText(text: AetherPlaybackSession.openSourceNotices() + "\n\n" + MPVPlaybackSession.openSourceNotices())
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(40)

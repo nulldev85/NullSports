@@ -32,10 +32,13 @@ struct MobileGuideView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
     @State private var query = ""
     @State private var showsSearch = false
     /// The TV Guide's options, dropped from the bar's ellipsis.
     @State private var optionsOpen = false
+    /// Channel categories and favorites live in the centered selector pill.
+    @State private var filterMenuOpen = false
     @FocusState private var searchFocused: Bool
     /// What the viewer picked; until they pick, `filter` decides.
     @State private var chosenFilter: MobileGuideFilter?
@@ -77,12 +80,13 @@ struct MobileGuideView: View {
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
     let onPlay: (XtreamStream) -> Void
-    private let logoWidth: CGFloat = 80
     private var cardHeight: CGFloat { rowHeight - 6 }
 
     /// The phone is on its side. Every iPhone has a compact height there and
     /// only there.
     private var sideways: Bool { verticalSizeClass == .compact }
+
+    private var guideViewMode: MobileGuideViewMode { MobileGuideViewMode.restored(guideViewModeValue) }
 
     /// The player fills the screen when asked to, and whenever the phone is
     /// on its side -- worked out from the orientation, so it happens inside
@@ -210,8 +214,8 @@ struct MobileGuideView: View {
                     }
                 }
             }
-            .background(LineupStyle.background)
-            .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+            .background(Color.black)
+            .navigationTitle(game == nil ? "" : title).navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: 0) {
                 if showsSearch && !fillsScreen {
                     HStack(spacing: 10) {
@@ -222,18 +226,26 @@ struct MobileGuideView: View {
                             .autocorrectionDisabled()
                             .submitLabel(.search)
                             .focused($searchFocused)
-                            .onSubmit { searchFocused = false }
+                            .onSubmit {
+                                if MobileGuideSearchPolicy.shouldCloseAfterSubmission(query) {
+                                    closeSearch()
+                                } else {
+                                    searchFocused = false
+                                }
+                            }
                             .task { searchFocused = true }
-                        if !query.isEmpty {
-                            Button {
+                        Button {
+                            if query.isEmpty {
+                                closeSearch()
+                            } else {
                                 query = ""
                                 searchFocused = true
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .frame(width: 44, height: 44)
                             }
-                            .accessibilityLabel("Clear search")
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .frame(width: 44, height: 44)
                         }
+                        .accessibilityLabel(query.isEmpty ? "Close search" : "Clear search")
                     }
                     .padding(.leading, 14).padding(.trailing, 4)
                     .frame(minHeight: 44)
@@ -243,18 +255,40 @@ struct MobileGuideView: View {
                 }
             }
             .overlay {
-                MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
-                                    symbol: "list.bullet.rectangle", sections: optionsSections) {
-                    setOptions(false)
+                ZStack {
+                    MobileDropdownLayer(isPresented: filterMenuOpen && !fillsScreen && game == nil && !showsSearch,
+                                        title: "Channels", symbol: "tv", sections: filterSections,
+                                        alignment: .top, horizontalInset: 0, backdropOpacity: 0.2,
+                                        transitionAnchor: .top) {
+                        setFilterMenu(false)
+                    }
+                    MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
+                                        symbol: "list.bullet.rectangle", sections: optionsSections,
+                                        alignment: .topLeading, transitionAnchor: .topLeading) {
+                        setOptions(false)
+                    }
                 }
             }
             .toolbar {
                 if game != nil {
                     LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
-                }
-                LineupToolbarItem(placement: .primaryAction) {
-                    MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
-                        setOptions(!optionsOpen)
+                    LineupToolbarItem(placement: .primaryAction) {
+                        MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                            setOptions(!optionsOpen)
+                        }
+                    }
+                } else {
+                    LineupToolbarItem(placement: .navigationBarLeading) {
+                        MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                            setOptions(!optionsOpen)
+                        }
+                    }
+                    LineupToolbarItem(placement: .principal) {
+                        if showsSearch {
+                            Text("Search").font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text.opacity(0.82))
+                        } else {
+                            guideFilterButton
+                        }
                     }
                 }
             }
@@ -274,7 +308,7 @@ struct MobileGuideView: View {
                 if playing, let stream = selectedStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: fillsScreen) { _, value in
-                if value { searchFocused = false; optionsOpen = false }
+                if value { searchFocused = false; optionsOpen = false; filterMenuOpen = false }
                 onFullscreenChange(value)
             }
             .onChange(of: sideways) { _, value in
@@ -282,14 +316,21 @@ struct MobileGuideView: View {
                 // upright as the guide's own player, not as full screen.
                 if value { expanded = false }
             }
+            .onChange(of: guideViewModeValue) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: filter) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: query) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: library.favoriteStreamOrder) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: library.recentStreamOrder) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: library.streamsRevision) { _, _ in resetGuideScrollPosition() }
             .onChange(of: isActive) { _, active in
                 if !active { cancelQualityCheck() }
                 // Leaving the Guide tab still tears the player down — except
                 // while the PiP window is showing this stream, which the viewer
                 // asked to keep watching.
                 if !active {
-                    searchFocused = false
+                    closeSearch()
                     optionsOpen = false
+                    filterMenuOpen = false
                     if !playback.pictureInPictureActive { closePlayer() }
                 } else { returnToNow() }
             }
@@ -376,16 +417,70 @@ struct MobileGuideView: View {
 
     private func setOptions(_ open: Bool) {
         guard optionsOpen != open else { return }
-        if open { searchFocused = false }
+        if open {
+            if showsSearch && query.isEmpty { closeSearch() }
+            else { searchFocused = false }
+            filterMenuOpen = false
+        }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
             optionsOpen = open
         }
     }
 
-    /// What the TV Guide's dropdown offers: getting about, which channels the
-    /// guide lists -- the categories a list of their own inside it -- and a
-    /// refresh.
-    private var optionsSections: [MobileMenuSection] {
+    private func setFilterMenu(_ open: Bool) {
+        guard filterMenuOpen != open else { return }
+        if open { optionsOpen = false }
+        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
+            filterMenuOpen = open
+        }
+    }
+
+    private var guideFilterButton: some View {
+        Button { setFilterMenu(!filterMenuOpen) } label: {
+            HStack(spacing: 7) {
+                Image(systemName: filterSymbol)
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(LineupStyle.highlight)
+                Text(filterTitle)
+                    .font(.inter(14, .heavy))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .foregroundStyle(LineupStyle.text.opacity(0.78))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .foregroundStyle(LineupPanelStyle.quiet)
+            }
+            .padding(.horizontal, 13)
+            .frame(height: 36)
+            .frame(maxWidth: 220)
+            .background(LineupPanelStyle.fill, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Channel filter: \(filterTitle)")
+        .accessibilityHint("Choose favorites, a category, or all channels")
+    }
+
+    private var filterTitle: String {
+        switch filter {
+        case .favorites: "Favorites"
+        case .recents: "Recently Watched"
+        case .all: "All Channels"
+        case .category(let id): library.categories.first { $0.id == id }?.categoryName ?? "TV Guide"
+        }
+    }
+
+    private var filterSymbol: String {
+        switch filter {
+        case .favorites: "star.fill"
+        case .recents: "clock.arrow.circlepath"
+        case .all: "tv"
+        case .category: "square.stack.3d.up.fill"
+        }
+    }
+
+    private var filterSections: [MobileMenuSection] {
         let categories = library.categories.map { category in
             MobileMenuItem(category.categoryName, id: "category-\(category.id)",
                            isSelected: filter == .category(category.id)) {
@@ -394,13 +489,6 @@ struct MobileGuideView: View {
         }
         let inCategory: Bool = { if case .category = filter { return true } else { return false } }()
         return [
-            MobileMenuSection(id: "move", items: [
-                MobileMenuItem("Return to Now", symbol: "clock") { returnToNow() },
-                MobileMenuItem(showsSearch ? "Close Search" : "Search Channels",
-                               symbol: showsSearch ? "xmark" : "magnifyingglass") {
-                    if showsSearch { closeSearch() } else { showsSearch = true }
-                }
-            ]),
             MobileMenuSection(id: "channels", items: [
                 MobileMenuItem("Favorites", symbol: "star", isSelected: filter == .favorites) {
                     chosenFilter = .favorites
@@ -416,19 +504,43 @@ struct MobileGuideView: View {
                 MobileMenuItem("Categories", symbol: "square.stack", isSelected: inCategory,
                                isEnabled: !categories.isEmpty,
                                children: [MobileMenuSection(id: "categories", items: categories)])
-            ]),
-            MobileMenuSection(id: "refresh", items: [
-                MobileMenuItem("Refresh Guide", symbol: "arrow.clockwise",
-                               isEnabled: !library.channelsAreSyncing) {
-                    Task { await library.reload() }
-                }
             ])
         ]
     }
 
+    /// What the TV Guide's dropdown offers: getting about, which channels the
+    /// guide displays, playback modes, and refresh actions. Channel filters
+    /// belong to the centered selector on the main Guide, and remain in this
+    /// menu while picking a channel for a sports event.
+    private var optionsSections: [MobileMenuSection] {
+        var sections = [
+            MobileMenuSection(id: "view-mode", title: "View Mode", items: MobileGuideViewMode.allCases.map { mode in
+                MobileMenuItem(mode.title, symbol: mode.symbol, id: "view-\(mode.rawValue)",
+                               isSelected: guideViewMode == mode) {
+                    guideViewModeValue = mode.rawValue
+                }
+            }),
+            MobileMenuSection(id: "move", items: [
+                MobileMenuItem("Return to Now", symbol: "clock") { returnToNow() },
+                MobileMenuItem(showsSearch ? "Close Search" : "Search Channels",
+                               symbol: showsSearch ? "xmark" : "magnifyingglass") {
+                    if showsSearch { closeSearch() } else { showsSearch = true }
+                }
+            ])
+        ]
+        if game != nil { sections.append(contentsOf: filterSections) }
+        sections.append(MobileMenuSection(id: "refresh", items: [
+            MobileMenuItem("Refresh Guide", symbol: "arrow.clockwise",
+                           isEnabled: !library.channelsAreSyncing) {
+                Task { await library.reload() }
+            }
+        ]))
+        return sections
+    }
+
     private func selectChannel(_ stream: XtreamStream) {
         cancelQualityCheck()
-        searchFocused = false
+        if showsSearch { closeSearch() } else { searchFocused = false }
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         // The manual game picker still returns its selection to the Live screen.
         guard game == nil else { onPlay(stream); return }
@@ -566,35 +678,161 @@ struct MobileGuideView: View {
 
     private func returnToNow() {
         window = MobileGuideWindow(now: .now)
+        resetGuideScrollPosition()
+    }
+
+    private func resetGuideScrollPosition() {
         horizontalOffset = 0
         resetPosition = UUID()
     }
 
+    @ViewBuilder
     private func guide(now: Date) -> some View {
+        switch guideViewMode {
+        case .tvGuide:
+            guideGrid(now: now)
+        case .list:
+            channelList(now: now)
+        }
+    }
+
+    private func channelList(now: Date) -> some View {
+        MobileGuideChannelScroll(resetToken: resetPosition, protectsTop: true) {
+            LazyVStack(spacing: 9) {
+                ForEach(channels) { stream in
+                    channelListRow(stream, now: now)
+                }
+            }
+            .padding(.horizontal, 12)
+            // Separate top clearance from the scrolling content. The UIKit
+            // probe resets the real scroll offset when this list's inputs
+            // change, so the first favorite always begins below the chrome.
+            .padding(.top, MobileGuideLayoutMetrics.listFirstRowTopInset)
+            .padding(.bottom, 14)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .refreshable { await library.reload() }
+    }
+
+    private func channelListRow(_ stream: XtreamStream, now: Date) -> some View {
+        let programs = library.guidePrograms(for: stream)
+        let program = programs.first { $0.start <= now && now < $0.end }
+        let logoURL = stream.streamIcon.flatMap(URL.init(string:))
+        let quality = LiveChannelQuality(name: stream.name).label?
+            .split(separator: "·", maxSplits: 1).first.map(String.init)
+        let shape = RoundedRectangle(cornerRadius: 15, style: .continuous)
+
+        return Button { selectChannel(stream) } label: {
+            HStack(spacing: 0) {
+                LineupArtView(url: logoURL, width: 118) { loaded in
+                    if let image = loaded {
+                        image.resizable().scaledToFit().padding(9)
+                    } else {
+                        Image(systemName: "tv")
+                            .font(.system(size: 27, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.white.opacity(0.82))
+                    }
+                }
+                .frame(width: 118, height: 80)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(stream.name)
+                        .font(.inter(12, .semibold))
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.82))
+                        .lineLimit(1)
+                    Text(program?.title ?? "Program guide not available")
+                        .font(.inter(15, .heavy))
+                        .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.46)
+                                                        : LineupStyle.text.opacity(0.68))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    HStack(spacing: 6) {
+                        if let program {
+                            if program.start <= now && now < program.end {
+                                MobileLiveDot()
+                                Text("LIVE")
+                                    .foregroundStyle(LineupStyle.liveStatus)
+                            } else {
+                                Text(program.start, format: .dateTime.hour().minute())
+                                .foregroundStyle(LineupStyle.secondary.opacity(0.70))
+                            }
+                        }
+                        if let quality {
+                            Text(quality.uppercased())
+                                .foregroundStyle(LineupStyle.secondary.opacity(0.76))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.black.opacity(0.22), in: Capsule())
+                        }
+                    }
+                    .font(.inter(9, .heavy))
+                    .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 10)
+                .padding(.trailing, 12)
+            }
+            .frame(minHeight: 80)
+            .background {
+                MobileChannelLogoTint(url: logoURL, width: 118, fallback: LineupStyle.raised)
+                    .clipShape(shape)
+            }
+            .clipShape(shape)
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+        .lineupHoldMenu(stream.name, symbol: "tv", press: .dim, items: { channelMenuItems(stream) }) {
+            selectChannel(stream)
+        }
+        .accessibilityLabel("Watch \(stream.name) live\(program.map { ", \($0.title)" } ?? ", no guide information")\(library.isFavorite(stream) ? ", favorite" : "")")
+    }
+
+    private func guideGrid(now: Date) -> some View {
         MobileGuideViewport { viewport, listHeight in
+            let logoRailWidth = MobileGuideLayoutMetrics.channelLogoRailWidth(for: viewport.size.width)
             // One horizontal scroller moves every program row and the ruler together.
             // The nested vertical scroller moves logos and programs as a single row.
             // Counter-offset logo tiles keep the channel column frozen horizontally.
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    ruler(now: now)
+                    ruler(now: now, logoWidth: logoRailWidth)
                     MobileGuideChannelScroll {
                         LazyVStack(spacing: 0) {
                             ForEach(channels) { stream in
-                                HStack(spacing: 0) {
-                                    channelTile(stream)
-                                        .offset(x: horizontalOffset).zIndex(2)
-                                    programRow(stream, now: now, viewportWidth: viewport.size.width - logoWidth)
-                                }.frame(height: rowHeight)
+                                ZStack(alignment: .leading) {
+                                    // One channel-tinted surface runs behind
+                                    // both the artwork panel and its timeline.
+                                    MobileChannelLogoTint(
+                                        url: stream.streamIcon.flatMap(URL.init(string:)),
+                                        width: logoRailWidth,
+                                        fallback: LineupStyle.raised)
+                                        .frame(width: logoRailWidth + window.width, height: cardHeight)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                                    HStack(spacing: 0) {
+                                        channelTile(stream, logoWidth: logoRailWidth)
+                                            .offset(x: horizontalOffset).zIndex(2)
+                                        programRow(stream, now: now, viewportWidth: viewport.size.width - logoRailWidth,
+                                                   logoWidth: logoRailWidth)
+                                    }
+                                    .frame(width: logoRailWidth + window.width, height: rowHeight,
+                                           alignment: .leading)
+                                }
+                                .frame(width: logoRailWidth + window.width, height: rowHeight,
+                                       alignment: .leading)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
+                        // Leave a little air below the ruler so the first
+                        // favorite never appears tucked under its divider.
+                        .padding(.top, MobileGuideLayoutMetrics.gridFirstRowTopInset)
                     }
                     .frame(height: listHeight)
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable { await library.reload() }
                 }
-                .frame(width: logoWidth + window.width, height: viewport.size.height, alignment: .topLeading)
+                .frame(width: logoRailWidth + window.width, height: viewport.size.height, alignment: .topLeading)
                 .background(MobileGuideScrollConfiguration(horizontal: true))
                 .background {
                     GeometryReader { position in
@@ -618,26 +856,28 @@ struct MobileGuideView: View {
         }
     }
 
-    private func ruler(now: Date) -> some View {
+    private func ruler(now: Date, logoWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
             VStack(spacing: 2) {
                 Text("NOW").font(.inter(8, .bold)).tracking(1)
                 Text(now, format: .dateTime.hour().minute())
                     .font(.interDigits(.caption2, .semibold))
             }
+                .foregroundStyle(LineupStyle.secondary.opacity(0.74))
                 .frame(width: logoWidth, height: 40)
-                .background(LineupStyle.background)
+                .background(Color.black)
                 .offset(x: horizontalOffset).zIndex(2)
             ZStack(alignment: .topLeading) {
                 ForEach(window.ticks, id: \.self) { date in
                     Text(date, format: .dateTime.hour().minute())
                         .font(.interDigits(.caption2, .semibold))
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.66))
                         .padding(.leading, 7).frame(width: MobileGuideWindow.pointsPerSecond * 1800, height: 32, alignment: .leading)
                         .offset(x: window.x(date))
                 }
             }.frame(width: window.width, height: 40, alignment: .topLeading)
         }
-        .background(LineupStyle.background)
+        .background(Color.black)
         .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
     }
 
@@ -646,10 +886,11 @@ struct MobileGuideView: View {
         game != nil && stream.id == recommendedStreamID
     }
 
-    private func channelTile(_ stream: XtreamStream) -> some View {
-        Group {
+    private func channelTile(_ stream: XtreamStream, logoWidth: CGFloat) -> some View {
+        let logoURL = stream.streamIcon.flatMap(URL.init(string:))
+        return Group {
             ZStack(alignment: .center) {
-                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: logoWidth) { loaded in
+                LineupArtView(url: logoURL, width: logoWidth) { loaded in
                     if let image = loaded {
                         image.resizable().scaledToFit()
                             .frame(width: logoWidth - 16, height: min(42, cardHeight - 12), alignment: .center)
@@ -661,6 +902,11 @@ struct MobileGuideView: View {
                 }
             }
             .frame(width: logoWidth - 8, height: cardHeight)
+            .background {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(Color.white.opacity(MobileGuideLayoutMetrics.logoPanelOverlayOpacity))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
             .overlay(alignment: .bottom) {
                 if isRecommended(stream) {
                     Text("RECOMMENDED")
@@ -681,8 +927,6 @@ struct MobileGuideView: View {
             }
             .frame(width: logoWidth, height: rowHeight, alignment: .center)
             .contentShape(Rectangle())
-            // The frozen column masks scrolling programs with the guide's base color.
-            .background(LineupStyle.background)
         }
         .lineupHoldMenu(stream.name, symbol: "tv", press: .dim, items: { channelMenuItems(stream) }) {
             selectChannel(stream)
@@ -690,7 +934,9 @@ struct MobileGuideView: View {
         .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
     }
 
-    private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat) -> some View {
+    private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat,
+                            logoWidth: CGFloat) -> some View {
+        let logoURL = stream.streamIcon.flatMap(URL.init(string:))
         let programs = library.guidePrograms(for: stream)
         let segments = window.segments(programs.map { (start: $0.start, end: $0.end) })
         return ZStack(alignment: .leading) {
@@ -702,24 +948,28 @@ struct MobileGuideView: View {
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(live ? LineupStyle.focused : LineupStyle.raised)
+                        MobileChannelLogoTint(url: logoURL, width: logoWidth, fallback: LineupStyle.raised)
+                            .frame(width: width, height: cardHeight)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         if program != nil, live {
-                            // The app's progress bar along the foot of what is
-                            // on now, its fill ending where the timeline says
-                            // now is.
-                            let played = min(width, max(0, window.x(now) - cellX))
-                            let inset: CGFloat = 8
-                            LineupProgressBar(value: Double((played - inset) / max(1, width - inset * 2)),
-                                              height: 4)
-                                .padding(.horizontal, inset)
-                                .frame(maxHeight: .infinity, alignment: .bottom)
-                                .padding(.bottom, 5)
+                            // Show elapsed time as a translucent wash over the
+                            // program tile, not a separate progress bar.
+                            let progress = program.map {
+                                now.timeIntervalSince($0.start) / $0.end.timeIntervalSince($0.start)
+                            } ?? 0
+                            Rectangle()
+                                .fill(Color.black.opacity(MobileGuideLayoutMetrics.liveProgressOverlayOpacity))
+                                .frame(width: MobileGuideLayoutMetrics.liveProgressWidth(cardWidth: width,
+                                                                                         progress: progress),
+                                       height: cardHeight)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
                         }
                         VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
                                 .font(.inter(.caption, program == nil ? .regular : .semibold)).lineLimit(2)
-                                .foregroundStyle(program == nil ? LineupStyle.secondary : LineupStyle.text)
+                                .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.52)
+                                                               : LineupStyle.text.opacity(0.68))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if let program {
                                 HStack(spacing: 5) {
@@ -732,24 +982,16 @@ struct MobileGuideView: View {
                                     if program.isNew == true { Text("NEW") }
                                 }
                                 .font(.inter(9, .medium))
-                                .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary)
+                                .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary.opacity(0.68))
                                 .lineLimit(1)
                             }
                         }
                         .padding(.horizontal, 8)
-                        // Clear of the bar along the foot of what is on now.
-                        .padding(.bottom, live ? 8 : 0)
                         .frame(width: max(1, min(width - textInset, viewportWidth)), alignment: .leading)
                         .offset(x: textInset)
                     }
                     .frame(width: width, height: cardHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            // Only what is on now is edged, in the accent; the
-                            // rest are panels, told apart by their corners.
-                            .strokeBorder(live ? LineupStyle.liveDot.opacity(0.45) : Color.clear, lineWidth: 1)
-                    }
                     .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -757,6 +999,32 @@ struct MobileGuideView: View {
                 .offset(x: cellX)
             }
         }.frame(width: window.width, height: rowHeight, alignment: .leading)
+    }
+}
+
+/// Geometry and restrained surface treatments shared by the Guide layouts
+/// and their focused tests.
+enum MobileGuideLayoutMetrics {
+    static let gridFirstRowTopInset: CGFloat = 8
+    static let listFirstRowTopInset: CGFloat = 24
+    static let liveProgressOverlayOpacity = 0.26
+    static let logoPanelOverlayOpacity = 0.035
+
+    /// The channel artwork occupies the same strong left-hand column as the
+    /// reference guide, while remaining bounded on narrow and wide devices.
+    static func channelLogoRailWidth(for viewportWidth: CGFloat) -> CGFloat {
+        min(124, max(108, viewportWidth * 0.32))
+    }
+
+    static func liveProgressWidth(cardWidth: CGFloat, progress: Double) -> CGFloat {
+        guard cardWidth.isFinite, cardWidth > 0, progress.isFinite else { return 0 }
+        return cardWidth * CGFloat(min(1, max(0, progress)))
+    }
+}
+
+enum MobileGuideSearchPolicy {
+    static func shouldCloseAfterSubmission(_ query: String) -> Bool {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -832,18 +1100,31 @@ struct MobileGuideViewport<Content: View>: View {
 /// under the native glass bar. Reserve the measured overlap as a content
 /// margin on the actual scroller, not by shortening its outer SwiftUI region.
 struct MobileGuideChannelScroll<Content: View>: View {
+    @State private var topClearance: CGFloat = 0
     @State private var bottomClearance: CGFloat = 0
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
+    private let resetToken: UUID?
+    private let protectsTop: Bool
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    init(resetToken: UUID? = nil, protectsTop: Bool = false, @ViewBuilder content: () -> Content) {
+        self.resetToken = resetToken
+        self.protectsTop = protectsTop
+        self.content = content()
+    }
 
     var body: some View {
         ScrollView(.vertical) {
             content.background(MobileGuideScrollConfiguration(horizontal: false,
-                usesLineupNavigation: usesLineupNavigation, onBottomOverlap: { bottomClearance = $0 }))
+                usesLineupNavigation: usesLineupNavigation, resetToken: resetToken,
+                onTopOverlap: protectsTop ? { topClearance = $0 } : nil,
+                onBottomOverlap: { bottomClearance = $0 }))
         }
-        .contentMargins(.top, 0, for: .scrollContent)
+        // A reset token changing must recreate the actual SwiftUI scroll view;
+        // setting UIKit's offset alone can lose a race with SwiftUI restoring
+        // the prior position during the same update.
+        .id(resetToken)
+        .contentMargins(.top, protectsTop ? topClearance : 0, for: .scrollContent)
         .contentMargins(.bottom, bottomClearance, for: .scrollContent)
         .contentMargins(.bottom, bottomClearance, for: .scrollIndicators)
         // The measured overlap already includes the home indicator. SwiftUI
@@ -859,11 +1140,14 @@ struct MobileGuideChannelScroll<Content: View>: View {
 struct MobileGuideScrollConfiguration: UIViewRepresentable {
     let horizontal: Bool
     var usesLineupNavigation: Bool? = nil
+    var resetToken: UUID? = nil
+    var onTopOverlap: ((CGFloat) -> Void)? = nil
     var onBottomOverlap: ((CGFloat) -> Void)? = nil
 
     func makeUIView(context: Context) -> Probe {
         let probe = Probe(frame: .zero)
         probe.horizontal = horizontal
+        probe.resetToken = resetToken
         probe.isUserInteractionEnabled = false
         return probe
     }
@@ -871,11 +1155,14 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     func updateUIView(_ probe: Probe, context: Context) {
         probe.horizontal = horizontal
         probe.usesLineupNavigation = usesLineupNavigation
+        probe.resetToken = resetToken
+        probe.onTopOverlap = onTopOverlap
         probe.onBottomOverlap = onBottomOverlap
         probe.requestRefresh()
     }
 
     static func dismantleUIView(_ probe: Probe, coordinator: ()) {
+        probe.onTopOverlap = nil
         probe.onBottomOverlap = nil
         probe.detachObserver()
     }
@@ -910,13 +1197,45 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         return max(0, (viewBottom - barTop).rounded())
     }
 
+    /// Height of a visible navigation bar covering the top of this actual
+    /// scroll viewport. SwiftUI's zero scroll-content margin can let the first
+    /// row slide beneath a translucent toolbar, so List mode reserves only
+    /// the overlap that is physically present.
+    static func topOverlap(of view: UIView) -> CGFloat {
+        guard let window = view.window else { return 0 }
+        let viewport = view.convert(view.bounds, to: window)
+        var largestOverlap: CGFloat = 0
+
+        // A SwiftUI NavigationStack may host its UINavigationBar in a private
+        // controller that is not in the scroll view's responder chain. Search
+        // the visible window hierarchy so List mode measures the same bar that
+        // UIKit is actually drawing above the favorites.
+        var pendingViews = window.subviews
+        while let candidate = pendingViews.popLast() {
+            pendingViews.append(contentsOf: candidate.subviews)
+            guard let bar = candidate as? UINavigationBar,
+                  bar.window === window, !bar.isHidden, bar.alpha > 0.01 else { continue }
+
+            let frame = bar.convert(bar.bounds, to: window)
+            guard frame.maxX > viewport.minX, frame.minX < viewport.maxX,
+                  frame.maxY > viewport.minY, frame.minY < viewport.maxY else { continue }
+            largestOverlap = max(largestOverlap, frame.maxY - viewport.minY)
+        }
+        return max(0, largestOverlap.rounded())
+    }
+
     final class Probe: UIView {
         var horizontal = false
         var usesLineupNavigation: Bool?
+        var resetToken: UUID?
+        var onTopOverlap: ((CGFloat) -> Void)?
         var onBottomOverlap: ((CGFloat) -> Void)?
         private(set) var reported: CGFloat?
+        private(set) var reportedTop: CGFloat?
         private var scheduled = false
         private weak var observedScroll: UIScrollView?
+        private weak var resetScroll: UIScrollView?
+        private var appliedResetToken: UUID?
         private weak var boundaryWindow: UIWindow?
         private var observer: ViewportObserver?
 
@@ -958,7 +1277,16 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         private func refresh() {
             guard let window, let scroll = enclosingScrollView else { return }
             MobileGuideScrollConfiguration.configure(scroll, horizontal: horizontal)
-            guard !horizontal, onBottomOverlap != nil else { detachObserver(); return }
+            if !horizontal, let resetToken,
+               (resetScroll !== scroll || appliedResetToken != resetToken) {
+                resetScroll = scroll
+                appliedResetToken = resetToken
+                let top = -scroll.adjustedContentInset.top
+                if abs(scroll.contentOffset.y - top) > 0.5 {
+                    scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: top), animated: false)
+                }
+            }
+            guard !horizontal, onTopOverlap != nil || onBottomOverlap != nil else { detachObserver(); return }
             if observedScroll !== scroll {
                 detachObserver()
                 observedScroll = scroll
@@ -984,11 +1312,21 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
                 NotificationCenter.default.addObserver(self, selector: #selector(boundaryGeometryDidChange(_:)),
                     name: MobileLineupNavigationBoundary.geometryDidChange, object: window)
             }
-            let overlap = MobileGuideScrollConfiguration.bottomOverlap(of: scroll,
-                usesLineupNavigation: usesLineupNavigation)
-            guard reported == nil || abs((reported ?? 0) - overlap) > 0.5 else { return }
-            reported = overlap
-            onBottomOverlap?(overlap)
+            if onTopOverlap != nil {
+                let top = MobileGuideScrollConfiguration.topOverlap(of: scroll)
+                if reportedTop == nil || abs((reportedTop ?? 0) - top) > 0.5 {
+                    reportedTop = top
+                    onTopOverlap?(top)
+                }
+            }
+            if onBottomOverlap != nil {
+                let bottom = MobileGuideScrollConfiguration.bottomOverlap(of: scroll,
+                    usesLineupNavigation: usesLineupNavigation)
+                if reported == nil || abs((reported ?? 0) - bottom) > 0.5 {
+                    reported = bottom
+                    onBottomOverlap?(bottom)
+                }
+            }
         }
 
         @objc private func boundaryGeometryDidChange(_ notification: Notification) {
@@ -1003,7 +1341,10 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             observer?.removeFromSuperview()
             observer = nil
             observedScroll = nil
+            resetScroll = nil
+            appliedResetToken = nil
             reported = nil
+            reportedTop = nil
         }
 
         /// The content probe may be thousands of points tall and never resize.
@@ -1026,4 +1367,5 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         }
         return search(window.rootViewController)
     }
+
 }

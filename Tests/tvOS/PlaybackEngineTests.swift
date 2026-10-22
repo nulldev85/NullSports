@@ -6,6 +6,12 @@ import LineupAetherPlayback
 
 @MainActor
 final class PlaybackEngineTests: XCTestCase {
+    func testSettingsEngineChoicesExposeTheirPinnedVersions() {
+        XCTAssertEqual(TVPlaybackEngine.aether.version, "7.45.0")
+        XCTAssertEqual(TVPlaybackEngine.vlc.version, "3.6.0")
+        XCTAssertEqual(TVPlaybackEngine.mpv.version, "1.1.0-n9.0.2")
+    }
+
     func testPlayerViewReportsNormalRuntimeProgressAcrossAnEpisodeIDRefreshAndClose() async throws {
         for kind in TVPlaybackEngine.allCases {
             let fixture = try Fixture(kind)
@@ -112,6 +118,9 @@ final class PlaybackEngineTests: XCTestCase {
         fixture.defaults.set("aether", forKey: TVPlaybackEngine.storageKey)
         XCTAssertEqual(TVPlaybackEngine.selected(in: fixture.defaults), .aether)
         XCTAssertEqual(TVPlaybackEngine.aether.title, "AetherEngine")
+        fixture.defaults.set("mpv", forKey: TVPlaybackEngine.storageKey)
+        XCTAssertEqual(TVPlaybackEngine.selected(in: fixture.defaults), .mpv)
+        XCTAssertEqual(TVPlaybackEngine.mpv.title, "MPVKit (Trial)")
         fixture.defaults.set("missing-engine", forKey: TVPlaybackEngine.storageKey)
         XCTAssertEqual(TVPlaybackEngine.selected(in: fixture.defaults), .vlc)
     }
@@ -159,6 +168,26 @@ final class PlaybackEngineTests: XCTestCase {
         controller.start(urls: [Fixture.url])
         XCTAssertEqual(controller.engineTitle, "VLC")
         XCTAssertFalse(fixture.aether.isOpen)
+    }
+
+    func testMPVTrialFailureFallsBackToVLCAndKeepsTheResumePosition() throws {
+        let fixture = try Fixture(.mpv)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url], initialPosition: 600, isLive: false, expectedDuration: 3_600)
+        let mpv = fixture.backend(.mpv)
+        XCTAssertEqual(controller.engineTitle, "MPVKit (Trial)")
+        mpv.time = 600
+        controller.checkPlayback()
+
+        mpv.state = .error
+        controller.checkPlayback()
+
+        XCTAssertEqual(controller.engineTitle, "VLC")
+        XCTAssertEqual(fixture.vlc.loads.last?.startPosition, 598)
+        XCTAssertTrue(fixture.vlc.isOpen)
+        XCTAssertTrue(controller.failoverNotice?.contains("Switched to VLC") == true)
     }
 
     func testResumeSeekPauseMuteAndCompletionUseTheSameControllerForBothEngines() throws {
@@ -339,9 +368,18 @@ final class PlaybackEngineTests: XCTestCase {
             XCTAssertTrue(controller.reconnecting)
             fixture.now += 2
             controller.checkPlayback()
-            XCTAssertEqual(backend.loads.last?.startPosition, 598)
-            XCTAssertEqual(backend.loads.count, 2)
-            XCTAssertEqual(controller.engineKind, kind)
+            if kind == .mpv {
+                // MPV is a trial backend. An error intentionally retries the
+                // same VOD position on VLC instead of reopening MPV forever.
+                XCTAssertEqual(backend.loads.count, 1)
+                XCTAssertEqual(fixture.vlc.loads.last?.startPosition, 598)
+                XCTAssertEqual(fixture.vlc.loads.count, 1)
+                XCTAssertEqual(controller.engineKind, .vlc)
+            } else {
+                XCTAssertEqual(backend.loads.last?.startPosition, 598)
+                XCTAssertEqual(backend.loads.count, 2)
+                XCTAssertEqual(controller.engineKind, kind)
+            }
         }
     }
 
@@ -426,13 +464,20 @@ final class PlaybackEngineTests: XCTestCase {
         let defaults: UserDefaults
         let vlc = MockTVBackend(.vlc)
         let aether = MockTVBackend(.aether)
+        let mpv = MockTVBackend(.mpv)
         var now: TimeInterval = 1_000
         init(_ kind: TVPlaybackEngine = .vlc) throws {
             defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
             defaults.set(kind.rawValue, forKey: TVPlaybackEngine.storageKey)
         }
         func clean() { defaults.removePersistentDomain(forName: suite) }
-        func backend(_ kind: TVPlaybackEngine) -> MockTVBackend { kind == .vlc ? vlc : aether }
+        func backend(_ kind: TVPlaybackEngine) -> MockTVBackend {
+            switch kind {
+            case .vlc: vlc
+            case .aether: aether
+            case .mpv: mpv
+            }
+        }
         func controller(primary: Bool = true,
                         factory: (@MainActor (TVPlaybackEngine) -> any TVPlaybackBackend)? = nil) -> TVPlaybackController {
             TVPlaybackController(defaults: defaults, primaryOutput: primary, uptime: { self.now },

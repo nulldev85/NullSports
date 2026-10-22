@@ -29,7 +29,9 @@ struct PlaybackFormatBadge: View {
 enum PlaybackEngineMark {
     /// Each engine's name as the app writes it, and its logo in the asset
     /// catalog. Apple's player has no logo the app may show.
-    static let logos: [(name: String, asset: String)] = [("AetherEngine", "Engine-aether"), ("VLC", "Engine-vlc")]
+    static let logos: [(name: String, asset: String)] = [
+        ("AetherEngine", "Engine-aether"), ("VLC", "Engine-vlc"), ("MPVKit", "Playback-MPV")
+    ]
 
     /// `string` with each engine's name led by its logo, for text of
     /// `pointSize`. Read aloud, it is the words alone.

@@ -23,7 +23,7 @@ struct MobilePlaybackEngineBadge: View {
             .padding(.horizontal, 8).padding(.vertical, 5)
             .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
             .foregroundStyle(.white).allowsHitTesting(false)
-                .accessibilityLabel("Playback engine: " + engine.title)
+            .accessibilityLabel("Playback engine: " + engine.title)
             .accessibilityIdentifier("lineup.playback.activeEngine")
     }
 }

@@ -38,7 +38,7 @@ Provider HD/SD labels are displayed as HD/SD, not invented measured pixel counts
 These hints do not claim bitrate, HDR, Atmos, or actual decoder output; the
 existing playback-info badges continue reading confirmed source metadata.
 
-Before **automatic live-event playback**, both apps now use AetherEngine 7.40.1's
+Before **automatic live-event playback**, both apps now use AetherEngine 7.45.0's
 bounded static source probe to compare actual video dimensions, then the engine's
 display-normalized frame rate, within the existing language priority.
 Candidates come only from the stricter

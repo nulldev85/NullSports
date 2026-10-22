@@ -9,19 +9,26 @@ struct TVChoice: Identifiable {
     /// The row's coloured tile. Nil for a plain choice in a long list, such
     /// as a subtitle track or a season.
     var symbol: String?
+    var imageName: String?
     /// The title names playback engines, each led by its logo.
     var namesEngine = false
+    /// Small version text shown beside a playback engine in Settings.
+    var version: String?
     var isSelected = false
     var isDestructive = false
     var isEnabled = true
     let action: () -> Void
 
-    init(_ title: String, symbol: String? = nil, namesEngine: Bool = false, id: String? = nil, isSelected: Bool = false,
+    init(_ title: String, symbol: String? = nil, imageName: String? = nil, namesEngine: Bool = false,
+         version: String? = nil,
+         id: String? = nil, isSelected: Bool = false,
          isDestructive: Bool = false, isEnabled: Bool = true, action: @escaping () -> Void) {
         self.id = id ?? title
         self.title = title
         self.symbol = symbol
+        self.imageName = imageName
         self.namesEngine = namesEngine
+        self.version = version
         self.isSelected = isSelected
         self.isDestructive = isDestructive
         self.isEnabled = isEnabled
@@ -279,13 +286,29 @@ private struct TVChoiceSheet: View {
         TVSelectable(scale: 1.02, fillRadius: 18, action: { choose(item) },
                      requestInitialFocus: focusedFirst) {
             HStack(spacing: 18) {
-                if let symbol = item.symbol {
+                if let imageName = item.imageName {
+                    Image(imageName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 42, height: 42)
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .accessibilityHidden(true)
+                } else if let symbol = item.symbol {
                     LineupIconTile(symbol: symbol, size: 42)
                 }
-                (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 24) : Text(item.title))
-                    .font(.inter(24, .semibold))
-                    .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
-                    .lineLimit(2)
+                HStack(alignment: .firstTextBaseline, spacing: 9) {
+                    (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 24) : Text(item.title))
+                        .font(.inter(24, .semibold))
+                        .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
+                        .lineLimit(2)
+                    if item.namesEngine, let version = item.version {
+                        Text(version)
+                            .font(.inter(16, .medium))
+                            .foregroundStyle(LineupPanelStyle.quiet)
+                            .lineLimit(1)
+                            .accessibilityLabel("version \(version)")
+                    }
+                }
                 Spacer(minLength: 12)
                 if item.isSelected {
                     Image(systemName: "checkmark")

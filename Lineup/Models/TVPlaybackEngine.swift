@@ -2,12 +2,26 @@
 import Foundation
 
 enum TVPlaybackEngine: String, CaseIterable, Identifiable, Sendable {
-    case vlc, aether
+    case vlc, aether, mpv
     /// The one engine every tab used before each tab had its own, and still
     /// the engine of a tab that has not been given one.
     static let storageKey = "Lineup.tv.playbackEngine.v1"
     var id: String { rawValue }
-    var title: String { self == .vlc ? "VLC" : "AetherEngine" }
+    var title: String {
+        switch self {
+        case .vlc: "VLC"
+        case .aether: "AetherEngine"
+        case .mpv: "MPVKit (Trial)"
+        }
+    }
+
+    var version: String {
+        switch self {
+        case .vlc: PlaybackEngineVersions.vlc
+        case .aether: PlaybackEngineVersions.aether
+        case .mpv: PlaybackEngineVersions.mpv
+        }
+    }
 
     static func selected(in defaults: UserDefaults = .standard) -> Self {
         defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .vlc

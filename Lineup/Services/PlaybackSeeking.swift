@@ -1,6 +1,13 @@
 import Foundation
 
 enum PlaybackSeekPolicy {
+    static let remoteTapSkip = 15.0
+
+    static func remoteCommandTarget(from seconds: Double, direction: Double, duration: Double) -> Double {
+        let step = direction < 0 ? -remoteTapSkip : remoteTapSkip
+        return clamped(seconds + step, duration: duration)
+    }
+
     static func clamped(_ seconds: Double, duration: Double) -> Double {
         guard seconds.isFinite, duration.isFinite, duration > 0 else { return 0 }
         return min(max(seconds, 0), max(duration - 1, 0))
@@ -11,8 +18,9 @@ enum PlaybackSeekPolicy {
         return clamped(min(max(x / width, 0), 1) * duration, duration: duration)
     }
 
-    /// A click steps ten seconds. Holding then accelerates continuously,
-    /// independent of the operating system's discrete focus-repeat cadence.
+    /// A held remote press accelerates continuously, independent of the
+    /// operating system's discrete focus-repeat cadence. Short presses use
+    /// `remoteTapSkip` instead.
     static func rate(heldFor seconds: Double) -> Double {
         guard seconds.isFinite, seconds > 0.35 else { return 0 }
         return min(240, 20 + (seconds - 0.35) * 40)

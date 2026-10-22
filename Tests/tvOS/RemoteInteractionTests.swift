@@ -50,4 +50,12 @@ final class RemoteInteractionTests: XCTestCase {
         session.frame(at: 13)
         XCTAssertEqual(frames.count, count)
     }
+
+    func testDirectionalRemoteStepsAreFifteenSecondsAndClampAtDuration() {
+        XCTAssertEqual(PlaybackSeekPolicy.remoteTapSkip, 15)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 120, direction: -1, duration: 300), 105)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 120, direction: 1, duration: 300), 135)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 5, direction: -1, duration: 300), 0)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 295, direction: 1, duration: 300), 299)
+    }
 }

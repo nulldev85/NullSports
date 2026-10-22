@@ -30,6 +30,7 @@ struct AppSearchView: View {
     @State private var qualityRequest: UUID?
     #if !os(tvOS)
     @State private var homeRevision = 0
+    @State private var selectedGenre: AppSearchGenre?
     #endif
     #if os(tvOS)
     @Environment(\.tvTabBar) private var tabBar
@@ -61,8 +62,10 @@ struct AppSearchView: View {
             .searchable(text: $query, prompt: "Movies, shows, channels, games")
             #else
             .navigationTitle("Search")
+            .navigationBarTitleDisplayMode(.large)
+            .navigationDestination(item: $selectedGenre) { genre in AppSearchGenreBrowseView(genre: genre) }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Movies, shows, channels, games")
+                        prompt: "Movies, series, channels, programs")
             #endif
         }
         #if !os(tvOS)
@@ -257,7 +260,15 @@ struct AppSearchView: View {
     @ViewBuilder
     private var content: some View {
         if searchedTerm.isEmpty {
+            #if os(tvOS)
             AppSearchPrompt(searching: !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            #else
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                AppSearchGenreGrid { genre in selectedGenre = genre }
+            } else {
+                AppSearchPrompt(searching: true)
+            }
+            #endif
         } else {
             VStack(alignment: .leading, spacing: Metrics.sectionGap) {
                 chips
@@ -493,6 +504,288 @@ struct AppSearchView: View {
         .lineupFocusRegion()
     }
 }
+
+#if !os(tvOS)
+/// The original artwork and TMDB genre names used by the iPhone discovery grid.
+/// Some TMDB TV genres combine several movie genres; unsupported equivalents
+/// remain visible as a tab and explain that TMDB has no matching TV genre.
+struct AppSearchGenre: Identifiable, Hashable {
+    let title: String
+    let assetName: String
+    let movieGenre: String
+    let seriesGenre: String?
+
+    var id: String { title }
+
+    func tmdbID(for kind: TMDBCatalogMediaKind, in genres: [TMDBCatalogGenre]) -> Int? {
+        let name = kind == .movie ? movieGenre : seriesGenre
+        guard let name else { return nil }
+        return genres.first { MediaTitleMatch.normalized($0.name) == MediaTitleMatch.normalized(name) }?.id
+    }
+
+    static let all: [AppSearchGenre] = [
+        .init(title: "Action", assetName: "SearchGenreAction", movieGenre: "Action", seriesGenre: "Action & Adventure"),
+        .init(title: "Comedy", assetName: "SearchGenreComedy", movieGenre: "Comedy", seriesGenre: "Comedy"),
+        .init(title: "Drama", assetName: "SearchGenreDrama", movieGenre: "Drama", seriesGenre: "Drama"),
+        .init(title: "Thriller", assetName: "SearchGenreThriller", movieGenre: "Thriller", seriesGenre: nil),
+        .init(title: "Horror", assetName: "SearchGenreHorror", movieGenre: "Horror", seriesGenre: nil),
+        .init(title: "Sci-Fi", assetName: "SearchGenreSciFi", movieGenre: "Science Fiction", seriesGenre: "Sci-Fi & Fantasy"),
+        .init(title: "Adventure", assetName: "SearchGenreAdventure", movieGenre: "Adventure", seriesGenre: "Action & Adventure"),
+        .init(title: "Romance", assetName: "SearchGenreRomance", movieGenre: "Romance", seriesGenre: nil),
+        .init(title: "Animation", assetName: "SearchGenreAnimation", movieGenre: "Animation", seriesGenre: "Animation"),
+        .init(title: "Fantasy", assetName: "SearchGenreFantasy", movieGenre: "Fantasy", seriesGenre: "Sci-Fi & Fantasy"),
+        .init(title: "Crime", assetName: "SearchGenreCrime", movieGenre: "Crime", seriesGenre: "Crime"),
+        .init(title: "Family", assetName: "SearchGenreFamily", movieGenre: "Family", seriesGenre: "Family"),
+        .init(title: "Mystery", assetName: "SearchGenreMystery", movieGenre: "Mystery", seriesGenre: "Mystery"),
+        .init(title: "Documentary", assetName: "SearchGenreDocumentary", movieGenre: "Documentary", seriesGenre: "Documentary"),
+        .init(title: "Music", assetName: "SearchGenreMusic", movieGenre: "Music", seriesGenre: nil),
+        .init(title: "History", assetName: "SearchGenreHistory", movieGenre: "History", seriesGenre: nil),
+        .init(title: "War", assetName: "SearchGenreWar", movieGenre: "War", seriesGenre: "War & Politics"),
+        .init(title: "Western", assetName: "SearchGenreWestern", movieGenre: "Western", seriesGenre: "Western")
+    ]
+}
+
+private struct AppSearchGenreGrid: View {
+    let select: (AppSearchGenre) -> Void
+    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
+            ForEach(AppSearchGenre.all) { genre in
+                Button { select(genre) } label: {
+                    GeometryReader { proxy in
+                        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        ZStack(alignment: .bottomLeading) {
+                            Image(genre.assetName)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .clipped()
+                            LinearGradient(stops: [
+                                .init(color: .clear, location: 0.18),
+                                .init(color: .black.opacity(0.25), location: 0.55),
+                                .init(color: .black.opacity(0.82), location: 1)
+                            ], startPoint: .top, endPoint: .bottom)
+                            Text(genre.title)
+                                .font(.inter(18, .semibold))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
+                                .padding(.horizontal, 14)
+                                .padding(.bottom, 12)
+                        }
+                        .clipShape(shape)
+                        .overlay(shape.strokeBorder(.white.opacity(0.08), lineWidth: 1))
+                        .contentShape(shape)
+                    }
+                    .aspectRatio(1.68, contentMode: .fit)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Browse \(genre.title) movies and series")
+            }
+        }
+        .padding(.horizontal, AppSearchMetrics.inset)
+        .padding(.top, 8)
+        .padding(.bottom, 24)
+    }
+}
+
+private struct AppSearchGenreBrowseView: View {
+    @Environment(MediaLibrary.self) private var media
+    let genre: AppSearchGenre
+
+    @State private var selectedKind: TMDBCatalogMediaKind = .movie
+    @State private var genreCatalog: TMDBCatalogGenres?
+    @State private var items: [TMDBCatalogTitle] = []
+    @State private var currentPage = 0
+    @State private var totalPages = 0
+    @State private var loading = true
+    @State private var loadingMore = false
+    @State private var error: String?
+    @State private var pushed: MediaItem?
+    @State private var openingID: String?
+    @State private var unavailableTitle: String?
+    @State private var showUnavailable = false
+    @State private var openTask: Task<Void, Never>?
+
+    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 14, alignment: .top)]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                Picker("Media type", selection: $selectedKind) {
+                    Text("Movies").tag(TMDBCatalogMediaKind.movie)
+                    Text("Series").tag(TMDBCatalogMediaKind.series)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, AppSearchMetrics.inset)
+                content
+            }
+            .padding(.top, 12)
+            .padding(.bottom, 32)
+        }
+        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupStyle.text)
+        .navigationTitle(genre.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .task(id: selectedKind) { await loadFirstPage() }
+        .alert("Not found in your sources", isPresented: $showUnavailable) {
+            Button("OK", role: .cancel) { unavailableTitle = nil }
+        } message: {
+            Text("\(unavailableTitle ?? "That title") is in TMDB’s catalog, but it was not found on your connected media servers or IPTV VOD.")
+        }
+        .onDisappear { openTask?.cancel() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if loading {
+            ProgressView("Loading \(genre.title) \(selectedKind == .movie ? "movies" : "series")…")
+                .frame(maxWidth: .infinity)
+                .padding(.top, 48)
+        } else if let error {
+            ContentUnavailableView("Couldn’t Load TMDB", systemImage: "film.stack",
+                description: Text(error))
+                .padding(.horizontal, AppSearchMetrics.inset)
+        } else if tmdbGenreID == nil {
+            ContentUnavailableView("No \(selectedKind == .movie ? "Movie" : "Series") Genre",
+                systemImage: "rectangle.stack",
+                description: Text("TMDB does not provide a matching \(selectedKind == .movie ? "movie" : "series") genre for \(genre.title)."))
+                .padding(.horizontal, AppSearchMetrics.inset)
+        } else if items.isEmpty {
+            ContentUnavailableView("No Titles Found", systemImage: "film",
+                description: Text("TMDB has no popular \(genre.title.lowercased()) \(selectedKind == .movie ? "movies" : "series") to show right now."))
+                .padding(.horizontal, AppSearchMetrics.inset)
+        } else {
+            LazyVGrid(columns: columns, alignment: .center, spacing: 20) {
+                ForEach(items) { title in
+                    poster(title)
+                        .onAppear {
+                            if title.id == items.last?.id { loadNextPage() }
+                        }
+                }
+            }
+            .padding(.horizontal, AppSearchMetrics.inset)
+            if loadingMore { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 12) }
+        }
+    }
+
+    private var tmdbGenreID: Int? {
+        guard let genreCatalog else { return nil }
+        let available = selectedKind == .movie ? genreCatalog.movies : genreCatalog.series
+        return genre.tmdbID(for: selectedKind, in: available)
+    }
+
+    private func loadFirstPage() async {
+        loading = true
+        loadingMore = false
+        error = nil
+        items = []
+        currentPage = 0
+        totalPages = 0
+        let requestedKind = selectedKind
+        do {
+            let catalog = try await media.tmdbBrowseGenres()
+            guard !Task.isCancelled, requestedKind == selectedKind else { return }
+            genreCatalog = catalog
+            let available = requestedKind == .movie ? catalog.movies : catalog.series
+            guard let genreID = genre.tmdbID(for: requestedKind, in: available) else {
+                loading = false
+                return
+            }
+            let response = try await media.tmdbDiscover(genreID: genreID, kind: requestedKind, page: 1)
+            guard !Task.isCancelled, requestedKind == selectedKind else { return }
+            items = response.results.filter { $0.mediaItem(kind: requestedKind) != nil }
+            currentPage = response.page
+            totalPages = min(response.total_pages, 500)
+            loading = false
+        } catch {
+            guard !Task.isCancelled, requestedKind == selectedKind else { return }
+            self.error = media.metadataAvailable(.tmdb)
+                ? "TMDB could not return this genre. Check your connection and try again."
+                : "TMDB is not configured in this build."
+            loading = false
+        }
+    }
+
+    private func loadNextPage() {
+        guard !loading, !loadingMore, currentPage > 0, currentPage < totalPages,
+              let genreID = tmdbGenreID else { return }
+        loadingMore = true
+        let requestedKind = selectedKind
+        let nextPage = currentPage + 1
+        Task {
+            defer { loadingMore = false }
+            do {
+                let response = try await media.tmdbDiscover(genreID: genreID, kind: requestedKind, page: nextPage)
+                guard !Task.isCancelled, requestedKind == selectedKind else { return }
+                var seen = Set(items.map(\.id))
+                items += response.results.filter {
+                    $0.mediaItem(kind: requestedKind) != nil && seen.insert($0.id).inserted
+                }
+                currentPage = response.page
+                totalPages = min(response.total_pages, 500)
+            } catch {
+                // Keep already visible titles. The next scroll can retry.
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func poster(_ title: TMDBCatalogTitle) -> some View {
+        if let item = title.mediaItem(kind: selectedKind) {
+            Button { open(title) } label: {
+                VStack(alignment: .leading, spacing: 7) {
+                    MediaItemCard(item: item, shape: .poster)
+                        .overlay {
+                            if openingID == item.id {
+                                ProgressView().padding(11).background(.ultraThinMaterial, in: Circle())
+                            }
+                        }
+                    Text(item.name)
+                        .font(.inter(13, .semibold))
+                        .foregroundStyle(LineupStyle.text)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    if let year = item.productionYear {
+                        Text(String(year)).font(.inter(12, .medium)).foregroundStyle(LineupStyle.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(openingID != nil)
+            .accessibilityLabel("\(item.name)\(item.productionYear.map { ", \($0)" } ?? "")")
+        }
+    }
+
+    private func open(_ title: TMDBCatalogTitle) {
+        guard let item = title.mediaItem(kind: selectedKind), openingID == nil else { return }
+        openTask?.cancel()
+        openTask = Task { @MainActor in
+            openingID = item.id
+            defer { openingID = nil; openTask = nil }
+
+            let providerTitles = await media.searchProviderVOD(item.name)
+            guard !Task.isCancelled else { return }
+            if let match = providerTitles.first(where: { MediaTitleMatch.isSame(item, $0.item) })?.item {
+                pushed = match
+                return
+            }
+            let serverTitles = await media.searchServers(item.name)
+            guard !Task.isCancelled else { return }
+            if let match = serverTitles.groups.lazy.flatMap(\.items).first(where: { MediaTitleMatch.isSame(item, $0) }) {
+                pushed = match
+                return
+            }
+            unavailableTitle = item.name
+            showUnavailable = true
+        }
+    }
+}
+#endif
 
 #if os(tvOS)
 /// A channel to play full screen from the Search tab, and the game it was

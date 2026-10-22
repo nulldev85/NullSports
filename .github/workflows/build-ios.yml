@@ -47,7 +47,9 @@ jobs:
           set -euo pipefail
           python3 -B Tests/SharedSourceMembershipChecks.py
           python3 -B Tests/MetadataBundleChecks.py
-          find Lineup iPhone AetherPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
+          python3 -B Tests/PlaybackBundleProjectChecks.py
+          python3 -B Tests/PlaybackVersionChecks.py
+          find Lineup iPhone AetherPlayback MPVPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
       - name: Check shared sports logic
         run: |
           set -euo pipefail
@@ -63,7 +65,7 @@ jobs:
           /tmp/guide-checks
           swiftc iPhone/MobileGuideWindow.swift Tests/MobileGuideWindowChecks.swift -o /tmp/mobile-guide-checks
           /tmp/mobile-guide-checks
-          swiftc iPhone/MobilePlaybackPolicy.swift Tests/MobilePlaybackPolicyChecks.swift -o /tmp/mobile-playback-policy-checks
+          swiftc Lineup/Models/PlaybackEngineVersions.swift iPhone/MobilePlaybackPolicy.swift Tests/MobilePlaybackPolicyChecks.swift -o /tmp/mobile-playback-policy-checks
           /tmp/mobile-playback-policy-checks
           swiftc Lineup/Services/SubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/mobile-subtitle-preference-checks
           /tmp/mobile-subtitle-preference-checks
@@ -109,6 +111,7 @@ jobs:
           test -d iPhone/Assets.xcassets/LineupAppIcon.appiconset
           test ! -e iPhone/Assets.xcassets/AppIcon.appiconset
           grep -q 'ASSETCATALOG_COMPILER_APPICON_NAME: LineupAppIcon' project.yml
+          python3 -B Tests/PlaybackVersionChecks.py
           brew install xcodegen
           xcodegen generate
           python3 -B Tools/check-aether-bundle.py --project Lineup.xcodeproj/project.pbxproj

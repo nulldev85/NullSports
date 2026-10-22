@@ -12,12 +12,12 @@ final class PlaybackBackendIntegrationTests: XCTestCase {
         let quality = try await AetherSourceProbe.quality(url: fixture, timeout: 5)
         XCTAssertEqual(quality.width, 320)
         XCTAssertEqual(quality.height, 180)
-        // Aether 7.40.1 SourceProbe.videoFrameRate is display-normalized:
+        // Aether 7.45.0 SourceProbe.videoFrameRate is display-normalized:
         // FrameRateSnap maps even an exact 24 fps source to 23.976.
         XCTAssertEqual(try XCTUnwrap(quality.frameRate), 23.976, accuracy: 0.0001)
     }
 
-    func testVLCAndAetherRenderSeekSelectTracksAndReachTheEnd() async throws {
+    func testVLCAndAetherAndMPVKitRenderSeekSelectTracksAndReachTheEnd() async throws {
         let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback", withExtension: "mkv",
                                                               subdirectory: "Fixtures"))
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -43,7 +43,10 @@ final class PlaybackBackendIntegrationTests: XCTestCase {
                 backend.isPlaying && backend.hasVideoOut && backend.time > 0.2
             }
             XCTAssertEqual(backend.kind.title, kind.title)
-            try await waitUntil("\(kind.title) did not expose the actual video/audio formats") {
+            try await waitUntil("\(kind.title) did not expose the actual video/audio formats " +
+                                "(video=\(backend.mediaInfo.videoCodec ?? "nil"), " +
+                                "audio=\(backend.mediaInfo.audioCodec ?? "nil"), " +
+                                "badges=\(backend.mediaInfo.badges))") {
                 backend.mediaInfo.badges.contains("H.264") && backend.mediaInfo.badges.contains("AAC")
             }
             XCTAssertNil(backend.mediaInfo.dynamicRange)
@@ -133,12 +136,12 @@ final class PlaybackBackendIntegrationTests: XCTestCase {
         ([ (view as? UILabel)?.text ?? "" ] + view.subviews.map { subtitleText(in: $0) }).joined(separator: "\n")
     }
 
-    private func waitUntil(_ message: String, timeout: TimeInterval = 40,
+    private func waitUntil(_ message: @autoclosure () -> String, timeout: TimeInterval = 40,
                            condition: @MainActor () -> Bool) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(100)) }
-        XCTAssertTrue(condition(), message)
+        XCTAssertTrue(condition(), message())
         if !condition() { throw NSError(domain: "PlaybackBackendIntegrationTests", code: 1,
-                                        userInfo: [NSLocalizedDescriptionKey: message]) }
+                                        userInfo: [NSLocalizedDescriptionKey: message()]) }
     }
 }

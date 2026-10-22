@@ -80,3 +80,55 @@ enum MobileFanartPolicy {
         return url
     }
 }
+
+private struct TMDBImageResponse: Decodable {
+    let id: Int
+    let logos: [TMDBLogoImage]?
+}
+
+private struct TMDBLogoImage: Decodable {
+    let file_path: String?
+    let iso_639_1: String?
+    let width: Int?
+    let height: Int?
+    let vote_average: Double?
+    let vote_count: Int?
+}
+
+enum TMDBTitleLogoPolicy {
+    static func logo(_ data: Data, expectedID: Int) -> URL? {
+        guard data.count <= 2_000_000,
+              let response = try? JSONDecoder().decode(TMDBImageResponse.self, from: data),
+              response.id == expectedID else { return nil }
+        let candidates = (response.logos ?? []).compactMap { image -> (URL, Int, Double, Int)? in
+            guard let path = image.file_path, let url = imageURL(path),
+                  let width = image.width, let height = image.height,
+                  (1...8000).contains(width), (1...4000).contains(height),
+                  width * height <= 10_000_000 else { return nil }
+            let language = image.iso_639_1?.lowercased()
+            let languageRank: Int
+            if language == "en" || language?.hasPrefix("en-") == true { languageRank = 0 }
+            else if language == nil { languageRank = 1 }
+            else { return nil }
+            let rating = image.vote_average.flatMap { $0.isFinite ? $0 : nil } ?? 0
+            let votes = min(1_000_000, max(0, image.vote_count ?? 0))
+            return (url, languageRank, rating, votes)
+        }
+        return candidates.sorted {
+            if $0.1 != $1.1 { return $0.1 < $1.1 }
+            if $0.2 != $1.2 { return $0.2 > $1.2 }
+            if $0.3 != $1.3 { return $0.3 > $1.3 }
+            return $0.0.absoluteString < $1.0.absoluteString
+        }.first?.0
+    }
+
+    static func imageURL(_ path: String) -> URL? {
+        guard path.count <= 512, path.hasPrefix("/"), !path.contains(".."),
+              path.unicodeScalars.allSatisfy({
+                  CharacterSet(charactersIn: "/-_.0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+                      .contains($0)
+              }), let url = URL(string: "https://image.tmdb.org/t/p/w1280\(path)"),
+              url.host == "image.tmdb.org" else { return nil }
+        return url
+    }
+}

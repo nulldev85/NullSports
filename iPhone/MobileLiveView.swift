@@ -307,7 +307,7 @@ struct MobileLiveView: View {
                     }
                 }
             }
-            .background(LineupStyle.background)
+            .background(Color.black)
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
@@ -489,17 +489,19 @@ struct MobileLiveView: View {
             HStack(spacing: 10) {
                 Rectangle().fill(LineupStyle.highlight).frame(width: 3, height: 31)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("LINEUP").font(.inter(20, .black)).tracking(-0.5).foregroundStyle(LineupStyle.text)
-                    Text("LIVE SPORTS").font(.inter(8, .bold)).tracking(2.2).foregroundStyle(LineupStyle.secondary)
+                    Text("LINEUP").font(.inter(20, .black)).tracking(-0.5)
+                        .foregroundStyle(LineupStyle.text.opacity(0.84))
+                    Text("LIVE SPORTS").font(.inter(8, .bold)).tracking(2.2)
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.76))
                 }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
                 Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                    .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.secondary.opacity(0.72))
                 HStack(spacing: 5) {
                     if slate.live.isEmpty && !slate.mine.contains(where: \.isLive) {
-                        Circle().fill(LineupStyle.secondary).frame(width: 5, height: 5)
+                        Circle().fill(LineupStyle.secondary.opacity(0.76)).frame(width: 5, height: 5)
                     } else {
                         MobileLiveDot()
                     }
@@ -508,7 +510,7 @@ struct MobileLiveView: View {
                         .font(.inter(10, .bold)).tracking(1)
                 }
                 .foregroundStyle(slate.live.isEmpty && !slate.mine.contains(where: \.isLive)
-                                 ? LineupStyle.secondary : LineupStyle.liveStatus)
+                                 ? LineupStyle.secondary.opacity(0.76) : LineupStyle.liveStatus)
             }
         }
         .padding(.horizontal, 20).padding(.bottom, 17)
@@ -573,23 +575,27 @@ struct MobileLiveView: View {
         .accessibilityAddTraits(onlyFollowed ? .isSelected : [])
     }
 
-    /// One part of the slate as a panel: icon, caption and count over a
-    /// hairline, then its games, each divided from the next by a hairline of
-    /// its own.
-    private func slatePanel(_ title: String, systemImage: String, detail: String,
-                            games: [SportsGame], showsDay: Bool = false) -> some View {
-        LineupPanel(title: title, systemImage: systemImage, padded: false) {
-            Text(detail.uppercased()).font(.inter(13, .heavy)).tracking(0.4)
-                .foregroundStyle(LineupPanelStyle.quiet)
-        } content: {
-            VStack(spacing: 0) {
-                ForEach(Array(games.enumerated()), id: \.element.id) { index, game in
-                    if index > 0 {
-                        Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
-                            .padding(.horizontal, LineupPanelStyle.inset)
-                    }
-                    matchup(game, showsDay: showsDay)
-                }
+    /// A compact section heading followed by independent list rows. Keeping
+    /// each event row separate lets its team colors identify it at a glance.
+    private func slateSection(_ title: String, systemImage: String, detail: String,
+                              games: [SportsGame], showsDay: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundStyle(title == "On Air" ? LineupStyle.liveStatus
+                                                        : LineupPanelStyle.quiet.opacity(0.72))
+                Text(title.uppercased())
+                    .font(.inter(13, .heavy)).tracking(0.65)
+                    .foregroundStyle(LineupStyle.text.opacity(0.74))
+                Spacer(minLength: 6)
+                Text(detail.uppercased())
+                    .font(.inter(11, .heavy)).tracking(0.35)
+                    .foregroundStyle(title == "On Air" ? LineupStyle.liveStatus
+                                                        : LineupPanelStyle.quiet.opacity(0.72))
+            }
+            LazyVStack(spacing: 9) {
+                ForEach(games) { game in matchup(game, showsDay: showsDay) }
             }
         }
         .padding(.horizontal, Self.inset)
@@ -611,17 +617,17 @@ struct MobileLiveView: View {
                 }
                 if !slate.mine.isEmpty {
                     let onNow = slate.mine.filter(\.isLive).count
-                    slatePanel("My Teams", systemImage: "star",
+                    slateSection("My Teams", systemImage: "star",
                                detail: onNow > 0 ? "\(onNow) live" : "\(slate.mine.count) today",
                                games: slate.mine, showsDay: true)
                 }
                 if !slate.live.isEmpty {
-                    slatePanel("On Air", systemImage: "dot.radiowaves.left.and.right",
+                    slateSection("On Air", systemImage: "dot.radiowaves.left.and.right",
                                detail: "\(slate.live.count) live", games: slate.live)
                 }
                 ForEach(slate.days, id: \.day) { day, dayGames in
                     let today = Calendar.current.isDateInToday(day)
-                    slatePanel(today ? "Up Next" : day.formatted(.dateTime.weekday(.wide)),
+                    slateSection(today ? "Up Next" : day.formatted(.dateTime.weekday(.wide)),
                                systemImage: today ? "clock" : "calendar",
                                detail: day.formatted(.dateTime.month(.abbreviated).day()),
                                games: dayGames)
@@ -1034,6 +1040,10 @@ private struct MobileMatchupRow: View {
     private var whereItIs: String? { game.placeLine }
 
     var body: some View {
+        let awayColor = MobileTeamColor.readable(game.awayColor) ?? LineupStyle.leagueColor(game.league)
+        let homeColor = MobileTeamColor.readable(game.homeColor) ?? awayColor
+        let shape = RoundedRectangle(cornerRadius: 15, style: .continuous)
+
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
                 if isEvent {
@@ -1045,17 +1055,19 @@ private struct MobileMatchupRow: View {
                             MobileLeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 28)
                             Text(game.eventName ?? "")
                                 .font(.inter(.body, .semibold))
+                                .foregroundStyle(LineupStyle.text.opacity(0.72))
                                 .lineLimit(2).multilineTextAlignment(.leading)
                         }
                         if let session = game.race?.title {
-                            Text(session).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.highlight)
+                            Text(session).font(.inter(.caption, .bold))
+                                .foregroundStyle(LineupStyle.highlight.opacity(0.78))
                         }
                         if let whereItIs { place(whereItIs) }
                     }
                 } else {
                     if let competition = game.competition {
                         Text(competition.name.uppercased()).font(.inter(10, .bold))
-                            .foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                            .foregroundStyle(LineupStyle.secondary.opacity(0.68)).lineLimit(1)
                     }
                     team(game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
                          record: game.awayRecord, score: game.awayScore, isAway: true)
@@ -1065,7 +1077,6 @@ private struct MobileMatchupRow: View {
                     if let detail = game.soccer?.detail { place(detail) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
-            Rectangle().fill(LineupStyle.line).frame(width: 1)
             VStack(alignment: .leading, spacing: 6) {
                 SportsMark(league: game.league, competition: game.competition, size: 26)
                 if game.isLive {
@@ -1088,17 +1099,22 @@ private struct MobileMatchupRow: View {
                 }
                 if !game.broadcast.isEmpty {
                     Text(game.broadcast.uppercased()).font(.inter(9, .semibold)).tracking(0.5).lineLimit(2)
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.68))
                 }
                 Image(systemName: isWatching ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 10, design: .rounded))
                     .padding(.top, 2).accessibilityHidden(true)
             }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
         }
+        .foregroundStyle(LineupStyle.text.opacity(0.72))
         .fixedSize(horizontal: false, vertical: true)
-        // A row of its section's panel: the panel draws the card and the
-        // hairlines between games, the live mark and status say it is on.
-        .padding(.horizontal, LineupPanelStyle.inset).padding(.vertical, 14)
-        .contentShape(Rectangle())
+        // Keep a single rounded event tile, like each channel in Guide List,
+        // with the visual weight carried by the teams' own colors.
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(minHeight: 78)
+        .background(LinearGradient(colors: [awayColor.opacity(0.19), homeColor.opacity(0.19)],
+                                   startPoint: .leading, endPoint: .trailing), in: shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+        .contentShape(shape)
     }
 
     /// One line, quiet, and only when there is something to say. The card
@@ -1106,7 +1122,7 @@ private struct MobileMatchupRow: View {
     private func place(_ text: String) -> some View {
         Text(text)
             .font(.inter(.caption2))
-            .foregroundStyle(LineupStyle.secondary)
+            .foregroundStyle(LineupStyle.secondary.opacity(0.68))
             .lineLimit(1).truncationMode(.tail)
     }
 
@@ -1125,7 +1141,7 @@ private struct MobileMatchupRow: View {
                 if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
                     // A tennis player's line holds their country, not a record.
                     Text(record).font(.interDigits(.caption2))
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.68))
                         .accessibilityLabel(game.league.isTennis ? record : "Record: \(record)")
                 }
             }

@@ -49,7 +49,7 @@ Run the **Build Lineup tvOS IPA** workflow in GitHub Actions. The downloadable a
 The `LineupiOS` target supports iPhones on iOS 18 or later, with a touch-first
 Live screen, league filters, searchable channel guide, favorites, provider setup,
 and full-screen playback in portrait or landscape. Settings offers Automatic,
-AetherEngine 7.40.1, or VLC. Automatic uses AVPlayer for HLS and AetherEngine
+AetherEngine 7.45.0, or VLC. Automatic uses AVPlayer for HLS and AetherEngine
 for other video, including server routes without extensions. Aether's native
 and sample-buffer sources enable broader Picture in Picture support; VLC fallback
 has no PiP. See [iPhone playback review](docs/iphone-playback-engines.md).

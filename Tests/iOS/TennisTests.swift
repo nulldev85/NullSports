@@ -192,6 +192,25 @@ final class TennisTests: XCTestCase {
         XCTAssertTrue(waiting.isUpcoming)
     }
 
+    func testVerifiedLiveStatsResolutionKeepsTennisTournamentContextUnambiguous() throws {
+        let matches = try matches().filter { $0.statsSource != nil }
+        let first = try XCTUnwrap(matches.first { $0.id == "tennis-1001" })
+        let second = try XCTUnwrap(matches.first { $0.id == "tennis-1002" })
+        let tournament = SportsGame(
+            id: "tennis-event-713-2026-atp", league: .atp, start: day,
+            awayTeam: "", homeTeam: "", awayAbbreviation: "", homeAbbreviation: "",
+            awayLogo: "", homeLogo: "", awayScore: "", homeScore: "",
+            awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil,
+            venue: nil, location: "Shanghai", status: "Matches in progress", state: "in",
+            broadcast: "", eventName: "Rolex Shanghai Masters")
+
+        XCTAssertEqual(LiveStatsGameSelection.uniqueVerifiedGame(from: [first]), first)
+        XCTAssertNil(LiveStatsGameSelection.uniqueVerifiedGame(from: [first, second]),
+                     "A channel carrying multiple court matches must not attach stats to a guessed match")
+        XCTAssertEqual(LiveStatsGameSelection.uniqueVerifiedGame(from: [first, tournament]), tournament,
+                       "A verified tournament card represents the channel's tennis coverage")
+    }
+
     func testTheDecidingSetDependsOnTheLength() {
         typealias Set = TennisScore.SetGames
         let oneAll = [Set(away: 6, home: 4, awayWon: true), Set(away: 3, home: 6, awayWon: false), Set(away: 1, home: 1)]

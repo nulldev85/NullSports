@@ -43,7 +43,7 @@ struct LibraryMetadataSettingsView: View {
                               isOn: Bindable(media).betterPostersEnabled)
                     switchRow("Title Logos", symbol: "textformat", isOn: Bindable(media).fanartEnabled)
                 }
-                Text("BetterPosters draws movie and show posters with their ratings, in its default style, for titles with an IMDb match. Your own artwork stays wherever one can't load. Title Logos shows a logo from Fanart.tv on titles whose server has none. Artwork provided by BetterPosters and Fanart.tv.")
+                Text("BetterPosters draws movie and show posters with their ratings, in its default style, for titles with an IMDb match. Your own artwork stays wherever one can't load. Title Logos checks Fanart.tv first, then TMDB, when a server logo is unavailable. Artwork provided by BetterPosters, Fanart.tv, and TMDB.")
                     .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
                 availability
                 credits
@@ -116,10 +116,12 @@ struct LibraryMetadataSettingsView: View {
                 Toggle(isOn: Bindable(media).fanartEnabled) {
                     sourceLabel("Title Logos", symbol: "textformat")
                 }.tint(LineupStyle.highlight)
-                Link("Artwork provided by Fanart.tv", destination: URL(string: "https://fanart.tv")!)
-                    .font(.inter(.footnote))
+                HStack(spacing: 16) {
+                    Link("Fanart.tv", destination: URL(string: "https://fanart.tv")!)
+                    Link("TMDB", destination: URL(string: "https://www.themoviedb.org")!)
+                }.font(.inter(.footnote))
             } header: { Text("Title Artwork").lineupSettingsHeader() }
-              footer: { Text("Shows matching movie and show logos on the Library hero and detail pages. Titles remain readable when a logo isn't available.").lineupSettingsFooter() }
+              footer: { Text("Uses a matching server logo first, then checks Fanart.tv and TMDB for movie or show title logos. Titles remain readable when neither has a usable logo.").lineupSettingsFooter() }
               .lineupSettingsRows()
             Section {
                 availability

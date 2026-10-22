@@ -47,7 +47,7 @@ enum MobileSubtitleFailure: LocalizedError {
         case .quota: "The OpenSubtitles download allowance has been reached. Try again after it resets."
         case .busy: "OpenSubtitles is limiting requests. Wait a moment before trying again."
         case .invalidFile: "That download wasn't a usable subtitle file. Try another release."
-        case .unsupported: "Downloaded subtitles aren't available with the compatibility player. Use AetherEngine or VLC."
+        case .unsupported: "Downloaded subtitles aren't available with the compatibility player. Use AetherEngine, VLC, or MPVKit."
         }
     }
 }

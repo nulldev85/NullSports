@@ -18,13 +18,16 @@ class AetherBundleChecks(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.app = Path(self.temporary.name) / "Lineup.app"
         self.app.mkdir()
-        for name in ("LineupAetherPlayback", *bundle.RUNTIME_FRAMEWORKS):
+        for name in ("LineupAetherPlayback", "LineupMPVPlayback", *bundle.RUNTIME_FRAMEWORKS):
             path = self.app / "Frameworks" / f"{name}.framework" / name
             path.parent.mkdir(parents=True)
             path.write_bytes(b"fixture")
         notice = self.app / "Frameworks/LineupAetherPlayback.framework/AetherLicenses/AetherEngine.txt"
         notice.parent.mkdir()
         notice.write_text("fixture", encoding="utf-8")
+        mpv_license = self.app / "Frameworks/LineupMPVPlayback.framework/MPVLicenses/LGPL-3.0.txt"
+        mpv_license.parent.mkdir()
+        mpv_license.write_text("fixture", encoding="utf-8")
         resource = self.app / "AetherEngine_AetherEngine.bundle/silent-atmos.mp4"
         resource.parent.mkdir()
         resource.write_bytes(b"fixture")
@@ -32,7 +35,19 @@ class AetherBundleChecks(unittest.TestCase):
 
     def test_successful_link_does_not_hide_missing_runtime_framework(self):
         (self.app / "Frameworks/AetherLibavcodec.framework/AetherLibavcodec").unlink()
-        with self.assertRaisesRegex(ValueError, "Missing packaged Aether files:.*\\n  Frameworks/AetherLibavcodec"):
+        with self.assertRaisesRegex(ValueError, "Frameworks/AetherLibavcodec.framework/AetherLibavcodec"):
+            bundle.bundled_files(self.app)
+
+    def test_mpv_bridge_and_license_must_be_packaged(self):
+        bridge = self.app / "Frameworks/LineupMPVPlayback.framework/LineupMPVPlayback"
+        bridge.unlink()
+        with self.assertRaisesRegex(ValueError, "Frameworks/LineupMPVPlayback.framework/LineupMPVPlayback"):
+            bundle.bundled_files(self.app)
+
+        bridge.write_bytes(b"fixture")
+        license_file = self.app / "Frameworks/LineupMPVPlayback.framework/MPVLicenses/LGPL-3.0.txt"
+        license_file.unlink()
+        with self.assertRaisesRegex(ValueError, "Frameworks/LineupMPVPlayback.framework/MPVLicenses/LGPL-3.0.txt"):
             bundle.bundled_files(self.app)
 
     def test_resource_bundle_must_contain_the_engine_asset(self):
@@ -76,6 +91,21 @@ class AetherProjectChecks(unittest.TestCase):
             objects[name + "-embed"] = {"isa": "PBXCopyFilesBuildPhase", "dstSubfolderSpec": 10,
                                         "files": [item + "-copy" for item in bundle.RUNTIME_FRAMEWORKS]}
             objects[name + "-link"] = {"isa": "PBXFrameworksBuildPhase", "files": []}
+            product_ref = name + "-mpv-product"
+            objects[product_ref] = {
+                "isa": "PBXReferenceProxy",
+                "name": "LineupMPVPlayback.framework",
+                "path": "LineupMPVPlayback.framework",
+                "productName": "LineupMPVPlayback",
+            }
+            objects[name + "-mpv-link"] = {"isa": "PBXBuildFile", "productRef": product_ref}
+            objects[name + "-mpv-copy"] = {
+                "isa": "PBXBuildFile",
+                "productRef": product_ref,
+                "settings": {"ATTRIBUTES": ["CodeSignOnCopy"]},
+            }
+            objects[name + "-link"]["files"].append(name + "-mpv-link")
+            objects[name + "-embed"]["files"].append(name + "-mpv-copy")
         self.project = {"objects": objects}
 
     def test_real_framework_copies_pass_for_both_apps(self):
@@ -99,6 +129,21 @@ class AetherProjectChecks(unittest.TestCase):
                     files.remove("AetherLibzvbi-copy")
                 with self.assertRaisesRegex(ValueError, "LineupiOS: incorrect runtime copies"):
                     bundle.inspect_project(project)
+
+    def test_mpv_bridge_must_be_linked_and_embedded_once(self):
+        for phase, file_id in (("Lineup-link", "Lineup-mpv-link"),
+                               ("Lineup-embed", "Lineup-mpv-copy")):
+            with self.subTest(phase=phase):
+                project = copy.deepcopy(self.project)
+                project["objects"][phase]["files"].remove(file_id)
+                with self.assertRaisesRegex(ValueError, "Lineup: MPV playback bridge"):
+                    bundle.inspect_project(project)
+
+    def test_mpv_bridge_must_be_signed_when_embedded(self):
+        project = copy.deepcopy(self.project)
+        project["objects"]["Lineup-mpv-copy"]["settings"]["ATTRIBUTES"].remove("CodeSignOnCopy")
+        with self.assertRaisesRegex(ValueError, "Lineup: LineupMPVPlayback.framework must be signed"):
+            bundle.inspect_project(project)
 
     def test_linking_a_runtime_or_copying_from_the_wrong_root_is_rejected(self):
         with self.subTest(problem="linkage"):

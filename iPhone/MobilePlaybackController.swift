@@ -4,6 +4,7 @@ import AVKit
 import CoreMedia
 import VLCKitSPM
 import LineupAetherPlayback
+import LineupMPVPlayback
 import ImageIO
 
 /// Runs `body` on the main actor. AVFoundation delivers KVO on an unspecified
@@ -72,6 +73,7 @@ final class MobilePlaybackController: ObservableObject {
     private var failedEngines: [URL: Set<MobileStreamEngine>] = [:]
     private var sourceIsRecording = false
     private(set) var aetherSession: AetherPlaybackSession?
+    private(set) var mpvSession: MPVPlaybackSession?
     /// VLCKit. Still the engine for transport streams and anything AVPlayer
     /// refuses, and still the object the surface tests reach for.
     let player = VLCMediaPlayer()
@@ -440,6 +442,11 @@ final class MobilePlaybackController: ObservableObject {
             guard let position = vlcPlaybackSeconds else { return }
             sampled = lengthMs > 0
                 ? MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration) : nil
+        case .mpv:
+            let duration = mpvSession?.duration ?? 0
+            let position = mpvSession?.position ?? 0
+            sampled = duration > 0 && position.isFinite
+                ? MobilePlaybackProgress(position: min(max(0, position), duration), duration: duration) : nil
         }
         if let reopenPosition {
             // Until the reopened stream is back where it was, its clock reads
@@ -587,6 +594,8 @@ final class MobilePlaybackController: ObservableObject {
             // A fraction rather than a VLCTime: `position` is the one seek the
             // pinned VLCKit has always exposed the same way.
             player.position = Float(target / current.duration)
+        case .mpv:
+            mpvSession?.seek(to: target)
         }
     }
 
@@ -615,6 +624,10 @@ final class MobilePlaybackController: ObservableObject {
             player.drawable = nil
             view.removePlayerLayer()
             if let surface = aetherSession?.surface { view.installEngineSurface(surface) }
+        case .mpv:
+            player.drawable = nil
+            view.removePlayerLayer()
+            if let surface = mpvSession?.surface { view.installEngineSurface(surface) }
         case .vlc:
             view.removeEngineSurface()
             view.removePlayerLayer()
@@ -705,6 +718,7 @@ final class MobilePlaybackController: ObservableObject {
         vlcGateSizeSince = nil
         switch engine {
         case .aether: aetherSession?.isMuted = true
+        case .mpv: mpvSession?.isMuted = true
         case .system: systemPlayer.isMuted = true
         case .vlc: player.audio?.isMuted = true
         }
@@ -729,6 +743,17 @@ final class MobilePlaybackController: ObservableObject {
         switch engine {
         case .aether:
             if aetherSession?.hasPicture == true { openStartGate("Aether picture ready") }
+        case .mpv:
+            guard let session = mpvSession else { return }
+            if session.hasVideoOut {
+                openStartGate("MPV picture ready")
+            } else if let audioCodec = session.audioCodec, !audioCodec.isEmpty, session.isPlaying {
+                if heldSoundSince == nil { heldSoundSince = now }
+                guard let since = heldSoundSince, now - since > StartTogether.soundAloneAfter else { return }
+                openStartGate("no picture after \(Int(StartTogether.soundAloneAfter))s, sound alone")
+            } else {
+                heldSoundSince = nil
+            }
         case .system:
             let playing = systemPlayer.timeControlStatus == .playing
             if playing, heldSoundSince == nil { heldSoundSince = now }
@@ -793,6 +818,7 @@ final class MobilePlaybackController: ObservableObject {
         releaseGateOutput()
         switch engine {
         case .aether: aetherSession?.isMuted = audioMuted
+        case .mpv: mpvSession?.isMuted = audioMuted
         case .system:
             systemPlayer.isMuted = audioMuted
             if systemPlayer.currentItem?.status == .readyToPlay { loading = false }
@@ -808,6 +834,7 @@ final class MobilePlaybackController: ObservableObject {
         systemPlayer.isMuted = audioMuted
         player.audio?.isMuted = audioMuted
         aetherSession?.isMuted = audioMuted
+        mpvSession?.isMuted = audioMuted
     }
 
     /// The gate goes with the stream it held: nothing left muted or hidden.
@@ -820,6 +847,7 @@ final class MobilePlaybackController: ObservableObject {
         systemPlayer.isMuted = audioMuted
         player.audio?.isMuted = audioMuted
         aetherSession?.isMuted = audioMuted
+        mpvSession?.isMuted = audioMuted
         videoView?.holdPicture(false)
     }
 
@@ -862,6 +890,7 @@ final class MobilePlaybackController: ObservableObject {
         pausedByUser = true
         switch engine {
         case .aether: aetherSession?.pause()
+        case .mpv: mpvSession?.pause()
         case .system: systemPlayer.pause()
         case .vlc: player.pause()
         }
@@ -989,6 +1018,10 @@ final class MobilePlaybackController: ObservableObject {
                     self.systemEngineFailed()
                     continue
                 }
+                if self.engine == .mpv {
+                    self.checkMPVPlayback()
+                    continue
+                }
                 guard self.engine == .vlc else { continue }
                 self.startWhenVideoIsReady()
                 if self.waitingForVideo {
@@ -1050,6 +1083,7 @@ final class MobilePlaybackController: ObservableObject {
         resetStartGate()
         teardownSystemEngine()
         aetherSession?.stop()
+        mpvSession?.stop()
         videoView?.removeEngineSurface()
         pictureInPicturePossible = false
         player.stop()
@@ -1083,6 +1117,7 @@ final class MobilePlaybackController: ObservableObject {
         case .aether: openAether(url)
         case .system: openSystem(url)
         case .vlc: openVLC(url)
+        case .mpv: openMPV(url)
         }
     }
 
@@ -1122,6 +1157,28 @@ final class MobilePlaybackController: ObservableObject {
             UIApplication.shared.isIdleTimerDisabled = true
         } catch {
             diag.record("AetherEngine initialization failed")
+            advanceAfterEngineFailure()
+        }
+    }
+
+    private func openMPV(_ url: URL) {
+        player.drawable = nil
+        do {
+            let session: MPVPlaybackSession
+            if let existing = mpvSession { session = existing }
+            else { session = try MPVPlaybackSession(); mpvSession = session }
+            if let view = videoView {
+                view.removePlayerLayer()
+                view.installEngineSurface(session.surface)
+            }
+            closeStartGate()
+            session.load(url: url, startPosition: isLive ? nil : openingPlace,
+                         isLive: isLive && !sourceIsRecording,
+                         preferredSubtitleLanguage: isLive || subtitlePreferences.language.isEmpty
+                            ? nil : subtitlePreferences.language)
+            UIApplication.shared.isIdleTimerDisabled = true
+        } catch {
+            diag.record("MPV trial initialization failed")
             advanceAfterEngineFailure()
         }
     }
@@ -1169,7 +1226,7 @@ final class MobilePlaybackController: ObservableObject {
             finish()
             return
         }
-        if session.phase == .failed, !health.hasShownPicture {
+        if session.phase == .failed {
             advanceAfterEngineFailure()
             return
         }
@@ -1177,6 +1234,45 @@ final class MobilePlaybackController: ObservableObject {
         let recover = health.observe(now: now, playing: session.isPlaying, video: session.hasPicture,
             time: Int32(clamping: Int64(min(session.position * 1000, Double(Int32.max)))),
             frames: nil, bytes: session.bytesReceived, failed: session.phase == .failed || session.phase == .ended)
+        if health.isStable(now: now) { retries.reset() }
+        if recover {
+            if !health.hasShownPicture { advanceAfterEngineFailure() }
+            else { scheduleRecovery(now: now) }
+        }
+    }
+
+    private func checkMPVPlayback() {
+        guard engine == .mpv, let session = mpvSession, retryAt == nil else { return }
+        refreshIsPlaying()
+        loading = session.phase == .loading || session.phase == .buffering || !startGateOpen
+        if session.videoSize.width > 0, session.videoSize.height > 0 {
+            videoWidth = Int(session.videoSize.width)
+            videoHeight = Int(session.videoSize.height)
+        }
+        let tracks: [PlaybackSubtitleTrack] = [.off] + session.subtitleTracks.map {
+            .init(id: "mpv-\($0.id)", title: $0.title, engineIndex: $0.id)
+        }
+        if tracks != subtitleTracks { subtitleTracks = tracks }
+        let selected = tracks.first { $0.engineIndex == session.selectedSubtitleIndex }?.id ?? PlaybackSubtitleTrack.off.id
+        if selected != selectedSubtitleID { selectedSubtitleID = selected }
+        if session.hasVideoOut && session.isPlaying { confirmWorkingChannel() }
+        guard !pausedByUser, !suspended, error == nil else { return }
+        if session.phase == .ended, !isLive,
+           LocalMediaTrackingPolicy.reachedEnd(ended: true, failed: false, hasPlayed: session.hasVideoOut,
+               position: session.position, duration: session.duration,
+               fraction: session.duration > 0 ? session.position / session.duration : 0) {
+            finish()
+            return
+        }
+        if session.phase == .failed, !health.hasShownPicture {
+            advanceAfterEngineFailure()
+            return
+        }
+        guard !inBackground else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let recover = health.observe(now: now, playing: session.isPlaying, video: session.hasVideoOut,
+            time: Int32(clamping: Int64(min(session.position * 1000, Double(Int32.max)))),
+            frames: nil, bytes: nil, failed: session.phase == .failed || session.phase == .ended)
         if health.isStable(now: now) { retries.reset() }
         if recover {
             if !health.hasShownPicture { advanceAfterEngineFailure() }
@@ -1399,6 +1495,7 @@ final class MobilePlaybackController: ObservableObject {
             case .aether: aetherSession?.pause()
             case .vlc: player.pause()
             case .system: systemPlayer.pause()
+            case .mpv: mpvSession?.pause()
             }
             // A channel the provider records picks up from here, however
             // long the pause: the broadcast doesn't wait, but its recording
@@ -1425,6 +1522,8 @@ final class MobilePlaybackController: ObservableObject {
                 else if retryAt == nil { player.play() }
             case .system:
                 if retryAt == nil { systemPlayer.play() }
+            case .mpv:
+                if retryAt == nil { mpvSession?.play() }
             }
         }
         refreshIsPlaying()
@@ -1526,6 +1625,7 @@ final class MobilePlaybackController: ObservableObject {
         case .vlc: player.isPlaying
         case .system: systemPlayer.timeControlStatus == .playing
         case .aether: aetherSession?.isPlaying == true
+        case .mpv: mpvSession?.isPlaying == true
         }
     }
     private func refreshIsPlaying() {
@@ -1564,6 +1664,9 @@ final class MobilePlaybackController: ObservableObject {
             return session.currentPlayerItem.flatMap(frame(from:)).map(CapturedFrame.pixelBuffer)
         case .vlc:
             return await vlcSnapshot().map(CapturedFrame.image)
+        case .mpv:
+            // MPVKit's Metal surface does not expose decoded-frame readback.
+            return nil
         }
     }
 
@@ -1643,6 +1746,10 @@ final class MobilePlaybackController: ObservableObject {
             if let rule = AVTextStyleRule(textMarkupAttributes: attributes) {
                 systemPlayer.currentItem?.textStyleRules = [rule]
             }
+        case .mpv:
+            mpvSession?.configureSubtitles(scale: subtitlePreferences.scale,
+                background: subtitlePreferences.background, delay: subtitleDelaySeconds,
+                language: subtitlePreferences.language)
         }
     }
 
@@ -1673,6 +1780,9 @@ final class MobilePlaybackController: ObservableObject {
             case .vlc:
                 guard player.addPlaybackSlave(file, type: .subtitle, enforce: true) == 0 else { throw MobileSubtitleFailure.invalidFile }
                 refreshVLCSubtitleTracks()
+            case .mpv:
+                guard let session = mpvSession else { throw MobileSubtitleFailure.unsupported }
+                session.addSubtitle(url: file, title: title, language: language)
             case .system: throw MobileSubtitleFailure.unsupported
             }
             onlineSubtitleFiles.append(file)
@@ -1698,6 +1808,8 @@ final class MobilePlaybackController: ObservableObject {
             // than AVPlayer's language heuristic for the rest of this session.
             systemPlayer.appliesMediaSelectionCriteriaAutomatically = false
             item.select(systemSubtitleOptions[track.id], in: group)
+        case .mpv:
+            mpvSession?.selectSubtitle(index: track.engineIndex)
         }
         selectedSubtitleID = track.id
     }
@@ -1812,6 +1924,8 @@ final class MobilePlaybackController: ObservableObject {
         switch engine {
         case .aether:
             if let index = track.engineIndex { aetherSession?.selectAudio(index: index) }
+        case .mpv:
+            if let index = track.engineIndex { mpvSession?.selectAudio(index: index) }
         case .vlc:
             if let index = track.engineIndex { player.currentAudioTrackIndex = Int32(index) }
         case .system:
@@ -1921,6 +2035,11 @@ final class MobilePlaybackController: ObservableObject {
             nativeMediaInfo.refresh(systemPlayer.currentItem)
             next = nativeMediaInfo.info
         case .vlc: next = VLCPlaybackMediaInfo.read(player)
+        case .mpv:
+            next = PlaybackMediaInfo(dynamicRange: mpvSession?.dynamicRange,
+                videoCodec: mpvSession?.videoCodec, frameRate: mpvSession?.frameRate,
+                audioCodec: mpvSession?.audioCodec, audioChannels: mpvSession?.audioChannels,
+                audioLayout: mpvSession?.audioLayout)
         }
         if mediaInfo != next { mediaInfo = next }
     }
@@ -1950,6 +2069,7 @@ final class MobilePlaybackController: ObservableObject {
             player.pause()
             systemPlayer.pause()
             aetherSession?.pause()
+            mpvSession?.pause()
             isPlaying = false
         case .keepPlaying:
             suspended = false
@@ -1989,6 +2109,11 @@ final class MobilePlaybackController: ObservableObject {
             case .system:
                 if retryAt == nil, systemPlayer.timeControlStatus != .playing {
                     systemPlayer.play()
+                    UIApplication.shared.isIdleTimerDisabled = true
+                }
+            case .mpv:
+                if retryAt == nil, mpvSession?.isPlaying != true {
+                    mpvSession?.play()
                     UIApplication.shared.isIdleTimerDisabled = true
                 }
             }
@@ -2218,6 +2343,9 @@ final class MobilePlaybackController: ObservableObject {
                 let range = $0.timeRangeValue
                 return CMTimeRangeContainsTime(range, time: CMTime(seconds: offset, preferredTimescale: 600))
             } == true
+        case .mpv:
+            guard let session = mpvSession, session.isSeekable else { return false }
+            return session.duration <= 0 || offset <= session.duration
         }
     }
 
@@ -2233,6 +2361,7 @@ final class MobilePlaybackController: ObservableObject {
             let duration = Double(player.media?.length.intValue ?? 0) / 1000
             if duration > 0 { player.position = Float(offset / duration) }
             else { player.time = VLCTime(int: Int32(clamping: Int64((offset * 1000).rounded()))) }
+        case .mpv: mpvSession?.seek(to: offset)
         }
     }
 
@@ -2343,6 +2472,7 @@ final class MobilePlaybackController: ObservableObject {
             played = position
         case .aether: played = aetherSession?.position ?? 0
         case .system: played = systemPlayer.currentTime().seconds
+        case .mpv: played = mpvSession?.position ?? 0
         }
         guard played.isFinite else { return }
         guard seekLanding.accepts(played, now: ProcessInfo.processInfo.systemUptime) else { return }
@@ -2386,6 +2516,7 @@ final class MobilePlaybackController: ObservableObject {
         player.stop()
         player.media = nil
         aetherSession?.stop()
+        mpvSession?.stop()
         pictureInPictureActive = false
         pictureInPicturePossible = false
         teardownSystemEngine()
@@ -2507,6 +2638,7 @@ extension MobilePlaybackController {
         case .aether: aetherSession?.pause()
         case .vlc: if player.isPlaying { player.pause() }
         case .system: systemPlayer.pause()
+        case .mpv: mpvSession?.pause()
         }
         videoViewForExit?.freezePicture()
     }
