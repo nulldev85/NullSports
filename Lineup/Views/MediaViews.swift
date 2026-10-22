@@ -1299,7 +1299,7 @@ private struct MediaCatalogsScreen: View {
                 .accessibilityHidden(true)
             }
         }
-        .padding(.leading, 72)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder
@@ -3807,14 +3807,14 @@ private struct TVMediaLibraryPreview: View {
     var body: some View {
         Group {
             if let item {
-                VStack(alignment: .leading, spacing: 13) {
+                VStack(alignment: steady ? .center : .leading, spacing: 13) {
                     titleLockup(item)
                     ratingsRow(item)
                     metadataLine(item)
                     overviewText(item)
                     if steady {
                         Color.clear.frame(height: 44)
-                            .overlay(alignment: .leading) { castLine(item) }
+                            .overlay(alignment: .center) { castLine(item) }
                     } else {
                         castLine(item)
                     }
@@ -3822,7 +3822,7 @@ private struct TVMediaLibraryPreview: View {
                 .id(item.libraryKey)
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity,
-                       alignment: steady ? .topLeading : .bottomLeading)
+                       alignment: steady ? .top : .bottomLeading)
                 .padding(.horizontal, 72)
                 .padding(.top, 112)
                 .padding(.bottom, 24)
@@ -3859,10 +3859,11 @@ private struct TVMediaLibraryPreview: View {
                     .foregroundStyle(.white)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
+                    .multilineTextAlignment(steady ? .center : .leading)
                     .shadow(color: .black.opacity(0.72), radius: 12, y: 3)
             }
         }
-        .frame(width: 620, height: 105, alignment: .leading)
+        .frame(width: 620, height: 105, alignment: steady ? .center : .leading)
     }
 
     @ViewBuilder
@@ -3883,6 +3884,7 @@ private struct TVMediaLibraryPreview: View {
                 .font(.inter(19, .semibold))
                 .foregroundStyle(.white.opacity(0.92))
                 .lineLimit(1)
+                .multilineTextAlignment(steady ? .center : .leading)
                 .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
         }
     }
@@ -3895,7 +3897,8 @@ private struct TVMediaLibraryPreview: View {
                 .font(.inter(18, .medium))
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(3, reservesSpace: steady)
-                .frame(maxWidth: 820, alignment: .leading)
+                .multilineTextAlignment(steady ? .center : .leading)
+                .frame(maxWidth: 820, alignment: steady ? .center : .leading)
                 .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
         }
     }
@@ -4097,7 +4100,7 @@ private struct MediaLibraryHero: View {
                 ], startPoint: .top, endPoint: .bottom)
                 #endif
 
-                VStack(alignment: .leading, spacing: heroSpacing) {
+                VStack(alignment: .center, spacing: heroSpacing) {
                     Spacer(minLength: 0)
 
                     #if os(tvOS)
@@ -4105,7 +4108,8 @@ private struct MediaLibraryHero: View {
                         .font(.inter(titleSize, .bold))
                         .foregroundStyle(.white)
                         .lineLimit(2)
-                        .frame(width: readableWidth, alignment: .leading)
+                        .multilineTextAlignment(.center)
+                        .frame(width: readableWidth, alignment: .center)
                         .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
                     #else
                     MobileFanartTitle(item: item, width: readableWidth, height: min(100, titleSize * 2.2)) {
@@ -4113,7 +4117,8 @@ private struct MediaLibraryHero: View {
                             .font(.inter(titleSize, .bold))
                             .foregroundStyle(.white)
                             .lineLimit(2)
-                            .frame(width: readableWidth, alignment: .leading)
+                            .multilineTextAlignment(.center)
+                            .frame(width: readableWidth, alignment: .center)
                             .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
                     }
                     #endif
@@ -4129,7 +4134,8 @@ private struct MediaLibraryHero: View {
                             .font(.inter(metaSize, .semibold))
                             .foregroundStyle(.white.opacity(0.82))
                             .lineLimit(1)
-                            .frame(width: readableWidth, alignment: .leading)
+                            .multilineTextAlignment(.center)
+                            .frame(width: readableWidth, alignment: .center)
                     }
 
                     if let overview = item.overview, !overview.isEmpty {
@@ -4137,7 +4143,8 @@ private struct MediaLibraryHero: View {
                             .font(.inter(overviewSize))
                             .foregroundStyle(.white.opacity(0.82))
                             .lineLimit(overviewLines)
-                            .frame(width: readableWidth, alignment: .leading)
+                            .multilineTextAlignment(.center)
+                            .frame(width: readableWidth, alignment: .center)
                     }
 
                     #if os(tvOS)
@@ -4145,13 +4152,13 @@ private struct MediaLibraryHero: View {
                                     symbol: item.hasDetailPage ? "info.circle.fill" : "play.fill") {
                         onOpen(item)
                     }
-                    .frame(width: min(buttonMaxWidth, contentWidth), alignment: .leading)
+                    .frame(width: min(buttonMaxWidth, contentWidth), alignment: .center)
                     #endif
                 }
                 // This frame is explicit rather than an ideal/max width. A
                 // long title can wrap inside it, but can never make a TabView
                 // page wider and move its leading edge off screen again.
-                .frame(width: contentWidth, height: contentHeight, alignment: .bottomLeading)
+                .frame(width: contentWidth, height: contentHeight, alignment: .bottom)
                 .padding(.horizontal, heroHorizontalPadding)
                 .padding(.top, heroTopPadding)
                 .padding(.bottom, heroBottomPadding)
