@@ -5,6 +5,7 @@ struct MobileWelcomeMotionChecks {
     static func main() {
         let stripPeriod: CGFloat = 1_856
         let viewportWidth: CGFloat = 393
+        let copyCount = 3
         let gapBetweenCopies: CGFloat = 8
         let rowCount = 6
 
@@ -17,7 +18,7 @@ struct MobileWelcomeMotionChecks {
                          "Welcome row \(row) must alternate direction, with the first row moving left")
 
             for offset in [motion.startOffset, motion.endOffset] {
-                let duplicatedContentEnd = offset + stripPeriod * 2 - gapBetweenCopies
+                let duplicatedContentEnd = offset + stripPeriod * CGFloat(copyCount) - gapBetweenCopies
                 precondition(offset <= 0 && duplicatedContentEnd >= viewportWidth,
                              "Welcome row \(row) must cover the viewport at both ends of its loop")
             }

@@ -371,7 +371,9 @@ private struct MobileWelcomePosterRow: View {
             let currentOffset = hasStarted ? motion.endOffset : motion.startOffset
 
             HStack(spacing: spacing) {
-                ForEach(0..<2, id: \.self) { _ in
+                // Three copies give the most heavily phased right-moving
+                // row enough runway to stay covered at both loop endpoints.
+                ForEach(0..<3, id: \.self) { _ in
                     HStack(spacing: spacing) {
                         ForEach(0..<posterCount, id: \.self) { index in
                             if posters.indices.contains(index), let poster = posters[index] {
