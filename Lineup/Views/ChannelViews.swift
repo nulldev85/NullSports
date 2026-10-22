@@ -3685,6 +3685,14 @@ struct GuideView: View {
                             }
                         }
                         .disabled(sidebarVisible && !searchActive)
+                        .overlay(alignment: .topLeading) {
+                            if guideViewMode == .tvGuide {
+                                GuideEPGLeadingFade(
+                                    startX: GuideLayout.inset + layout.channelWidth,
+                                    width: min(248, max(168, layout.slotWidth * 0.92))
+                                )
+                            }
+                        }
 
                         if sidebarVisible && !searchActive {
                             GuideSidebar(
@@ -4598,6 +4606,34 @@ private struct GuideTimelineHeader: View {
         .overlay(alignment: .bottom) {
             Rectangle().fill(GuidePalette.line).frame(height: 1)
         }
+    }
+}
+
+/// The programme grid and its time ruler share one dark leading-edge fade.
+/// Keeping this overlay on the scrolling region blends each row into the
+/// guide background without touching the pinned channel-logo rail.
+private struct GuideEPGLeadingFade: View {
+    let startX: CGFloat
+    let width: CGFloat
+
+    var body: some View {
+        GeometryReader { bounds in
+            LinearGradient(
+                stops: [
+                    .init(color: GuidePalette.background.opacity(0.96), location: 0),
+                    .init(color: GuidePalette.background.opacity(0.82), location: 0.2),
+                    .init(color: GuidePalette.background.opacity(0.54), location: 0.48),
+                    .init(color: GuidePalette.background.opacity(0.2), location: 0.78),
+                    .init(color: .clear, location: 1)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: width, height: bounds.size.height)
+            .position(x: startX + width / 2, y: bounds.size.height / 2)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
