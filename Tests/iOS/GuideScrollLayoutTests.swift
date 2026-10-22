@@ -124,11 +124,22 @@ final class GuideScrollLayoutTests: XCTestCase {
         let scroll = try XCTUnwrap(probe.enclosingScrollView)
         XCTAssertGreaterThan(scroll.contentSize.height, 1_000,
                              "The Guide probe must belong to the full-height favorites scroller")
-        scroll.setContentOffset(CGPoint(x: 0, y: 320), animated: false)
-        try await settle { (model.firstRowFrame?.minY ?? rowTop) < rowTop - 200 }
+        let initialOffset = scroll.contentOffset
+        scroll.setContentOffset(CGPoint(x: initialOffset.x, y: initialOffset.y + 320), animated: false)
+        XCTAssertEqual(scroll.contentOffset.y, initialOffset.y + 320, accuracy: 1,
+                       "The test must move the actual Guide favorites scroller")
         model.resetToken = UUID()
-        try await settle { abs((model.firstRowFrame?.minY ?? 0) - rowTop) < 3 }
-        XCTAssertEqual(model.firstRowFrame?.minY ?? 0, rowTop, accuracy: 3,
+        try await settle {
+            guard let activeProbe = window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self, where: {
+                !$0.horizontal
+            }), let activeScroll = activeProbe.enclosingScrollView else { return false }
+            return abs(activeScroll.contentOffset.y - initialOffset.y) < 1
+        }
+        let resetProbe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) {
+            !$0.horizontal
+        })
+        let resetScroll = try XCTUnwrap(resetProbe.enclosingScrollView)
+        XCTAssertEqual(resetScroll.contentOffset.y, initialOffset.y, accuracy: 1,
                        "Refreshing favorites must recreate the real list at its first channel")
     }
 
