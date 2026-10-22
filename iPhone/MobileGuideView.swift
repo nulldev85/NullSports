@@ -694,14 +694,14 @@ struct MobileGuideView: View {
     private func channelListRow(_ stream: XtreamStream, now: Date) -> some View {
         let programs = library.guidePrograms(for: stream)
         let program = programs.first { $0.start <= now && now < $0.end }
-        let tint = MobileChannelListPalette.fill(for: stream)
+        let logoURL = stream.streamIcon.flatMap(URL.init(string:))
         let quality = LiveChannelQuality(name: stream.name).label?
             .split(separator: "·", maxSplits: 1).first.map(String.init)
         let shape = RoundedRectangle(cornerRadius: 15, style: .continuous)
 
         return Button { selectChannel(stream) } label: {
             HStack(spacing: 0) {
-                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 118) { loaded in
+                LineupArtView(url: logoURL, width: 118) { loaded in
                     if let image = loaded {
                         image.resizable().scaledToFit().padding(9)
                     } else {
@@ -749,7 +749,10 @@ struct MobileGuideView: View {
                 .padding(.trailing, 12)
             }
             .frame(minHeight: 80)
-            .background(tint)
+            .background {
+                MobileChannelLogoTint(url: logoURL, width: 118, fallback: LineupStyle.raised)
+                    .clipShape(shape)
+            }
             .clipShape(shape)
             .contentShape(shape)
         }
@@ -772,12 +775,10 @@ struct MobileGuideView: View {
                     MobileGuideChannelScroll {
                         LazyVStack(spacing: 0) {
                             ForEach(channels) { stream in
-                                let tint = MobileChannelListPalette.fill(for: stream)
                                 HStack(spacing: 0) {
-                                    channelTile(stream, tint: tint)
+                                    channelTile(stream)
                                         .offset(x: horizontalOffset).zIndex(2)
-                                    programRow(stream, now: now, viewportWidth: viewport.size.width - logoWidth,
-                                               tint: tint)
+                                    programRow(stream, now: now, viewportWidth: viewport.size.width - logoWidth)
                                 }.frame(height: rowHeight)
                             }
                         }
@@ -839,10 +840,11 @@ struct MobileGuideView: View {
         game != nil && stream.id == recommendedStreamID
     }
 
-    private func channelTile(_ stream: XtreamStream, tint: Color) -> some View {
+    private func channelTile(_ stream: XtreamStream) -> some View {
+        let logoURL = stream.streamIcon.flatMap(URL.init(string:))
         Group {
             ZStack(alignment: .center) {
-                LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: logoWidth) { loaded in
+                LineupArtView(url: logoURL, width: logoWidth) { loaded in
                     if let image = loaded {
                         image.resizable().scaledToFit()
                             .frame(width: logoWidth - 16, height: min(42, cardHeight - 12), alignment: .center)
@@ -875,7 +877,9 @@ struct MobileGuideView: View {
             .frame(width: logoWidth, height: rowHeight, alignment: .center)
             .contentShape(Rectangle())
             // The frozen column masks scrolling programs with the guide's base color.
-            .background(tint)
+            .background {
+                MobileChannelLogoTint(url: logoURL, width: logoWidth, fallback: LineupStyle.raised)
+            }
         }
         .lineupHoldMenu(stream.name, symbol: "tv", press: .dim, items: { channelMenuItems(stream) }) {
             selectChannel(stream)
@@ -883,7 +887,8 @@ struct MobileGuideView: View {
         .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
     }
 
-    private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat, tint: Color) -> some View {
+    private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat) -> some View {
+        let logoURL = stream.streamIcon.flatMap(URL.init(string:))
         let programs = library.guidePrograms(for: stream)
         let segments = window.segments(programs.map { (start: $0.start, end: $0.end) })
         return ZStack(alignment: .leading) {
@@ -895,8 +900,9 @@ struct MobileGuideView: View {
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(tint)
+                        MobileChannelLogoTint(url: logoURL, width: logoWidth, fallback: LineupStyle.raised)
+                            .frame(width: width, height: cardHeight)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         if program != nil, live {
                             // The app's progress bar along the foot of what is
                             // on now, its fill ending where the timeline says
@@ -956,28 +962,6 @@ struct MobileGuideView: View {
 private struct GuideHorizontalPosition: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-private enum MobileChannelListPalette {
-    static func fill(for stream: XtreamStream) -> Color {
-        let name = stream.name.lowercased()
-        if name.contains("tnt sports") { return color(0x30172F) }
-        if name.contains("sky sports") || name.contains("espn") { return color(0x301819) }
-        if name.contains("big ten") || name.contains("btn network") { return color(0x172A31) }
-        if name.contains("cbs sports") || name.contains("fox") { return color(0x2B2B2C) }
-
-        let palette: [UInt32] = [0x2C1B20, 0x1B292D, 0x30231B, 0x26232D, 0x2D1E1C, 0x25292B]
-        let hash = stream.name.utf8.reduce(UInt64(14_695_981_039_346_656_037)) {
-            ($0 ^ UInt64($1)) &* 1_099_511_628_211
-        }
-        return color(palette[Int(hash % UInt64(palette.count))])
-    }
-
-    private static func color(_ value: UInt32) -> Color {
-        Color(red: Double((value >> 16) & 0xFF) / 255,
-              green: Double((value >> 8) & 0xFF) / 255,
-              blue: Double(value & 0xFF) / 255)
-    }
 }
 
 /// Favorites order drives the guide's channel order, so this list edits it directly:
