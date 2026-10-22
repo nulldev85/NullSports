@@ -118,7 +118,12 @@ final class GuideScrollLayoutTests: XCTestCase {
         XCTAssertEqual(rowTop, barBottom + MobileGuideLayoutMetrics.listFirstRowTopInset, accuracy: 3,
                        "List mode should preserve its designed top gap after clearing the toolbar")
 
-        let scroll = try XCTUnwrap(window.firstSubview(of: UIScrollView.self) { $0.contentSize.height > 1_000 })
+        let probe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) {
+            !$0.horizontal
+        })
+        let scroll = try XCTUnwrap(probe.enclosingScrollView)
+        XCTAssertGreaterThan(scroll.contentSize.height, 1_000,
+                             "The Guide probe must belong to the full-height favorites scroller")
         scroll.setContentOffset(CGPoint(x: 0, y: 320), animated: false)
         try await settle { (model.firstRowFrame?.minY ?? rowTop) < rowTop - 200 }
         model.resetToken = UUID()
