@@ -842,7 +842,7 @@ struct MobileGuideView: View {
 
     private func channelTile(_ stream: XtreamStream) -> some View {
         let logoURL = stream.streamIcon.flatMap(URL.init(string:))
-        Group {
+        return Group {
             ZStack(alignment: .center) {
                 LineupArtView(url: logoURL, width: logoWidth) { loaded in
                     if let image = loaded {
