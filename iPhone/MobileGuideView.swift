@@ -285,7 +285,7 @@ struct MobileGuideView: View {
                     }
                     LineupToolbarItem(placement: .principal) {
                         if showsSearch {
-                            Text("Search").font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text)
+                            Text("Search").font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text.opacity(0.82))
                         } else {
                             guideFilterButton
                         }
@@ -320,6 +320,8 @@ struct MobileGuideView: View {
             .onChange(of: filter) { _, _ in resetGuideScrollPosition() }
             .onChange(of: query) { _, _ in resetGuideScrollPosition() }
             .onChange(of: library.favoriteStreamOrder) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: library.recentStreamOrder) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: library.streamsRevision) { _, _ in resetGuideScrollPosition() }
             .onChange(of: isActive) { _, active in
                 if !active { cancelQualityCheck() }
                 // Leaving the Guide tab still tears the player down — except
@@ -443,7 +445,7 @@ struct MobileGuideView: View {
                     .font(.inter(14, .heavy))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(LineupStyle.text)
+                    .foregroundStyle(LineupStyle.text.opacity(0.78))
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .heavy, design: .rounded))
                     .foregroundStyle(LineupPanelStyle.quiet)
@@ -695,26 +697,21 @@ struct MobileGuideView: View {
     }
 
     private func channelList(now: Date) -> some View {
-        ScrollViewReader { proxy in
-            MobileGuideChannelScroll {
-                LazyVStack(spacing: 9) {
-                    Color.clear
-                        .frame(height: MobileGuideLayoutMetrics.listFirstRowTopInset)
-                        .id("guide-list-top")
-                    ForEach(channels) { stream in
-                        channelListRow(stream, now: now)
-                    }
+        MobileGuideChannelScroll(resetToken: resetPosition) {
+            LazyVStack(spacing: 9) {
+                ForEach(channels) { stream in
+                    channelListRow(stream, now: now)
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 14)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .refreshable { await library.reload() }
-            .onAppear { proxy.scrollTo("guide-list-top", anchor: .top) }
-            .onChange(of: resetPosition) { _, _ in
-                proxy.scrollTo("guide-list-top", anchor: .top)
-            }
+            .padding(.horizontal, 12)
+            // Separate top clearance from the scrolling content. The UIKit
+            // probe resets the real scroll offset when this list's inputs
+            // change, so the first favorite always begins below the chrome.
+            .padding(.top, MobileGuideLayoutMetrics.listFirstRowTopInset)
+            .padding(.bottom, 14)
         }
+        .scrollDismissesKeyboard(.interactively)
+        .refreshable { await library.reload() }
     }
 
     private func channelListRow(_ stream: XtreamStream, now: Date) -> some View {
@@ -741,11 +738,12 @@ struct MobileGuideView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(stream.name)
                         .font(.inter(12, .semibold))
-                        .foregroundStyle(Color.white.opacity(0.52))
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.82))
                         .lineLimit(1)
                     Text(program?.title ?? "Program guide not available")
                         .font(.inter(15, .heavy))
-                        .foregroundStyle(program == nil ? Color.white.opacity(0.30) : LineupStyle.text.opacity(0.80))
+                        .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.46)
+                                                        : LineupStyle.text.opacity(0.68))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     HStack(spacing: 6) {
@@ -756,12 +754,12 @@ struct MobileGuideView: View {
                                     .foregroundStyle(LineupStyle.liveStatus)
                             } else {
                                 Text(program.start, format: .dateTime.hour().minute())
-                                    .foregroundStyle(Color.white.opacity(0.50))
+                                .foregroundStyle(LineupStyle.secondary.opacity(0.70))
                             }
                         }
                         if let quality {
                             Text(quality.uppercased())
-                                .foregroundStyle(Color.white.opacity(0.60))
+                                .foregroundStyle(LineupStyle.secondary.opacity(0.76))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.black.opacity(0.22), in: Capsule())
@@ -865,7 +863,7 @@ struct MobileGuideView: View {
                 Text(now, format: .dateTime.hour().minute())
                     .font(.interDigits(.caption2, .semibold))
             }
-                .foregroundStyle(Color.white.opacity(0.72))
+                .foregroundStyle(LineupStyle.secondary.opacity(0.74))
                 .frame(width: logoWidth, height: 40)
                 .background(Color.black)
                 .offset(x: horizontalOffset).zIndex(2)
@@ -873,7 +871,7 @@ struct MobileGuideView: View {
                 ForEach(window.ticks, id: \.self) { date in
                     Text(date, format: .dateTime.hour().minute())
                         .font(.interDigits(.caption2, .semibold))
-                        .foregroundStyle(Color.white.opacity(0.55))
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.66))
                         .padding(.leading, 7).frame(width: MobileGuideWindow.pointsPerSecond * 1800, height: 32, alignment: .leading)
                         .offset(x: window.x(date))
                 }
@@ -970,7 +968,8 @@ struct MobileGuideView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
                                 .font(.inter(.caption, program == nil ? .regular : .semibold)).lineLimit(2)
-                                .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.68) : LineupStyle.text.opacity(0.80))
+                                .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.52)
+                                                               : LineupStyle.text.opacity(0.68))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if let program {
                                 HStack(spacing: 5) {
@@ -983,7 +982,7 @@ struct MobileGuideView: View {
                                     if program.isNew == true { Text("NEW") }
                                 }
                                 .font(.inter(9, .medium))
-                                .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary.opacity(0.72))
+                                .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary.opacity(0.68))
                                 .lineLimit(1)
                             }
                         }
@@ -1103,14 +1102,19 @@ struct MobileGuideViewport<Content: View>: View {
 struct MobileGuideChannelScroll<Content: View>: View {
     @State private var bottomClearance: CGFloat = 0
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
+    private let resetToken: UUID?
     private let content: Content
 
-    init(@ViewBuilder content: () -> Content) { self.content = content() }
+    init(resetToken: UUID? = nil, @ViewBuilder content: () -> Content) {
+        self.resetToken = resetToken
+        self.content = content()
+    }
 
     var body: some View {
         ScrollView(.vertical) {
             content.background(MobileGuideScrollConfiguration(horizontal: false,
-                usesLineupNavigation: usesLineupNavigation, onBottomOverlap: { bottomClearance = $0 }))
+                usesLineupNavigation: usesLineupNavigation, resetToken: resetToken,
+                onBottomOverlap: { bottomClearance = $0 }))
         }
         .contentMargins(.top, 0, for: .scrollContent)
         .contentMargins(.bottom, bottomClearance, for: .scrollContent)
@@ -1128,11 +1132,13 @@ struct MobileGuideChannelScroll<Content: View>: View {
 struct MobileGuideScrollConfiguration: UIViewRepresentable {
     let horizontal: Bool
     var usesLineupNavigation: Bool? = nil
+    var resetToken: UUID? = nil
     var onBottomOverlap: ((CGFloat) -> Void)? = nil
 
     func makeUIView(context: Context) -> Probe {
         let probe = Probe(frame: .zero)
         probe.horizontal = horizontal
+        probe.resetToken = resetToken
         probe.isUserInteractionEnabled = false
         return probe
     }
@@ -1140,6 +1146,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     func updateUIView(_ probe: Probe, context: Context) {
         probe.horizontal = horizontal
         probe.usesLineupNavigation = usesLineupNavigation
+        probe.resetToken = resetToken
         probe.onBottomOverlap = onBottomOverlap
         probe.requestRefresh()
     }
@@ -1182,10 +1189,13 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     final class Probe: UIView {
         var horizontal = false
         var usesLineupNavigation: Bool?
+        var resetToken: UUID?
         var onBottomOverlap: ((CGFloat) -> Void)?
         private(set) var reported: CGFloat?
         private var scheduled = false
         private weak var observedScroll: UIScrollView?
+        private weak var resetScroll: UIScrollView?
+        private var appliedResetToken: UUID?
         private weak var boundaryWindow: UIWindow?
         private var observer: ViewportObserver?
 
@@ -1227,6 +1237,15 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         private func refresh() {
             guard let window, let scroll = enclosingScrollView else { return }
             MobileGuideScrollConfiguration.configure(scroll, horizontal: horizontal)
+            if !horizontal, let resetToken,
+               (resetScroll !== scroll || appliedResetToken != resetToken) {
+                resetScroll = scroll
+                appliedResetToken = resetToken
+                let top = -scroll.adjustedContentInset.top
+                if abs(scroll.contentOffset.y - top) > 0.5 {
+                    scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: top), animated: false)
+                }
+            }
             guard !horizontal, onBottomOverlap != nil else { detachObserver(); return }
             if observedScroll !== scroll {
                 detachObserver()
@@ -1272,6 +1291,8 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             observer?.removeFromSuperview()
             observer = nil
             observedScroll = nil
+            resetScroll = nil
+            appliedResetToken = nil
             reported = nil
         }
 

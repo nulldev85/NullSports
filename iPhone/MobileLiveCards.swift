@@ -137,7 +137,7 @@ struct MobileNowPlayingStrip: View {
                     HStack(spacing: 4) {
                         SportsMark(league: game.league, competition: game.competition, size: 16)
                         if let network = game.leadNetwork {
-                            Text(network.uppercased()).font(.inter(10, .semibold)).foregroundStyle(LineupStyle.secondary)
+                            Text(network.uppercased()).font(.inter(10, .semibold)).foregroundStyle(LineupStyle.secondary.opacity(0.68))
                                 .lineLimit(1)
                         }
                     }
@@ -147,6 +147,7 @@ struct MobileNowPlayingStrip: View {
                 badge(logo: game.homeLogo, code: SportsGame.code(game.homeAbbreviation, game.homeTeam), rank: game.homeRank)
             }
         }
+        .foregroundStyle(LineupStyle.text.opacity(0.74))
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity)
         .frame(height: Self.height)
@@ -174,13 +175,14 @@ struct MobileNowPlayingStrip: View {
             TeamBadge(url: logo, fallback: code, size: 30, tight: true)
             if let rank {
                 Text(verbatim: "\(rank)").font(.interDigits(10, .heavy))
-                    .foregroundStyle(LineupStyle.text)
+                    .foregroundStyle(LineupStyle.text.opacity(0.76))
             }
         }
     }
 
     private func score(_ value: String, leads: Bool) -> some View {
         Text(value).font(.interDigits(22, .heavy))
-            .foregroundStyle(leads ? LineupStyle.text : LineupStyle.secondary)
+            .foregroundStyle(leads ? LineupStyle.text.opacity(0.76)
+                                   : LineupStyle.secondary.opacity(0.72))
     }
 }

@@ -16,7 +16,7 @@ struct MobileLeagueMenuButton: View {
                 if let league { MobileLeagueLogo(league: league, size: 22) }
                 Text(MobileLeagueMenu.title(league))
                     .font(.inter(15, .bold))
-                    .foregroundStyle(LineupStyle.text)
+                    .foregroundStyle(LineupStyle.text.opacity(0.76))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))

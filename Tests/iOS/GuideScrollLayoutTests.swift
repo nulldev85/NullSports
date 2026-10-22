@@ -17,6 +17,38 @@ final class GuideScrollLayoutTests: XCTestCase {
         XCTAssertFalse(horizontal.bounces)
     }
 
+    @MainActor
+    func testFavoritesResetTokenMovesTheActualScrollViewToItsTop() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let page = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = page
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+
+        let scroll = UIScrollView(frame: page.view.bounds)
+        scroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        scroll.contentSize = CGSize(width: page.view.bounds.width, height: 2_400)
+        page.view.addSubview(scroll)
+        let probe = MobileGuideScrollConfiguration.Probe(frame: CGRect(origin: .zero, size: scroll.contentSize))
+        probe.horizontal = false
+        probe.usesLineupNavigation = false
+        var measured: CGFloat?
+        probe.onBottomOverlap = { measured = $0 }
+        scroll.addSubview(probe)
+        try await settle { measured != nil }
+
+        scroll.setContentOffset(CGPoint(x: 0, y: 450), animated: false)
+        XCTAssertEqual(scroll.contentOffset.y, 450, "The test must begin below the first favorite")
+        probe.resetToken = UUID()
+        probe.requestRefresh()
+        try await settle { abs(scroll.contentOffset.y + scroll.adjustedContentInset.top) < 0.5 }
+        XCTAssertEqual(scroll.contentOffset.y, -scroll.adjustedContentInset.top,
+                       "A guide data/order reset must place the real list viewport at its first row")
+    }
+
     /// Scrolled to the end, the last channel rests right on top of the tab
     /// bar: not under it, and not with a gap above it. Built the way the TV
     /// Guide tab is, a vertical list inside the horizontal timeline, inside a

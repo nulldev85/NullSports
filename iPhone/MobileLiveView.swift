@@ -489,17 +489,19 @@ struct MobileLiveView: View {
             HStack(spacing: 10) {
                 Rectangle().fill(LineupStyle.highlight).frame(width: 3, height: 31)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("LINEUP").font(.inter(20, .black)).tracking(-0.5).foregroundStyle(LineupStyle.text)
-                    Text("LIVE SPORTS").font(.inter(8, .bold)).tracking(2.2).foregroundStyle(LineupStyle.secondary)
+                    Text("LINEUP").font(.inter(20, .black)).tracking(-0.5)
+                        .foregroundStyle(LineupStyle.text.opacity(0.84))
+                    Text("LIVE SPORTS").font(.inter(8, .bold)).tracking(2.2)
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.76))
                 }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {
                 Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                    .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.secondary.opacity(0.72))
                 HStack(spacing: 5) {
                     if slate.live.isEmpty && !slate.mine.contains(where: \.isLive) {
-                        Circle().fill(LineupStyle.secondary).frame(width: 5, height: 5)
+                        Circle().fill(LineupStyle.secondary.opacity(0.76)).frame(width: 5, height: 5)
                     } else {
                         MobileLiveDot()
                     }
@@ -508,7 +510,7 @@ struct MobileLiveView: View {
                         .font(.inter(10, .bold)).tracking(1)
                 }
                 .foregroundStyle(slate.live.isEmpty && !slate.mine.contains(where: \.isLive)
-                                 ? LineupStyle.secondary : LineupStyle.liveStatus)
+                                 ? LineupStyle.secondary.opacity(0.76) : LineupStyle.liveStatus)
             }
         }
         .padding(.horizontal, 20).padding(.bottom, 17)
@@ -581,14 +583,16 @@ struct MobileLiveView: View {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
                     .font(.system(size: 13, weight: .heavy, design: .rounded))
-                    .foregroundStyle(title == "On Air" ? LineupStyle.liveStatus : LineupPanelStyle.quiet)
+                    .foregroundStyle(title == "On Air" ? LineupStyle.liveStatus
+                                                        : LineupPanelStyle.quiet.opacity(0.72))
                 Text(title.uppercased())
                     .font(.inter(13, .heavy)).tracking(0.65)
-                    .foregroundStyle(LineupStyle.text)
+                    .foregroundStyle(LineupStyle.text.opacity(0.74))
                 Spacer(minLength: 6)
                 Text(detail.uppercased())
                     .font(.inter(11, .heavy)).tracking(0.35)
-                    .foregroundStyle(title == "On Air" ? LineupStyle.liveStatus : LineupPanelStyle.quiet)
+                    .foregroundStyle(title == "On Air" ? LineupStyle.liveStatus
+                                                        : LineupPanelStyle.quiet.opacity(0.72))
             }
             LazyVStack(spacing: 9) {
                 ForEach(games) { game in matchup(game, showsDay: showsDay) }
@@ -1051,17 +1055,19 @@ private struct MobileMatchupRow: View {
                             MobileLeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 28)
                             Text(game.eventName ?? "")
                                 .font(.inter(.body, .semibold))
+                                .foregroundStyle(LineupStyle.text.opacity(0.72))
                                 .lineLimit(2).multilineTextAlignment(.leading)
                         }
                         if let session = game.race?.title {
-                            Text(session).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.highlight)
+                            Text(session).font(.inter(.caption, .bold))
+                                .foregroundStyle(LineupStyle.highlight.opacity(0.78))
                         }
                         if let whereItIs { place(whereItIs) }
                     }
                 } else {
                     if let competition = game.competition {
                         Text(competition.name.uppercased()).font(.inter(10, .bold))
-                            .foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                            .foregroundStyle(LineupStyle.secondary.opacity(0.68)).lineLimit(1)
                     }
                     team(game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
                          record: game.awayRecord, score: game.awayScore, isAway: true)
@@ -1093,12 +1099,13 @@ private struct MobileMatchupRow: View {
                 }
                 if !game.broadcast.isEmpty {
                     Text(game.broadcast.uppercased()).font(.inter(9, .semibold)).tracking(0.5).lineLimit(2)
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.68))
                 }
                 Image(systemName: isWatching ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 10, design: .rounded))
                     .padding(.top, 2).accessibilityHidden(true)
             }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
         }
+        .foregroundStyle(LineupStyle.text.opacity(0.72))
         .fixedSize(horizontal: false, vertical: true)
         // Keep a single rounded event tile, like each channel in Guide List,
         // with the visual weight carried by the teams' own colors.
@@ -1115,7 +1122,7 @@ private struct MobileMatchupRow: View {
     private func place(_ text: String) -> some View {
         Text(text)
             .font(.inter(.caption2))
-            .foregroundStyle(LineupStyle.secondary)
+            .foregroundStyle(LineupStyle.secondary.opacity(0.68))
             .lineLimit(1).truncationMode(.tail)
     }
 
@@ -1134,7 +1141,7 @@ private struct MobileMatchupRow: View {
                 if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
                     // A tennis player's line holds their country, not a record.
                     Text(record).font(.interDigits(.caption2))
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.68))
                         .accessibilityLabel(game.league.isTennis ? record : "Record: \(record)")
                 }
             }
