@@ -1,0 +1,98 @@
+[
+  {
+    "asset": "WelcomePoster01",
+    "title": "The Matrix",
+    "kind": "movie",
+    "tmdbID": 603,
+    "source": "https://image.tmdb.org/t/p/w342/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
+    "sha256": "bdffd56b7c40a4e75edb1f7c8acf509bf2f63bd7b7f3bafac35b707406ae0c41"
+  },
+  {
+    "asset": "WelcomePoster02",
+    "title": "Breaking Bad",
+    "kind": "tv",
+    "tmdbID": 1396,
+    "source": "https://image.tmdb.org/t/p/w342/3xnWaLQjelJDDF7LT1WBo6f4BRe.jpg",
+    "sha256": "aa4dff7d65d9b097cce10ac93d8065af42887c8f1e5d16a5920a6494f2561e10"
+  },
+  {
+    "asset": "WelcomePoster03",
+    "title": "Interstellar",
+    "kind": "movie",
+    "tmdbID": 157336,
+    "source": "https://image.tmdb.org/t/p/w342/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+    "sha256": "cd5462cae40d04ab8a7f268299e9aa199be1ffbf2130e6b7081cb4e77afe8553"
+  },
+  {
+    "asset": "WelcomePoster04",
+    "title": "The Last of Us",
+    "kind": "tv",
+    "tmdbID": 100088,
+    "source": "https://image.tmdb.org/t/p/w342/uKvVjHNqB5VmOrdxqAt2F7J78ED.jpg",
+    "sha256": "a87d59f8a79c0caba66575c0ccd7007edd5d9d16324689c1f1c798601d3a6712"
+  },
+  {
+    "asset": "WelcomePoster05",
+    "title": "Inception",
+    "kind": "movie",
+    "tmdbID": 27205,
+    "source": "https://image.tmdb.org/t/p/w342/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg",
+    "sha256": "96931523da7fded8968235b1baf27c31eb56b08ddf51de258a8f97b64c624891"
+  },
+  {
+    "asset": "WelcomePoster06",
+    "title": "Game of Thrones",
+    "kind": "tv",
+    "tmdbID": 1399,
+    "source": "https://image.tmdb.org/t/p/w342/1XS1oqL89opfnbLl8WnZY1O1uJx.jpg",
+    "sha256": "0fd95209582012c0c4a5076cf7ea4adcd957f8b2df84e4ba59aace5c80e97822"
+  },
+  {
+    "asset": "WelcomePoster07",
+    "title": "Dune",
+    "kind": "movie",
+    "tmdbID": 438631,
+    "source": "https://image.tmdb.org/t/p/w342/d5NXSklXo0qyIYkgV94XAgMIckC.jpg",
+    "sha256": "b268fa1ea9d5d54f4f67360a4f92bf69fdddbbaf3377170a78f7a551e7667da5"
+  },
+  {
+    "asset": "WelcomePoster08",
+    "title": "Stranger Things",
+    "kind": "tv",
+    "tmdbID": 66732,
+    "source": "https://image.tmdb.org/t/p/w342/49WJfeN0moxb9IPfGn8AIqMGskD.jpg",
+    "sha256": "ed108392edb04099c3546f86207f691063760a7cf52ff3d72c1580a9f1a89855"
+  },
+  {
+    "asset": "WelcomePoster09",
+    "title": "Spirited Away",
+    "kind": "movie",
+    "tmdbID": 129,
+    "source": "https://image.tmdb.org/t/p/w342/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg",
+    "sha256": "7e57983f673a8489a739a38294e82b818c370189fd65dca49466df46c2e83cc2"
+  },
+  {
+    "asset": "WelcomePoster10",
+    "title": "The Mandalorian",
+    "kind": "tv",
+    "tmdbID": 82856,
+    "source": "https://image.tmdb.org/t/p/w342/sWgBv7LV2PRoQgkxwlibdGXKz1S.jpg",
+    "sha256": "2799bbe47b615b585899b6156957060a4aecbfd3c58571647630fbb7a255d6ec"
+  },
+  {
+    "asset": "WelcomePoster11",
+    "title": "Spider-Man: Into the Spider-Verse",
+    "kind": "movie",
+    "tmdbID": 324857,
+    "source": "https://image.tmdb.org/t/p/w342/iiZZdoQBEYBv6id8su7ImL0oCbD.jpg",
+    "sha256": "1a47f1dfb8baae4d6297c355a6d53892ba4fe7a617ca1ed24fe4806414546f7c"
+  },
+  {
+    "asset": "WelcomePoster12",
+    "title": "Wednesday",
+    "kind": "tv",
+    "tmdbID": 119051,
+    "source": "https://image.tmdb.org/t/p/w342/jeGtaMwGxPmQN5xM4ClnwPQcNQz.jpg",
+    "sha256": "39456ef0fd197e7731aa9e86c25498ba867d60676b7a949ae5306a9c94e96f70"
+  }
+]

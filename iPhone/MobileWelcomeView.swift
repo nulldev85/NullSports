@@ -6,13 +6,10 @@ import UIKit
 /// poster field comes only from TMDB's real movie and television artwork.
 struct MobileWelcomeView: View {
     @Environment(SportsLibrary.self) private var library
-    @Environment(MediaLibrary.self) private var media
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @FocusState private var focusedField: ProviderField?
 
-    @State private var moviePosters: [TMDBWelcomePoster] = []
-    @State private var seriesPosters: [TMDBWelcomePoster] = []
     @State private var playlistConnection = false
     @State private var profileName = "My IPTV"
     @State private var serverURL = ""
@@ -32,8 +29,8 @@ struct MobileWelcomeView: View {
             ZStack {
                 LineupStyle.background.ignoresSafeArea()
 
-                MobileWelcomePosterBackdrop(posters: posters,
-                    isActive: scenePhase == .active && !reduceMotion)
+                MobileWelcomePosterBackdrop(isActive: scenePhase == .active && !reduceMotion)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
 
                 LinearGradient(stops: [
@@ -66,18 +63,6 @@ struct MobileWelcomeView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(LineupStyle.background.ignoresSafeArea())
-        }
-        .task {
-            guard media.metadataAvailable(.tmdb) else { return }
-            await withTaskGroup(of: (TMDBCatalogMediaKind, [TMDBWelcomePoster]).self) { group in
-                group.addTask { (.movie, await media.tmdbWelcomePosters(for: .movie)) }
-                group.addTask { (.series, await media.tmdbWelcomePosters(for: .series)) }
-                for await (kind, batch) in group {
-                    guard !Task.isCancelled else { return }
-                    if kind == .movie { moviePosters = Array(batch.prefix(6)) }
-                    else { seriesPosters = Array(batch.prefix(6)) }
-                }
-            }
         }
         .sheet(isPresented: $showingMediaSetup) {
             MediaServerSetupView()
@@ -275,18 +260,6 @@ struct MobileWelcomeView: View {
             && (playlistConnection || (!username.isEmpty && !password.isEmpty))
     }
 
-    /// Keep each medium in a permanent set of slots. When one catalog responds
-    /// first, its posters fill their alternating positions while the other
-    /// positions remain placeholders; the whole rail never reorders later.
-    private var posters: [TMDBWelcomePoster?] {
-        var result: [TMDBWelcomePoster?] = []
-        for index in 0..<6 {
-            result.append(moviePosters.indices.contains(index) ? moviePosters[index] : nil)
-            result.append(seriesPosters.indices.contains(index) ? seriesPosters[index] : nil)
-        }
-        return result
-    }
-
     private func connect() {
         guard canConnect, !connecting else { return }
         focusedField = nil
@@ -309,132 +282,6 @@ struct MobileWelcomeView: View {
                 library.errorMessage = nil
             }
         }
-    }
-}
-
-private struct MobileWelcomePosterBackdrop: View {
-    let posters: [TMDBWelcomePoster?]
-    let isActive: Bool
-
-    private let rowCount = 6
-    private let posterSlotCount = 16
-    private let rowSpacing: CGFloat = 8
-
-    var body: some View {
-        GeometryReader { geometry in
-            let preferredWidth = min(108, max(78, (geometry.size.width - 40) / 3.45))
-            let fittingHeight = max(80, (geometry.size.height - rowSpacing * CGFloat(rowCount - 1)) / CGFloat(rowCount))
-            let width = min(preferredWidth, fittingHeight / 1.48)
-            let height = width * 1.48
-            VStack(spacing: rowSpacing) {
-                ForEach(0..<rowCount, id: \.self) { index in
-                    MobileWelcomePosterRow(posters: rowPosters(index), rowIndex: index,
-                                           rowCount: rowCount, posterCount: posterSlotCount,
-                                           posterWidth: width,
-                                           posterHeight: height, isActive: isActive)
-                        .frame(height: height)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        }
-        .background(.black)
-        .accessibilityHidden(true)
-    }
-
-    private func rowPosters(_ row: Int) -> [TMDBWelcomePoster?] {
-        let visible = posters
-        let shift = (row * 3) % visible.count
-        let rotated = Array(visible.dropFirst(shift)) + Array(visible.prefix(shift))
-        // The fixed movie/series slots are repeated to fill each strip without
-        // leaving dark gaps while either official catalog is still loading.
-        return (0..<posterSlotCount).map { rotated[$0 % rotated.count] }
-    }
-}
-
-private struct MobileWelcomePosterRow: View {
-    let posters: [TMDBWelcomePoster?]
-    let rowIndex: Int
-    let rowCount: Int
-    let posterCount: Int
-    let posterWidth: CGFloat
-    let posterHeight: CGFloat
-    let isActive: Bool
-
-    @State private var hasStarted = false
-
-    private let spacing: CGFloat = 8
-
-    var body: some View {
-        GeometryReader { geometry in
-            let span = CGFloat(posterCount) * (posterWidth + spacing)
-            let motion = MobileWelcomeRowMotion(rowIndex: rowIndex, rowCount: rowCount, period: span)
-            let currentOffset = hasStarted ? motion.endOffset : motion.startOffset
-
-            HStack(spacing: spacing) {
-                // Three copies give the most heavily phased right-moving
-                // row enough runway to stay covered at both loop endpoints.
-                ForEach(0..<3, id: \.self) { _ in
-                    HStack(spacing: spacing) {
-                        ForEach(0..<posterCount, id: \.self) { index in
-                            if posters.indices.contains(index), let poster = posters[index] {
-                                posterCell(poster)
-                            } else {
-                                posterPlaceholder
-                            }
-                        }
-                    }
-                }
-            }
-            .fixedSize(horizontal: true, vertical: false)
-            .offset(x: currentOffset)
-            .frame(width: geometry.size.width, alignment: .leading)
-            .clipped()
-            .animation(isActive
-                       ? .linear(duration: Double(span / 24)).repeatForever(autoreverses: false)
-                       : nil, value: hasStarted)
-            .task(id: isActive) {
-                guard isActive else {
-                    hasStarted = false
-                    return
-                }
-                hasStarted = false
-                await Task.yield()
-                guard !Task.isCancelled else { return }
-                hasStarted = true
-            }
-        }
-    }
-
-    private func posterCell(_ poster: TMDBWelcomePoster) -> some View {
-        LineupArtView(url: poster.imageURL, width: posterWidth) { image in
-            ZStack {
-                posterPlaceholder
-                if let image { image.resizable().scaledToFill() }
-            }
-            .frame(width: posterWidth, height: posterHeight)
-            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .stroke(.white.opacity(0.12), lineWidth: 1)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    /// Shows the motion immediately without inventing title artwork. TMDB's
-    /// official poster replaces each neutral card when its image is ready.
-    private var posterPlaceholder: some View {
-        RoundedRectangle(cornerRadius: 13, style: .continuous)
-            .fill(LinearGradient(colors: [
-                Color(red: 0.19, green: 0.21, blue: 0.25),
-                Color(red: 0.11, green: 0.13, blue: 0.17),
-                Color(red: 0.16, green: 0.18, blue: 0.22)
-            ], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .frame(width: posterWidth, height: posterHeight)
-            .overlay {
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .stroke(.white.opacity(0.16), lineWidth: 1)
-            }
     }
 }
 

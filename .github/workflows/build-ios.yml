@@ -47,6 +47,7 @@ jobs:
           set -euo pipefail
           python3 -B Tests/SharedSourceMembershipChecks.py
           python3 -B Tests/MetadataBundleChecks.py
+          python3 -B Tests/WelcomePosterAssetChecks.py
           python3 -B Tests/PlaybackBundleProjectChecks.py
           python3 -B Tests/PlaybackVersionChecks.py
           find Lineup iPhone AetherPlayback MPVPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
