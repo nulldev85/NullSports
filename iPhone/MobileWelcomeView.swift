@@ -79,20 +79,22 @@ struct MobileWelcomeView: View {
     }
 
     private var welcomeForm: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "play.rectangle.fill")
-                    .font(.system(size: 23, weight: .heavy, design: .rounded))
-                    .foregroundStyle(LineupStyle.highlight)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image("LineupBrandMark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 30, height: 30)
+                    .accessibilityHidden(true)
                 Text("LINEUP")
-                    .font(.inter(16, .black))
-                    .tracking(3.2)
+                    .font(.inter(15, .black))
+                    .tracking(2.8)
                     .foregroundStyle(.white)
             }
             .frame(maxWidth: .infinity)
 
             Text("Your TV. Your teams.")
-                .font(.inter(30, .heavy))
+                .font(.inter(27, .heavy))
                 .tracking(-0.5)
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
@@ -100,7 +102,7 @@ struct MobileWelcomeView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Text("Connect your IPTV provider to bring live TV and sports together.")
-                .font(.inter(15, .medium))
+                .font(.inter(14, .medium))
                 .foregroundStyle(.white.opacity(0.75))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
@@ -145,7 +147,7 @@ struct MobileWelcomeView: View {
                 }
                 .foregroundStyle(LineupStyle.onHighlight)
                 .padding(.horizontal, 18)
-                .frame(height: 52)
+                .frame(height: 48)
                 .background(LineupStyle.highlight, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .buttonStyle(.plain)
@@ -191,7 +193,7 @@ struct MobileWelcomeView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 3)
         }
-        .padding(18)
+        .padding(15)
         .background(.black.opacity(0.54), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -225,7 +227,7 @@ struct MobileWelcomeView: View {
                 .font(.inter(14, .semibold))
                 .foregroundStyle(selected ? .white : .white.opacity(0.69))
                 .frame(maxWidth: .infinity)
-                .frame(height: 36)
+                .frame(height: 32)
                 .background {
                     if selected {
                         Capsule().fill(.white.opacity(0.15))
@@ -294,6 +296,7 @@ private struct MobileWelcomePosterBackdrop: View {
     let isActive: Bool
 
     private let rowCount = 6
+    private let posterSlotCount = 16
 
     var body: some View {
         GeometryReader { geometry in
@@ -302,7 +305,8 @@ private struct MobileWelcomePosterBackdrop: View {
             VStack(spacing: 8) {
                 ForEach(0..<rowCount, id: \.self) { index in
                     MobileWelcomePosterRow(posters: rowPosters(index), rowIndex: index,
-                                           rowCount: rowCount, posterWidth: width,
+                                           rowCount: rowCount, posterCount: posterSlotCount,
+                                           posterWidth: width,
                                            posterHeight: height, isActive: isActive)
                         .frame(height: height)
                 }
@@ -315,8 +319,12 @@ private struct MobileWelcomePosterBackdrop: View {
 
     private func rowPosters(_ row: Int) -> [TMDBWelcomePoster] {
         guard !posters.isEmpty else { return [] }
-        let shift = (row * 3) % posters.count
-        return Array(posters.dropFirst(shift)) + Array(posters.prefix(shift))
+        let visible = Array(posters.prefix(posterSlotCount))
+        let shift = (row * 3) % visible.count
+        let rotated = Array(visible.dropFirst(shift)) + Array(visible.prefix(shift))
+        // TMDB can return fewer usable poster paths than the row reserves.
+        // Repeat official results to fill the strip instead of leaving dark gaps.
+        return (0..<posterSlotCount).map { rotated[$0 % rotated.count] }
     }
 }
 
@@ -324,6 +332,7 @@ private struct MobileWelcomePosterRow: View {
     let posters: [TMDBWelcomePoster]
     let rowIndex: Int
     let rowCount: Int
+    let posterCount: Int
     let posterWidth: CGFloat
     let posterHeight: CGFloat
     let isActive: Bool
@@ -334,31 +343,22 @@ private struct MobileWelcomePosterRow: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let span = CGFloat(posters.count) * (posterWidth + spacing)
-            let initialOffset = span * CGFloat(rowIndex) / CGFloat(max(1, rowCount))
-            let currentOffset = hasStarted ? span - initialOffset : -initialOffset
+            let span = CGFloat(posterCount) * (posterWidth + spacing)
+            let phase = span * CGFloat(rowIndex) / CGFloat(max(1, rowCount))
+            let movesLeft = rowIndex.isMultiple(of: 2)
+            let initialOffset = movesLeft ? span - phase : -phase
+            let finalOffset = movesLeft ? -phase : span - phase
+            let currentOffset = hasStarted ? finalOffset : initialOffset
 
             HStack(spacing: spacing) {
                 ForEach(0..<2, id: \.self) { _ in
                     HStack(spacing: spacing) {
-                        ForEach(posters) { poster in
-                            LineupArtView(url: poster.imageURL, width: posterWidth) { image in
-                                Group {
-                                    if let image {
-                                        image.resizable().scaledToFill()
-                                    } else {
-                                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                            .fill(.white.opacity(0.09))
-                                    }
-                                }
-                                .frame(width: posterWidth, height: posterHeight)
-                                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                        .stroke(.white.opacity(0.12), lineWidth: 1)
-                                }
+                        ForEach(0..<posterCount, id: \.self) { index in
+                            if posters.indices.contains(index) {
+                                posterCell(posters[index])
+                            } else {
+                                posterPlaceholder
                             }
-                            .accessibilityHidden(true)
                         }
                     }
                 }
@@ -367,11 +367,11 @@ private struct MobileWelcomePosterRow: View {
             .offset(x: currentOffset)
             .frame(width: geometry.size.width, alignment: .leading)
             .clipped()
-            .animation(isActive && span > 0
+            .animation(isActive
                        ? .linear(duration: Double(span / 24)).repeatForever(autoreverses: false)
                        : nil, value: hasStarted)
-        .task(id: isActive && span > 0) {
-                guard isActive, span > 0 else {
+            .task(id: isActive) {
+                guard isActive else {
                     hasStarted = false
                     return
                 }
@@ -382,6 +382,38 @@ private struct MobileWelcomePosterRow: View {
             }
         }
     }
+
+    private func posterCell(_ poster: TMDBWelcomePoster) -> some View {
+        LineupArtView(url: poster.imageURL, width: posterWidth) { image in
+            ZStack {
+                posterPlaceholder
+                if let image { image.resizable().scaledToFill() }
+            }
+            .frame(width: posterWidth, height: posterHeight)
+            .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// Shows the motion immediately without inventing title artwork. TMDB's
+    /// official poster replaces each neutral card when its image is ready.
+    private var posterPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .fill(LinearGradient(colors: [
+                Color(red: 0.19, green: 0.21, blue: 0.25),
+                Color(red: 0.11, green: 0.13, blue: 0.17),
+                Color(red: 0.16, green: 0.18, blue: 0.22)
+            ], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .frame(width: posterWidth, height: posterHeight)
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(.white.opacity(0.16), lineWidth: 1)
+            }
+    }
 }
 
 private extension View {
@@ -391,7 +423,7 @@ private extension View {
             .foregroundStyle(.white)
             .tint(LineupStyle.highlight)
             .padding(.horizontal, 15)
-            .frame(height: 48)
+            .frame(height: 43)
             .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
