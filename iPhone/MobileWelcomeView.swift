@@ -188,7 +188,7 @@ struct MobileWelcomeView: View {
             .padding(.top, 3)
         }
         .padding(15)
-        .background(.black.opacity(0.30), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .background(.black.opacity(0.60), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .stroke(.white.opacity(0.11), lineWidth: 1)
@@ -293,10 +293,10 @@ private extension View {
             .tint(LineupStyle.highlight)
             .padding(.horizontal, 15)
             .frame(height: 43)
-            .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.09), lineWidth: 1)
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
                     .allowsHitTesting(false)
             }
     }
