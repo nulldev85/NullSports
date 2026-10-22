@@ -21,6 +21,7 @@ final class MobileGuideViewModeTests: XCTestCase {
         XCTAssertEqual(MobileGuideLayoutMetrics.channelLogoRailWidth(for: 500), 124)
         XCTAssertEqual(MobileGuideLayoutMetrics.gridFirstRowTopInset, 8)
         XCTAssertEqual(MobileGuideLayoutMetrics.listFirstRowTopInset, 24)
+        XCTAssertEqual(MobileGuideLayoutMetrics.logoPanelOverlayOpacity, 0.035)
     }
 
     func testLiveProgramOverlayFillTracksElapsedTimeAndStaysInsideItsCard() {

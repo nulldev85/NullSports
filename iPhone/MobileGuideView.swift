@@ -790,12 +790,27 @@ struct MobileGuideView: View {
                     MobileGuideChannelScroll {
                         LazyVStack(spacing: 0) {
                             ForEach(channels) { stream in
-                                HStack(spacing: 0) {
-                                    channelTile(stream, logoWidth: logoRailWidth)
-                                        .offset(x: horizontalOffset).zIndex(2)
-                                    programRow(stream, now: now, viewportWidth: viewport.size.width - logoRailWidth,
-                                               logoWidth: logoRailWidth)
-                                }.frame(height: rowHeight)
+                                ZStack(alignment: .leading) {
+                                    // One channel-tinted surface runs behind
+                                    // both the artwork panel and its timeline.
+                                    MobileChannelLogoTint(
+                                        url: stream.streamIcon.flatMap(URL.init(string:)),
+                                        width: logoRailWidth,
+                                        fallback: LineupStyle.raised)
+                                        .frame(width: logoRailWidth + window.width, height: cardHeight)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                                    HStack(spacing: 0) {
+                                        channelTile(stream, logoWidth: logoRailWidth)
+                                            .offset(x: horizontalOffset).zIndex(2)
+                                        programRow(stream, now: now, viewportWidth: viewport.size.width - logoRailWidth,
+                                                   logoWidth: logoRailWidth)
+                                    }
+                                    .frame(width: logoRailWidth + window.width, height: rowHeight,
+                                           alignment: .leading)
+                                }
+                                .frame(width: logoRailWidth + window.width, height: rowHeight,
+                                       alignment: .leading)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -875,6 +890,11 @@ struct MobileGuideView: View {
                 }
             }
             .frame(width: logoWidth - 8, height: cardHeight)
+            .background {
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(Color.white.opacity(MobileGuideLayoutMetrics.logoPanelOverlayOpacity))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
             .overlay(alignment: .bottom) {
                 if isRecommended(stream) {
                     Text("RECOMMENDED")
@@ -895,10 +915,6 @@ struct MobileGuideView: View {
             }
             .frame(width: logoWidth, height: rowHeight, alignment: .center)
             .contentShape(Rectangle())
-            // The frozen column masks scrolling programs with the guide's base color.
-            .background {
-                MobileChannelLogoTint(url: logoURL, width: logoWidth, fallback: LineupStyle.raised)
-            }
         }
         .lineupHoldMenu(stream.name, symbol: "tv", press: .dim, items: { channelMenuItems(stream) }) {
             selectChannel(stream)
@@ -985,6 +1001,7 @@ enum MobileGuideLayoutMetrics {
     static let gridFirstRowTopInset: CGFloat = 8
     static let listFirstRowTopInset: CGFloat = 24
     static let liveProgressOverlayOpacity = 0.26
+    static let logoPanelOverlayOpacity = 0.035
 
     /// The channel artwork occupies the same strong left-hand column as the
     /// reference guide, while remaining bounded on narrow and wide devices.
