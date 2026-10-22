@@ -160,6 +160,35 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(MetadataTestProtocol.requestCount, 3)
     }
 
+    func testWelcomeArtworkUsesOfficialMovieAndSeriesPostersAndCachesTrendingResults() async throws {
+        MetadataTestProtocol.install { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-read-token")
+            let path = try XCTUnwrap(request.url?.path)
+            switch path {
+            case "/3/trending/movie/week":
+                return (200, #"{"page":1,"total_pages":1,"results":[{"id":603,"title":"The Matrix","poster_path":"/matrix.jpg"},{"id":604,"title":"No poster"},{"id":605,"title":"Unsafe image","poster_path":"/../outside.jpg"}]}"#)
+            case "/3/trending/tv/week":
+                return (200, #"{"page":1,"total_pages":1,"results":[{"id":1396,"name":"Breaking Bad","poster_path":"/breaking-bad.jpg"},{"id":1397,"poster_path":"/untitled.jpg"}]}"#)
+            default:
+                XCTFail("Unexpected welcome-artwork endpoint: \(path)")
+                return (404, "{}")
+            }
+        }
+
+        let service = resolver()
+        let posters = await service.welcomePosters()
+        XCTAssertEqual(posters.map(\.id), ["movie-603", "tv-1396"])
+        XCTAssertEqual(posters.map(\.title), ["The Matrix", "Breaking Bad"])
+        XCTAssertEqual(posters.map(\.imageURL.absoluteString), [
+            "https://image.tmdb.org/t/p/w342/matrix.jpg",
+            "https://image.tmdb.org/t/p/w342/breaking-bad.jpg"
+        ])
+
+        _ = await service.welcomePosters()
+        XCTAssertEqual(MetadataTestProtocol.requestCount, 2,
+                       "Movie and series trending results are reused from the resolver cache")
+    }
+
     #if !os(tvOS)
     func testSearchGenreArtworkAndTMDBMappingsAreUniqueAndGenreSpecific() {
         let genres = AppSearchGenre.all
