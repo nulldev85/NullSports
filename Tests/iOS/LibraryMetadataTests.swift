@@ -110,6 +110,82 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(MetadataTestProtocol.requestCount, 2, "Simultaneous and repeated lookups share their results")
     }
 
+    func testTMDBGenreCatalogAndDiscoveryUseOfficialEndpointsAndCacheResults() async throws {
+        MetadataTestProtocol.install { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-read-token")
+            let components = try XCTUnwrap(URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false))
+            let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            XCTAssertEqual(query["language"], "en-US")
+            switch components.path {
+            case "/3/genre/movie/list":
+                return (200, #"{"genres":[{"id":28,"name":"Action"},{"id":878,"name":"Science Fiction"}]}"#)
+            case "/3/genre/tv/list":
+                return (200, #"{"genres":[{"id":10759,"name":"Action & Adventure"},{"id":10765,"name":"Sci-Fi & Fantasy"}]}"#)
+            case "/3/discover/movie":
+                XCTAssertEqual(query["with_genres"], "28")
+                XCTAssertEqual(query["sort_by"], "popularity.desc")
+                XCTAssertEqual(query["include_adult"], "false")
+                XCTAssertEqual(query["page"], "1")
+                return (200, #"{"page":1,"total_pages":1,"results":[{"id":603,"title":"The Matrix","overview":"A computer hacker learns about the true nature of reality.","release_date":"1999-03-31","poster_path":"/matrix.jpg","backdrop_path":"/matrix-backdrop.jpg"},{"id":604,"title":"Unsafe art","poster_path":"/../private.jpg"}]}"#)
+            default:
+                XCTFail("Unexpected TMDB catalog endpoint: \(components.path)")
+                return (404, "{}")
+            }
+        }
+
+        let service = resolver()
+        let genres = try await service.browseGenres()
+        XCTAssertEqual(genres.movies.first(where: { $0.name == "Action" })?.id, 28)
+        XCTAssertEqual(genres.series.first(where: { $0.name == "Action & Adventure" })?.id, 10759)
+        let page = try await service.discover(genreID: 28, kind: .movie, page: 1)
+        XCTAssertEqual(page.page, 1)
+        XCTAssertEqual(page.total_pages, 1)
+        let matrix = try XCTUnwrap(page.results.first?.mediaItem(kind: .movie))
+        XCTAssertEqual(matrix.name, "The Matrix")
+        XCTAssertEqual(matrix.productionYear, 1999)
+        XCTAssertEqual(matrix.providerIDs?["tmdb"], "603")
+        XCTAssertEqual(matrix.posterURL, "https://image.tmdb.org/t/p/w500/matrix.jpg")
+        XCTAssertEqual(matrix.backdropURL, "https://image.tmdb.org/t/p/w1280/matrix-backdrop.jpg")
+        let unsafe = try XCTUnwrap(page.results.last?.mediaItem(kind: .movie))
+        XCTAssertNil(unsafe.posterURL, "TMDB image paths must not escape the image path")
+
+        _ = try await service.browseGenres()
+        _ = try await service.discover(genreID: 28, kind: .movie, page: 1)
+        XCTAssertEqual(MetadataTestProtocol.requestCount, 3, "Genre lists and discovery pages are reused from the in-memory cache")
+        do {
+            _ = try await service.discover(genreID: 0, kind: .movie, page: 1)
+            XCTFail("Invalid genre IDs must not be sent to TMDB")
+        } catch { }
+        XCTAssertEqual(MetadataTestProtocol.requestCount, 3)
+    }
+
+    #if !os(tvOS)
+    func testSearchGenreArtworkAndTMDBMappingsAreUniqueAndGenreSpecific() {
+        let genres = AppSearchGenre.all
+        XCTAssertEqual(genres.count, 18)
+        XCTAssertEqual(Set(genres.map(\.assetName)).count, genres.count)
+        XCTAssertEqual(Set(genres.map(\.title)).count, genres.count)
+        XCTAssertTrue(genres.allSatisfy { $0.assetName.hasPrefix("SearchGenre") })
+
+        let movieGenres = [TMDBCatalogGenre(id: 28, name: "Action"),
+                           TMDBCatalogGenre(id: 12, name: "Adventure"),
+                           TMDBCatalogGenre(id: 878, name: "Science Fiction"),
+                           TMDBCatalogGenre(id: 14, name: "Fantasy"),
+                           TMDBCatalogGenre(id: 10752, name: "War")]
+        let seriesGenres = [TMDBCatalogGenre(id: 10759, name: "Action & Adventure"),
+                            TMDBCatalogGenre(id: 10765, name: "Sci-Fi & Fantasy"),
+                            TMDBCatalogGenre(id: 10768, name: "War & Politics")]
+        XCTAssertEqual(genres.first { $0.title == "Action" }?.tmdbID(for: .movie, in: movieGenres), 28)
+        XCTAssertEqual(genres.first { $0.title == "Action" }?.tmdbID(for: .series, in: seriesGenres), 10759)
+        XCTAssertEqual(genres.first { $0.title == "Adventure" }?.tmdbID(for: .movie, in: movieGenres), 12)
+        XCTAssertEqual(genres.first { $0.title == "Adventure" }?.tmdbID(for: .series, in: seriesGenres), 10759)
+        XCTAssertEqual(genres.first { $0.title == "Sci-Fi" }?.tmdbID(for: .series, in: seriesGenres), 10765)
+        XCTAssertEqual(genres.first { $0.title == "War" }?.tmdbID(for: .series, in: seriesGenres), 10768)
+        XCTAssertNil(genres.first { $0.title == "Horror" }?.tmdbID(for: .series, in: seriesGenres),
+                     "Don't silently substitute an unrelated TV genre when TMDB has no direct equivalent")
+    }
+    #endif
+
     func testTVDBEpisodeUsesParentSeriesAndExactAiredNumbers() async {
         MetadataTestProtocol.install { request in
             if request.url!.path == "/v4/login" {
