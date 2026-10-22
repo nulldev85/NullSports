@@ -316,6 +316,10 @@ struct MobileGuideView: View {
                 // upright as the guide's own player, not as full screen.
                 if value { expanded = false }
             }
+            .onChange(of: guideViewModeValue) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: filter) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: query) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: library.favoriteStreamOrder) { _, _ in resetGuideScrollPosition() }
             .onChange(of: isActive) { _, active in
                 if !active { cancelQualityCheck() }
                 // Leaving the Guide tab still tears the player down — except
@@ -672,6 +676,10 @@ struct MobileGuideView: View {
 
     private func returnToNow() {
         window = MobileGuideWindow(now: .now)
+        resetGuideScrollPosition()
+    }
+
+    private func resetGuideScrollPosition() {
         horizontalOffset = 0
         resetPosition = UUID()
     }
@@ -687,22 +695,26 @@ struct MobileGuideView: View {
     }
 
     private func channelList(now: Date) -> some View {
-        MobileGuideChannelScroll {
-            LazyVStack(spacing: 9) {
-                ForEach(channels) { stream in
-                    channelListRow(stream, now: now)
+        ScrollViewReader { proxy in
+            MobileGuideChannelScroll {
+                LazyVStack(spacing: 9) {
+                    Color.clear
+                        .frame(height: MobileGuideLayoutMetrics.listFirstRowTopInset)
+                        .id("guide-list-top")
+                    ForEach(channels) { stream in
+                        channelListRow(stream, now: now)
+                    }
                 }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 14)
             }
-            .padding(.horizontal, 12)
-            // The standalone List scroller has no timeline ruler to separate
-            // it from the navigation controls. Keep the first favorite clear
-            // of that chrome on both compact and regular phones.
-            .padding(.top, MobileGuideLayoutMetrics.listFirstRowTopInset)
-            .padding(.bottom, 14)
+            .scrollDismissesKeyboard(.interactively)
+            .refreshable { await library.reload() }
+            .onAppear { proxy.scrollTo("guide-list-top", anchor: .top) }
+            .onChange(of: resetPosition) { _, _ in
+                proxy.scrollTo("guide-list-top", anchor: .top)
+            }
         }
-        .scrollDismissesKeyboard(.interactively)
-        .refreshable { await library.reload() }
-        .id(resetPosition)
     }
 
     private func channelListRow(_ stream: XtreamStream, now: Date) -> some View {
@@ -729,11 +741,11 @@ struct MobileGuideView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(stream.name)
                         .font(.inter(12, .semibold))
-                        .foregroundStyle(Color.white.opacity(0.66))
+                        .foregroundStyle(Color.white.opacity(0.52))
                         .lineLimit(1)
                     Text(program?.title ?? "Program guide not available")
                         .font(.inter(15, .heavy))
-                        .foregroundStyle(program == nil ? Color.white.opacity(0.38) : LineupStyle.text)
+                        .foregroundStyle(program == nil ? Color.white.opacity(0.30) : LineupStyle.text.opacity(0.80))
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     HStack(spacing: 6) {
@@ -744,12 +756,12 @@ struct MobileGuideView: View {
                                     .foregroundStyle(LineupStyle.liveStatus)
                             } else {
                                 Text(program.start, format: .dateTime.hour().minute())
-                                    .foregroundStyle(Color.white.opacity(0.6))
+                                    .foregroundStyle(Color.white.opacity(0.50))
                             }
                         }
                         if let quality {
                             Text(quality.uppercased())
-                                .foregroundStyle(Color.white.opacity(0.78))
+                                .foregroundStyle(Color.white.opacity(0.60))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.black.opacity(0.22), in: Capsule())
@@ -853,6 +865,7 @@ struct MobileGuideView: View {
                 Text(now, format: .dateTime.hour().minute())
                     .font(.interDigits(.caption2, .semibold))
             }
+                .foregroundStyle(Color.white.opacity(0.72))
                 .frame(width: logoWidth, height: 40)
                 .background(Color.black)
                 .offset(x: horizontalOffset).zIndex(2)
@@ -860,6 +873,7 @@ struct MobileGuideView: View {
                 ForEach(window.ticks, id: \.self) { date in
                     Text(date, format: .dateTime.hour().minute())
                         .font(.interDigits(.caption2, .semibold))
+                        .foregroundStyle(Color.white.opacity(0.55))
                         .padding(.leading, 7).frame(width: MobileGuideWindow.pointsPerSecond * 1800, height: 32, alignment: .leading)
                         .offset(x: window.x(date))
                 }
@@ -956,7 +970,7 @@ struct MobileGuideView: View {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
                                 .font(.inter(.caption, program == nil ? .regular : .semibold)).lineLimit(2)
-                                .foregroundStyle(program == nil ? LineupStyle.secondary : LineupStyle.text)
+                                .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.68) : LineupStyle.text.opacity(0.80))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if let program {
                                 HStack(spacing: 5) {
@@ -969,7 +983,7 @@ struct MobileGuideView: View {
                                     if program.isNew == true { Text("NEW") }
                                 }
                                 .font(.inter(9, .medium))
-                                .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary)
+                                .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary.opacity(0.72))
                                 .lineLimit(1)
                             }
                         }
@@ -979,12 +993,6 @@ struct MobileGuideView: View {
                     }
                     .frame(width: width, height: cardHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            // Only what is on now is edged, in the accent; the
-                            // rest are panels, told apart by their corners.
-                            .strokeBorder(live ? LineupStyle.liveDot.opacity(0.32) : Color.clear, lineWidth: 1)
-                    }
                     .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
