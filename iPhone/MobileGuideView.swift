@@ -80,7 +80,6 @@ struct MobileGuideView: View {
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
     let onPlay: (XtreamStream) -> Void
-    private let logoWidth: CGFloat = 80
     private var cardHeight: CGFloat { rowHeight - 6 }
 
     /// The phone is on its side. Every iPhone has a compact height there and
@@ -766,29 +765,34 @@ struct MobileGuideView: View {
 
     private func guideGrid(now: Date) -> some View {
         MobileGuideViewport { viewport, listHeight in
+            let logoRailWidth = MobileGuideGridMetrics.channelLogoRailWidth(for: viewport.size.width)
             // One horizontal scroller moves every program row and the ruler together.
             // The nested vertical scroller moves logos and programs as a single row.
             // Counter-offset logo tiles keep the channel column frozen horizontally.
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    ruler(now: now)
+                    ruler(now: now, logoWidth: logoRailWidth)
                     MobileGuideChannelScroll {
                         LazyVStack(spacing: 0) {
                             ForEach(channels) { stream in
                                 HStack(spacing: 0) {
-                                    channelTile(stream)
+                                    channelTile(stream, logoWidth: logoRailWidth)
                                         .offset(x: horizontalOffset).zIndex(2)
-                                    programRow(stream, now: now, viewportWidth: viewport.size.width - logoWidth)
+                                    programRow(stream, now: now, viewportWidth: viewport.size.width - logoRailWidth,
+                                               logoWidth: logoRailWidth)
                                 }.frame(height: rowHeight)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
+                        // Leave a little air below the ruler so the first
+                        // favorite never appears tucked under its divider.
+                        .padding(.top, MobileGuideGridMetrics.firstRowTopInset)
                     }
                     .frame(height: listHeight)
                     .scrollDismissesKeyboard(.interactively)
                     .refreshable { await library.reload() }
                 }
-                .frame(width: logoWidth + window.width, height: viewport.size.height, alignment: .topLeading)
+                .frame(width: logoRailWidth + window.width, height: viewport.size.height, alignment: .topLeading)
                 .background(MobileGuideScrollConfiguration(horizontal: true))
                 .background {
                     GeometryReader { position in
@@ -812,7 +816,7 @@ struct MobileGuideView: View {
         }
     }
 
-    private func ruler(now: Date) -> some View {
+    private func ruler(now: Date, logoWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
             VStack(spacing: 2) {
                 Text("NOW").font(.inter(8, .bold)).tracking(1)
@@ -840,7 +844,7 @@ struct MobileGuideView: View {
         game != nil && stream.id == recommendedStreamID
     }
 
-    private func channelTile(_ stream: XtreamStream) -> some View {
+    private func channelTile(_ stream: XtreamStream, logoWidth: CGFloat) -> some View {
         let logoURL = stream.streamIcon.flatMap(URL.init(string:))
         return Group {
             ZStack(alignment: .center) {
@@ -887,7 +891,8 @@ struct MobileGuideView: View {
         .accessibilityLabel("\(isRecommended(stream) ? "Recommended. " : "")Watch \(stream.name) live\(library.isFavorite(stream) ? ", favorite" : "")")
     }
 
-    private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat) -> some View {
+    private func programRow(_ stream: XtreamStream, now: Date, viewportWidth: CGFloat,
+                            logoWidth: CGFloat) -> some View {
         let logoURL = stream.streamIcon.flatMap(URL.init(string:))
         let programs = library.guidePrograms(for: stream)
         let segments = window.segments(programs.map { (start: $0.start, end: $0.end) })
@@ -904,16 +909,18 @@ struct MobileGuideView: View {
                             .frame(width: width, height: cardHeight)
                             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         if program != nil, live {
-                            // The app's progress bar along the foot of what is
-                            // on now, its fill ending where the timeline says
-                            // now is.
-                            let played = min(width, max(0, window.x(now) - cellX))
-                            let inset: CGFloat = 8
-                            LineupProgressBar(value: Double((played - inset) / max(1, width - inset * 2)),
-                                              height: 4)
-                                .padding(.horizontal, inset)
-                                .frame(maxHeight: .infinity, alignment: .bottom)
-                                .padding(.bottom, 5)
+                            // Show elapsed time as a translucent wash over the
+                            // program tile, not a separate progress bar.
+                            let progress = program.map {
+                                now.timeIntervalSince($0.start) / $0.end.timeIntervalSince($0.start)
+                            } ?? 0
+                            Rectangle()
+                                .fill(Color.white.opacity(0.14))
+                                .frame(width: MobileGuideGridMetrics.liveProgressWidth(cardWidth: width,
+                                                                                         progress: progress),
+                                       height: cardHeight)
+                                .allowsHitTesting(false)
+                                .accessibilityHidden(true)
                         }
                         VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
@@ -936,8 +943,6 @@ struct MobileGuideView: View {
                             }
                         }
                         .padding(.horizontal, 8)
-                        // Clear of the bar along the foot of what is on now.
-                        .padding(.bottom, live ? 8 : 0)
                         .frame(width: max(1, min(width - textInset, viewportWidth)), alignment: .leading)
                         .offset(x: textInset)
                     }
@@ -956,6 +961,22 @@ struct MobileGuideView: View {
                 .offset(x: cellX)
             }
         }.frame(width: window.width, height: rowHeight, alignment: .leading)
+    }
+}
+
+/// Geometry shared by the time-grid guide and its focused layout tests.
+enum MobileGuideGridMetrics {
+    static let firstRowTopInset: CGFloat = 8
+
+    /// The channel artwork occupies the same strong left-hand column as the
+    /// reference guide, while remaining bounded on narrow and wide devices.
+    static func channelLogoRailWidth(for viewportWidth: CGFloat) -> CGFloat {
+        min(124, max(108, viewportWidth * 0.32))
+    }
+
+    static func liveProgressWidth(cardWidth: CGFloat, progress: Double) -> CGFloat {
+        guard cardWidth.isFinite, cardWidth > 0, progress.isFinite else { return 0 }
+        return cardWidth * CGFloat(min(1, max(0, progress)))
     }
 }
 
