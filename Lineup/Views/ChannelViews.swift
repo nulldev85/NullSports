@@ -1167,8 +1167,8 @@ private struct LiveEmptySlateDashboard: View {
 /// The one colour that is not the theme's is broadcast red, and it only ever
 /// means on air; the teams bring their own.
 private enum LivePalette {
-    static var text: Color { LineupStyle.text }
-    static var secondary: Color { LineupStyle.secondary }
+    static var text: Color { LineupStyle.text.opacity(0.78) }
+    static var secondary: Color { LineupStyle.secondary.opacity(0.9) }
     static var card: Color { LineupStyle.surface }
     static var rule: Color { LineupStyle.line }
     static var accent: Color { LineupStyle.highlight }
@@ -2190,7 +2190,7 @@ private struct LiveMatchupBoard: View {
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
 
-    private var rows: Int { (events.count + LiveMetrics.columns - 1) / LiveMetrics.columns }
+    private var rows: Int { events.count }
 
     /// Multiview's first game, named by its matchup rather than by whatever
     /// the provider calls the channel carrying it.
@@ -2223,7 +2223,7 @@ private struct LiveMatchupBoard: View {
             if events.isEmpty {
                 emptyLane
             } else {
-                LiveMatchupGrid(events: events, spotlight: spotlight, previewGameID: previewGameID,
+                LiveMatchupList(events: events, spotlight: spotlight, previewGameID: previewGameID,
                                 multiviewPrimaryID: multiviewPrimaryID,
                                 onPlay: onPlay, onStartMultiview: onStartMultiview)
             }
@@ -2466,6 +2466,187 @@ private struct LiveMatchupGrid: View {
                 .padding(.horizontal, -60)
         }
         .padding(.horizontal, -LiveMetrics.liftRoom)
+    }
+}
+
+/// A full-width, remote-focusable matchup list. Each event keeps its existing
+/// selection and hold-menu actions; focusing a row still drives the unchanged
+/// Live preview stage above it.
+private struct LiveMatchupList: View {
+    let events: [SportsGame]
+    let spotlight: LiveSpotlight
+    let previewGameID: String?
+    let multiviewPrimaryID: Int?
+    let onPlay: (SportsGame) -> Void
+    let onStartMultiview: (SportsGame) -> Void
+
+    private let rowHeight: CGFloat = 116
+    private let viewportHeight: CGFloat = 360
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 9) {
+                    ForEach(Array(events.enumerated()), id: \.element.id) { index, game in
+                        LiveMatchupListRow(game: game, isOnScreen: game.id == previewGameID,
+                                           multiviewPrimaryID: multiviewPrimaryID,
+                                           rowHeight: rowHeight,
+                                           onFocus: {
+                                               spotlight.rest(on: game, row: index)
+                                               proxy.scrollTo(game.id, anchor: .center)
+                                           },
+                                           onPlay: { onPlay(game) },
+                                           onStartMultiview: { onStartMultiview(game) })
+                            .id(game.id)
+                    }
+                }
+                .padding(.horizontal, LiveMetrics.liftRoom)
+                .padding(.vertical, LiveMetrics.liftRoom)
+            }
+            .scrollIndicators(.hidden)
+            .focusSection()
+        }
+        .frame(height: viewportHeight)
+        .clipped()
+    }
+}
+
+/// The channel-list look adapted for a television: muted team-color wash,
+/// prominent crests and score lines, and the same quiet status column.
+private struct LiveMatchupListRow: View {
+    @Environment(SportsLibrary.self) private var library
+    @FocusState private var focused: Bool
+    let game: SportsGame
+    let isOnScreen: Bool
+    let multiviewPrimaryID: Int?
+    let rowHeight: CGFloat
+    let onFocus: () -> Void
+    let onPlay: () -> Void
+    let onStartMultiview: () -> Void
+
+    private var isPrimary: Bool {
+        multiviewPrimaryID != nil && multiviewPrimaryID == library.stream(for: game)?.id
+    }
+
+    private var awayColor: Color {
+        MobileTeamColor.readable(game.awayColor) ?? LineupStyle.leagueColor(game.league)
+    }
+
+    private var homeColor: Color {
+        MobileTeamColor.readable(game.homeColor) ?? awayColor
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 17, style: .continuous)
+        HStack(spacing: 22) {
+            SportsMark(league: game.league, competition: game.competition, size: 48)
+                .frame(width: 74)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(game.competition?.name.uppercased() ?? game.league.shortName.uppercased())
+                    .font(.inter(13, .heavy)).tracking(0.6)
+                    .foregroundStyle(LivePalette.secondary.opacity(0.82)).lineLimit(1)
+                if game.isEvent {
+                    Text(game.eventName ?? game.league.shortName)
+                        .font(.inter(24, .semibold)).foregroundStyle(LivePalette.text)
+                        .lineLimit(1).minimumScaleFactor(0.78)
+                    if let session = game.race?.title {
+                        Text(session).font(.inter(16, .semibold))
+                            .foregroundStyle(LineupStyle.highlight.opacity(0.8)).lineLimit(1)
+                    }
+                } else {
+                    matchupTeam(game.awayTeam, abbreviation: game.awayAbbreviation,
+                                logo: game.awayLogo, record: game.awayRecord,
+                                score: game.awayScore, dim: liveLeader(game) == .home, isAway: true)
+                    matchupTeam(game.homeTeam, abbreviation: game.homeAbbreviation,
+                                logo: game.homeLogo, record: game.homeRecord,
+                                score: game.homeScore, dim: liveLeader(game) == .away, isAway: false)
+                }
+                if let place = game.placeLine, !place.isEmpty {
+                    Text(place).font(.inter(14, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
+                        .lineLimit(1)
+                }
+                if let detail = game.soccer?.detail {
+                    Text(detail).font(.inter(13, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 8) {
+                if game.isLive {
+                    HStack(spacing: 8) {
+                        PulsingLiveDot(size: 8)
+                        Text(game.status.isEmpty ? "LIVE NOW" : game.status.uppercased())
+                            .font(.inter(17, .heavy)).tracking(0.6)
+                            .foregroundStyle(LineupStyle.liveStatus).lineLimit(1)
+                    }
+                } else {
+                    Text(game.startLabel).font(.interDigits(20, .semibold))
+                        .foregroundStyle(LivePalette.text).lineLimit(1)
+                }
+                if let network = nonempty(game.broadcast) {
+                    Text(network.uppercased()).font(.inter(13, .heavy)).tracking(0.5)
+                        .foregroundStyle(LivePalette.secondary.opacity(0.78)).lineLimit(1)
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: isPrimary ? "rectangle.split.2x1.fill" :
+                            (isOnScreen ? "tv.fill" : "play.fill"))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                    Text(isPrimary ? "FIRST GAME" : (isOnScreen ? "ON SCREEN" : "SELECT TO WATCH"))
+                        .font(.inter(12, .heavy)).tracking(0.5).lineLimit(1)
+                }
+                .foregroundStyle(LivePalette.secondary.opacity(0.82))
+            }
+            .frame(width: 310, alignment: .leading)
+        }
+        .padding(.horizontal, 22).padding(.vertical, 10)
+        .frame(maxWidth: .infinity).frame(height: rowHeight)
+        .background {
+            LinearGradient(colors: [awayColor.opacity(0.19), homeColor.opacity(0.19)],
+                           startPoint: .leading, endPoint: .trailing)
+                .overlay(LivePalette.card.opacity(0.35))
+                .clipShape(shape)
+        }
+        .overlay(shape.strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+        .lineupFocusLayer(focused, in: shape)
+        .contentShape(shape)
+        .focusable().focused($focused).focusEffectDisabled()
+        .tvSelectAction(onPlay)
+        .onChange(of: focused) { _, value in if value { onFocus() } }
+        .modifier(LiveGameMenu(game: game, isPrimary: isPrimary, onStartMultiview: onStartMultiview))
+        .scaleEffect(focused ? 1.012 : 1)
+        .lineupShadow(.lifted, on: focused)
+        .zIndex(focused ? 1 : 0)
+        .animation(.spring(response: 0.26, dampingFraction: 0.82), value: focused)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(liveAccessibilityLabel(game))
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private func matchupTeam(_ name: String, abbreviation: String, logo: String, record: String?,
+                             score: String, dim: Bool, isAway: Bool) -> some View {
+        HStack(spacing: 10) {
+            TeamBadge(url: logo,
+                      fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
+                      size: 31, tight: true)
+            Text(name).font(.inter(19, .semibold))
+                .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
+                .lineLimit(1).minimumScaleFactor(0.75)
+            if let record = nonempty(record) {
+                Text(record).font(.interDigits(13, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if game.isLive, let sets = game.tennis {
+                TennisSetColumns(score: sets, isAway: isAway, size: 22,
+                                 primary: LivePalette.text, secondary: LivePalette.secondary)
+            } else if !game.isUpcoming, !score.isEmpty {
+                Text(score).font(.interDigits(25, .bold))
+                    .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
+                    .contentTransition(.numericText())
+            }
+        }
     }
 }
 
@@ -3270,11 +3451,38 @@ private enum GuidePalette {
     static var line: Color { LineupStyle.line }
     static var text: Color { LineupStyle.text }
     static var secondary: Color { LineupStyle.secondary }
-    /// A programme still to come, and the one on the air a step lighter
-    /// with a faint red edge -- the phone's Guide, cell for cell.
-    static var card: Color { LineupStyle.raised }
+    /// Programme tiles stay dark, with the channel's artwork providing the
+    /// subdued colour carried through both TV Guide view modes.
+    static var card: Color { LineupStyle.background }
     static var cardNow: Color { LineupStyle.focused }
-    static var edgeNow: Color { LineupStyle.liveDot.opacity(0.5) }
+    static var rowText: Color { LineupStyle.text.opacity(0.72) }
+    static var channelText: Color { LineupStyle.secondary.opacity(0.82) }
+}
+
+private enum TVGuideViewMode: String, CaseIterable {
+    case tvGuide
+    case list
+
+    static let storageKey = "Lineup.tv.guideViewMode.v1"
+    static let defaultMode: Self = .tvGuide
+
+    var title: String {
+        switch self {
+        case .tvGuide: "TV Guide"
+        case .list: "List"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .tvGuide: "rectangle.grid.1x2"
+        case .list: "list.bullet"
+        }
+    }
+
+    static func restored(_ rawValue: String?) -> Self {
+        rawValue.flatMap(Self.init(rawValue:)) ?? defaultMode
+    }
 }
 
 struct GuideView: View {
@@ -3285,6 +3493,7 @@ struct GuideView: View {
     @State private var returnGridFocus: GuideGridFocus?
     @State private var selectedCategoryID: String?
     @State private var favoritesOnly = true
+    @AppStorage(TVGuideViewMode.storageKey) private var guideViewModeValue = TVGuideViewMode.defaultMode.rawValue
     @State private var searchActive = false
     @State private var query = ""
     /// What is full screen, with the preview's player when it carries on;
@@ -3333,6 +3542,7 @@ struct GuideView: View {
         if favoritesOnly { return "Favorites" }
         return library.categories.first { $0.id == selectedCategoryID }?.categoryName ?? "All channels"
     }
+    private var guideViewMode: TVGuideViewMode { TVGuideViewMode.restored(guideViewModeValue) }
     private var previewItem: GuideFocusItem? {
         if let focusedGuideItem, filtered.contains(where: { $0.id == focusedGuideItem.stream.id }) {
             return focusedGuideItem
@@ -3356,6 +3566,9 @@ struct GuideView: View {
             query: $query,
             multiviewTitle: multiviewPrimary?.name,
             now: guideNow,
+            guideViewModeValue: $guideViewModeValue,
+            selectedCategoryID: $selectedCategoryID,
+            favoritesOnly: $favoritesOnly,
             onCancelMultiview: { multiviewPrimary = nil }
         )
     }
@@ -3388,7 +3601,11 @@ struct GuideView: View {
 
                     ZStack(alignment: .topLeading) {
                         VStack(alignment: .leading, spacing: 0) {
-                            GuideTimelineHeader(now: guideNow)
+                            if guideViewMode == .tvGuide {
+                                GuideTimelineHeader(now: guideNow)
+                            } else {
+                                GuideListHeader(now: guideNow, channelWidth: layout.listChannelWidth)
+                            }
                             if filtered.isEmpty {
                                 Label(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.",
                                       systemImage: favoritesOnly ? "star" : "rectangle.stack")
@@ -3402,30 +3619,53 @@ struct GuideView: View {
                                 ScrollView {
                                     LazyVStack(alignment: .leading, spacing: 0) {
                                         ForEach(filtered) { stream in
-                                            GuideChannelRow(
-                                                stream: stream,
-                                                favoritesMode: favoritesOnly && !searchActive,
-                                                now: guideNow,
-                                                gridFocus: $gridFocus,
-                                                multiviewPrimaryID: multiviewPrimary?.id,
-                                                onPlay: { select(stream) },
-                                                onStartMultiview: { multiviewPrimary = stream },
-                                                onReorderFavorites: { reorderingFavorites = true },
-                                                onStartOver: { watchRecording(of: stream, programme: nil) },
-                                                onCatchUp: { catchUpChannel = stream },
-                                                onMoveFocus: { direction, focus in
-                                                    moveGuideFocus(direction, from: focus, proxy: proxy)
-                                                },
-                                                onFocusProgram: { program in
-                                                    // Not animated: a transaction animated on
-                                                    // every move took the rows being built and
-                                                    // scrolled with it, and they slid back
-                                                    // before catching up. The preview animates
-                                                    // its own coming and going.
-                                                    focusedGuideItem = GuideFocusItem(stream: stream, program: program)
-                                                    previewHidden = false
+                                            let programs = visibleGuidePrograms(for: stream)
+                                            let currentProgram = programs.first { $0.start <= guideNow && guideNow < $0.end }
+                                            Group {
+                                                if guideViewMode == .tvGuide {
+                                                    GuideChannelRow(
+                                                        stream: stream,
+                                                        favoritesMode: favoritesOnly && !searchActive,
+                                                        now: guideNow,
+                                                        gridFocus: $gridFocus,
+                                                        multiviewPrimaryID: multiviewPrimary?.id,
+                                                        onPlay: { select(stream) },
+                                                        onStartMultiview: { multiviewPrimary = stream },
+                                                        onReorderFavorites: { reorderingFavorites = true },
+                                                        onStartOver: { watchRecording(of: stream, programme: nil) },
+                                                        onCatchUp: { catchUpChannel = stream },
+                                                        onMoveFocus: { direction, focus in
+                                                            moveGuideFocus(direction, from: focus, proxy: proxy)
+                                                        },
+                                                        onFocusProgram: { program in
+                                                            focusedGuideItem = GuideFocusItem(stream: stream, program: program)
+                                                            previewHidden = false
+                                                        }
+                                                    )
+                                                } else {
+                                                    GuideChannelListRow(
+                                                        stream: stream,
+                                                        program: currentProgram,
+                                                        now: guideNow,
+                                                        quality: guideQuality(stream),
+                                                        favoritesMode: favoritesOnly && !searchActive,
+                                                        gridFocus: $gridFocus,
+                                                        multiviewPrimaryID: multiviewPrimary?.id,
+                                                        onPlay: { select(stream) },
+                                                        onStartMultiview: { multiviewPrimary = stream },
+                                                        onReorderFavorites: { reorderingFavorites = true },
+                                                        onStartOver: { watchRecording(of: stream, programme: nil) },
+                                                        onCatchUp: { catchUpChannel = stream },
+                                                        onMoveFocus: { direction, focus in
+                                                            moveGuideListFocus(direction, from: focus, proxy: proxy)
+                                                        },
+                                                        onFocus: {
+                                                            focusedGuideItem = currentProgram.map { GuideFocusItem(stream: stream, program: $0) }
+                                                            previewHidden = false
+                                                        }
+                                                    )
                                                 }
-                                            )
+                                            }
                                             .id(stream.id)
                                             .onAppear { rowBuilt(stream.id) }
                                             .onDisappear { navigation.builtRows.remove(stream.id) }
@@ -3445,6 +3685,14 @@ struct GuideView: View {
                             }
                         }
                         .disabled(sidebarVisible && !searchActive)
+                        .overlay(alignment: .topLeading) {
+                            if guideViewMode == .tvGuide {
+                                GuideEPGLeadingFade(
+                                    startX: GuideLayout.inset + layout.channelWidth,
+                                    width: min(248, max(168, layout.slotWidth * 0.92))
+                                )
+                            }
+                        }
 
                         if sidebarVisible && !searchActive {
                             GuideSidebar(
@@ -3520,6 +3768,11 @@ struct GuideView: View {
                     }
                 }
                 .onChange(of: gridFocus?.streamID) { _, streamID in rest(on: streamID) }
+                .onChange(of: guideViewModeValue) { _, value in restoreGuideFocus(for: value) }
+                .onChange(of: selectedCategoryID) { _, _ in restoreFilteredGuideFocus() }
+                .onChange(of: favoritesOnly) { _, _ in restoreFilteredGuideFocus() }
+                .onChange(of: searchActive) { _, _ in restoreFilteredGuideFocus() }
+                .onChange(of: query) { _, _ in restoreFilteredGuideFocus() }
                 // Away from the Guide nothing plays, and coming back to it
                 // plays nothing until the remote rests on a channel.
                 .onChange(of: isActive) { _, active in
@@ -3568,8 +3821,34 @@ struct GuideView: View {
         let anchor = guideTimelineAnchor(guideNow)
         let end = anchor.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
         let programs = library.guidePrograms(for: stream).filter { $0.end > anchor && $0.start < end }
-        let restored = programs.first { $0.start == returnGridFocus?.programStart } ?? programs.first
-        gridFocus = GuideGridFocus(streamID: stream.id, programStart: restored?.start)
+        if guideViewMode == .list {
+            gridFocus = GuideGridFocus(streamID: stream.id, programStart: nil)
+        } else {
+            let restored = programs.first { $0.start == returnGridFocus?.programStart } ?? programs.first
+            gridFocus = GuideGridFocus(streamID: stream.id, programStart: restored?.start)
+        }
+    }
+
+    private func restoreGuideFocus(for rawValue: String) {
+        guard let stream = filtered.first(where: { $0.id == gridFocus?.streamID }) ?? filtered.first else { return }
+        guard TVGuideViewMode.restored(rawValue) == .tvGuide else {
+            gridFocus = GuideGridFocus(streamID: stream.id, programStart: nil)
+            return
+        }
+        let programs = visibleGuidePrograms(for: stream)
+        let current = programs.first { $0.start <= guideNow && guideNow < $0.end } ?? programs.first
+        gridFocus = GuideGridFocus(streamID: stream.id, programStart: current?.start)
+    }
+
+    private func restoreFilteredGuideFocus() {
+        guard !filtered.contains(where: { $0.id == gridFocus?.streamID }), let first = filtered.first else { return }
+        if guideViewMode == .list {
+            gridFocus = GuideGridFocus(streamID: first.id, programStart: nil)
+        } else {
+            let programs = visibleGuidePrograms(for: first)
+            let program = programs.first { $0.start <= guideNow && guideNow < $0.end } ?? programs.first
+            gridFocus = GuideGridFocus(streamID: first.id, programStart: program?.start)
+        }
     }
 
     /// Keep vertical remote movement on what is airing now.
@@ -3621,6 +3900,25 @@ struct GuideView: View {
 
         default:
             return
+        }
+    }
+
+    /// In List mode the remote moves between channels only. Horizontal
+    /// movement opens the existing category/favorites sidebar, just as it
+    /// does at the left edge of the TV Guide grid.
+    private func moveGuideListFocus(_ direction: MoveCommandDirection, from cell: GuideGridFocus,
+                                    proxy: ScrollViewProxy) {
+        let source = navigation.headingTo() ?? cell
+        guard let row = filtered.firstIndex(where: { $0.id == source.streamID }) else { return }
+        switch direction {
+        case .left:
+            openSidebar()
+        case .up, .down:
+            let targetRow = direction == .up ? row - 1 : row + 1
+            guard filtered.indices.contains(targetRow) else { return }
+            send(GuideGridFocus(streamID: filtered[targetRow].id, programStart: nil), proxy: proxy)
+        default:
+            break
         }
     }
 
@@ -3788,6 +4086,9 @@ private struct GuideControlBar: View {
     @Binding var query: String
     let multiviewTitle: String?
     let now: Date
+    @Binding var guideViewModeValue: String
+    @Binding var selectedCategoryID: String?
+    @Binding var favoritesOnly: Bool
     let onCancelMultiview: () -> Void
 
     var body: some View {
@@ -3808,6 +4109,11 @@ private struct GuideControlBar: View {
             } else {
                 GuideTitleBlock(eyebrow: "TV GUIDE", title: title)
             }
+            if !searchActive && multiviewTitle == nil {
+                GuideChannelFilterPicker(title: title,
+                                         selectedCategoryID: $selectedCategoryID,
+                                         favoritesOnly: $favoritesOnly)
+            }
             Spacer(minLength: 12)
             Text("\(channelCount) CHANNELS")
                 .font(.inter(13, .heavy)).tracking(0.6)
@@ -3822,10 +4128,99 @@ private struct GuideControlBar: View {
                 searchActive.toggle()
                 if !searchActive { query = "" }
             }
+            if !searchActive && multiviewTitle == nil {
+                TVGuideViewModePicker(value: $guideViewModeValue)
+            }
             if multiviewTitle != nil { GuideHeaderButton(title: "Cancel", symbol: "xmark", action: onCancelMultiview) }
         }
         .foregroundStyle(GuidePalette.text)
         .frame(height: 64)
+    }
+}
+
+/// Favorites and IPTV categories sit in the Guide's top control row, with the
+/// left-edge sidebar kept as an alternate way to browse on the remote.
+private struct GuideChannelFilterPicker: View {
+    @Environment(SportsLibrary.self) private var library
+    let title: String
+    @Binding var selectedCategoryID: String?
+    @Binding var favoritesOnly: Bool
+    @State private var choosing = false
+
+    private var currentTitle: String { favoritesOnly ? "Favorites" : title }
+
+    var body: some View {
+        TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                     action: { choosing = true }) {
+            HStack(spacing: 9) {
+                Image(systemName: favoritesOnly ? "star.fill" : "tv")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundStyle(favoritesOnly ? LineupStyle.highlight : GuidePalette.channelText)
+                Text(currentTitle).font(.inter(18, .semibold)).lineLimit(1).frame(maxWidth: 250)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(GuidePalette.channelText)
+            }
+            .foregroundStyle(GuidePalette.rowText)
+            .padding(.horizontal, 16).frame(height: 48)
+            .background(GuidePalette.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(GuidePalette.line, lineWidth: 1))
+        }
+        .tvChoices("TV Guide Channels", symbol: "tv", isPresented: $choosing) {
+            [
+                TVChoice("All Channels", symbol: "tv", id: "all",
+                        isSelected: selectedCategoryID == nil && !favoritesOnly) {
+                    selectedCategoryID = nil
+                    favoritesOnly = false
+                },
+                TVChoice("Favorites", symbol: "star", id: "favorites", isSelected: favoritesOnly) {
+                    selectedCategoryID = nil
+                    favoritesOnly = true
+                }
+            ] + library.categories.map { category in
+                TVChoice(category.categoryName, symbol: "rectangle.grid.1x2", id: "category-\(category.id)",
+                         isSelected: selectedCategoryID == category.id && !favoritesOnly) {
+                    selectedCategoryID = category.id
+                    favoritesOnly = false
+                }
+            }
+        }
+        .accessibilityLabel("TV Guide channels: \(currentTitle)")
+    }
+}
+
+/// Switch between the schedule grid and the channel-first list while keeping
+/// the same remote-friendly choice sheet used by the rest of tvOS.
+private struct TVGuideViewModePicker: View {
+    @Binding var value: String
+    @State private var choosing = false
+
+    private var selection: TVGuideViewMode { TVGuideViewMode.restored(value) }
+
+    var body: some View {
+        TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
+                     action: { choosing = true }) {
+            HStack(spacing: 9) {
+                Image(systemName: selection.symbol)
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundStyle(LineupStyle.highlight)
+                Text(selection.title).font(.inter(17, .semibold)).lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(GuidePalette.channelText)
+            }
+            .foregroundStyle(GuidePalette.rowText)
+            .padding(.horizontal, 15).frame(height: 48)
+            .background(GuidePalette.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(GuidePalette.line, lineWidth: 1))
+        }
+        .tvChoices("TV Guide View", symbol: "rectangle.grid.1x2", isPresented: $choosing) {
+            TVGuideViewMode.allCases.map { mode in
+                TVChoice(mode.title, symbol: mode.symbol, id: mode.rawValue,
+                        isSelected: selection == mode) { value = mode.rawValue }
+            }
+        }
+        .accessibilityLabel("View mode: \(selection.title)")
     }
 }
 
@@ -4214,6 +4609,64 @@ private struct GuideTimelineHeader: View {
     }
 }
 
+/// The programme grid and its time ruler share one dark leading-edge fade.
+/// Keeping this overlay on the scrolling region blends each row into the
+/// guide background without touching the pinned channel-logo rail.
+private struct GuideEPGLeadingFade: View {
+    let startX: CGFloat
+    let width: CGFloat
+
+    var body: some View {
+        GeometryReader { bounds in
+            LinearGradient(
+                stops: [
+                    .init(color: GuidePalette.background.opacity(0.96), location: 0),
+                    .init(color: GuidePalette.background.opacity(0.82), location: 0.2),
+                    .init(color: GuidePalette.background.opacity(0.54), location: 0.48),
+                    .init(color: GuidePalette.background.opacity(0.2), location: 0.78),
+                    .init(color: .clear, location: 1)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: width, height: bounds.size.height)
+            .position(x: startX + width / 2, y: bounds.size.height / 2)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The list has one programme column instead of a time ruler; this keeps the
+/// channel and on-now information aligned to the exact same row boundaries.
+private struct GuideListHeader: View {
+    let now: Date
+    let channelWidth: CGFloat
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text("CHANNEL")
+                .font(.inter(12, .heavy)).tracking(0.8)
+                .foregroundStyle(GuidePalette.channelText)
+                .frame(width: channelWidth, alignment: .leading)
+            HStack(spacing: 8) {
+                GuideLiveDot(size: 7)
+                Text("NOW")
+                    .font(.inter(12, .heavy)).tracking(0.8)
+                    .foregroundStyle(GuidePalette.channelText)
+                Text(now.formatted(date: .omitted, time: .shortened))
+                    .font(.interDigits(16, .semibold))
+                    .foregroundStyle(GuidePalette.rowText)
+            }
+            .padding(.leading, 20)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, GuideLayout.inset)
+        .frame(height: guideHeaderHeight)
+        .overlay(alignment: .bottom) { Rectangle().fill(GuidePalette.line).frame(height: 1) }
+    }
+}
+
 /// The time bar's height, which is also where the line for now begins.
 private let guideHeaderHeight: CGFloat = 48
 
@@ -4233,6 +4686,7 @@ private struct GuideLayout {
     let width: CGFloat
     var slotWidth: CGFloat { max(1, width - 2 * Self.inset) / CGFloat(guideVisibleSlotCount + 1) }
     var channelWidth: CGFloat { slotWidth }
+    var listChannelWidth: CGFloat { min(350, max(270, width * 0.2)) }
     // A guide is worth having in proportion to how much of it you can see at
     // once, and at 132 this showed four channels on a 1080 screen. Ninety-two
     // is what a row needs for a title and a time under it at this type size
@@ -4361,6 +4815,12 @@ private struct GuideChannelRow: View {
         }
         .padding(.horizontal, GuideLayout.inset)
         .frame(width: layout.width, height: layout.rowHeight, alignment: .leading)
+        .background {
+            LineupChannelArtworkTint(url: stream.streamIcon.flatMap(URL.init(string:)),
+                                     width: 150, fallback: GuidePalette.rail)
+                .frame(width: layout.width, height: layout.rowHeight)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
         // Multiview's first channel keeps a white frame while the second is
         // chosen, so it is never mistaken for where the remote is.
         .overlay {
@@ -4406,6 +4866,138 @@ private struct GuideChannelRow: View {
     }
 }
 
+/// A channel-first alternative to the timeline. The logo occupies the tinted
+/// rail and current programme details fill the matching dark row to its right.
+private struct GuideChannelListRow: View {
+    @Environment(\.guideLayout) private var layout
+    @Environment(SportsLibrary.self) private var library
+    let stream: XtreamStream
+    let program: CurrentProgram?
+    let now: Date
+    let quality: String?
+    let favoritesMode: Bool
+    let gridFocus: FocusState<GuideGridFocus?>.Binding
+    let multiviewPrimaryID: Int?
+    let onPlay: () -> Void
+    let onStartMultiview: () -> Void
+    let onReorderFavorites: () -> Void
+    let onStartOver: () -> Void
+    let onCatchUp: () -> Void
+    let onMoveFocus: (MoveCommandDirection, GuideGridFocus) -> Void
+    let onFocus: () -> Void
+
+    private var focusID: GuideGridFocus { GuideGridFocus(streamID: stream.id, programStart: nil) }
+    private var isFocused: Bool { gridFocus.wrappedValue == focusID }
+    private var logoWidth: CGFloat { layout.listChannelWidth }
+    private var rowHeight: CGFloat { min(128, max(106, layout.rowHeight * 0.9)) }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let programTitle = program.map { $0.title.isEmpty ? "Untitled" : $0.title } ?? "Program guide not available"
+        HStack(spacing: 0) {
+            ZStack {
+                LineupChannelArtworkTint(url: stream.streamIcon.flatMap(URL.init(string:)),
+                                         width: 150, fallback: GuidePalette.rail)
+                GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
+            }
+            .frame(width: logoWidth, height: rowHeight)
+            .clipShape(shape)
+
+            VStack(alignment: .leading, spacing: 9) {
+                Text(programTitle)
+                    .font(.inter(25, .semibold))
+                    .foregroundStyle(program == nil ? GuidePalette.channelText.opacity(0.7) : GuidePalette.rowText)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                HStack(spacing: 12) {
+                    if let program {
+                        if program.start <= now && now < program.end {
+                            HStack(spacing: 7) {
+                                GuideLiveDot(size: 8)
+                                Text("LIVE").foregroundStyle(LineupStyle.liveStatus)
+                            }
+                        } else {
+                            Text(guideTimeRange(program)).foregroundStyle(GuidePalette.channelText)
+                        }
+                        if program.isNew == true { GuideTinyBadge(title: "NEW") }
+                    }
+                    if let quality { GuideTinyBadge(title: quality) }
+                }
+                .font(.inter(14, .heavy)).tracking(0.5)
+                .foregroundStyle(GuidePalette.channelText)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.horizontal, 22)
+            .background(GuidePalette.background.opacity(0.45))
+        }
+        .padding(.horizontal, GuideLayout.inset)
+        .frame(width: layout.width, height: rowHeight, alignment: .leading)
+        .background(GuidePalette.rail, in: shape)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+        .lineupFocusLayer(isFocused, in: shape)
+        .contentShape(shape)
+        .focusable().focused(gridFocus, equals: focusID).focusEffectDisabled()
+        .tvSelectAction(onPlay)
+        .onMoveCommand { onMoveFocus($0, focusID) }
+        .onChange(of: isFocused) { _, focused in if focused { onFocus() } }
+        .modifier(GuideChannelListMenu(stream: stream, favoritesMode: favoritesMode,
+                                       isPrimary: multiviewPrimaryID == stream.id,
+                                       onReorderFavorites: onReorderFavorites,
+                                       onStartOver: onStartOver, onCatchUp: onCatchUp,
+                                       onStartMultiview: onStartMultiview))
+        .animation(.easeOut(duration: 0.14), value: isFocused)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(stream.name), \(program?.title ?? "program guide not available")\(library.isFavorite(stream) ? ", favorite" : "")")
+    }
+}
+
+/// Keep the Guide's long-press actions identical in List and TV Guide modes.
+private struct GuideChannelListMenu: ViewModifier {
+    @Environment(SportsLibrary.self) private var library
+    let stream: XtreamStream
+    let favoritesMode: Bool
+    let isPrimary: Bool
+    let onReorderFavorites: () -> Void
+    let onStartOver: () -> Void
+    let onCatchUp: () -> Void
+    let onStartMultiview: () -> Void
+
+    func body(content: Content) -> some View {
+        content.tvHoldMenu(stream.name, symbol: "tv") {
+            var items: [TVChoice] = []
+            if stream.hasCatchUp {
+                items.append(TVChoice("Start Over", symbol: "backward.end", action: onStartOver))
+                items.append(TVChoice("Catch Up", symbol: "clock.arrow.circlepath", action: onCatchUp))
+            }
+            items.append(TVChoice(isPrimary ? "First Multiview Channel" : "Start Multiview",
+                                  symbol: "rectangle.split.2x1", isEnabled: !isPrimary,
+                                  action: onStartMultiview))
+            if favoritesMode {
+                items.append(TVChoice("Reorder Favorites", symbol: "arrow.up.arrow.down", action: onReorderFavorites))
+                items.append(TVChoice("Move Up", symbol: "arrow.up",
+                                      isEnabled: library.canMoveFavorite(stream, offset: -1)) {
+                    library.moveFavorite(stream, offset: -1)
+                })
+                items.append(TVChoice("Move Down", symbol: "arrow.down",
+                                      isEnabled: library.canMoveFavorite(stream, offset: 1)) {
+                    library.moveFavorite(stream, offset: 1)
+                })
+                items.append(TVChoice("Remove from Favorites", symbol: "star.slash", isDestructive: true) {
+                    library.removeFavorite(stream)
+                })
+            } else if library.isFavorite(stream) {
+                items.append(TVChoice("Reorder Favorites", symbol: "arrow.up.arrow.down", action: onReorderFavorites))
+                items.append(TVChoice("Remove from Favorites", symbol: "star.slash", isDestructive: true) {
+                    library.removeFavorite(stream)
+                })
+            } else {
+                items.append(TVChoice("Add to Favorites", symbol: "star") { library.addFavorite(stream) })
+            }
+            return items
+        }
+    }
+}
+
 /// A channel as the guide names it: its logo, its name under it, and a small
 /// star in the corner if it is a favourite, as on the phone. Where there is no
 /// logo, a quiet television mark holds its place so every name sits on the
@@ -4429,7 +5021,7 @@ private struct GuideChannelArtwork: View {
             .frame(width: 120, height: 36)
             Text(stream.name)
                 .font(.inter(14, .semibold))
-                .foregroundStyle(GuidePalette.text)
+                .foregroundStyle(GuidePalette.channelText)
                 .lineLimit(1).minimumScaleFactor(0.8)
                 .allowsTightening(true)
                 .truncationMode(.tail)
@@ -4663,9 +5255,8 @@ private func guideProgramWidth(_ program: CurrentProgram, now: Date, layout: Gui
     return max(1, durationWidth - 6)
 }
 
-/// A programme block. Coming up is a quiet card; on now is a step lighter
-/// with a hairline of progress along its foot; the one the remote is on wears
-/// the focus layer.
+/// A programme block. The on-now fill washes across the elapsed part of its
+/// row; focus supplies the only outline.
 private struct GuideProgramCell: View {
     @Environment(\.guideLayout) private var layout
     let program: CurrentProgram?
@@ -4686,16 +5277,13 @@ private struct GuideProgramCell: View {
     }
 
     var body: some View {
-        // The phone's Guide, at television size: flat grey cells squared off
-        // at four points, the one on now a step lighter with a faint red
-        // edge, the app's progress bar along its foot, and LIVE in red.
         let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         VStack(alignment: .leading, spacing: 6) {
             if let program {
                 HStack(spacing: 8) {
                     Text(program.title.isEmpty ? "Untitled" : program.title)
                         .font(.inter(20, .semibold))
-                        .foregroundStyle(GuidePalette.text)
+                        .foregroundStyle(GuidePalette.rowText)
                         .lineLimit(1)
                     if program.isNew == true { GuideTinyBadge(title: "NEW") }
                 }
@@ -4717,7 +5305,7 @@ private struct GuideProgramCell: View {
                     }
                 }
             } else {
-                Text(empty).font(.inter(18)).foregroundStyle(GuidePalette.secondary)
+                Text(empty).font(.inter(18)).foregroundStyle(GuidePalette.channelText)
             }
         }
         .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
@@ -4725,7 +5313,7 @@ private struct GuideProgramCell: View {
         .frame(height: layout.rowHeight - 8, alignment: .topLeading)
         .background {
             ZStack(alignment: .leading) {
-                shape.fill(isOnNow ? GuidePalette.cardNow : GuidePalette.card)
+                shape.fill(isOnNow ? GuidePalette.cardNow.opacity(0.72) : GuidePalette.card.opacity(0.5))
                 if let program, isOnNow {
                     GeometryReader { geometry in
                         let played = GuideProgress.playedWidth(
@@ -4733,23 +5321,16 @@ private struct GuideProgramCell: View {
                             visibleStart: guideTimelineAnchor(now),
                             pointsPerSecond: Double(layout.slotWidth) / 1800,
                             cellWidth: Double(geometry.size.width))
-                        // Inset in the cell, its fill still ending where the
-                        // timeline says now is.
-                        let inset: CGFloat = 14
-                        let span = max(1, geometry.size.width - inset * 2)
-                        LineupProgressBar(value: Double((CGFloat(played) - inset) / span), height: 6)
-                            .padding(.horizontal, inset)
-                            .frame(maxHeight: .infinity, alignment: .bottom)
-                            .padding(.bottom, 10)
+                        // A low-contrast wash, not a second progress bar; its
+                        // edge still ends where the timeline says now is.
+                        Rectangle()
+                            .fill(GuidePalette.rowText.opacity(0.13))
+                            .frame(width: CGFloat(played), height: geometry.size.height)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     }
                 }
             }
             .clipShape(shape)
-        }
-        // Panels, as on the phone: softer corners and no outline, told
-        // apart by the gap between them. Only what is on now is edged.
-        .overlay {
-            if isOnNow { shape.strokeBorder(GuidePalette.edgeNow, lineWidth: 1.5) }
         }
         .lineupFocusLayer(isFocused, in: shape)
         .zIndex(isFocused ? 2 : 0)
