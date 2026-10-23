@@ -1260,22 +1260,24 @@ private struct MediaCatalogsScreen: View {
     /// The hero's own control: Play, and left or right for the title before
     /// or after it.
     private var heroRow: some View {
-        let item = heroItem
+        let item = tvPreview.item ?? heroItem
         let focused = tvFocus == .hero
         let count = heroItems.count
+        let buttonShape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return HStack(spacing: 22) {
             HStack(spacing: 12) {
                 LineupIconTile(symbol: "play.fill", size: 32)
-                Text(item?.isSeries == true ? "Play Show" : "Play Movie")
+                Text(item?.isSeries == true || item?.type == "Episode" ? "Play Series" : "Play Movie")
             }
             .font(.inter(20, .semibold))
             .foregroundStyle(focused ? LineupStyle.background : LineupStyle.text)
             .padding(.horizontal, 30).frame(height: 58)
-            .background(focused ? LineupStyle.text : LineupStyle.text.opacity(0.14), in: Capsule())
-            .overlay(Capsule().strokeBorder(LineupStyle.text.opacity(focused ? 0 : 0.28), lineWidth: 1))
+            .background(focused ? LineupStyle.text : LineupStyle.text.opacity(0.14), in: buttonShape)
+            .overlay(buttonShape.strokeBorder(LineupStyle.text.opacity(focused ? 0 : 0.28), lineWidth: 1))
             .scaleEffect(focused ? LineupStyle.controlLift : 1)
             .lineupShadow(.lifted, on: focused)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+            .contentShape(buttonShape)
             .focusable()
             .focused($tvFocus, equals: .hero)
             .focusEffectDisabled()
@@ -1547,7 +1549,7 @@ private struct MediaCatalogsScreen: View {
     /// A film plays; a show plays its next episode, or opens its page when
     /// there is none to play yet.
     private func playHero() {
-        guard let item = heroItem else { return }
+        guard let item = tvPreview.item ?? heroItem else { return }
         if item.isSeries {
             Task {
                 if let next = await media.resumeEpisode(in: item) { play(next) } else { pushed = item }
@@ -3881,7 +3883,7 @@ private struct TVMediaLibraryPreview: View {
         let parts = metadata(item)
         if !parts.isEmpty || steady {
             Text(parts.isEmpty ? " " : parts.joined(separator: "  ·  "))
-                .font(.inter(19, .semibold))
+                .font(.inter(steady ? 24 : 19, .semibold))
                 .foregroundStyle(.white.opacity(0.92))
                 .lineLimit(1)
                 .multilineTextAlignment(steady ? .center : .leading)
@@ -3894,11 +3896,11 @@ private struct TVMediaLibraryPreview: View {
         let overview = item.overview ?? ""
         if !overview.isEmpty || steady {
             Text(overview.isEmpty ? " " : overview)
-                .font(.inter(18, .medium))
+                .font(.inter(steady ? 26 : 18, .medium))
                 .foregroundStyle(.white.opacity(0.9))
                 .lineLimit(3, reservesSpace: steady)
                 .multilineTextAlignment(steady ? .center : .leading)
-                .frame(maxWidth: 820, alignment: steady ? .center : .leading)
+                .frame(maxWidth: steady ? 1080 : 820, alignment: steady ? .center : .leading)
                 .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
         }
     }
@@ -3931,7 +3933,7 @@ private struct TVMediaLibraryPreview: View {
                     }
                 }
                 Text(actors.map(\.name).joined(separator: ", "))
-                    .font(.inter(15, .semibold))
+                    .font(.inter(steady ? 20 : 15, .semibold))
                     .foregroundStyle(.white.opacity(0.88))
                     .lineLimit(1)
             }
