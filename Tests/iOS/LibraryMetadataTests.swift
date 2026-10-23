@@ -1,9 +1,9 @@
 import XCTest
+import UIKit
 #if os(tvOS)
 @testable import Lineup
 #else
 @testable import LineupiOS
-import UIKit
 #endif
 
 final class LibraryMetadataTests: XCTestCase {
@@ -215,7 +215,6 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(MetadataTestProtocol.requestCount, 2)
     }
 
-    #if !os(tvOS)
     func testSearchGenreArtworkAndTMDBMappingsAreUniqueAndGenreSpecific() {
         let genres = AppSearchGenre.all
         XCTAssertEqual(genres.count, 18)
@@ -223,7 +222,7 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(Set(genres.map(\.title)).count, genres.count)
         for genre in genres {
             XCTAssertTrue(genre.assetName.hasPrefix("SearchGenre"))
-            XCTAssertNotNil(UIImage(named: genre.assetName), "\(genre.title) art must be in the iPhone app's asset catalog")
+            XCTAssertNotNil(UIImage(named: genre.assetName), "\(genre.title) art must be in the app's asset catalog")
         }
 
         let movieGenres = [TMDBCatalogGenre(id: 28, name: "Action"),
@@ -243,7 +242,6 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertNil(genres.first { $0.title == "Horror" }?.tmdbID(for: .series, in: seriesGenres),
                      "Don't silently substitute an unrelated TV genre when TMDB has no direct equivalent")
     }
-    #endif
 
     func testTVDBEpisodeUsesParentSeriesAndExactAiredNumbers() async {
         MetadataTestProtocol.install { request in

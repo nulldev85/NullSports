@@ -30,8 +30,8 @@ struct AppSearchView: View {
     @State private var qualityRequest: UUID?
     #if !os(tvOS)
     @State private var homeRevision = 0
-    @State private var selectedGenre: AppSearchGenre?
     #endif
+    @State private var selectedGenre: AppSearchGenre?
     #if os(tvOS)
     @Environment(\.tvTabBar) private var tabBar
     #endif
@@ -56,6 +56,7 @@ struct AppSearchView: View {
             // open the pages under it.
             .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
             .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+            .navigationDestination(item: $selectedGenre) { genre in AppSearchGenreBrowseView(genre: genre) }
             #if os(tvOS)
             // Back on Search's own screen, with the tab bar up.
             .onAppear { tabBar?.reset() }
@@ -63,7 +64,6 @@ struct AppSearchView: View {
             #else
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.large)
-            .navigationDestination(item: $selectedGenre) { genre in AppSearchGenreBrowseView(genre: genre) }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
                         prompt: "Movies, series, channels, programs")
             #endif
@@ -260,15 +260,11 @@ struct AppSearchView: View {
     @ViewBuilder
     private var content: some View {
         if searchedTerm.isEmpty {
-            #if os(tvOS)
-            AppSearchPrompt(searching: !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            #else
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 AppSearchGenreGrid { genre in selectedGenre = genre }
             } else {
                 AppSearchPrompt(searching: true)
             }
-            #endif
         } else {
             VStack(alignment: .leading, spacing: Metrics.sectionGap) {
                 chips
@@ -505,8 +501,7 @@ struct AppSearchView: View {
     }
 }
 
-#if !os(tvOS)
-/// The original artwork and TMDB genre names used by the iPhone discovery grid.
+/// The original artwork and TMDB genre names shared by both discovery grids.
 /// Some TMDB TV genres combine several movie genres; unsupported equivalents
 /// remain visible as a tab and explain that TMDB has no matching TV genre.
 struct AppSearchGenre: Identifiable, Hashable {
@@ -547,46 +542,78 @@ struct AppSearchGenre: Identifiable, Hashable {
 
 private struct AppSearchGenreGrid: View {
     let select: (AppSearchGenre) -> Void
+    #if os(tvOS)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 24), count: 4)
+    private let spacing: CGFloat = 24
+    #else
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private let spacing: CGFloat = 12
+    #endif
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
+        LazyVGrid(columns: columns, alignment: .center, spacing: spacing) {
             ForEach(AppSearchGenre.all) { genre in
+                #if os(tvOS)
+                TVSelectable(drawsFocusChrome: false, action: { select(genre) }) {
+                    AppSearchGenreCard(genre: genre)
+                }
+                .accessibilityLabel("Browse \(genre.title) movies and series")
+                #else
                 Button { select(genre) } label: {
-                    GeometryReader { proxy in
-                        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        ZStack(alignment: .bottomLeading) {
-                            Image(genre.assetName)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: proxy.size.width, height: proxy.size.height)
-                                .clipped()
-                            LinearGradient(stops: [
-                                .init(color: .clear, location: 0.18),
-                                .init(color: .black.opacity(0.25), location: 0.55),
-                                .init(color: .black.opacity(0.82), location: 1)
-                            ], startPoint: .top, endPoint: .bottom)
-                            Text(genre.title)
-                                .font(.inter(18, .semibold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.82)
-                                .padding(.horizontal, 14)
-                                .padding(.bottom, 12)
-                        }
-                        .clipShape(shape)
-                        .overlay(shape.strokeBorder(.white.opacity(0.08), lineWidth: 1))
-                        .contentShape(shape)
-                    }
-                    .aspectRatio(1.68, contentMode: .fit)
+                    AppSearchGenreCard(genre: genre)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Browse \(genre.title) movies and series")
+                #endif
             }
         }
         .padding(.horizontal, AppSearchMetrics.inset)
         .padding(.top, 8)
         .padding(.bottom, 24)
+        .lineupFocusRegion()
+    }
+}
+
+private struct AppSearchGenreCard: View {
+    let genre: AppSearchGenre
+    #if os(tvOS)
+    @Environment(\.lineupTVSelectableFocused) private var focused
+    private let titleSize: CGFloat = 28
+    private let inset: CGFloat = 24
+    private let bottom: CGFloat = 20
+    #else
+    private let titleSize: CGFloat = 18
+    private let inset: CGFloat = 14
+    private let bottom: CGFloat = 12
+    #endif
+
+    var body: some View {
+        GeometryReader { proxy in
+            let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+            ZStack(alignment: .bottomLeading) {
+                Image(genre.assetName)
+                    .resizable().scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0.18),
+                    .init(color: .black.opacity(0.25), location: 0.55),
+                    .init(color: .black.opacity(0.82), location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+                Text(genre.title)
+                    .font(.inter(titleSize, .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1).minimumScaleFactor(0.82)
+                    .padding(.horizontal, inset).padding(.bottom, bottom)
+            }
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(.white.opacity(0.08), lineWidth: 1))
+            #if os(tvOS)
+            .lineupFocusLayer(focused, in: shape)
+            #endif
+            .contentShape(shape)
+        }
+        .aspectRatio(1.68, contentMode: .fit)
     }
 }
 
@@ -608,17 +635,16 @@ private struct AppSearchGenreBrowseView: View {
     @State private var showUnavailable = false
     @State private var openTask: Task<Void, Never>?
 
+    #if os(tvOS)
+    private let columns = [GridItem(.adaptive(minimum: 200, maximum: 240), spacing: 24, alignment: .top)]
+    #else
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 14, alignment: .top)]
+    #endif
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Picker("Media type", selection: $selectedKind) {
-                    Text("Movies").tag(TMDBCatalogMediaKind.movie)
-                    Text("Series").tag(TMDBCatalogMediaKind.series)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, AppSearchMetrics.inset)
+                mediaTypePicker
                 content
             }
             .padding(.top, 12)
@@ -626,8 +652,10 @@ private struct AppSearchGenreBrowseView: View {
         }
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.text)
+        #if !os(tvOS)
         .navigationTitle(genre.title)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .task(id: selectedKind) { await loadFirstPage() }
         .alert("Not found in your sources", isPresented: $showUnavailable) {
@@ -636,6 +664,36 @@ private struct AppSearchGenreBrowseView: View {
             Text("\(unavailableTitle ?? "That title") is in TMDB’s catalog, but it was not found on your connected media servers or IPTV VOD.")
         }
         .onDisappear { openTask?.cancel() }
+    }
+
+    @ViewBuilder
+    private var mediaTypePicker: some View {
+        #if os(tvOS)
+        HStack(spacing: 20) {
+            Text(genre.title).font(.inter(34, .bold))
+            Spacer(minLength: 24)
+            ForEach([TMDBCatalogMediaKind.movie, .series], id: \.self) { kind in
+                TVSelectable(scale: LineupStyle.controlLift, fillRadius: 28,
+                             action: { selectedKind = kind }) {
+                    Text(kind == .movie ? "Movies" : "Series")
+                        .font(.inter(22, .semibold))
+                        .foregroundStyle(selectedKind == kind ? LineupStyle.onHighlight : LineupStyle.text)
+                        .padding(.horizontal, 30).frame(height: 56)
+                        .background(selectedKind == kind ? LineupStyle.highlight : LineupStyle.surface, in: Capsule())
+                }
+            }
+        }
+        .padding(.horizontal, AppSearchMetrics.inset)
+        .padding(.vertical, 16)
+        .lineupFocusRegion()
+        #else
+        Picker("Media type", selection: $selectedKind) {
+            Text("Movies").tag(TMDBCatalogMediaKind.movie)
+            Text("Series").tag(TMDBCatalogMediaKind.series)
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, AppSearchMetrics.inset)
+        #endif
     }
 
     @ViewBuilder
@@ -667,6 +725,7 @@ private struct AppSearchGenreBrowseView: View {
                 }
             }
             .padding(.horizontal, AppSearchMetrics.inset)
+            .lineupFocusRegion()
             if loadingMore { ProgressView().frame(maxWidth: .infinity).padding(.vertical, 12) }
         }
     }
@@ -735,30 +794,51 @@ private struct AppSearchGenreBrowseView: View {
     @ViewBuilder
     private func poster(_ title: TMDBCatalogTitle) -> some View {
         if let item = title.mediaItem(kind: selectedKind) {
+            #if os(tvOS)
+            TVSelectable(drawsFocusChrome: false, action: { open(title) }) {
+                posterContent(item)
+            }
+            .disabled(openingID != nil)
+            .accessibilityLabel("\(item.name)\(item.productionYear.map { ", \($0)" } ?? "")")
+            #else
             Button { open(title) } label: {
-                VStack(alignment: .leading, spacing: 7) {
-                    MediaItemCard(item: item, shape: .poster)
-                        .overlay {
-                            if openingID == item.id {
-                                ProgressView().padding(11).background(.ultraThinMaterial, in: Circle())
-                            }
-                        }
-                    Text(item.name)
-                        .font(.inter(13, .semibold))
-                        .foregroundStyle(LineupStyle.text)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    if let year = item.productionYear {
-                        Text(String(year)).font(.inter(12, .medium)).foregroundStyle(LineupStyle.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                posterContent(item)
             }
             .buttonStyle(.plain)
             .disabled(openingID != nil)
             .accessibilityLabel("\(item.name)\(item.productionYear.map { ", \($0)" } ?? "")")
+            #endif
         }
+    }
+
+    private func posterContent(_ item: MediaItem) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            MediaItemCard(item: item, shape: .poster)
+                .overlay {
+                    if openingID == item.id {
+                        ProgressView().padding(11).background(.ultraThinMaterial, in: Circle())
+                    }
+                }
+            Text(item.name)
+                #if os(tvOS)
+                .font(.inter(20, .semibold))
+                #else
+                .font(.inter(13, .semibold))
+                #endif
+                .foregroundStyle(LineupStyle.text).lineLimit(2)
+                .multilineTextAlignment(.leading)
+            if let year = item.productionYear {
+                Text(String(year))
+                    #if os(tvOS)
+                    .font(.inter(18, .medium))
+                    #else
+                    .font(.inter(12, .medium))
+                    #endif
+                    .foregroundStyle(LineupStyle.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private func open(_ title: TMDBCatalogTitle) {
@@ -785,7 +865,6 @@ private struct AppSearchGenreBrowseView: View {
         }
     }
 }
-#endif
 
 #if os(tvOS)
 /// A channel to play full screen from the Search tab, and the game it was

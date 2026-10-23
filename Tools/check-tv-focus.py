@@ -44,6 +44,7 @@ TARGET_FILES = [
     "Lineup/Design/GameStatsRows.swift",
     "Lineup/Design/GameStatsBoardViews.swift",
     "Lineup/Views/RootView.swift",
+    "Lineup/Views/SearchViews.swift",
     "Lineup/Design/LineupStyle.swift",
     "Lineup/Design/TeamBadge.swift",
     "Lineup/LineupApp.swift",

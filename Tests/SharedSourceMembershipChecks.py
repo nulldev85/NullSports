@@ -4,6 +4,7 @@ This checks the project's source-root declarations, not Swift type checking or
 all XcodeGen options. The normal generated-project build remains required.
 """
 import re
+import json
 import unittest
 from pathlib import Path, PurePosixPath
 
@@ -65,6 +66,21 @@ def is_included(project, target, source):
 
 
 class SharedSourceMembershipChecks(unittest.TestCase):
+    def test_search_genre_artwork_is_complete_on_both_platforms(self):
+        source = (ROOT / "Lineup/Views/SearchViews.swift").read_text(encoding="utf-8")
+        assets = re.findall(r'assetName: "(SearchGenre[^"]+)"', source)
+        self.assertEqual(len(set(assets)), 18)
+        for name in assets:
+            copies = []
+            for catalog in ("iPhone/Assets.xcassets", "Lineup/Assets.xcassets"):
+                folder = ROOT / catalog / f"{name}.imageset"
+                manifest = json.loads((folder / "Contents.json").read_text(encoding="utf-8"))
+                image = (folder / manifest["images"][0]["filename"]).read_bytes()
+                self.assertTrue(image.startswith(b"\xff\xd8"))
+                self.assertGreater(len(image), 1000)
+                copies.append(image)
+            self.assertEqual(*copies, f"{name} must use the existing genre artwork on both devices")
+
     def test_mobile_library_rows_and_artwork_are_iphone_only(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
         for source in ("iPhone/MobileLibraryShelf.swift", "iPhone/MobileLibraryArtwork.swift",
