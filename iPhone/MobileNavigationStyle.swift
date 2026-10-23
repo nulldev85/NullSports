@@ -499,6 +499,7 @@ struct MobileTabBarAppearance: UIViewRepresentable {
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.liquidGlass = liquidGlass
+        probe.nativeBarShouldBeHidden = !liquidGlass || fullscreen || navigation?.isCompact == true
         probe.scrollInteractionEnabled = active && !fullscreen
         probe.navigation = navigation
         navigation?.order = order
@@ -513,10 +514,12 @@ struct MobileTabBarAppearance: UIViewRepresentable {
 
     final class Probe: UIView {
         var liquidGlass = false
+        var nativeBarShouldBeHidden = true
         var scrollInteractionEnabled = true
         weak var navigation: MobileTabNavigation?
         private weak var bar: UITabBar?
         private let style = MobileTabBarStyle()
+        private var visibilityUpdateScheduled = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -531,12 +534,14 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             // Only discover the controller once. Layout and tab switches do
             // not walk the view hierarchy or recreate the glass material.
             if bar == nil { refresh() }
+            requestNativeVisibilityUpdate()
             navigation?.requestWindowMetrics(from: self)
             navigation?.requestContentInsetsUpdate()
         }
 
         override func safeAreaInsetsDidChange() {
             super.safeAreaInsetsDidChange()
+            requestNativeVisibilityUpdate()
             navigation?.requestWindowMetrics(from: self)
             navigation?.requestContentInsetsUpdate()
         }
@@ -549,10 +554,32 @@ struct MobileTabBarAppearance: UIViewRepresentable {
                 navigation?.tabs = tabs
                 bar = tabs?.tabBar
             }
+            // UIKit can replace its floating tab bar during a visibility
+            // transition. Keep styling and visibility on the live instance.
+            if let current = navigation?.tabs?.tabBar { bar = current }
             guard let bar else { return }
             style.apply(to: bar, liquidGlass: liquidGlass)
+            requestNativeVisibilityUpdate()
             navigation?.requestScrollObservationUpdate(enabled: scrollInteractionEnabled)
             navigation?.requestContentInsetsUpdate()
+        }
+
+        private func requestNativeVisibilityUpdate() {
+            guard !visibilityUpdateScheduled else { return }
+            visibilityUpdateScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.visibilityUpdateScheduled = false
+                guard self.window != nil, let tabs = self.navigation?.tabs else { return }
+                // Reconcile after SwiftUI's toolbar/layout pass. In particular,
+                // a glass appearance change following the compact animation
+                // must not leave the expanded native bar hidden.
+                if #available(iOS 26.0, *),
+                   tabs.isTabBarHidden != self.nativeBarShouldBeHidden {
+                    tabs.setTabBarHidden(self.nativeBarShouldBeHidden, animated: false)
+                }
+                self.navigation?.requestContentInsetsUpdate()
+            }
         }
 
         private static func findTabController(in controller: UIViewController?) -> UITabBarController? {

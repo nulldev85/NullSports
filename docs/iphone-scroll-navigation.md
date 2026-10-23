@@ -36,3 +36,21 @@ Local validation passed on Windows: all 10 metadata/source-membership tests,
 the playback project/package-version checks and `git diff --check`. Swift
 compilation, simulator tests, screenshot inspection and device interaction
 remain pending the full iPhone IPA workflow/device test.
+
+## Build 129 follow-up
+
+Build 128 compiled both configurations and successfully packaged/uploaded its
+staging IPA. The full simulator run executed 594 tests (one existing skip), with
+two assertions failing in the new hosted navigation test: a presentation wait
+and an inactive-controller array-membership assertion. All existing navigation,
+Guide clearance and playback tests passed. Compact screenshots were exported
+in both styles and inspected.
+
+The UIKit bridge now reconciles the native bar's requested visibility after
+toolbar/layout changes using the public tab-controller visibility API on iOS 26+.
+It also refreshes its reference to the live floating bar. The new test waits
+for the actual presentation width to finish animating before changing appearance,
+and checks controller identity/scroll position by returning to Library instead
+of assuming SwiftUI lists every inactive lazy controller in `viewControllers`.
+Its two-second bounds, all cases and existing checks remain enabled; failures
+now identify the precise wait call. Replacement SDK/device validation is pending.

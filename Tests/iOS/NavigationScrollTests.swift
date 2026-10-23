@@ -32,14 +32,22 @@ final class NavigationScrollTests: XCTestCase {
         window.rootViewController = UIHostingController(rootView: ScrollNavigationPreview(model: model))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previous?.makeKey() }
-        try await settle { Self.find(MobileTabBarAppearance.Probe.self, in: window)?.navigation?.tabs != nil }
+        try await settle("Initial Library controller must finish attaching") {
+            guard let navigation = Self.find(MobileTabBarAppearance.Probe.self, in: window)?.navigation,
+                  let tabs = navigation.tabs else { return false }
+            return tabs.selectedIndex == navigation.order.firstIndex(of: .library)
+                && tabs.selectedViewController?.viewIfLoaded?.window === window
+                && tabs.tabBar.items?.count == 5
+        }
         let navigation = try XCTUnwrap(Self.find(MobileTabBarAppearance.Probe.self, in: window)?.navigation)
         let tabs = try XCTUnwrap(navigation.tabs)
         let page = try XCTUnwrap(tabs.selectedViewController)
 
         for glass in [false, true, false] {
             model.glass = glass
-            try await settle { tabs.tabBar.isHidden == !(glass && MobileNavigationStyle.supportsGlass) }
+            try await settle("Expanded navigation must be visible after switching appearance; glass=\(glass)") {
+                tabs.tabBar.isHidden == !(glass && MobileNavigationStyle.supportsGlass)
+            }
             let scroll = try XCTUnwrap(Self.find(NavigationGestureScroll.self, in: page.view))
             scroll.setContentOffset(CGPoint(x: 0, y: 320), animated: false)
             try await Task.sleep(for: .milliseconds(80))
@@ -54,16 +62,18 @@ final class NavigationScrollTests: XCTestCase {
             scroll.contentOffset.y = 380
             navigation.scrollObservation.receivePanInput(from: scroll, phase: .changed,
                                                          translation: CGPoint(x: 0, y: -60))
-            try await settle {
+            try await settle("Downward scrolling must show a Sports circle; glass=\(glass)") {
                 guard let boundary = MobileLineupNavigationBoundary.find(in: window) else { return false }
-                return navigation.isCompact && abs(boundary.bounds.width - 62) < 1 && tabs.tabBar.isHidden
+                let width = boundary.layer.presentation()?.bounds.width ?? boundary.bounds.width
+                return navigation.isCompact && abs(boundary.bounds.width - 62) < 1
+                    && abs(width - 62) < 1 && tabs.tabBar.isHidden
             }
             let boundary = try XCTUnwrap(MobileLineupNavigationBoundary.find(in: window))
             let frame = boundary.convert(boundary.bounds, to: window)
             XCTAssertEqual(frame.minX, 20, accuracy: 1)
             XCTAssertEqual(frame.height, 62, accuracy: 1)
             XCTAssertEqual(frame.maxY, window.bounds.maxY - (window.safeAreaInsets.bottom > 0 ? 20 : 8), accuracy: 1)
-            try await settle {
+            try await settle("The last row must clear the compact control; glass=\(glass)") {
                 let usableBottom = scroll.convert(scroll.bounds, to: window).maxY - scroll.adjustedContentInset.bottom
                 return usableBottom <= frame.minY + 1
             }
@@ -82,10 +92,12 @@ final class NavigationScrollTests: XCTestCase {
             scroll.contentOffset.y = 362
             navigation.scrollObservation.receivePanInput(from: scroll, phase: .changed,
                                                          translation: CGPoint(x: 0, y: -42))
-            try await settle {
+            try await settle("Upward scrolling must restore every tab; glass=\(glass)") {
                 guard !navigation.isCompact else { return false }
                 if glass && MobileNavigationStyle.supportsGlass { return !tabs.tabBar.isHidden }
-                return (MobileLineupNavigationBoundary.find(in: window)?.bounds.width ?? 0) > 250
+                guard let boundary = MobileLineupNavigationBoundary.find(in: window) else { return false }
+                let width = boundary.layer.presentation()?.bounds.width ?? boundary.bounds.width
+                return boundary.bounds.width > 250 && abs(width - boundary.bounds.width) < 1
             }
             XCTAssertEqual(scroll.contentOffset.y, 362, accuracy: 1, "Expanding must preserve the browsed position")
             XCTAssertTrue(tabs.selectedViewController === page)
@@ -98,8 +110,19 @@ final class NavigationScrollTests: XCTestCase {
         XCTAssertTrue(navigation.isCompact)
         // The small Sports button uses this same existing activation path.
         navigation.activate(.sports) { model.selection = MobileNavigationTab.sports.rawValue }
-        try await settle { !navigation.isCompact && model.selection == MobileNavigationTab.sports.rawValue }
-        XCTAssertTrue(tabs.viewControllers?.contains { $0 === page } == true)
+        try await settle("The compact Sports button must select Sports and expand navigation") {
+            !navigation.isCompact && model.selection == MobileNavigationTab.sports.rawValue
+                && tabs.selectedIndex == navigation.order.firstIndex(of: .sports)
+        }
+        // SwiftUI's lazy tabs need not list an inactive controller in
+        // viewControllers. Revisit it to verify real identity and state.
+        model.selection = MobileNavigationTab.library.rawValue
+        try await settle("Returning to Library must reuse its original controller and scroll position") {
+            tabs.selectedIndex == navigation.order.firstIndex(of: .library)
+                && tabs.selectedViewController === page && scroll.window === window
+        }
+        XCTAssertTrue(tabs.selectedViewController === page)
+        XCTAssertEqual(scroll.contentOffset.y, 260, accuracy: 1)
     }
 
     @MainActor
@@ -155,12 +178,13 @@ final class NavigationScrollTests: XCTestCase {
         observer.receivePanInput(from: scroll, phase: .changed, translation: CGPoint(x: 0, y: -60))
     }
 
-    @MainActor private func settle(_ condition: () -> Bool) async throws {
+    @MainActor private func settle(_ message: String, file: StaticString = #filePath, line: UInt = #line,
+                                   _ condition: () -> Bool) async throws {
         for _ in 0..<40 {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(50))
         }
-        XCTFail("Navigation did not reach its expected presentation")
+        XCTFail(message, file: file, line: line)
     }
 
     @MainActor private static func find<T: UIView>(_ type: T.Type, in view: UIView) -> T? {
@@ -194,6 +218,7 @@ private struct ScrollNavigationPreview: View {
                 .tabItem { Label(tab.title, systemImage: "square") }.tag(tab.rawValue)
             }
         }
+        .tint(.white)
         .mobileNavigationChrome(selection: $model.selection, liquidGlass: model.glass)
         .environment(\.scenePhase, .active)
         .preferredColorScheme(.dark)
