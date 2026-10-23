@@ -482,6 +482,25 @@ private struct AccountSourceRow: View {
     }
 }
 
+/// The choice sheet dismisses (and clears its selection) before running an
+/// action. Retain the selected account when building its confirmation row.
+@MainActor
+enum MobileSettingsRemovalChoices {
+    static func provider(_ selection: XtreamProfile?, library: SportsLibrary) -> [MobileMenuItem] {
+        guard let profile = selection else { return [] }
+        return [MobileMenuItem("Remove Provider", isDestructive: true) {
+            Task { await library.removeProfile(profile) }
+        }]
+    }
+
+    static func mediaServer(_ selection: MediaServerProfile?, media: MediaLibrary) -> [MobileMenuItem] {
+        guard let profile = selection else { return [] }
+        return [MobileMenuItem("Remove Media Server", isDestructive: true) {
+            media.remove(profile)
+        }]
+    }
+}
+
 /// IPTV: the provider in use, every provider to switch between, and adding
 /// one.
 private struct MobileIPTVSettingsView: View {
@@ -535,10 +554,7 @@ private struct MobileIPTVSettingsView: View {
         .lineupChoices("Remove \(removingProfile?.name ?? "provider") and its saved password?",
                        symbol: "trash",
                        isPresented: Binding(get: { removingProfile != nil }, set: { if !$0 { removingProfile = nil } })) {
-            [MobileMenuItem("Remove Provider", isDestructive: true) {
-                if let profile = removingProfile { Task { await library.removeProfile(profile) } }
-                removingProfile = nil
-            }]
+            MobileSettingsRemovalChoices.provider(removingProfile, library: library)
         } onCancel: { removingProfile = nil }
     }
 }
@@ -585,10 +601,7 @@ private struct MobileMediaServerSettingsView: View {
         }
         .lineupChoices("Remove \(removingMediaProfile?.name ?? "media server")?", symbol: "trash",
                        isPresented: Binding(get: { removingMediaProfile != nil }, set: { if !$0 { removingMediaProfile = nil } })) {
-            [MobileMenuItem("Remove Media Server", isDestructive: true) {
-                if let profile = removingMediaProfile { media.remove(profile) }
-                removingMediaProfile = nil
-            }]
+            MobileSettingsRemovalChoices.mediaServer(removingMediaProfile, media: media)
         } onCancel: { removingMediaProfile = nil }
     }
 }
