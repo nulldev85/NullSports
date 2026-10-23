@@ -37,7 +37,7 @@ jobs:
           LINEUP_FANART_API_KEY: ${{ secrets.LINEUP_FANART_API_KEY }}
         run: |
           python3 -B Tools/configure-metadata.py
-          python3 -B Tools/check-metadata-bundle.py Lineup/Resources --require-online-subtitles --require-fanart
+          python3 -B Tools/check-metadata-bundle.py Lineup/Resources --require-online-subtitles --require-fanart --require-tmdb
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -47,6 +47,7 @@ jobs:
           set -euo pipefail
           python3 -B Tests/SharedSourceMembershipChecks.py
           python3 -B Tests/MetadataBundleChecks.py
+          python3 -B Tests/WelcomePosterAssetChecks.py
           python3 -B Tests/PlaybackBundleProjectChecks.py
           python3 -B Tests/PlaybackVersionChecks.py
           find Lineup iPhone AetherPlayback MPVPlayback Tests/iOS Tests/tvOS -name '*.swift' -exec xcrun swiftc -frontend -parse -swift-version 5 {} +
@@ -65,6 +66,8 @@ jobs:
           /tmp/guide-checks
           swiftc iPhone/MobileGuideWindow.swift Tests/MobileGuideWindowChecks.swift -o /tmp/mobile-guide-checks
           /tmp/mobile-guide-checks
+          swiftc iPhone/MobileWelcomeRowMotion.swift Tests/MobileWelcomeMotionChecks.swift -o /tmp/mobile-welcome-motion-checks
+          /tmp/mobile-welcome-motion-checks
           swiftc Lineup/Models/PlaybackEngineVersions.swift iPhone/MobilePlaybackPolicy.swift Tests/MobilePlaybackPolicyChecks.swift -o /tmp/mobile-playback-policy-checks
           /tmp/mobile-playback-policy-checks
           swiftc Lineup/Services/SubtitlePreferences.swift Tests/MobileSubtitlePreferenceChecks.swift -o /tmp/mobile-subtitle-preference-checks
@@ -164,7 +167,7 @@ jobs:
           # silently missing from a shipped build.
           app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
           test -d "$app"
-          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart
+          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart --require-tmdb
           missing=0
           for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
             if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then
@@ -225,7 +228,7 @@ jobs:
           LINEUP_FANART_API_KEY: ${{ secrets.LINEUP_FANART_API_KEY }}
         run: |
           python3 -B Tools/configure-metadata.py
-          python3 -B Tools/check-metadata-bundle.py Lineup/Resources --require-online-subtitles --require-fanart
+          python3 -B Tools/check-metadata-bundle.py Lineup/Resources --require-online-subtitles --require-fanart --require-tmdb
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -255,7 +258,7 @@ jobs:
           # The bundle that ships, checked as it is packaged.
           app="build/Build/Products/Release-iphoneos/Lineup.app"
           test -d "$app"
-          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart
+          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart --require-tmdb
           missing=0
           for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
             if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then

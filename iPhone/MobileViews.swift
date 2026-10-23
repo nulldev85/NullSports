@@ -443,6 +443,8 @@ private struct AccountSourceRow: View {
     let name: String
     let detail: String
     let isActive: Bool
+    let selectionDisabled: Bool
+    let removalDisabled: Bool
     let select: () -> Void
     let remove: () -> Void
 
@@ -467,14 +469,35 @@ private struct AccountSourceRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(selectionDisabled)
             .accessibilityLabel("\(name), \(isActive ? "active provider" : "switch provider")")
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
                     .foregroundStyle(LineupPanelStyle.listValue)
             }
             .buttonStyle(.borderless)
+            .disabled(removalDisabled)
             .accessibilityLabel("Remove \(name)")
         }
+    }
+}
+
+/// The choice sheet dismisses (and clears its selection) before running an
+/// action. Retain the selected account when building its confirmation row.
+@MainActor
+enum MobileSettingsRemovalChoices {
+    static func provider(_ selection: XtreamProfile?, library: SportsLibrary) -> [MobileMenuItem] {
+        guard let profile = selection else { return [] }
+        return [MobileMenuItem("Remove Provider", isDestructive: true) {
+            Task { await library.removeProfile(profile) }
+        }]
+    }
+
+    static func mediaServer(_ selection: MediaServerProfile?, media: MediaLibrary) -> [MobileMenuItem] {
+        guard let profile = selection else { return [] }
+        return [MobileMenuItem("Remove Media Server", isDestructive: true) {
+            media.remove(profile)
+        }]
     }
 }
 
@@ -500,10 +523,11 @@ private struct MobileIPTVSettingsView: View {
                         name: profile.name,
                         detail: profile.username,
                         isActive: library.activeProfile?.id == profile.id,
+                        selectionDisabled: library.isSwitchingProfile || library.channelsAreSyncing,
+                        removalDisabled: library.isSwitchingProfile,
                         select: { Task { await library.selectProfile(profile) } },
                         remove: { removingProfile = profile }
                     )
-                    .disabled(library.isSwitchingProfile || library.channelsAreSyncing)
                 }
                 Button { addingProvider = true } label: {
                     SettingsRow("Add Provider", symbol: "plus")
@@ -530,10 +554,7 @@ private struct MobileIPTVSettingsView: View {
         .lineupChoices("Remove \(removingProfile?.name ?? "provider") and its saved password?",
                        symbol: "trash",
                        isPresented: Binding(get: { removingProfile != nil }, set: { if !$0 { removingProfile = nil } })) {
-            [MobileMenuItem("Remove Provider", isDestructive: true) {
-                if let profile = removingProfile { Task { await library.removeProfile(profile) } }
-                removingProfile = nil
-            }]
+            MobileSettingsRemovalChoices.provider(removingProfile, library: library)
         } onCancel: { removingProfile = nil }
     }
 }
@@ -580,10 +601,7 @@ private struct MobileMediaServerSettingsView: View {
         }
         .lineupChoices("Remove \(removingMediaProfile?.name ?? "media server")?", symbol: "trash",
                        isPresented: Binding(get: { removingMediaProfile != nil }, set: { if !$0 { removingMediaProfile = nil } })) {
-            [MobileMenuItem("Remove Media Server", isDestructive: true) {
-                if let profile = removingMediaProfile { media.remove(profile) }
-                removingMediaProfile = nil
-            }]
+            MobileSettingsRemovalChoices.mediaServer(removingMediaProfile, media: media)
         } onCancel: { removingMediaProfile = nil }
     }
 }

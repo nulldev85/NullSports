@@ -862,6 +862,14 @@ final class MediaLibrary {
         try await metadataResolver.discover(genreID: genreID, kind: kind, page: page)
     }
 
+    func tmdbWelcomePosters() async -> [TMDBWelcomePoster] {
+        await metadataResolver.welcomePosters()
+    }
+
+    func tmdbWelcomePosters(for kind: TMDBCatalogMediaKind) async -> [TMDBWelcomePoster] {
+        await metadataResolver.welcomePosters(for: kind)
+    }
+
     func tmdbTitleLogo(for item: MediaItem) async -> URL? {
         await metadataResolver.titleLogo(for: item)
     }

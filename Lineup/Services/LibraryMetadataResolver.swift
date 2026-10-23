@@ -57,6 +57,10 @@ struct TMDBCatalogTitle: Decodable, Identifiable, Hashable, Sendable {
         (release_date ?? first_air_date).flatMap { Int($0.prefix(4)) }
     }
 
+    var officialPosterURL: URL? {
+        Self.imageURL(poster_path, size: "w342").flatMap(URL.init(string:))
+    }
+
     func mediaItem(kind: TMDBCatalogMediaKind) -> MediaItem? {
         let displayName = (kind == .movie ? title : name)?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let displayName, !displayName.isEmpty, id > 0 else { return nil }
@@ -74,6 +78,12 @@ struct TMDBCatalogTitle: Decodable, Identifiable, Hashable, Sendable {
         }
         return "https://image.tmdb.org/t/p/\(size)\(path)"
     }
+}
+
+struct TMDBWelcomePoster: Identifiable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let imageURL: URL
 }
 
 /// Shared by every shelf and detail page. Coalesces identical lookups, bounds
@@ -152,6 +162,44 @@ actor LibraryMetadataResolver {
             "page": String(page)
         ], lifetime: 900)
         return try JSONDecoder().decode(TMDBCatalogPage.self, from: data)
+    }
+
+    /// Official current movie and series posters for the first-launch screen.
+    /// The endpoint response is cached for four hours; missing or unsafe image
+    /// paths are omitted instead of replaced with generated artwork.
+    func welcomePosters() async -> [TMDBWelcomePoster] {
+        async let moviesData: Data? = try? await tmdbCatalogData("trending/movie/week", query: [:], lifetime: 14_400)
+        async let seriesData: Data? = try? await tmdbCatalogData("trending/tv/week", query: [:], lifetime: 14_400)
+        let (moviePayload, seriesPayload) = await (moviesData, seriesData)
+        let movies = moviePayload.flatMap { try? JSONDecoder().decode(TMDBCatalogPage.self, from: $0) }?.results
+            .compactMap { welcomePoster($0, kind: .movie) } ?? []
+        let series = seriesPayload.flatMap { try? JSONDecoder().decode(TMDBCatalogPage.self, from: $0) }?.results
+            .compactMap { welcomePoster($0, kind: .series) } ?? []
+
+        // Mix real movie and series posters across each moving row.
+        var posters: [TMDBWelcomePoster] = []
+        for index in 0..<max(movies.count, series.count) {
+            if movies.indices.contains(index) { posters.append(movies[index]) }
+            if series.indices.contains(index) { posters.append(series[index]) }
+        }
+        return Array(posters.prefix(24))
+    }
+
+    /// Fetches one artwork rail independently so the welcome screen can show
+    /// whichever TMDB catalog responds first instead of waiting for both.
+    func welcomePosters(for kind: TMDBCatalogMediaKind) async -> [TMDBWelcomePoster] {
+        let path = kind == .movie ? "trending/movie/week" : "trending/tv/week"
+        guard let data = try? await tmdbCatalogData(path, query: [:], lifetime: 14_400),
+              let page = try? JSONDecoder().decode(TMDBCatalogPage.self, from: data) else { return [] }
+        return page.results.compactMap { welcomePoster($0, kind: kind) }
+    }
+
+    private func welcomePoster(_ title: TMDBCatalogTitle, kind: TMDBCatalogMediaKind) -> TMDBWelcomePoster? {
+        let name = (kind == .movie ? title.title : title.name)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.id > 0, let name, !name.isEmpty, let imageURL = title.officialPosterURL,
+              imageURL.scheme == "https", imageURL.host == "image.tmdb.org" else { return nil }
+        return TMDBWelcomePoster(id: "\(kind.rawValue)-\(title.id)", title: name, imageURL: imageURL)
     }
 
     /// TMDB's logo artwork is a fallback for Fanart.tv when a title has no

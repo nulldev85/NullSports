@@ -14,7 +14,11 @@ struct RootView: View {
             if library.hasProfile || media.hasProfile {
                 MainView()
             } else {
+                #if os(iOS)
+                MobileWelcomeView().lineupAccentScope(accent)
+                #else
                 InitialSourceSetupView().lineupAccentScope(accent)
+                #endif
             }
         }
         .foregroundStyle(LineupStyle.text)

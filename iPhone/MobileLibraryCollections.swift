@@ -154,7 +154,7 @@ struct MobilePersonalCollectionView: View {
 struct MobileLibraryCollectionsRow: View {
     @Environment(MediaLibrary.self) private var media
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 LineupIconTile(symbol: "folder.fill", size: 24)
                 Text(media.shelfTitle(id: LibraryShelfOrder.collections, default: "Collections").uppercased())
@@ -182,7 +182,7 @@ struct MobileLibraryCollectionsRow: View {
                 }.padding(.horizontal, 18)
             }
         }
-        .padding(.vertical, 18)
+        .padding(.vertical, 12)
         .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 18)
     }

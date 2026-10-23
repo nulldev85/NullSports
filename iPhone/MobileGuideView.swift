@@ -75,7 +75,7 @@ struct MobileGuideView: View {
     /// picker appears: `verifiedStream` revalidates against the guide, which is
     /// far too costly to run per row on every redraw.
     @State private var recommendedStreamID: Int?
-    @ScaledMetric(relativeTo: .caption) private var rowHeight = 68.0
+    @ScaledMetric(relativeTo: .caption) private var rowHeight = 74.0
     var game: SportsGame? = nil
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
