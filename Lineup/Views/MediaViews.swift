@@ -1795,7 +1795,7 @@ private struct MediaCatalogsScreen: View {
         #if os(tvOS)
         shape == .poster ? 230 : 360
         #else
-        shape == .poster ? 136 : 212
+        shape == .poster ? 150 : 232
         #endif
     }
     private var sectionTitleFont: Font {

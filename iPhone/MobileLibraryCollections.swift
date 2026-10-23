@@ -189,7 +189,7 @@ struct MobileLibraryCollectionsRow: View {
 
     private func tile(_ name: String, detail: String, symbol: String,
                       covers: [MediaItem] = [], serverCollection: MediaItem? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             ZStack {
                 LineupPanelStyle.fill
                 Image(systemName: symbol).font(.system(size: 30, weight: .semibold)).foregroundStyle(LineupStyle.highlight)
@@ -210,11 +210,11 @@ struct MobileLibraryCollectionsRow: View {
                     }
                 }
             }
-            .frame(height: 96).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .frame(height: 110).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             Text(name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
             Text(detail).font(.inter(.caption2)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
         }
-        .frame(width: 184, alignment: .leading).padding(10)
+        .frame(width: 205, alignment: .leading).padding(14)
         .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .foregroundStyle(LineupStyle.text)
     }
