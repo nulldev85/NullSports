@@ -701,6 +701,7 @@ private struct MediaCatalogsScreen: View {
     #endif
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
+    @Environment(\.tvTabBar) private var tabBar
     @Environment(\.playMedia) private var playMedia
     /// Where the remote is: the hero's Play, or a card in the shelf row. The
     /// focus engine moves it; the screen adds only what the engine cannot --
@@ -1139,25 +1140,30 @@ private struct MediaCatalogsScreen: View {
     private var tvBrowser: some View {
         let shelves = tvShelves
         let index = min(shelfIndex, max(0, shelves.count - 1))
-        let rowShape: MediaArtShape = shelves.contains { MediaArtShape.forItems($0.items) == .poster } ? .poster : .still
-        let blockHeight = tvShelfBlockHeight(for: rowShape)
-        let heroHeight: CGFloat = heroItems.isEmpty ? 0 : 84
-        return VStack(alignment: .leading, spacing: 0) {
-            Spacer(minLength: 0)
-            // Each row is a focus region the full width of the screen, so a
-            // press up from anywhere in it reaches the tab bar.
-            if !heroItems.isEmpty {
-                heroRow
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(height: heroHeight, alignment: .top)
-                    .lineupFocusRegion()
-            }
-            if !shelves.isEmpty {
-                shelfBlock(shelves[index], index: index, count: shelves.count)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(alignment: .top) { shelfAboveStrip(shown: index > 0) }
-                    .frame(height: blockHeight, alignment: .bottom)
-                    .lineupFocusRegion()
+        let rowShape = shelves.indices.contains(index) ? MediaArtShape.forItems(shelves[index].items) : .poster
+        let blockHeight = shelves.isEmpty ? 0 : tvShelfBlockHeight(for: rowShape)
+        return GeometryReader { bounds in
+            let heroHeight = max(0, bounds.size.height - blockHeight)
+            let compact = heroHeight < 560
+            VStack(spacing: 0) {
+                VStack(spacing: compact ? 12 : 24) {
+                    TVMediaLibraryPreview(item: tvPreview.item, steady: true, compact: compact)
+                        .allowsHitTesting(false)
+                    if !heroItems.isEmpty {
+                        heroRow.lineupFocusRegion()
+                    }
+                }
+                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
+                .frame(height: heroHeight, alignment: .center)
+                .clipped()
+                if !shelves.isEmpty {
+                    shelfBlock(shelves[index], index: index, count: shelves.count)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(alignment: .top) { shelfAboveStrip(shown: index > 0) }
+                        .frame(height: blockHeight, alignment: .bottom)
+                        .lineupFocusRegion()
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
@@ -1166,8 +1172,11 @@ private struct MediaCatalogsScreen: View {
         // resize it. In the stack, a picture or a block of words taller than
         // the screen made the stack taller, and the whole screen -- shelf,
         // Play and artwork -- jumped as the remote moved between titles.
-        .background { TVMediaLibraryCanvas(preview: tvPreview, bottomInset: blockHeight + heroHeight) }
-        .ignoresSafeArea()
+        .background { TVMediaLibraryCanvas(preview: tvPreview) }
+        // Only the artwork may run behind the top navigation. Focusable
+        // Library content must retain its top safe area.
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+        .onAppear { tabBar?.reset() }
         .onChange(of: tvFocus) { previous, place in
             if place == .shelfAbove { cameUpFromRow(previous) } else { tvFocusChanged(to: place) }
         }
@@ -1260,22 +1269,24 @@ private struct MediaCatalogsScreen: View {
     /// The hero's own control: Play, and left or right for the title before
     /// or after it.
     private var heroRow: some View {
-        let item = heroItem
+        let item = tvPreview.item ?? heroItem
         let focused = tvFocus == .hero
         let count = heroItems.count
+        let buttonShape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         return HStack(spacing: 22) {
             HStack(spacing: 12) {
                 LineupIconTile(symbol: "play.fill", size: 32)
-                Text(item?.isSeries == true ? "Play Show" : "Play Movie")
+                Text(item?.isSeries == true || item?.type == "Episode" ? "Play Series" : "Play Movie")
             }
             .font(.inter(20, .semibold))
             .foregroundStyle(focused ? LineupStyle.background : LineupStyle.text)
             .padding(.horizontal, 30).frame(height: 58)
-            .background(focused ? LineupStyle.text : LineupStyle.text.opacity(0.14), in: Capsule())
-            .overlay(Capsule().strokeBorder(LineupStyle.text.opacity(focused ? 0 : 0.28), lineWidth: 1))
+            .background(focused ? LineupStyle.text : LineupStyle.text.opacity(0.14), in: buttonShape)
+            .overlay(buttonShape.strokeBorder(LineupStyle.text.opacity(focused ? 0 : 0.28), lineWidth: 1))
             .scaleEffect(focused ? LineupStyle.controlLift : 1)
             .lineupShadow(.lifted, on: focused)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
+            .contentShape(buttonShape)
             .focusable()
             .focused($tvFocus, equals: .hero)
             .focusEffectDisabled()
@@ -1547,7 +1558,7 @@ private struct MediaCatalogsScreen: View {
     /// A film plays; a show plays its next episode, or opens its page when
     /// there is none to play yet.
     private func playHero() {
-        guard let item = heroItem else { return }
+        guard let item = tvPreview.item ?? heroItem else { return }
         if item.isSeries {
             Task {
                 if let next = await media.resumeEpisode(in: item) { play(next) } else { pushed = item }
@@ -2470,6 +2481,7 @@ private struct MediaDetailScreen: View {
     #if os(tvOS)
     @FocusState private var backFocused: Bool
     @Environment(\.tvTabBar) private var tabBar
+    @State private var tabBarPageID = UUID()
     #endif
     @State private var choosingSeason = false
     #if !os(tvOS)
@@ -2529,8 +2541,8 @@ private struct MediaDetailScreen: View {
         #endif
         #if os(tvOS)
         // Full-screen artwork: the tab bar goes while the page is up.
-        .onAppear { tabBar?.pageAppeared() }
-        .onDisappear { tabBar?.pageDisappeared() }
+        .onAppear { tabBar?.pageAppeared(tabBarPageID) }
+        .onDisappear { tabBar?.pageDisappeared(tabBarPageID) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
         .fullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
@@ -3684,21 +3696,13 @@ private final class TVMediaPreviewState: ObservableObject {
     }
 }
 
-/// The only observer of focus-preview changes. Keeping this tiny boundary is
-/// what lets the poster shelves stay still while the room behind them changes.
+/// Artwork stays behind the bounded foreground, so its size cannot move the
+/// Library's controls or cover the top navigation.
 private struct TVMediaLibraryCanvas: View {
     @ObservedObject var preview: TVMediaPreviewState
-    /// What the controls along the foot of the screen take; the title is
-    /// told in the space above them.
-    let bottomInset: CGFloat
 
     var body: some View {
         TVMediaCinematicBackdrop(item: preview.item)
-            .overlay(alignment: .top) {
-                TVMediaLibraryPreview(item: preview.item, steady: true)
-                    .padding(.bottom, bottomInset)
-                    .allowsHitTesting(false)
-            }
     }
 }
 
@@ -3793,10 +3797,12 @@ private struct TVMediaLibraryPreview: View {
     /// and only what is in it changes. The title page leaves this off and
     /// sits its words on the actions beneath them.
     var steady = false
+    var compact = false
 
-    init(item: MediaItem?, steady: Bool = false) {
+    init(item: MediaItem?, steady: Bool = false, compact: Bool = false) {
         originalItem = item
         self.steady = steady
+        self.compact = compact
     }
     /// Each title's ratings once found. The hero moves on every few seconds
     /// and comes back round, and a title it has shown keeps its chips.
@@ -3807,7 +3813,7 @@ private struct TVMediaLibraryPreview: View {
     var body: some View {
         Group {
             if let item {
-                VStack(alignment: steady ? .center : .leading, spacing: 13) {
+                VStack(alignment: steady ? .center : .leading, spacing: compact ? 10 : 13) {
                     titleLockup(item)
                     ratingsRow(item)
                     metadataLine(item)
@@ -3821,11 +3827,11 @@ private struct TVMediaLibraryPreview: View {
                 }
                 .id(item.libraryKey)
                 .transition(.opacity)
-                .frame(maxWidth: .infinity, maxHeight: .infinity,
-                       alignment: steady ? .top : .bottomLeading)
+                .frame(maxWidth: .infinity, maxHeight: steady ? nil : .infinity,
+                       alignment: steady ? .center : .bottomLeading)
                 .padding(.horizontal, 72)
-                .padding(.top, 112)
-                .padding(.bottom, 24)
+                .padding(.top, steady ? 0 : 112)
+                .padding(.bottom, steady ? 0 : 24)
             }
         }
         .animation(LibraryHeroRotation.animation(reduceMotion: reduceMotion), value: item?.libraryKey)
@@ -3863,7 +3869,7 @@ private struct TVMediaLibraryPreview: View {
                     .shadow(color: .black.opacity(0.72), radius: 12, y: 3)
             }
         }
-        .frame(width: 620, height: 105, alignment: steady ? .center : .leading)
+        .frame(width: 620, height: compact ? 76 : 105, alignment: steady ? .center : .leading)
     }
 
     @ViewBuilder
@@ -3881,7 +3887,7 @@ private struct TVMediaLibraryPreview: View {
         let parts = metadata(item)
         if !parts.isEmpty || steady {
             Text(parts.isEmpty ? " " : parts.joined(separator: "  ·  "))
-                .font(.inter(19, .semibold))
+                .font(.inter(steady ? 24 : 19, .semibold))
                 .foregroundStyle(.white.opacity(0.92))
                 .lineLimit(1)
                 .multilineTextAlignment(steady ? .center : .leading)
@@ -3894,11 +3900,11 @@ private struct TVMediaLibraryPreview: View {
         let overview = item.overview ?? ""
         if !overview.isEmpty || steady {
             Text(overview.isEmpty ? " " : overview)
-                .font(.inter(18, .medium))
+                .font(.inter(steady ? 26 : 18, .medium))
                 .foregroundStyle(.white.opacity(0.9))
-                .lineLimit(3, reservesSpace: steady)
+                .lineLimit(compact ? 2 : 3, reservesSpace: steady)
                 .multilineTextAlignment(steady ? .center : .leading)
-                .frame(maxWidth: 820, alignment: steady ? .center : .leading)
+                .frame(maxWidth: steady ? 1080 : 820, alignment: steady ? .center : .leading)
                 .shadow(color: .black.opacity(0.75), radius: 10, y: 2)
         }
     }
@@ -3931,7 +3937,7 @@ private struct TVMediaLibraryPreview: View {
                     }
                 }
                 Text(actors.map(\.name).joined(separator: ", "))
-                    .font(.inter(15, .semibold))
+                    .font(.inter(steady ? 20 : 15, .semibold))
                     .foregroundStyle(.white.opacity(0.88))
                     .lineLimit(1)
             }

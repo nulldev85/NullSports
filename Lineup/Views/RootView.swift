@@ -76,21 +76,21 @@ struct RootView: View {
 /// A title's page hides the bar for its full-screen artwork. Asked for by
 /// the page itself, tvOS was left to put the bar back when the page went,
 /// and now and then it did not: the bar stayed gone on every tab until the
-/// app was relaunched. Counting the pages open and stating the answer on
+/// app was relaunched. Tracking each page and stating the answer on
 /// every tab means a page closing is a change of state the bar follows,
 /// and the Library's own screen puts it back whenever it shows.
 @MainActor
 final class TVTabBarState: ObservableObject {
     @Published private(set) var hidden = false
-    private var pagesOpen = 0
+    private var pagesOpen: Set<UUID> = []
 
-    func pageAppeared() { pagesOpen += 1; sync() }
-    func pageDisappeared() { pagesOpen = max(0, pagesOpen - 1); sync() }
+    func pageAppeared(_ id: UUID) { pagesOpen.insert(id); sync() }
+    func pageDisappeared(_ id: UUID) { pagesOpen.remove(id); sync() }
     /// A tab's own screen is showing: no page is over it.
-    func reset() { pagesOpen = 0; sync() }
+    func reset() { pagesOpen.removeAll(); sync() }
 
     private func sync() {
-        let hide = pagesOpen > 0
+        let hide = !pagesOpen.isEmpty
         if hidden != hide { hidden = hide }
     }
 }
