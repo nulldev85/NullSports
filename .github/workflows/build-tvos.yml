@@ -245,3 +245,62 @@ jobs:
           path: Lineup-unsigned.ipa
           if-no-files-found: error
           retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 7 }}
+
+  source-release:
+    needs: [build]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified IPA
+        uses: actions/download-artifact@v4
+        with:
+          name: Lineup-tvOS-unsigned-IPA
+          path: release
+
+      - name: Read and validate IPA metadata
+        env:
+          IPA: release/Lineup-unsigned.ipa
+        run: |
+          python3 - "$IPA" "$RUNNER_TEMP/source-release-notes.md" <<'PY'
+          import os
+          import plistlib
+          import sys
+          import zipfile
+
+          ipa_path, notes_path = sys.argv[1:]
+          with zipfile.ZipFile(ipa_path) as archive:
+              plist = plistlib.loads(archive.read("Payload/Lineup.app/Info.plist"))
+          bundle_id = plist["CFBundleIdentifier"]
+          if bundle_id != "com.nulldev85.NullSports":
+              raise SystemExit(f"Unexpected bundle identifier: {bundle_id}")
+          fields = {
+              "Source-App": "Lineup tvOS",
+              "Source-Bundle-Identifier": bundle_id,
+              "Source-Version": plist["CFBundleShortVersionString"],
+              "Source-Build-Version": plist["CFBundleVersion"],
+              "Source-Minimum-OS-Version": plist.get("MinimumOSVersion", "") or "unknown",
+              "Source-Branch": "main",
+              "Source-SHA": os.environ["GITHUB_SHA"],
+          }
+          with open(notes_path, "w", encoding="utf-8") as notes:
+              for key, value in fields.items():
+                  notes.write(f"{key}: {value}\n")
+          PY
+
+      - name: Publish public source release from main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: source-tvos-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          version=$(sed -n 's/^Source-Version: //p' "$RUNNER_TEMP/source-release-notes.md")
+          build=$(sed -n 's/^Source-Build-Version: //p' "$RUNNER_TEMP/source-release-notes.md")
+          mv release/Lineup-unsigned.ipa release/Lineup-tvOS-unsigned.ipa
+          gh release create "$SOURCE_TAG" "release/Lineup-tvOS-unsigned.ipa" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Lineup tvOS $version ($build)" \
+            --notes-file "$RUNNER_TEMP/source-release-notes.md" \
+            --target "$GITHUB_SHA" \
+            --latest=false
