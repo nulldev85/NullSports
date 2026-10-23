@@ -3451,10 +3451,8 @@ private enum GuidePalette {
     static var line: Color { LineupStyle.line }
     static var text: Color { LineupStyle.text }
     static var secondary: Color { LineupStyle.secondary }
-    /// Programme tiles stay dark, with the channel's artwork providing the
-    /// subdued colour carried through both TV Guide view modes.
-    static var card: Color { LineupStyle.background }
-    static var cardNow: Color { LineupStyle.focused }
+    /// The channel's artwork supplies the row background. Programme cells
+    /// reveal that same colour, with only elapsed progress filled over it.
     static var rowText: Color { LineupStyle.text.opacity(0.72) }
     static var channelText: Color { LineupStyle.secondary.opacity(0.82) }
 }
@@ -5255,8 +5253,8 @@ private func guideProgramWidth(_ program: CurrentProgram, now: Date, layout: Gui
     return max(1, durationWidth - 6)
 }
 
-/// A programme block. The on-now fill washes across the elapsed part of its
-/// row; focus supplies the only outline.
+/// A programme block on its channel's own colour. Elapsed time keeps its
+/// translucent fill; remote focus adds an edge without washing out the tint.
 private struct GuideProgramCell: View {
     @Environment(\.guideLayout) private var layout
     let program: CurrentProgram?
@@ -5313,7 +5311,6 @@ private struct GuideProgramCell: View {
         .frame(height: layout.rowHeight - 8, alignment: .topLeading)
         .background {
             ZStack(alignment: .leading) {
-                shape.fill(isOnNow ? GuidePalette.cardNow.opacity(0.72) : GuidePalette.card.opacity(0.5))
                 if let program, isOnNow {
                     GeometryReader { geometry in
                         let played = GuideProgress.playedWidth(
@@ -5332,7 +5329,12 @@ private struct GuideProgramCell: View {
             }
             .clipShape(shape)
         }
-        .lineupFocusLayer(isFocused, in: shape)
+        .overlay {
+            if isFocused {
+                shape.strokeBorder(LineupStyle.focusEdge, lineWidth: 1.5)
+                    .allowsHitTesting(false)
+            }
+        }
         .zIndex(isFocused ? 2 : 0)
         .animation(.easeOut(duration: 0.14), value: isFocused)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().tvSelectAction(onPlay)
