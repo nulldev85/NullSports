@@ -1766,7 +1766,7 @@ private struct MediaCatalogsScreen: View {
         #if os(tvOS)
         14
         #else
-        8
+        6
         #endif
     }
 
@@ -1795,7 +1795,7 @@ private struct MediaCatalogsScreen: View {
         #if os(tvOS)
         shape == .poster ? 230 : 360
         #else
-        shape == .poster ? 150 : 232
+        shape == .poster ? 136 : 212
         #endif
     }
     private var sectionTitleFont: Font {
@@ -7170,7 +7170,7 @@ private struct PhoneShelfHeader<Accessory: View>: View {
             LineupPanelHeader(title: title, systemImage: symbol) {
                 HStack(spacing: 10) { accessory() }
             }
-            .padding(.top, 15).padding(.bottom, 11)
+            .padding(.top, 12).padding(.bottom, 8)
             Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
         }
         .padding(.horizontal, LineupPanelStyle.inset)
@@ -7203,7 +7203,7 @@ private struct TVShelfTitle: View {
 /// card, between its edges. The television keeps its open rows.
 private struct PhoneShelfPanel: ViewModifier {
     /// Under the last row: posters bring 8 of their own, other rows none.
-    var bottom: CGFloat = 10
+    var bottom: CGFloat = 6
 
     func body(content: Content) -> some View {
         #if os(tvOS)

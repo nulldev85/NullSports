@@ -154,7 +154,7 @@ struct MobilePersonalCollectionView: View {
 struct MobileLibraryCollectionsRow: View {
     @Environment(MediaLibrary.self) private var media
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 LineupIconTile(symbol: "folder.fill", size: 24)
                 Text(media.shelfTitle(id: LibraryShelfOrder.collections, default: "Collections").uppercased())
@@ -182,14 +182,14 @@ struct MobileLibraryCollectionsRow: View {
                 }.padding(.horizontal, 18)
             }
         }
-        .padding(.vertical, 18)
+        .padding(.vertical, 12)
         .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, 18)
     }
 
     private func tile(_ name: String, detail: String, symbol: String,
                       covers: [MediaItem] = [], serverCollection: MediaItem? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             ZStack {
                 LineupPanelStyle.fill
                 Image(systemName: symbol).font(.system(size: 30, weight: .semibold)).foregroundStyle(LineupStyle.highlight)
@@ -210,11 +210,11 @@ struct MobileLibraryCollectionsRow: View {
                     }
                 }
             }
-            .frame(height: 110).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .frame(height: 96).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             Text(name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
             Text(detail).font(.inter(.caption2)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
         }
-        .frame(width: 205, alignment: .leading).padding(14)
+        .frame(width: 184, alignment: .leading).padding(10)
         .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .foregroundStyle(LineupStyle.text)
     }

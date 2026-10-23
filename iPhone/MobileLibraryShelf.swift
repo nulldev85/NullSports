@@ -30,7 +30,7 @@ struct MobileLibraryShelf: View {
     let onSelect: (MediaItem) -> Void
 
     var body: some View {
-        let metrics = MobileLibraryShelfMetrics(width: width ?? (shape.isPoster ? 150 : 232),
+        let metrics = MobileLibraryShelfMetrics(width: width ?? (shape.isPoster ? 136 : 212),
             ratio: shape.ratio, titleHeight: titleHeight, metadataHeight: metadataHeight)
         MobileLibraryShelfView(items: items, shape: shape, metrics: metrics, media: media,
             position: position, holdMenu: holdMenu, onSelect: onSelect)
@@ -84,7 +84,7 @@ struct MobileLibraryShelfView: UIViewRepresentable {
             let layout = UICollectionViewFlowLayout()
             layout.scrollDirection = .horizontal
             layout.estimatedItemSize = .zero
-            layout.minimumLineSpacing = 14
+            layout.minimumLineSpacing = 12
             layout.sectionInset = UIEdgeInsets(top: 8, left: LineupPanelStyle.inset,
                                               bottom: 8, right: LineupPanelStyle.inset)
             let view = MobileLibraryCollectionView(frame: .zero, collectionViewLayout: layout)
