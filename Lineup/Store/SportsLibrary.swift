@@ -93,6 +93,7 @@ final class SportsLibrary {
     nonisolated static let channelFormat = 2
     private(set) var isSwitchingProfile = false
     private let profileDefaults: UserDefaults
+    private let credentials: ProviderCredentialStore
     private(set) var profiles: [XtreamProfile] = []
     var activeProfile: XtreamProfile?
     private(set) var categories: [XtreamCategory] = []
@@ -223,8 +224,9 @@ final class SportsLibrary {
     private let libraryLifetime: TimeInterval = 6 * 60 * 60
     private let tomorrowScheduleLifetime: TimeInterval = 3 * 60 * 60
 
-    init(profileDefaults: UserDefaults = .standard) {
+    init(profileDefaults: UserDefaults = .standard, credentials: ProviderCredentialStore = .keychain) {
         self.profileDefaults = profileDefaults
+        self.credentials = credentials
         if let data = profileDefaults.data(forKey: profilesKey),
            let decoded = try? JSONDecoder().decode([XtreamProfile].self, from: data) {
             profiles = decoded
@@ -523,7 +525,7 @@ final class SportsLibrary {
     }
 
     private func saveConnectedProfile(_ profile: XtreamProfile, secret: String) async throws -> Bool {
-            try KeychainStore.save(password: secret, profileID: profile.id)
+            try credentials.save(secret, profile.id)
             passwordCache = nil
             profiles.append(profile)
             // Additional providers are saved without interrupting the current one.
@@ -729,7 +731,7 @@ final class SportsLibrary {
     private func refreshLibrary(forceGuide: Bool, refreshChannels: Bool = true,
                                 invalidatesSession: Bool = true) async {
         guard !libraryRefreshInFlight,
-              let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
+              let profile = activeProfile, let password = credentials.password(profile.id) else { return }
         libraryRefreshInFlight = true
         defer {
             libraryRefreshInFlight = false
@@ -3017,7 +3019,7 @@ final class SportsLibrary {
 
     private func password(for profile: XtreamProfile) -> String? {
         if let passwordCache, passwordCache.profileID == profile.id { return passwordCache.password }
-        guard let password = KeychainStore.password(profileID: profile.id) else { return nil }
+        guard let password = credentials.password(profile.id) else { return nil }
         passwordCache = (profile.id, password)
         return password
     }
@@ -3125,7 +3127,7 @@ final class SportsLibrary {
                   isEventChannel(stream, verifiedFor: current) else { return nil }
             return stream
         }
-        guard let secret = KeychainStore.password(profileID: profile.id) else { return nil }
+        guard let secret = credentials.password(profile.id) else { return nil }
         let openedProfileID = activeProfile?.id
         guard let snapshot = try? await catalog.snapshot(for: profile, secret: secret),
               !Task.isCancelled, activeProfile?.id == openedProfileID,
@@ -3136,7 +3138,7 @@ final class SportsLibrary {
               activeProfile?.id == openedProfileID,
               let saved = profiles.first(where: { $0.id == profile.id }),
               Self.sameProviderConnection(saved, profile),
-              KeychainStore.password(profileID: profile.id) == secret else { return nil }
+              credentials.password(profile.id) == secret else { return nil }
         let latest = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
         let board = eventChannelTournamentBoard
         let validation = Task.detached(priority: .userInitiated) {
@@ -3197,7 +3199,7 @@ final class SportsLibrary {
         isSwitchingProfile = true
         guard await waitForProviderWork() else { isSwitchingProfile = false; return }
         let removingActive = activeProfile?.id == profile.id
-        KeychainStore.delete(profileID: profile.id)
+        credentials.delete(profile.id)
         passwordCache = nil
         profiles.removeAll { $0.id == profile.id }
         profileDefaults.removeObject(forKey: favoritesKey + "." + profile.id.uuidString)

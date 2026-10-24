@@ -2,6 +2,7 @@ import XCTest
 import AVKit
 import Combine
 import LineupAetherPlayback
+import VLCKitSPM
 @testable import LineupiOS
 
 @MainActor
@@ -19,6 +20,10 @@ final class AetherPlaybackTests: XCTestCase {
         controller.isLive = false
         controller.start(urls: [url])
         let input = try XCTUnwrap(controller.player.media)
+        let sessionID = controller.subtitleSessionID
+        // VLCKit replaces the Objective-C wrapper in its media-changed event.
+        // isEqual compares the underlying libvlc descriptor, not its URL.
+        XCTAssertFalse(input.isEqual(VLCMedia(url: url)), "Separate inputs at the same URL must not compare equal")
         XCTAssertTrue(host.pictureHeld)
         try await waitUntil("Delayed native VLC input did not render a picture", diagnostics: {
             "nativePlaying=\(controller.player.isPlaying), cachedState=\(controller.player.state.rawValue), "
@@ -28,7 +33,8 @@ final class AetherPlaybackTests: XCTestCase {
             controller.engine == .vlc && controller.isPlaying && !controller.loading
                 && controller.player.hasVideoOut && (controller.player.media?.numberOfDisplayedPictures ?? 0) > 0
         }
-        XCTAssertTrue(controller.player.media === input, "Slow opening must not restart the same movie")
+        XCTAssertTrue(controller.player.media?.isEqual(input) == true, "Slow opening must retain the same native media descriptor")
+        XCTAssertEqual(controller.subtitleSessionID, sessionID, "Slow opening must not reopen the playback session")
         XCTAssertNil(controller.error)
         try await waitUntil("VLC presentation state did not record the displayed picture") { controller.presentation.hasPresentedVideo }
         XCTAssertEqual(controller.loadingMessage, "Buffering…", "A subsequent wait belongs to this playing title")

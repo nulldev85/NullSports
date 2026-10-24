@@ -69,3 +69,28 @@ Reported build139 failed in both app compilation jobs at
 the fallback now uses `XtreamClient.XtreamError.invalidResponse`. No tests ran
 in139; no IPA was produced. Provider lookup/rename and Guide label placement
 remain included. No test, assertion, deadline or workflow was changed.
+
+## Build 141: simulator test corrections
+
+Reported build140 compiled the iPhone simulator app, test bundle and Release
+app; its package job succeeded. The suite ran651 tests (one existing skip) with two failures:
+the new rename regression's real Keychain write failed with -34018 under the
+unsigned simulator host, and the slow VLC regression compared Objective-C wrapper
+identity. All six other provider tests and the existing replay/sidecar playback
+regressions passed.
+
+The provider store now accepts a credential backend, defaulting to the unchanged
+device Keychain functions. The rename regression uses a per-test recording backend,
+retains every profile/favorites/recents/credential assertion and additionally
+requires zero credential rewrites/deletes plus a valid relaunched playback URL
+using the original credential. No global fake Keychain or production bypass.
+
+The slow-start regression retains its original picture/output/native-clock and
+30second readiness requirements. It now checks VLCMedia's native descriptor
+equality and the unchanged playback session UUID. A negative control requires
+two independent media objects at the same URL to compare unequal. This rejects
+actual input replacement while permitting VLCKit's normal wrapper replacement.
+Upstream implementation: [media-change wrapper creation](https://github.com/videolan/vlckit/blob/3.0/Sources/VLCMediaPlayer.m#L168)
+and [native descriptor equality](https://github.com/videolan/vlckit/blob/3.0/Sources/VLCMedia.m#L359).
+No playback/recovery thresholds, test exclusions or workflow signing were changed.
+Local checks passed; replacement SDK validation is pending CI.

@@ -151,25 +151,33 @@ final class MobileProviderChannelTests: XCTestCase {
         defer { store.removePersistentDomain(forName: suite) }
         let first = XtreamProfile(name: "My IPTV", serverURL: "https://example.invalid", username: "one")
         let second = XtreamProfile(name: "Second", serverURL: "https://example.invalid", username: "two")
-        defer { KeychainStore.delete(profileID: first.id) }
-        try KeychainStore.save(password: "rename-test-only", profileID: first.id)
+        let vault = ProviderTestCredentials()
+        try vault.store.save("rename-test-only", first.id)
+        let writesBeforeRename = vault.writes
         store.set(try JSONEncoder().encode([first, second]), forKey: "NullSports.profiles")
         store.set(first.id.uuidString, forKey: "NullSports.activeProfile")
         store.set([7, 3], forKey: "NullSports.favoriteStreams.\(first.id)")
         store.set([99], forKey: "NullSports.recentChannels.\(second.id)")
-        let library = SportsLibrary(profileDefaults: store)
+        let library = SportsLibrary(profileDefaults: store, credentials: vault.store)
         XCTAssertTrue(library.renameProfile(id: first.id, name: "  Home Sports \n"))
         XCTAssertTrue(library.renameProfile(id: second.id, name: "Backup"))
         XCTAssertFalse(library.renameProfile(id: first.id, name: " \n"))
         XCTAssertFalse(library.renameProfile(id: UUID(), name: "Removed"))
-        let restored = SportsLibrary(profileDefaults: store)
+        let restored = SportsLibrary(profileDefaults: store, credentials: vault.store)
         XCTAssertEqual(restored.activeProfile?.id, first.id)
         XCTAssertEqual(restored.activeProfile?.name, "Home Sports")
         XCTAssertEqual(restored.profiles[1].name, "Backup")
         XCTAssertEqual(restored.favoriteStreamOrder, [7, 3])
         XCTAssertEqual(restored.activeProfile?.serverURL, first.serverURL)
         XCTAssertEqual(restored.activeProfile?.username, first.username)
-        XCTAssertEqual(KeychainStore.password(profileID: first.id), "rename-test-only")
+        XCTAssertEqual(vault.store.password(first.id), "rename-test-only")
+        XCTAssertEqual(vault.writes, writesBeforeRename, "Renaming must not rewrite a credential")
+        XCTAssertTrue(vault.deletions.isEmpty, "Renaming must never delete a saved credential")
+        let stream = XtreamStream(num: 7, name: "Test", streamType: "live", streamID: 7,
+            streamIcon: nil, epgChannelID: nil, categoryID: nil)
+        let url = try XCTUnwrap(restored.playbackURLs(for: stream).first)
+        XCTAssertEqual(url.host, "example.invalid")
+        XCTAssertEqual(url.path, "/live/one/rename-test-only/7.m3u8", "Relaunched playback must still use the saved account credential")
         XCTAssertEqual(store.array(forKey: "NullSports.recentChannels.\(second.id)") as? [Int], [99])
     }
 }
@@ -177,6 +185,17 @@ final class MobileProviderChannelTests: XCTestCase {
 private actor CatalogCalls {
     private(set) var count = 0
     func record() { count += 1 }
+}
+
+private final class ProviderTestCredentials {
+    private var passwords: [UUID: String] = [:]
+    private(set) var writes: [UUID] = []
+    private(set) var deletions: [UUID] = []
+    var store: ProviderCredentialStore {
+        ProviderCredentialStore(password: { self.passwords[$0] }, save: {
+            self.passwords[$1] = $0; self.writes.append($1)
+        }, delete: { self.passwords[$0] = nil; self.deletions.append($0) })
+    }
 }
 
 private actor CatalogConcurrency {

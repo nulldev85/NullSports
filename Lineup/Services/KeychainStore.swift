@@ -1,6 +1,19 @@
 import Foundation
 import Security
 
+/// The provider store's credential boundary. Apps use the same device Keychain;
+/// unit tests can exercise account changes without a signed Keychain host.
+struct ProviderCredentialStore {
+    let password: (UUID) -> String?
+    let save: (String, UUID) throws -> Void
+    let delete: (UUID) -> Void
+
+    static let keychain = ProviderCredentialStore(
+        password: { KeychainStore.password(profileID: $0) },
+        save: { try KeychainStore.save(password: $0, profileID: $1) },
+        delete: { KeychainStore.delete(profileID: $0) })
+}
+
 enum KeychainStore {
     // The old name, kept deliberately: a saved password is filed under this
     // service, and renaming it would leave every stored password unreadable.
