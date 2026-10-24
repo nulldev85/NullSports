@@ -437,7 +437,7 @@ private struct MobileNavigationChrome: ViewModifier {
             .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation,
                                               order: MobileNavigationOrder.tabs(in: savedOrder),
                                               selection: selection, fullscreen: fullscreen,
-                                              active: scenePhase == .active)
+                                              active: scenePhase == .active, compact: navigation.isCompact)
                 .frame(width: 0, height: 0).allowsHitTesting(false))
             // UIKit's navigation container owns the measured reservation.
             // A second outer SwiftUI inset would count the same panel twice.
@@ -494,17 +494,20 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     var selection = 0
     var fullscreen = false
     var active = true
+    // Keep this a value input: changing a property on the same navigation
+    // object does not invalidate a UIViewRepresentable's unchanged inputs.
+    var compact = false
 
     func makeUIView(context: Context) -> Probe { Probe() }
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.liquidGlass = liquidGlass
-        probe.nativeBarShouldBeHidden = !liquidGlass || fullscreen || navigation?.isCompact == true
+        probe.nativeBarShouldBeHidden = !liquidGlass || fullscreen || compact
         probe.scrollInteractionEnabled = active && !fullscreen
         probe.navigation = navigation
         navigation?.order = order
         navigation?.currentSelection = selection
-        navigation?.showsCustomNavigation = (!liquidGlass || navigation?.isCompact == true) && !fullscreen
+        navigation?.showsCustomNavigation = (!liquidGlass || compact) && !fullscreen
         probe.refresh()
     }
 

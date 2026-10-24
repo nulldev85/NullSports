@@ -39,7 +39,8 @@ final class NavigationScrollTests: XCTestCase {
                 && tabs.selectedViewController?.viewIfLoaded?.window === window
                 && tabs.tabBar.items?.count == 5
         }
-        let navigation = try XCTUnwrap(Self.find(MobileTabBarAppearance.Probe.self, in: window)?.navigation)
+        let probe = try XCTUnwrap(Self.find(MobileTabBarAppearance.Probe.self, in: window))
+        let navigation = try XCTUnwrap(probe.navigation)
         let tabs = try XCTUnwrap(navigation.tabs)
         let page = try XCTUnwrap(tabs.selectedViewController)
 
@@ -70,10 +71,15 @@ final class NavigationScrollTests: XCTestCase {
             }
             let boundary = try XCTUnwrap(MobileLineupNavigationBoundary.find(in: window))
             let frame = boundary.convert(boundary.bounds, to: window)
+            XCTAssertTrue(probe.nativeBarShouldBeHidden,
+                          "The UIKit bridge must receive compact state even when its navigation object is unchanged")
             XCTAssertEqual(frame.minX, 20, accuracy: 1)
             XCTAssertEqual(frame.height, 62, accuracy: 1)
             XCTAssertEqual(frame.maxY, window.bounds.maxY - (window.safeAreaInsets.bottom > 0 ? 20 : 8), accuracy: 1)
-            try await settle("The last row must clear the compact control; glass=\(glass)") {
+            try await settle("The last row must clear the compact control; glass=\(glass)", diagnostics: {
+                "bar=\(frame), scroll=\(scroll.convert(scroll.bounds, to: window)), "
+                    + "insets=\(scroll.adjustedContentInset), nativeHidden=\(probe.nativeBarShouldBeHidden)"
+            }) {
                 let usableBottom = scroll.convert(scroll.bounds, to: window).maxY - scroll.adjustedContentInset.bottom
                 return usableBottom <= frame.minY + 1
             }
@@ -101,6 +107,8 @@ final class NavigationScrollTests: XCTestCase {
             }
             XCTAssertEqual(scroll.contentOffset.y, 362, accuracy: 1, "Expanding must preserve the browsed position")
             XCTAssertTrue(tabs.selectedViewController === page)
+            XCTAssertEqual(probe.nativeBarShouldBeHidden, !(glass && MobileNavigationStyle.supportsGlass),
+                           "Expansion must also reach the same UIKit bridge")
             navigation.scrollObservation.receivePanInput(from: scroll, phase: .ended,
                                                          translation: CGPoint(x: 0, y: -42))
         }
@@ -178,13 +186,14 @@ final class NavigationScrollTests: XCTestCase {
         observer.receivePanInput(from: scroll, phase: .changed, translation: CGPoint(x: 0, y: -60))
     }
 
-    @MainActor private func settle(_ message: String, file: StaticString = #filePath, line: UInt = #line,
+    @MainActor private func settle(_ message: String, diagnostics: () -> String = { "" },
+                                   file: StaticString = #filePath, line: UInt = #line,
                                    _ condition: () -> Bool) async throws {
         for _ in 0..<40 {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(50))
         }
-        XCTFail(message, file: file, line: line)
+        XCTFail(message + " " + diagnostics(), file: file, line: line)
     }
 
     @MainActor private static func find<T: UIView>(_ type: T.Type, in view: UIView) -> T? {

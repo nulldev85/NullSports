@@ -54,3 +54,20 @@ and checks controller identity/scroll position by returning to Library instead
 of assuming SwiftUI lists every inactive lazy controller in `viewControllers`.
 Its two-second bounds, all cases and existing checks remain enabled; failures
 now identify the precise wait call. Replacement SDK/device validation is pending.
+
+## Build 130 follow-up
+
+Build 129 compiled and packaged successfully. All 594 simulator tests ran with
+one existing skip and one failure: the hosted test's compact-control bottom
+clearance check with Liquid Glass enabled. The controller round trip and
+remaining navigation checks passed. This identifies a real clearance issue.
+
+The compact flag was read from the existing navigation object only inside
+`updateUIView`. The representable's stored inputs did not change when that
+object's compact property changed, allowing SwiftUI to retain stale full-native
+visibility/inset configuration. Compact state is now an explicit Boolean input
+to the UIKit bridge, so both collapse and expansion update measured clearance
+and native visibility. The hosted regression also checks delivery of that state
+in both directions and reports actual viewport/inset geometry on failure. All
+tests and the same two-second waits remain enabled. New SDK/device results are
+pending the replacement IPA build.
