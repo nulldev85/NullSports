@@ -86,6 +86,8 @@ final class AetherPlaybackTests: XCTestCase {
             let (defaults, suite) = try preferences(.automatic)
             defer { defaults.removePersistentDomain(forName: suite) }
             let controller = MobilePlaybackController(defaults: defaults)
+            var trackingSamples: [LibraryPlaybackSample] = []
+            controller.libraryTrackingEvent = { trackingSamples.append($0) }
             let (window, host, previous) = try show(controller)
             defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
             controller.isLive = false
@@ -101,6 +103,8 @@ final class AetherPlaybackTests: XCTestCase {
             XCTAssertEqual(controller.engineTitle, "AetherEngine")
             XCTAssertGreaterThanOrEqual(controller.progress?.position ?? 0, 9)
             XCTAssertEqual(controller.progress?.duration ?? 0, 36, accuracy: 1)
+            XCTAssertTrue(trackingSamples.contains { $0.playing && $0.position >= 9 && abs($0.duration - 36) < 1 },
+                          "Tracking must receive the actual rendered engine clock")
             let surface = session.surface
             host.frame.size = CGSize(width: 700, height: 394)
             host.layoutIfNeeded()
@@ -110,6 +114,7 @@ final class AetherPlaybackTests: XCTestCase {
             controller.selectSubtitle(try XCTUnwrap(controller.subtitleTracks.last))
             controller.toggle()
             let paused = try await pausedClock(controller, session: session)
+            XCTAssertEqual(trackingSamples.last?.playing, false)
             let subtitleSession = controller.subtitleSessionID
             let online = Data("1\n00:00:00,000 --> 00:00:35,000\nOnline fixture caption\n".utf8)
             try await controller.addOnlineSubtitle(online, title: "Online fixture", language: "en", sessionID: subtitleSession)
@@ -192,6 +197,8 @@ final class AetherPlaybackTests: XCTestCase {
         let (defaults, suite) = try preferences(.vlc)
         defer { defaults.removePersistentDomain(forName: suite) }
         let controller = MobilePlaybackController(defaults: defaults)
+        var trackingSamples: [LibraryPlaybackSample] = []
+        controller.libraryTrackingEvent = { trackingSamples.append($0) }
         let (window, _, previous) = try show(controller)
         defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
         let playing = expectation(description: "VLC publishes playing picture and discovered embedded tracks")
@@ -207,6 +214,8 @@ final class AetherPlaybackTests: XCTestCase {
         let player = controller.player
         XCTAssertNotNil(controller.vlcPlaybackSeconds, "A playing input exposes its actual native clock")
         await pauseVLCAndAwaitNativeState(controller)
+        XCTAssertEqual(trackingSamples.last?.playing, false)
+        XCTAssertTrue(trackingSamples.contains { $0.playing }, "VLC transport must report to the same tracker")
         let added = expectation(description: "VLC selects its actual newly added subtitle track")
         let chosen = controller.$subtitleTracks.combineLatest(controller.$selectedSubtitleID)
             .first { tracks, selected in selected != PlaybackSubtitleTrack.off.id && !oldIDs.contains(selected) && tracks.contains { $0.id == selected } }

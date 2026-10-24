@@ -5390,6 +5390,7 @@ struct AccountView: View {
     @State private var choosingProvider = false
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
+    @State private var showingTracking = false
     @State private var managingTeamChannels = false
     @State private var managingTeams = false
     @State private var choosingAccent = false
@@ -5473,6 +5474,9 @@ struct AccountView: View {
             }
             .sheet(isPresented: $configuringMDBList) {
                 MDBListIntegrationView().environment(media)
+            }
+            .sheet(isPresented: $showingTracking) {
+                NavigationStack { LibraryTrackingSettingsView().environment(media) }
             }
             .fullScreenCover(isPresented: $showingCollections) { TVCollectionsScreen().environment(media) }
             .sheet(isPresented: $choosingShelf) { MediaShelfPicker().environment(media) }
@@ -5759,6 +5763,8 @@ struct AccountView: View {
         let removable = media.removableShelves.count
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: gutter), GridItem(.flexible())],
                          alignment: .leading, spacing: gutter) {
+            AccountActionRow(symbol: "checkmark.circle", title: "Watch Tracking",
+                             detail: "Choose local tracking, MDBList, both, or neither") { showingTracking = true }
             AccountActionRow(symbol: "folder.fill", title: "Collections",
                              detail: own == 0 ? "Group titles your own way" : "\(own) of your own") {
                 showingCollections = true
@@ -7599,6 +7605,7 @@ struct PlayerView: View {
     var initialPosition: TimeInterval? = nil
     var expectedDuration: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
+    var onTrackingSample: ((LibraryPlaybackSample) -> Void)? = nil
     var game: SportsGame? = nil
     var channelID: Int? = nil
     /// For a Library title: its show, episode and details, which the stream
@@ -7719,6 +7726,7 @@ struct PlayerView: View {
     init(urls: [URL], title: String = "Live TV", program: CurrentProgram? = nil, isLive: Bool = true,
          initialPosition: TimeInterval? = nil, expectedDuration: TimeInterval? = nil,
          onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
+         onTrackingSample: ((LibraryPlaybackSample) -> Void)? = nil,
          game: SportsGame? = nil, channelID: Int? = nil, synopsis: TVPlayerSynopsis? = nil,
          channel: XtreamStream? = nil, lineup: [XtreamStream] = [],
          recording: CatchUpProgramme? = nil, startsOver: Bool = false, recordingOnly: Bool = false,
@@ -7737,6 +7745,7 @@ struct PlayerView: View {
         self.initialPosition = initialPosition
         self.expectedDuration = expectedDuration
         self.onProgress = onProgress
+        self.onTrackingSample = onTrackingSample
         self.game = game
         self.channelID = channelID
         self.synopsis = synopsis
@@ -7930,6 +7939,7 @@ struct PlayerView: View {
         }
         .onAppear {
             if continuesPreview { previewFailover = controller.failover }
+            controller.libraryTrackingEvent = onTrackingSample
             if let game {
                 configureGameFailover(controller, game: game, library: library) { choosingGame = game }
             }
@@ -9276,7 +9286,16 @@ private struct PlaybackClockReader<Content: View>: View {
     }
     @Published private(set) var reconnecting = false
     @Published private(set) var error: String?
-    @Published private(set) var isPlaying = false
+    @Published private(set) var isPlaying = false { didSet { reportLibraryTracking() } }
+    var libraryTrackingEvent: ((LibraryPlaybackSample) -> Void)?
+    private var lastLibraryTrackingSample: LibraryPlaybackSample?
+    private func reportLibraryTracking() {
+        guard let libraryTrackingEvent, !isScrubbing else { return }
+        let sample = LibraryPlaybackSample(playing: isPlaying, pictureInPicture: false, position: elapsed, duration: duration)
+        guard sample.differs(from: lastLibraryTrackingSample) else { return }
+        lastLibraryTrackingSample = sample
+        libraryTrackingEvent(sample)
+    }
     @Published private(set) var isMuted = false
     @Published private(set) var videoHeight = 0
     @Published private(set) var mediaInfo = PlaybackMediaInfo()
@@ -9298,9 +9317,9 @@ private struct PlaybackClockReader<Content: View>: View {
     let clock = PlaybackClock()
     private(set) var elapsed: TimeInterval {
         get { clock.elapsed }
-        set { if clock.elapsed != newValue { clock.elapsed = newValue } }
+        set { if clock.elapsed != newValue { clock.elapsed = newValue }; reportLibraryTracking() }
     }
-    @Published private(set) var duration: TimeInterval = 0
+    @Published private(set) var duration: TimeInterval = 0 { didSet { reportLibraryTracking() } }
     /// How to play this channel's recording, while a channel the provider
     /// records is playing live. Nil for a channel that isn't recorded, for a
     /// film, and until the server's time zone is known.

@@ -142,6 +142,7 @@ struct MDBListAccount: Equatable, Sendable {
     let plan: String?
     let dailyLimit: Int?
     let requestsUsed: Int?
+    var userID: Int? = nil
 
     var requestsRemaining: Int? {
         guard let dailyLimit, let requestsUsed else { return nil }

@@ -5012,6 +5012,7 @@ private struct MediaSourcePicker: View {
                            media.trackPlayback(of: trackedItem, position: position, duration: duration,
                                                sessionID: sessionID)
                        },
+                       onTrackingSample: { sample in media.reportTrackingSample(sample, for: trackedItem, sessionID: sessionID) },
                        synopsis: tvPlayerSynopsis,
                        nextEpisode: nextEpisode.map { next in
                            TVNextEpisodeOffer(code: next.episodeCode, title: next.name) {
@@ -5058,6 +5059,7 @@ private struct MediaSourcePicker: View {
                                  media.trackPlayback(of: trackedItem, position: position, duration: duration,
                                                      sessionID: sessionID)
                              },
+                             onTrackingSample: { sample in media.reportTrackingSample(sample, for: trackedItem, sessionID: sessionID) },
                              nextEpisode: nextEpisode.map { next in
                                  MobileNextEpisodeOffer(code: next.episodeCode, title: next.name) {
                                      advance = .playNext(next)

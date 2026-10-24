@@ -41,6 +41,7 @@ struct MobilePlayerView: View {
     @AppStorage("Lineup.library.postCreditsNotice.v1") private var postCreditsEnabled = true
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
+    var onTrackingSample: ((LibraryPlaybackSample) -> Void)? = nil
     /// Lineup chooses the episode; verified credits can show the offer earlier.
     var nextEpisode: MobileNextEpisodeOffer? = nil
     /// Told when the title plays to its end, before the player closes.
@@ -301,6 +302,7 @@ struct MobilePlayerView: View {
             MobileSubtitleSettingsSheet(controller: controller)
         }
         .onAppear {
+            controller.libraryTrackingEvent = onTrackingSample
             controller.isLive = isLive
             controller.remembersTracks(forShow: isLive ? nil : trackMemoryShow)
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)

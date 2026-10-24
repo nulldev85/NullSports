@@ -81,7 +81,17 @@ final class MobilePlaybackController: ObservableObject {
     /// background. One instance per controller, reused across channel changes.
     let systemPlayer = AVPlayer()
 
-    @Published var isPlaying = false
+    @Published var isPlaying = false { didSet { reportLibraryTracking() } }
+    var libraryTrackingEvent: ((LibraryPlaybackSample) -> Void)?
+    private var lastLibraryTrackingSample: LibraryPlaybackSample?
+    private func reportLibraryTracking() {
+        guard let libraryTrackingEvent, !isScrubbing else { return }
+        let sample = LibraryPlaybackSample(playing: isPlaying, pictureInPicture: pictureInPictureActive,
+            position: progress?.position ?? 0, duration: progress?.duration ?? 0)
+        guard sample.differs(from: lastLibraryTrackingSample) else { return }
+        lastLibraryTrackingSample = sample
+        libraryTrackingEvent(sample)
+    }
     @Published var loading = true
     @Published var error: String?
     @Published private(set) var videoWidth: Int?
@@ -93,12 +103,12 @@ final class MobilePlaybackController: ObservableObject {
     @Published private(set) var engine: MobileStreamEngine = .vlc
     var engineTitle: String { engine.title }
     @Published private(set) var pictureInPicturePossible = false
-    @Published private(set) var pictureInPictureActive = false
+    @Published private(set) var pictureInPictureActive = false { didSet { reportLibraryTracking() } }
     /// A short, self-clearing line shown when Lineup moves to a different feed.
     @Published private(set) var failoverNotice: String?
     /// Where playback is in a title that has an end. Nil for a live stream,
     /// which has no length to report and nothing to scrub through.
-    @Published private(set) var progress: MobilePlaybackProgress?
+    @Published private(set) var progress: MobilePlaybackProgress? { didSet { reportLibraryTracking() } }
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
     @Published private(set) var selectedSubtitleID = PlaybackSubtitleTrack.off.id
     @Published private(set) var subtitleSessionID = UUID()

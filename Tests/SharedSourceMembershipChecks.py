@@ -38,6 +38,10 @@ SHARED = (
     "Lineup/Services/BetterPosters.swift",
     "Lineup/Services/Fanart.swift",
     "Lineup/Services/FanartPolicy.swift",
+    "Lineup/Models/MDBListTracking.swift",
+    "Lineup/Services/MDBListTrackingClient.swift",
+    "Lineup/Store/MDBListTrackingService.swift",
+    "Lineup/Views/LibraryTrackingSettingsView.swift",
     # Subtitle settings, Find Subtitles Online, seek previews, per-show tracks.
     "Lineup/Services/SubtitlePreferences.swift",
     "Lineup/Services/TrackMemory.swift",
@@ -109,6 +113,13 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                 with self.subTest(target=target, source=source):
                     self.assertTrue((ROOT / source).is_file())
                     self.assertTrue(is_included(project, target, source), f"{target} omits {source}")
+
+    def test_tracking_regressions_belong_to_both_test_suites(self):
+        project = (ROOT / "project.yml").read_text(encoding="utf-8")
+        source = "Tests/iOS/MDBListTrackingTests.swift"
+        self.assertTrue((ROOT / source).is_file())
+        for target in ("LineupTests", "LineupiOSTests"):
+            self.assertTrue(is_included(project, target, source))
 
     def test_both_frameworks_include_the_probe_implementation(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")

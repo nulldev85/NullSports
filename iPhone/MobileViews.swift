@@ -727,6 +727,11 @@ private struct MobileAccountView: View {
                         SettingsRow("Metadata", symbol: "text.book.closed", value: media.metadataSource.title)
                     }
                     NavigationLink {
+                        LibraryTrackingSettingsView().environment(media)
+                    } label: {
+                        SettingsRow("Tracking", symbol: "checkmark.circle", value: media.trackingSummary)
+                    }
+                    NavigationLink {
                         MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
                             .environment(library)
                     } label: {

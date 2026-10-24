@@ -562,3 +562,44 @@ private extension String {
 private extension Array {
     var nonempty: Self? { isEmpty ? nil : self }
 }
+
+private struct MDBEpisodeFind: Decodable {
+    struct Episode: Decodable {
+        let id: Int
+        let show_id: Int
+        let season_number: Int
+        let episode_number: Int
+    }
+    let tv_episode_results: [Episode]
+}
+
+extension LibraryMetadataResolver {
+    /// Convert an identified TVDB episode to TMDb's actual episode numbering.
+    /// Never scrobble a guessed show or reuse TVDB numbers as TMDb numbers.
+    func mdbTrackingEpisode(_ item: MediaItem, parent: MediaItem,
+                            source: LibraryMetadataSource) async -> MDBListTrackingTarget? {
+        guard item.type == "Episode", let parentID = try? await tmdbID(parent),
+              let season = item.parentIndexNumber, season >= 0, let number = item.indexNumber, number > 0 else { return nil }
+        let direct = MDBListTrackingTarget.normalizedIDs(LibraryMetadataIdentity.ids(item))
+        if let episodeID = direct["tmdb"], let record: TMDBRecord = try? await tmdb("tv/\(parentID)/season/\(season)/episode/\(number)"),
+           String(record.id) == episodeID, record.season_number == season, record.episode_number == number {
+            return MDBListTrackingTarget(kind: .episode, ids: ["tmdb": parentID], season: season,
+                                         episode: number, episodeIDs: ["tmdb": episodeID])
+        }
+        let identified = direct["tvdb"] == nil && source == .tvdb ? await resolve(item, source: .tvdb, parent: parent) : nil
+        if let tvdb = direct["tvdb"] ?? identified?.externalIDs["tvdb"],
+           let found: MDBEpisodeFind = try? await tmdb("find/\(tvdb)", query: ["external_source": "tvdb_id"]),
+           found.tv_episode_results.count == 1, let episode = found.tv_episode_results.first,
+           String(episode.show_id) == parentID {
+            return MDBListTrackingTarget(kind: .episode, ids: ["tmdb": parentID], season: episode.season_number,
+                episode: episode.episode_number, episodeIDs: ["tmdb": String(episode.id), "tvdb": tvdb])
+        }
+        if source == .tmdb, direct["tmdb"] == nil,
+           let record: TMDBRecord = try? await tmdb("tv/\(parentID)/season/\(season)/episode/\(number)"),
+           record.season_number == season, record.episode_number == number {
+            return MDBListTrackingTarget(kind: .episode, ids: ["tmdb": parentID], season: season,
+                                         episode: number, episodeIDs: ["tmdb": String(record.id)])
+        }
+        return nil
+    }
+}

@@ -189,7 +189,9 @@ final class MediaLibrary {
     /// The provider's list lives in `ProviderVOD`, which nothing observes:
     /// this moves each time it comes in, so what is drawn from it -- the
     /// shelf picker's categories, an episode's show cover -- is drawn again.
-    private var providerCatalogRevision = 0
+    private var providerCatalogRevision = 0 {
+        didSet { if !localTrackingEnabled, mdbListTrackingEnabled { importMDBTracking(mdbListTracking.records) } }
+    }
     private let metadataResolver: LibraryMetadataResolver
     private let metadataCredentials: LibraryMetadataCredentials
     @ObservationIgnored private var metadataParentLoads: [String: Task<MediaItem?, Never>] = [:]
@@ -198,6 +200,25 @@ final class MediaLibrary {
     /// through CloudSettingsSync: "local" means a shared Apple TV and a phone
     /// can keep separate places without surprising one another.
     private(set) var localPlayback: [LocalMediaPlayback] = []
+    private(set) var localTrackingEnabled = true
+    private(set) var mdbListTrackingEnabled = false
+    let mdbListTracking: MDBListTrackingService
+    @ObservationIgnored private let trackingKey: () -> String?
+    @ObservationIgnored private var trackingRevision = UUID()
+    @ObservationIgnored private var trackingContext: String?
+    @ObservationIgnored private var trackingImport: Task<Void, Never>?
+    private struct MDBPlaybackSession {
+        let item: MediaItem
+        var sample: LibraryPlaybackSample?
+        var lastSent: Date?
+        var pending: (MDBListTrackingWrite.Action, Double, Date)?
+        var target: MDBListTrackingTarget?
+        var closed = false
+        var completed = false
+        var presentationEnded = false
+        var resolving: Task<Void, Never>?
+    }
+    @ObservationIgnored private var mdbPlaybackSessions: [UUID: MDBPlaybackSession] = [:]
     private var continueWatchingDismissals: [LocalContinueWatchingDismissal] = []
     /// Only an actual new viewing session can restore a hidden title. A
     /// closing player's final samples and server Up Next refreshes cannot.
@@ -327,8 +348,14 @@ final class MediaLibrary {
 
     init(defaults: UserDefaults = .standard,
          metadataCredentials: LibraryMetadataCredentials = .bundled,
-         metadataResolver: LibraryMetadataResolver? = nil) {
+         metadataResolver: LibraryMetadataResolver? = nil,
+         trackingSession: URLSession = .shared,
+         trackingKey: @escaping () -> String? = { MDBListKeychainStore.apiKey() }) {
         self.defaults = defaults
+        self.trackingKey = trackingKey
+        mdbListTracking = MDBListTrackingService(defaults: defaults, session: trackingSession)
+        localTrackingEnabled = defaults.object(forKey: LibraryTrackingPreferences.localKey) as? Bool ?? true
+        mdbListTrackingEnabled = defaults.bool(forKey: LibraryTrackingPreferences.mdbKey)
         self.metadataCredentials = metadataCredentials
         self.metadataResolver = metadataResolver ?? LibraryMetadataResolver(credentials: metadataCredentials)
         metadataSource = LibraryMetadataSource(rawValue: defaults.string(forKey: LibraryMetadataSource.metadataKey) ?? "") ?? .tmdb
@@ -347,12 +374,12 @@ final class MediaLibrary {
             _personalCollections = saved
         }
         providerVOD = ProviderVOD(defaults: defaults)
-        isMDBListConnected = MDBListKeychainStore.apiKey() != nil
+        isMDBListConnected = trackingKey() != nil
         if let data = defaults.data(forKey: profilesKey),
            let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) {
             profiles = saved
         }
-        if let data = defaults.data(forKey: localPlaybackKey),
+        if localTrackingEnabled, let data = defaults.data(forKey: localPlaybackKey),
            let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data) {
             localPlayback = saved.map { Self.marked($0) }
         }
@@ -386,6 +413,13 @@ final class MediaLibrary {
                 MainActor.assumeIsolated { self?.flushLocalPlayback() }
             })
         }
+        mdbListTracking.onSnapshot = { [weak self] records in self?.importMDBTracking(records) }
+        configureMDBTracking()
+        if !localTrackingEnabled { restoreTrackingBackend() }
+        lifecycleObservers.append(NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshTracking() }
+            })
     }
 
     var hasProfile: Bool { !profiles.isEmpty }
@@ -1159,8 +1193,11 @@ final class MediaLibrary {
             let loadedLists = try await lists
             try MDBListKeychainStore.save(apiKey: cleanKey)
             mdbListAccount = loadedAccount
+            rememberMDBTrackingAccount(loadedAccount, apiKey: cleanKey)
             mdbListCatalogs = loadedLists
             isMDBListConnected = true
+            configureMDBTracking()
+            mdbListTracking.credentialsValidated()
             hasLoadedMDBListIntegration = true
             errorMessage = nil
             if !savedMDBListShelfIDs().isEmpty { await loadMDBListShelves() }
@@ -1186,8 +1223,11 @@ final class MediaLibrary {
             async let account = source.account()
             async let lists = source.catalogChoices()
             mdbListAccount = try await account
+            if let account = mdbListAccount { rememberMDBTrackingAccount(account, apiKey: apiKey) }
             mdbListCatalogs = try await lists
             isMDBListConnected = true
+            configureMDBTracking()
+            mdbListTracking.credentialsValidated()
         } catch {
             // A saved key still represents a configured integration. Keep it
             // connected during a temporary outage and surface the refresh
@@ -1213,6 +1253,8 @@ final class MediaLibrary {
     }
 
     func disconnectMDBList() {
+        setMDBListTrackingEnabled(false)
+        defaults.removeObject(forKey: LibraryTrackingPreferences.accountKey)
         mdbListLoad?.cancel()
         mdbListLoad = nil
         hasLoadedMDBListIntegration = false
@@ -1600,10 +1642,16 @@ final class MediaLibrary {
             dismissalIDs: Set(continueWatchingDismissals.filter {
                 $0.matches(item, profileID: profileID)
             }.map(\.id)))
+        mdbPlaybackSessions[id] = MDBPlaybackSession(item: item.servedBy(profileID))
     }
 
     func endPlaybackSession(_ id: UUID) {
         flushLocalPlayback()
+        if mdbPlaybackSessions[id]?.sample?.pictureInPicture == true {
+            mdbPlaybackSessions[id]?.presentationEnded = true
+            return
+        }
+        finishMDBPlayback(id)
         playbackSessions[id] = nil
     }
 
@@ -1618,6 +1666,13 @@ final class MediaLibrary {
         guard let profileID = serverID(of: item), position.isFinite, duration.isFinite,
               position >= 0, duration > 0,
               acceptsPlayback(of: item, profileID: profileID, sessionID: sessionID) else { return }
+        if let sessionID, let prior = mdbPlaybackSessions[sessionID]?.sample {
+            // The player's forced closing report can be newer than the
+            // throttled transport sample; retain that final native clock.
+            mdbPlaybackSessions[sessionID]?.sample = LibraryPlaybackSample(playing: prior.playing,
+                pictureInPicture: prior.pictureInPicture, position: position, duration: duration)
+        }
+        guard localTrackingEnabled || mdbListTrackingEnabled else { return }
 
         let safePosition = min(position, duration)
         // A title only becomes history after somebody has genuinely started it.
@@ -1644,7 +1699,15 @@ final class MediaLibrary {
                 }
             }
         }
-        let completed = LocalMediaTrackingPolicy.isComplete(position: safePosition, duration: duration)
+        let completed: Bool
+        if localTrackingEnabled {
+            completed = LocalMediaTrackingPolicy.isComplete(position: safePosition, duration: duration)
+        } else {
+            // MDBList records a watch on pause/stop at 80%, rather than the
+            // device tracker's 92%/last-two-minutes rule.
+            completed = localPlaybackRecord(for: item)?.completed == true
+                || (sessionID.flatMap { mdbPlaybackSessions[$0]?.sample?.playing } == false && safePosition / duration >= 0.8)
+        }
         let record = LocalMediaPlayback(profileID: profileID, item: item.servedBy(profileID),
             position: safePosition, duration: duration, updatedAt: Date(), completed: completed)
         // Another title's progress is never held over this one's.
@@ -1709,6 +1772,14 @@ final class MediaLibrary {
     }
 
     func clearLocalPlayback() {
+        if !localTrackingEnabled {
+            if let data = defaults.data(forKey: localPlaybackKey),
+               let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data),
+               let remaining = try? JSONEncoder().encode(saved.filter { !recordSources.contains($0.profileID) }) {
+                defaults.set(remaining, forKey: localPlaybackKey)
+            }
+            return
+        }
         playbackGeneration = UUID()
         let connected = recordSources
         if let held = heldPlayback, connected.contains(held.profileID) { heldPlayback = nil }
@@ -1756,7 +1827,9 @@ final class MediaLibrary {
         persistLocalFavorites()
     }
 
-    func setLocallyPlayed(_ played: Bool, for item: MediaItem) {
+    func setLocallyPlayed(_ played: Bool, for item: MediaItem, reportMDBList: Bool = true) {
+        if reportMDBList { queueMDBMark(played, for: item) }
+        guard localTrackingEnabled || mdbListTrackingEnabled else { return }
         guard let profileID = serverID(of: item) else { return }
         let key = profileID.uuidString + "|" + item.id
         let targets = item.isSeries ? (seriesEpisodes[key] ?? []) + [item] : [item]
@@ -1794,9 +1867,12 @@ final class MediaLibrary {
     /// duration. Persist before the player closes or opens the next episode.
     func completePlayback(of item: MediaItem, sessionID: UUID? = nil) {
         guard let profileID = serverID(of: item),
-              acceptsPlayback(of: item, profileID: profileID, sessionID: sessionID) else { return }
+              acceptsPlayback(of: item, profileID: profileID, sessionID: sessionID)
+                || sessionID.flatMap({ mdbPlaybackSessions[$0] }).map({ !$0.closed && $0.item.serverID == profileID && Self.samePlaybackItem($0.item, item) }) == true else { return }
+        if let sessionID { finishMDBPlayback(sessionID, completed: true) }
+        guard localTrackingEnabled || mdbListTrackingEnabled else { return }
         let alreadyCompleted = localPlaybackRecord(for: item)?.completed == true
-        setLocallyPlayed(true, for: item)
+        setLocallyPlayed(true, for: item, reportMDBList: false)
         if item.type == "Episode", !alreadyCompleted {
             Task { [weak self] in await self?.advanceAfterCompletedPlayback(item, profileID: profileID) }
         }
@@ -1821,7 +1897,7 @@ final class MediaLibrary {
                generation == playbackGeneration, contains(profile),
                localPlaybackRecord(for: episode)?.updatedAt == revision {
                 learnEpisodeOrder(episodes.map { $0.servedBy(profile.id) })
-                setLocallyPlayed(played, for: episode)
+                setLocallyPlayed(played, for: episode, reportMDBList: false)
             }
             guard generation == playbackGeneration, contains(profile), isWatched(episode) == played else { return }
             await setPlayed(played, for: episode)
@@ -2232,6 +2308,7 @@ final class MediaLibrary {
     }
 
     private func queueAsUpNext(_ episode: MediaItem, explicitlyUnwatched: Bool) {
+        guard localTrackingEnabled || mdbListTrackingEnabled else { return }
         guard let profileID = serverID(of: episode), !isWatched(episode) else { return }
         if !explicitlyUnwatched, let index = localPlayback.firstIndex(where: {
             $0.profileID == profileID && Self.samePlaybackItem($0.item, episode) && $0.explicitlyUnwatched == true
@@ -2291,10 +2368,11 @@ final class MediaLibrary {
     }
 
     private func persistLocalPlayback() {
+        guard let key = activeTrackingCacheKey else { return }
         if localPlayback.isEmpty {
-            defaults.removeObject(forKey: localPlaybackKey)
+            defaults.removeObject(forKey: key)
         } else if let data = try? JSONEncoder().encode(localPlayback) {
-            defaults.set(data, forKey: localPlaybackKey)
+            defaults.set(data, forKey: key)
         }
     }
 
@@ -3797,6 +3875,14 @@ enum MediaShelfLoad {
 // MARK: - Streaming Services
 
 extension MediaLibrary {
+    var trackingSummary: String {
+        switch (localTrackingEnabled, mdbListTrackingEnabled) {
+        case (true, true): "Local + MDBList"
+        case (true, false): "Local"
+        case (false, true): "MDBList"
+        case (false, false): "Off"
+        }
+    }
     /// The row's own shelf root: "See All" on it opens every service.
     static let streamingRow = MediaItem(id: StreamingService.rowID, name: StreamingService.rowTitle,
                                         type: "StreamingServices", overview: nil, productionYear: nil,
@@ -4351,5 +4437,304 @@ extension MediaLibrary {
         guard defaults.object(forKey: heroSourceKey) != nil,
               let data = try? Data(contentsOf: Self.heroListURL) else { return nil }
         return try? JSONDecoder().decode(MediaCatalog.self, from: data)
+    }
+}
+
+extension MediaLibrary {
+    var trackingAccountID: Int? {
+        guard let key = trackingKey(),
+              let data = defaults.data(forKey: LibraryTrackingPreferences.accountKey),
+              let scope = try? JSONDecoder().decode(MDBListTrackingAccount.self, from: data),
+              scope.keyDigest == MDBListTrackingAccount.digest(key) else { return nil }
+        return scope.userID
+    }
+    private var activeTrackingCacheKey: String? {
+        if localTrackingEnabled { return localPlaybackKey }
+        if mdbListTrackingEnabled, let id = trackingAccountID { return LibraryTrackingPreferences.cacheKey(id) }
+        return nil
+    }
+    func setLocalTrackingEnabled(_ enabled: Bool) {
+        guard localTrackingEnabled != enabled else { return }
+        flushLocalPlayback()
+        localTrackingEnabled = enabled
+        defaults.set(enabled, forKey: LibraryTrackingPreferences.localKey)
+        restoreTrackingBackend()
+        configureMDBTracking()
+    }
+    func setMDBListTrackingEnabled(_ enabled: Bool) {
+        guard mdbListTrackingEnabled != enabled else { return }
+        flushLocalPlayback()
+        mdbListTrackingEnabled = enabled
+        defaults.set(enabled, forKey: LibraryTrackingPreferences.mdbKey)
+        restoreTrackingBackend()
+        configureMDBTracking()
+    }
+    private func restoreTrackingBackend() {
+        trackingImport?.cancel()
+        heldPlayback = nil
+        playbackGeneration = UUID()
+        let saved = activeTrackingCacheKey.flatMap { defaults.data(forKey: $0) }
+            .flatMap { try? JSONDecoder().decode([LocalMediaPlayback].self, from: $0) } ?? []
+        localPlayback = saved.map { Self.marked($0) }
+        if !localTrackingEnabled, mdbListTrackingEnabled { importMDBTracking(mdbListTracking.records) }
+    }
+    private func rememberMDBTrackingAccount(_ account: MDBListAccount, apiKey: String) {
+        guard let id = account.userID, id > 0,
+              let data = try? JSONEncoder().encode(MDBListTrackingAccount(userID: id,
+                  keyDigest: MDBListTrackingAccount.digest(apiKey))) else { return }
+        let changed = trackingAccountID != id
+        defaults.set(data, forKey: LibraryTrackingPreferences.accountKey)
+        if changed {
+            trackingImport?.cancel()
+            configureMDBTracking()
+            if !localTrackingEnabled { restoreTrackingBackend() }
+        }
+    }
+    private func configureMDBTracking() {
+        let context = mdbListTrackingEnabled ? trackingAccountID.map {
+            "\($0)|" + MDBListTrackingAccount.digest(trackingKey() ?? "")
+        } : nil
+        if context != trackingContext {
+            trackingContext = context
+            trackingRevision = UUID()
+            for id in Array(mdbPlaybackSessions.keys) {
+                mdbPlaybackSessions[id]?.resolving?.cancel()
+                if mdbPlaybackSessions[id]?.closed == true { mdbPlaybackSessions[id] = nil; continue }
+                mdbPlaybackSessions[id]?.resolving = nil
+                mdbPlaybackSessions[id]?.target = nil
+                mdbPlaybackSessions[id]?.lastSent = nil
+                mdbPlaybackSessions[id]?.pending = nil
+            }
+        }
+        mdbListTracking.configure(accountID: trackingAccountID, apiKey: trackingKey(), enabled: mdbListTrackingEnabled)
+        if mdbListTrackingEnabled {
+            if !localTrackingEnabled { importMDBTracking(mdbListTracking.records) }
+            if trackingAccountID == nil { loadMDBListIntegrationIfNeeded() }
+            else { mdbListTracking.synchronize() }
+        }
+    }
+    func refreshTracking(force: Bool = false) {
+        guard mdbListTrackingEnabled else { return }
+        configureMDBTracking()
+        if trackingAccountID == nil { loadMDBListIntegrationIfNeeded() }
+        else { mdbListTracking.synchronize(force: force) }
+    }
+
+    func reportTrackingSample(_ sample: LibraryPlaybackSample, for item: MediaItem, sessionID: UUID) {
+        guard let profile = serverID(of: item), recordSources.contains(profile),
+              var state = mdbPlaybackSessions[sessionID], !state.closed,
+              state.item.serverID == profile, Self.samePlaybackItem(state.item, item) else { return }
+        let previous = state.sample
+        let validClock = sample.duration.isFinite && sample.duration > 0 && sample.position.isFinite && sample.position >= 0
+        let sample = validClock ? sample : LibraryPlaybackSample(playing: sample.playing,
+            pictureInPicture: sample.pictureInPicture, position: previous?.position ?? 0, duration: previous?.duration ?? 0)
+        state.sample = sample
+        mdbPlaybackSessions[sessionID] = state
+        if sample.duration.isFinite, sample.position.isFinite, sample.duration > 0, sample.position >= 0 {
+            trackPlayback(of: item, position: sample.position, duration: sample.duration, sessionID: sessionID)
+        }
+        if state.presentationEnded, !sample.pictureInPicture {
+            finishMDBPlayback(sessionID)
+            flushLocalPlayback()
+            playbackSessions[sessionID] = nil
+            return
+        }
+        guard mdbListTrackingEnabled, sample.duration > 0, sample.duration.isFinite,
+              sample.position.isFinite, sample.position >= 0 else { return }
+        let action: MDBListTrackingWrite.Action
+        if sample.playing {
+            guard previous?.playing != true || state.lastSent == nil || Date().timeIntervalSince(state.lastSent!) >= 60 else { return }
+            action = .start
+        } else {
+            guard previous?.playing == true || (state.lastSent != nil && abs(sample.position - (previous?.position ?? sample.position)) >= 5) else { return }
+            action = .pause
+        }
+        queueMDBPlayback(sessionID, action: action, progress: 100 * sample.position / sample.duration)
+    }
+
+    private func finishMDBPlayback(_ id: UUID, completed: Bool = false) {
+        guard var state = mdbPlaybackSessions[id] else { return }
+        if state.completed { return }
+        state.closed = true; state.completed = completed
+        mdbPlaybackSessions[id] = state
+        guard mdbListTrackingEnabled, completed || state.lastSent != nil else {
+            state.resolving?.cancel(); mdbPlaybackSessions[id] = nil; return
+        }
+        let sample = state.sample
+        let progress = completed ? 100 : (sample?.duration ?? 0) > 0
+            ? 100 * (sample?.position ?? 0) / (sample?.duration ?? 1) : 0
+        queueMDBPlayback(id, action: .stop, progress: progress)
+    }
+
+    private func queueMDBPlayback(_ id: UUID, action: MDBListTrackingWrite.Action, progress: Double) {
+        guard progress.isFinite, trackingAccountID != nil, var state = mdbPlaybackSessions[id] else { return }
+        state.pending = (action, min(100, max(0, progress)), Date())
+        state.lastSent = Date()
+        mdbPlaybackSessions[id] = state
+        if state.target != nil { sendPendingMDBPlayback(id); return }
+        guard state.resolving == nil else { return }
+        let token = trackingRevision, item = state.item
+        mdbPlaybackSessions[id]?.resolving = Task { [weak self] in
+            guard let self, self.trackingRevision == token, !Task.isCancelled else { return }
+            let target = await self.mdbTrackingTarget(for: item)
+            guard !Task.isCancelled, self.trackingRevision == token, self.mdbListTrackingEnabled,
+                  self.serverID(of: item).map({ self.recordSources.contains($0) }) == true else { return }
+            self.mdbPlaybackSessions[id]?.resolving = nil
+            guard let target else { self.mdbListTracking.unavailableIdentity(); return }
+            self.mdbPlaybackSessions[id]?.target = target
+            self.sendPendingMDBPlayback(id)
+        }
+    }
+    private func sendPendingMDBPlayback(_ id: UUID) {
+        guard let state = mdbPlaybackSessions[id], let target = state.target, let pending = state.pending else { return }
+        guard target.kind != .show else {
+            mdbListTracking.unavailableIdentity(); mdbPlaybackSessions[id] = nil; return
+        }
+        let event = MDBListTrackingWrite(id: UUID(), sessionID: id, target: target, action: pending.0,
+                                        progress: pending.1, occurredAt: pending.2)
+        mdbListTracking.enqueue(event)
+        rememberMDBWrite(event, for: state.item)
+        mdbPlaybackSessions[id]?.pending = nil
+        if state.closed { mdbPlaybackSessions[id] = nil }
+    }
+    private func queueMDBMark(_ played: Bool, for item: MediaItem) {
+        for id in Array(mdbPlaybackSessions.keys) where mdbPlaybackSessions[id].map({
+            $0.item.libraryKey == item.libraryKey || (item.isSeries && $0.item.seriesID == item.id && $0.item.serverID == item.serverID)
+        }) == true {
+            mdbPlaybackSessions[id]?.resolving?.cancel(); mdbPlaybackSessions[id] = nil
+        }
+        guard mdbListTrackingEnabled, trackingAccountID != nil else { return }
+        let token = trackingRevision, date = Date()
+        Task { [weak self] in
+            guard let self, self.trackingRevision == token, self.mdbListTrackingEnabled else { return }
+            let target = await self.mdbTrackingTarget(for: item)
+            guard token == self.trackingRevision, self.mdbListTrackingEnabled,
+                  self.serverID(of: item).map({ self.recordSources.contains($0) }) == true else { return }
+            guard let target else { self.mdbListTracking.unavailableIdentity(); return }
+            let event = MDBListTrackingWrite(id: UUID(), sessionID: nil, target: target,
+                action: played ? .watched : .unwatched, progress: played ? 100 : 0, occurredAt: date)
+            self.mdbListTracking.enqueue(event)
+            self.rememberMDBWrite(event, for: item)
+        }
+    }
+    private func rememberMDBWrite(_ event: MDBListTrackingWrite, for item: MediaItem) {
+        guard let account = trackingAccountID, let profile = serverID(of: item) else { return }
+        let key = LibraryTrackingPreferences.cacheKey(account)
+        var records = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([LocalMediaPlayback].self, from: $0) } ?? []
+        records.removeAll { $0.profileID == profile && Self.samePlaybackItem($0.item, item) }
+        let duration = max(1, item.runTimeTicks.map { Double($0) / 10_000_000 }
+            ?? mdbPlaybackSessions[event.sessionID ?? UUID()]?.sample?.duration ?? 1)
+        let watched = event.action == .watched || ([.pause, .stop].contains(event.action) && event.progress >= 80)
+        records.append(LocalMediaPlayback(profileID: profile, item: item, position: duration * event.progress / 100,
+            duration: duration, updatedAt: event.occurredAt, completed: watched,
+            explicitlyUnwatched: event.action == .unwatched ? true : nil))
+        if let data = try? JSONEncoder().encode(records) { defaults.set(data, forKey: key) }
+        if !localTrackingEnabled {
+            if heldPlayback.map({ Self.samePlaybackItem($0.item, item) && $0.profileID == profile }) == true { heldPlayback = nil }
+            localPlayback = records
+        }
+    }
+
+    private func mdbTrackingTarget(for item: MediaItem) async -> MDBListTrackingTarget? {
+        guard ["Movie", "Series", "Episode"].contains(item.type) else { return nil }
+        if item.type == "Episode" {
+            guard let parent = await metadataParent(for: item) else { return nil }
+            let parent = await libraryExternalIdentity(parent, requiring: "tmdb")
+            return await metadataResolver.mdbTrackingEpisode(item, parent: parent, source: episodeDataSource)
+        }
+        let identified = await libraryExternalIdentity(item)
+        let target = MDBListTrackingTarget(kind: item.type == "Movie" ? .movie : .show,
+            ids: MDBListTrackingTarget.normalizedIDs(LibraryMetadataIdentity.ids(identified)))
+        return target.valid ? target : nil
+    }
+
+    private func importMDBTracking(_ records: [MDBListTrackingRecord]) {
+        guard !localTrackingEnabled, mdbListTrackingEnabled, trackingAccountID != nil, mdbListTracking.hasSnapshot else { return }
+        trackingImport?.cancel()
+        let token = trackingRevision, started = Date(), account = trackingAccountID
+        trackingImport = Task { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            let inventory: (items: [MediaItem], failure: Error?) = records.isEmpty
+                ? ([], nil) : await self.combinedInventory()
+            guard inventory.failure == nil, !Task.isCancelled else { return }
+            var titles = inventory.items
+            if let ready = self.providerVOD.ready {
+                titles += ready.catalog.films.map { ProviderVOD.item(for: $0, provider: ready.catalog.profileID) }
+                titles += ready.catalog.shows.map { ProviderVOD.item(for: $0, provider: ready.catalog.profileID) }
+            }
+            var index: [String: [MediaItem]] = [:]
+            for item in titles where ["Movie", "Series"].contains(item.type) {
+                for (provider, id) in MDBListTrackingTarget.normalizedIDs(LibraryMetadataIdentity.ids(item)) {
+                    index[item.type + "|" + provider + ":" + id, default: []].append(item)
+                }
+            }
+            var episodeCache: [String: [MediaItem]] = [:]
+            var imported: [String: LocalMediaPlayback] = [:]
+            for record in records {
+                guard !Task.isCancelled else { return }
+                var matched: [String: MediaItem] = [:]
+                let kind = record.target.kind == .movie ? "Movie" : "Series"
+                for (provider, id) in record.target.ids {
+                    for item in index[kind + "|" + provider + ":" + id] ?? [] { matched[item.libraryKey] = item }
+                }
+                for item in matched.values {
+                    var target = item
+                    if record.target.kind == .episode {
+                        let episodes: [MediaItem]
+                        if let cached = episodeCache[item.libraryKey] { episodes = cached }
+                        else {
+                            do {
+                                if case .series(let id)? = ProviderItem(id: item.id), let provider = self.providerVOD.profile,
+                                   let ready = self.providerVOD.ready, let show = ready.index.show(seriesID: id, in: ready.catalog) {
+                                    episodes = try await self.providerVOD.episodes(of: show).map { ProviderVOD.item(for: $0, of: show, provider: provider.id) }
+                                } else if let profile = self.profile(for: item) {
+                                    episodes = try await self.client(for: profile).episodes(userID: profile.userID, seriesID: item.id).map { $0.servedBy(profile.id) }
+                                } else { continue }
+                            } catch { return } // retain the previous cache on a partial server read
+                            episodeCache[item.libraryKey] = episodes
+                            self.learnEpisodeOrder(episodes)
+                        }
+                        guard let episode = episodes.first(where: {
+                            Self.matchesMDBEpisode($0, series: item, target: record.target, source: self.episodeDataSource)
+                        }) else { continue }
+                        target = episode
+                    }
+                    guard let profile = self.serverID(of: target) else { continue }
+                    let ownDuration = target.runTimeTicks.map { Double($0) / 10_000_000 } ?? 0
+                    if record.state == .progress, ownDuration > 0, record.runtime > 0,
+                       abs(ownDuration - record.runtime) > max(60, ownDuration * 0.02) { continue }
+                    let duration = max(1, ownDuration > 0 ? ownDuration : record.runtime)
+                    if record.state == .progress, duration <= 1 { continue }
+                    let value = LocalMediaPlayback(profileID: profile, item: target,
+                        position: record.state == .watched ? duration : duration * record.progress / 100,
+                        duration: duration, updatedAt: record.updatedAt, completed: record.state == .watched,
+                        isUpNext: record.state == .upNext ? true : nil)
+                    if let previous = imported[value.id], previous.updatedAt > value.updatedAt { continue }
+                    imported[value.id] = value
+                }
+            }
+            guard !Task.isCancelled, token == self.trackingRevision, account == self.trackingAccountID,
+                  !self.localTrackingEnabled, self.mdbListTrackingEnabled, self.mdbListTracking.pendingCount == 0 else { return }
+            let active = Set(self.playbackSessions.values.map { $0.item.libraryKey })
+            for value in self.localPlayback where value.updatedAt >= started || active.contains(value.item.libraryKey) {
+                imported[value.id] = value
+            }
+            self.localPlayback = Array(imported.values)
+            self.persistLocalPlayback()
+        }
+    }
+
+    nonisolated static func matchesMDBEpisode(_ episode: MediaItem, series: MediaItem,
+                                              target: MDBListTrackingTarget, source: LibraryMetadataSource) -> Bool {
+        let ids = MDBListTrackingTarget.normalizedIDs(LibraryMetadataIdentity.ids(episode))
+        if target.episodeIDs.contains(where: { ids[$0.key] == $0.value }) { return true }
+        if source == .tmdb {
+            return episode.parentIndexNumber == target.season && episode.indexNumber == target.episode
+                && LibraryMetadataIdentity.ids(series)["tmdb"] == target.ids["tmdb"] && target.ids["tmdb"] != nil
+        }
+        guard source == .tvdb else { return false }
+        return target.tvdbSeason != nil && target.tvdbEpisode != nil && target.tvdbSeries != nil
+            && episode.parentIndexNumber == target.tvdbSeason && episode.indexNumber == target.tvdbEpisode
+            && LibraryMetadataIdentity.ids(series)["tvdb"] == target.tvdbSeries
     }
 }
