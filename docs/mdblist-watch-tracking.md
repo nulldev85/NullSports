@@ -69,7 +69,7 @@ to use the current integration independently of these switches.
 
 ## Validation
 
-Nineteen shared SDK regressions cover defaults, independent caches, opt-out,
+Twenty-one shared SDK regressions cover defaults, independent caches, opt-out,
 real MediaLibrary start/pause/stop/EOF/PiP callbacks, both completion rules,
 manual actions, TMDb/TVDB episode mapping, source/numbering isolation, cursor
 pagination, malformed/partial/empty snapshots, durable rate-limit backoff,
@@ -85,6 +85,19 @@ Builds iPhone 132 and tvOS 88 stopped at app compilation: the episode identity
 path redeclared `parent` in the same scope. The identified parent now has its
 own binding. No SDK tests ran and neither workflow packaged an IPA. The
 replacement builds retain the complete test suites and tracking behavior.
+
+The next builds (iPhone 133 and tvOS 89) compiled both apps and ran their full
+SDK suites. All 19 MDBList tests and the real Aether/VLC tracking callback
+checks passed. An existing local-tracking regression failed on both: a manual
+unwatched choice could be overwritten by a late EOF callback. The account
+session used a source-qualified item key, while older/synthetic manual actions
+can carry an unqualified item. Manual session retirement now uses the same
+resolved source and episode-alias identity as local tracking. A surviving
+account session may send its final stop without reviving a retired device
+session. Two added regressions cover unqualified manual edits plus late
+progress/EOF, and account completion after clearing device history. The
+original failing regression remains unchanged. SDK verification of this repair
+is pending the replacement builds.
 
 API contract references (reviewed October 24, 2026):
 - https://api.mdblist.com/docs/

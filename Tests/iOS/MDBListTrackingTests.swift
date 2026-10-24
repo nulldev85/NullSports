@@ -228,6 +228,53 @@ final class MDBListTrackingTests: XCTestCase {
         XCTAssertTrue(library.localPlaybackRecord(for: movie)?.explicitlyUnwatched == true)
     }
 
+    func testUnqualifiedManualMarkRejectsLateRemoteProgressAndEOF() async throws {
+        TrackingTestProtocol.install(Self.emptyResponse)
+        let defaults = try defaults()
+        let (library, movie) = try makeLibrary(defaults, mdb: true)
+        defer { library.setMDBListTrackingEnabled(false) }
+        var unqualified = movie
+        unqualified.serverID = nil // older saved/synthetic Library items
+        let id = UUID()
+        library.beginPlaybackSession(for: unqualified, id: id)
+        library.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 600, duration: 3600), for: movie, sessionID: id)
+        try await eventually("start sent") { TrackingTestProtocol.posts.count == 1 }
+        library.setLocallyPlayed(false, for: unqualified)
+        try await eventually("explicit unwatched sent") { TrackingTestProtocol.posts.count == 2 }
+        library.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 3550, duration: 3600), for: movie, sessionID: id)
+        library.completePlayback(of: unqualified, sessionID: id)
+        library.endPlaybackSession(id)
+        XCTAssertFalse(library.isWatched(movie))
+        XCTAssertTrue(library.localPlaybackRecord(for: movie)?.explicitlyUnwatched == true)
+        XCTAssertEqual(TrackingTestProtocol.posts.map { $0.url!.path }, ["/scrobble/start", "/sync/watched/remove"])
+        let cached = try JSONDecoder().decode([LocalMediaPlayback].self,
+            from: XCTUnwrap(defaults.data(forKey: LibraryTrackingPreferences.cacheKey(7))))
+        XCTAssertTrue(cached.first?.explicitlyUnwatched == true)
+        XCTAssertFalse(cached.first?.completed == true)
+    }
+
+    func testRemoteFinalStopCannotRestoreClearedDeviceHistory() async throws {
+        TrackingTestProtocol.install(Self.emptyResponse)
+        let defaults = try defaults()
+        let (library, movie) = try makeLibrary(defaults, mdb: true)
+        defer { library.setMDBListTrackingEnabled(false) }
+        let id = UUID()
+        library.beginPlaybackSession(for: movie, id: id)
+        library.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 600, duration: 3600), for: movie, sessionID: id)
+        try await eventually("start sent") { TrackingTestProtocol.posts.count == 1 }
+        library.clearLocalPlayback()
+        library.completePlayback(of: movie, sessionID: id)
+        library.endPlaybackSession(id)
+        try await eventually("remote EOF still sent") { TrackingTestProtocol.posts.count == 2 }
+        XCTAssertEqual(TrackingTestProtocol.posts.last?.url?.path, "/scrobble/stop")
+        XCTAssertEqual(try TrackingTestProtocol.posts.last!.trackingBody()["progress"] as? Double, 100)
+        XCTAssertNil(library.localPlaybackRecord(for: movie))
+        XCTAssertNil(defaults.data(forKey: "Lineup.localMediaPlayback.v1"))
+        let cached = try JSONDecoder().decode([LocalMediaPlayback].self,
+            from: XCTUnwrap(defaults.data(forKey: LibraryTrackingPreferences.cacheKey(7))))
+        XCTAssertTrue(cached.first?.completed == true)
+    }
+
     func testEpisodeMappingUsesVerifiedTVDBEpisodeNotDisplayNumbers() async throws {
         TrackingTestProtocol.install { request in
             XCTAssertEqual(request.url?.path, "/3/find/222222")

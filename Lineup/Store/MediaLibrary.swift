@@ -1866,11 +1866,17 @@ final class MediaLibrary {
     /// A real end-of-file is authoritative even when a stream reported no
     /// duration. Persist before the player closes or opens the next episode.
     func completePlayback(of item: MediaItem, sessionID: UUID? = nil) {
-        guard let profileID = serverID(of: item),
-              acceptsPlayback(of: item, profileID: profileID, sessionID: sessionID)
-                || sessionID.flatMap({ mdbPlaybackSessions[$0] }).map({ !$0.closed && $0.item.serverID == profileID && Self.samePlaybackItem($0.item, item) }) == true else { return }
+        guard let profileID = serverID(of: item) else { return }
+        let acceptsLocal = acceptsPlayback(of: item, profileID: profileID, sessionID: sessionID)
+        let acceptsMDB = mdbListTrackingEnabled && sessionID.flatMap({ mdbPlaybackSessions[$0] }).map({
+            !$0.closed && $0.item.serverID == profileID && Self.samePlaybackItem($0.item, item)
+        }) == true
+        guard acceptsLocal || acceptsMDB else { return }
         if let sessionID { finishMDBPlayback(sessionID, completed: true) }
-        guard localTrackingEnabled || mdbListTrackingEnabled else { return }
+        // A remote session may outlive the local completion threshold or a
+        // cleared device history. Its final stop must not revive a retired
+        // local session or overwrite an explicit watched/unwatched decision.
+        guard acceptsLocal, localTrackingEnabled || mdbListTrackingEnabled else { return }
         let alreadyCompleted = localPlaybackRecord(for: item)?.completed == true
         setLocallyPlayed(true, for: item, reportMDBList: false)
         if item.type == "Episode", !alreadyCompleted {
@@ -4598,8 +4604,10 @@ extension MediaLibrary {
         if state.closed { mdbPlaybackSessions[id] = nil }
     }
     private func queueMDBMark(_ played: Bool, for item: MediaItem) {
+        guard let profileID = serverID(of: item) else { return }
         for id in Array(mdbPlaybackSessions.keys) where mdbPlaybackSessions[id].map({
-            $0.item.libraryKey == item.libraryKey || (item.isSeries && $0.item.seriesID == item.id && $0.item.serverID == item.serverID)
+            $0.item.serverID == profileID && (Self.samePlaybackItem($0.item, item)
+                || (item.isSeries && $0.item.seriesID == item.id))
         }) == true {
             mdbPlaybackSessions[id]?.resolving?.cancel(); mdbPlaybackSessions[id] = nil
         }
