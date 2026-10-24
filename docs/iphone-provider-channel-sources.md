@@ -48,3 +48,16 @@ multi-provider playback have not been tested here.
 
 The prior playback fixes are included. Full Seerr integration remains deferred
 until the tester's playback fixes are validated, as requested.
+
+## Build 139: TV Guide placement
+
+The TV Guide player now receives the active service's name. Inline, it appears
+in a dedicated, Dynamic Type-scaled row directly below the video and before the
+replay timeline/programme metadata. The owning Guide reserves the same height
+above both List and TV Guide modes, preventing the label from covering rows.
+Fullscreen uses one truncated line in a dark capsule beneath the playback
+badges, inside the existing safe-area padding. It hides/shows with the controls;
+the measured header includes it so channel banners remain clear of the label.
+Only the Guide supplies this optional display value; playback/source selection,
+stats, catch-up and PiP behavior are unchanged. Existing local checks passed;
+SDK/device validation remains pending the new IPA workflow.

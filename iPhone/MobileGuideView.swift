@@ -77,6 +77,7 @@ struct MobileGuideView: View {
     /// far too costly to run per row on every redraw.
     @State private var recommendedStreamID: Int?
     @ScaledMetric(relativeTo: .caption) private var rowHeight = 74.0
+    @ScaledMetric(relativeTo: .caption2) private var providerInfoHeight = MobilePlayerLayout.inlineProviderHeight
     var game: SportsGame? = nil
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
@@ -137,16 +138,17 @@ struct MobileGuideView: View {
             GeometryReader { viewport in
                 let showsMetadata = viewport.size.height > 400
                 let metadataHeight: CGFloat = showsMetadata ? 106 : 0
+                let providerHeight: CGFloat = library.activeProfile == nil ? 0 : providerInfoHeight
                 let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
                     ? MobilePlayerLayout.inlineTimelineHeight : 0
-                let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight))
+                let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight - providerHeight))
                 let fullHeight = MobilePlayerLayout.fullscreenHeight(containerHeight: viewport.size.height,
                                                                     safeAreaTop: viewport.safeAreaInsets.top,
                                                                     safeAreaBottom: viewport.safeAreaInsets.bottom)
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
                         if selectedStream != nil {
-                            Color.clear.frame(height: videoHeight + metadataHeight + timelineHeight)
+                            Color.clear.frame(height: videoHeight + providerHeight + metadataHeight + timelineHeight)
                         }
                         if let game {
                             VStack(alignment: .leading, spacing: 4) {
@@ -190,6 +192,7 @@ struct MobileGuideView: View {
                                 expanded: fillsScreen, showsMetadata: showsMetadata,
                                 videoHeight: fillsScreen ? fullHeight : videoHeight,
                                 screenInsets: viewport.safeAreaInsets,
+                                providerName: library.activeProfile?.name,
                                 onClose: closePlayer, onExpand: sideways ? nil : { setExpanded(!expanded) },
                                 onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) },
                                 // Up and down the list on screen, whatever it
@@ -200,7 +203,7 @@ struct MobileGuideView: View {
                                 channelBanner: channelBanner,
                                 watchingGameID: watchingGame?.id,
                                 onWatchGame: { watchGame($0) })
-                                .frame(height: fillsScreen ? fullHeight : videoHeight + metadataHeight + timelineHeight, alignment: .top)
+                                .frame(height: fillsScreen ? fullHeight : videoHeight + providerHeight + metadataHeight + timelineHeight, alignment: .top)
                                 .background(LineupStyle.background)
                         }
                         // The player is the one thing that reaches past the

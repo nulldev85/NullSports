@@ -22,6 +22,9 @@ struct MobileGuidePlayer: View {
     /// up under the Dynamic Island — which a screenshot does not capture, so it
     /// only ever showed up on the device.
     var screenInsets: EdgeInsets = EdgeInsets()
+    /// Supplied by the owning Guide so the name belongs to this account's
+    /// channels. Display only; it does not affect the player or stream URLs.
+    var providerName: String? = nil
     let onClose: () -> Void
     /// Nil hides the control: on its side the phone itself does the job.
     let onExpand: (() -> Void)?
@@ -55,6 +58,7 @@ struct MobileGuidePlayer: View {
     @State private var timelineBounds = CGRect.zero
     @State private var measuredHeaderHeight: CGFloat = 76
     @ScaledMetric(relativeTo: .caption2) private var previewInfoHeight: CGFloat = 32
+    @ScaledMetric(relativeTo: .caption2) private var providerInfoHeight = MobilePlayerLayout.inlineProviderHeight
     @State private var hideControlsTask: Task<Void, Never>?
     @ObservedObject private var alerts = GameAlertCenter.shared
 
@@ -147,6 +151,14 @@ struct MobileGuidePlayer: View {
             // inline, where the picture is a preview over the guide.
             .coordinateSpace(name: "GuidePlayer")
             .simultaneousGesture(channelSwipe, including: canSwipe ? .all : .subviews)
+            if !expanded, let providerName {
+                providerIdentity(providerName)
+                    .foregroundStyle(LineupStyle.secondary)
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: providerInfoHeight)
+                    .background(LineupStyle.background)
+            }
             if !expanded && controller.catchUpSource != nil && controller.error == nil {
                 MobileCatchUpBar(controller: controller, compact: true) {
                     showControls()
@@ -217,6 +229,7 @@ struct MobileGuidePlayer: View {
     private var topBar: some View {
         VStack {
             LineupGlassGroup {
+            VStack(alignment: .leading, spacing: 8) {
             MobilePlayerHeader {
             HStack(spacing: 8) {
                 control("xmark", label: "Close player", action: onClose)
@@ -250,6 +263,13 @@ struct MobileGuidePlayer: View {
             } details: {
                 if expanded { playbackDetails }
             }
+            if expanded, let providerName {
+                providerIdentity(providerName)
+                    .foregroundStyle(LineupStyle.mediaText.opacity(0.86))
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Color.black.opacity(0.66), in: Capsule())
+            }
+            }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measuredHeaderHeight = $0 }
             }
             Spacer()
@@ -260,6 +280,15 @@ struct MobileGuidePlayer: View {
         .padding(.trailing, expanded ? screenInsets.trailing : 0)
         .padding(.top, expanded ? screenInsets.top : 0)
         .transition(.opacity)
+    }
+
+    private func providerIdentity(_ name: String) -> some View {
+        Label("Provider: \(name)", systemImage: "antenna.radiowaves.left.and.right")
+            .font(.inter(.caption2, .semibold))
+            .lineLimit(1).truncationMode(.middle)
+            .accessibilityLabel("IPTV provider: \(name)")
+            .accessibilityIdentifier("lineup.playback.provider")
+            .allowsHitTesting(false)
     }
 
     @ViewBuilder
