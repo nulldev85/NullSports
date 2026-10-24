@@ -107,7 +107,7 @@ actor MobileProviderCatalog {
         async let programs = client.programsToday(ifChangedFrom: nil)
         let result = try await (categories, streams, programs)
         guard let groups = result.0.payload?.value, let channels = result.1.payload?.value,
-              let guide = result.2.payload?.value else { throw XtreamError.invalidResponse }
+              let guide = result.2.payload?.value else { throw XtreamClient.XtreamError.invalidResponse }
         return MobileProviderSnapshot(categories: groups, streams: channels, programs: guide, fetchedAt: Date())
     }
 }

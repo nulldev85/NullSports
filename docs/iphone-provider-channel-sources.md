@@ -61,3 +61,11 @@ the measured header includes it so channel banners remain clear of the label.
 Only the Guide supplies this optional display value; playback/source selection,
 stats, catch-up and PiP behavior are unchanged. Existing local checks passed;
 SDK/device validation remains pending the new IPA workflow.
+
+## Build 140: compiler repair
+
+Reported build139 failed in both app compilation jobs at
+`MobileProviderChannels.swift`: the error enum is nested in `XtreamClient`, so
+the fallback now uses `XtreamClient.XtreamError.invalidResponse`. No tests ran
+in139; no IPA was produced. Provider lookup/rename and Guide label placement
+remain included. No test, assertion, deadline or workflow was changed.
