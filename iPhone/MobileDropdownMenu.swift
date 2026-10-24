@@ -17,6 +17,9 @@ struct MobileMenuItem: Identifiable {
     /// Opens in the same panel, in place of the list it is in, with the way
     /// back in its header.
     var children: [MobileMenuSection]?
+    /// Optional secondary choices, using the same hold sheet as channel rows.
+    var holdItems: [MobileMenuItem] = []
+    var badge: String? = nil
     var action: () -> Void = {}
 
     init(_ title: String, symbol: String? = nil, id: String? = nil,
@@ -179,39 +182,60 @@ struct MobileMenuRow: View {
     let select: () -> Void
 
     var body: some View {
-        Button(action: select) {
-            HStack(spacing: 12) {
-                if let symbol = item.symbol {
-                    LineupIconTile(symbol: symbol, size: 28)
-                }
-                (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 16) : Text(item.title))
-                    .font(.inter(16, .semibold))
-                    .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .minimumScaleFactor(0.85)
-                Spacer(minLength: 8)
-                if item.isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .heavy, design: .rounded))
-                        .foregroundStyle(LineupStyle.highlight)
-                }
-                if item.children != nil {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(LineupPanelStyle.quiet)
-                }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .frame(minHeight: MobileDropdownPanel.rowHeight)
-            .background(item.isSelected ? LineupPanelStyle.well : .clear,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .contentShape(Rectangle())
-            .opacity(item.isEnabled ? 1 : 0.4)
+        control
+            .disabled(!item.isEnabled)
+            .accessibilityAddTraits(item.isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    @ViewBuilder private var control: some View {
+        if item.holdItems.isEmpty {
+            Button(action: select) { label }
+                .buttonStyle(MobileDropdownRowStyle())
+        } else {
+            label
+                .lineupHoldMenu(item.title, symbol: item.symbol ?? "square.stack", press: .well,
+                                items: { item.holdItems }, action: select)
+                .accessibilityHint("Touch and hold for category options")
         }
-        .buttonStyle(MobileDropdownRowStyle())
-        .disabled(!item.isEnabled)
-        .accessibilityAddTraits(item.isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var label: some View {
+        HStack(spacing: 12) {
+            if let symbol = item.symbol {
+                LineupIconTile(symbol: symbol, size: 28)
+            }
+            (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 16) : Text(item.title))
+                .font(.inter(16, .semibold))
+                .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .minimumScaleFactor(0.85)
+            Spacer(minLength: 8)
+            if let badge = item.badge {
+                Text(badge)
+                    .font(.inter(11, .semibold))
+                    .foregroundStyle(LineupStyle.highlight)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(LineupPanelStyle.well, in: Capsule())
+            }
+            if item.isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundStyle(LineupStyle.highlight)
+            }
+            if item.children != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(LineupPanelStyle.quiet)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .frame(minHeight: MobileDropdownPanel.rowHeight)
+        .background(item.isSelected ? LineupPanelStyle.well : .clear,
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(Rectangle())
+        .opacity(item.isEnabled ? 1 : 0.4)
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -33,6 +33,7 @@ struct MobileGuideView: View {
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
+    @AppStorage(MobileGuideDefaultCategory.storageKey) private var defaultCategories = "{}"
     @State private var query = ""
     @State private var showsSearch = false
     /// The TV Guide's options, dropped from the bar's ellipsis.
@@ -96,11 +97,13 @@ struct MobileGuideView: View {
     /// tab is open must not take the screen from it when the phone turns.
     private var fillsScreen: Bool { isActive && selectedStream != nil && (expanded || sideways) }
 
-    /// Favorites, until the viewer picks something else -- or every channel
-    /// while there are no favorites yet, or when picking for a game.
+    /// A provider's saved starting category, then the existing Favorites/All
+    /// behavior. Manual choices last until the next entry to this tab.
     private var filter: MobileGuideFilter {
         if let chosenFilter { return chosenFilter }
-        return game == nil && !library.favoriteStreamOrder.isEmpty ? .favorites : .all
+        return MobileGuideDefaultCategory.initialFilter(for: library.activeProfile?.id, in: defaultCategories,
+            categoryIDs: library.categories.map(\.id), hasFavorites: !library.favoriteStreamOrder.isEmpty,
+            isGamePicker: game != nil)
     }
 
     /// A search looks through every channel, whatever the Guide is showing.
@@ -332,7 +335,10 @@ struct MobileGuideView: View {
                     optionsOpen = false
                     filterMenuOpen = false
                     if !playback.pictureInPictureActive { closePlayer() }
-                } else { returnToNow() }
+                } else {
+                    restoreDefaultCategoryOnEntry()
+                    returnToNow()
+                }
             }
             .onAppear {
                 returnToNow()
@@ -367,6 +373,7 @@ struct MobileGuideView: View {
                     .preferredColorScheme(.dark)
             }
         }
+        .mobileTabHome(.guide) { restoreDefaultCategoryOnEntry() }
     }
 
     /// One of the Guide's choices, ticked when it is the one shown. Picking
@@ -481,13 +488,22 @@ struct MobileGuideView: View {
     }
 
     private var filterSections: [MobileMenuSection] {
+        let profileID = library.activeProfile?.id
+        let defaultID = MobileGuideDefaultCategory.categoryID(for: profileID, in: defaultCategories)
+        let currentFilter = filter
         let categories = library.categories.map { category in
-            MobileMenuItem(category.categoryName, id: "category-\(category.id)",
-                           isSelected: filter == .category(category.id)) {
+            MobileGuideCategoryMenu.item(for: category, isSelected: currentFilter == .category(category.id),
+                isDefault: defaultID == category.id, allowsDefault: game == nil && profileID != nil, select: {
                 chosenFilter = .category(category.id)
-            }
+            }, changeDefault: { categoryID in
+                guard let profileID, library.activeProfile?.id == profileID, game == nil,
+                      library.categories.contains(where: { $0.id == category.id }) else { return }
+                defaultCategories = MobileGuideDefaultCategory.setting(categoryID, for: profileID, in: defaultCategories)
+                chosenFilter = nil
+                setFilterMenu(false)
+            })
         }
-        let inCategory: Bool = { if case .category = filter { return true } else { return false } }()
+        let inCategory: Bool = { if case .category = currentFilter { return true } else { return false } }()
         return [
             MobileMenuSection(id: "channels", items: [
                 MobileMenuItem("Favorites", symbol: "star", isSelected: filter == .favorites) {
@@ -506,6 +522,11 @@ struct MobileGuideView: View {
                                children: [MobileMenuSection(id: "categories", items: categories)])
             ])
         ]
+    }
+
+    private func restoreDefaultCategoryOnEntry() {
+        chosenFilter = MobileGuideDefaultCategory.selectionOnEntry(chosenFilter,
+            for: library.activeProfile?.id, in: defaultCategories, isGamePicker: game != nil)
     }
 
     /// What the TV Guide's dropdown offers: getting about, which channels the
