@@ -28,7 +28,7 @@ struct MobileChannelPicker: View {
     }
 
     var body: some View {
-        MobileChannelPickerContent(game: game, search: search, onPick: onPick)
+        MobileChannelPickerContent(game: game, search: search, providerName: library.activeProfile?.name, onPick: onPick)
             .presentationDetents([.large])
             .presentationBackground(LineupStyle.background)
             .task { reloadChannels() }
@@ -44,6 +44,7 @@ struct MobileChannelPickerContent: View {
     let game: SportsGame
     @ObservedObject var search: MobileChannelSearch
     var automaticallyFocusSearch = true
+    var providerName: String? = nil
     let onPick: (XtreamStream) -> Void
 
     var body: some View {
@@ -84,6 +85,10 @@ struct MobileChannelPickerContent: View {
             Text(game.broadcast.isEmpty ? "Choose a channel" : "Choose a channel · \(game.broadcast)")
                 .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
                 .lineLimit(1)
+            if let providerName {
+                Label("Provider: \(providerName)", systemImage: "antenna.radiowaves.left.and.right")
+                    .font(.inter(.caption, .semibold)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20).padding(.bottom, 12)

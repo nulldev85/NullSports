@@ -1,0 +1,50 @@
+# iPhone provider identity and game feeds
+
+Build 138 adds the active IPTV provider's name beneath the Sports masthead and
+in the manual channel search. Sports → Channels now searches every saved provider,
+keeps the quality sections, and labels every feed with its service name.
+Selecting a feed makes that provider active. Settings → IPTV has a pencil button
+for renaming either the active or an inactive service (1–80 trimmed characters).
+
+## Account isolation
+
+- Results are identified by provider UUID **and** stream ID. Equal numbers and
+  XMLTV channel IDs from different services never share guide evidence.
+- The existing strict event scorer runs separately for each provider. Existing
+  automatic matching, quality ranking and broad manual search policy remain.
+- The active provider uses its existing validated in-memory results. Other
+  providers fetch channel/category/guide metadata on demand, without probing or
+  opening video connections. Results appear as services finish; failures are
+  named and do not discard successful providers' matches.
+- The catalog coalesces duplicate requests, limits provider downloads to two
+  globally, and caches at most three snapshots for two minutes. Cache identity
+  includes account UUID, connection fields and a digest incorporating its secret;
+  names do not invalidate the account cache. Secrets are not logged or persisted
+  by the new catalog. Missing device credentials produce a named sign-in message.
+- Canceled/replaced sheets reject late publications. Selection checks the saved
+  connection, current device secret, snapshot age, exact stream metadata and live
+  event evidence again. Removed or changed accounts cannot open an old result.
+- Choosing another service installs that exact fetched snapshot in the existing
+  provider store, restores that account's favorites/preferences/recents, rebuilds
+  its sports index and uses the existing player and source URL construction.
+  No second provider download is needed for selection. Schedules are retained as
+  shared sports data. Playback and Last Channel from the previous account retire.
+- Renaming changes only the persisted profile name. UUID, Keychain credentials,
+  active account, Guide defaults, favorites and channel preferences retain their
+  existing identity. Cloud settings use the existing persistence path.
+
+## Validation
+
+Local metadata/target-membership checks: 12 tests passed. Playback project and
+engine version checks, tvOS focus check and whitespace check passed. This Windows
+workspace has no Swift or Apple SDK; compilation and new SDK tests await CI.
+
+Seven new iOS SDK regressions cover colliding channel/EPG IDs and source URLs,
+expired/recycled evidence, coalescing/cache connection isolation, partial provider
+failure/retry, concurrency bounds, removed connections, and rename persistence
+including Keychain credentials and provider-scoped saved data. Existing quality
+grouping and all playback tests stay enabled. Private tester accounts and actual
+multi-provider playback have not been tested here.
+
+The prior playback fixes are included. Full Seerr integration remains deferred
+until the tester's playback fixes are validated, as requested.

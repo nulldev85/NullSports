@@ -446,6 +446,7 @@ private struct AccountSourceRow: View {
     let selectionDisabled: Bool
     let removalDisabled: Bool
     let select: () -> Void
+    let rename: () -> Void
     let remove: () -> Void
 
     var body: some View {
@@ -471,6 +472,12 @@ private struct AccountSourceRow: View {
             .buttonStyle(.plain)
             .disabled(selectionDisabled)
             .accessibilityLabel("\(name), \(isActive ? "active provider" : "switch provider")")
+            Button(action: rename) {
+                Image(systemName: "pencil").frame(minWidth: 44, minHeight: 44)
+                    .foregroundStyle(LineupPanelStyle.listValue)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Rename \(name)")
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
                     .foregroundStyle(LineupPanelStyle.listValue)
@@ -508,6 +515,8 @@ private struct MobileIPTVSettingsView: View {
     @Environment(SportsLibrary.self) private var library
     @State private var addingProvider = false
     @State private var removingProfile: XtreamProfile?
+    @State private var renamingProfile: XtreamProfile?
+    @State private var providerName = ""
 
     var body: some View {
         List {
@@ -526,6 +535,7 @@ private struct MobileIPTVSettingsView: View {
                         selectionDisabled: library.isSwitchingProfile || library.channelsAreSyncing,
                         removalDisabled: library.isSwitchingProfile,
                         select: { Task { await library.selectProfile(profile) } },
+                        rename: { providerName = profile.name; renamingProfile = profile },
                         remove: { removingProfile = profile }
                     )
                 }
@@ -537,7 +547,7 @@ private struct MobileIPTVSettingsView: View {
             } header: {
                 Text("Providers").lineupSettingsHeader()
             } footer: {
-                Text("Each provider keeps its own favorites, preferred channels and recents.")
+                Text("The checked provider is active. Sports → Channels searches all saved providers. Each keeps its own favorites, preferred channels and recents. Use the pencil to rename a provider.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -545,6 +555,18 @@ private struct MobileIPTVSettingsView: View {
         .lineupSettingsList()
         .navigationTitle("IPTV")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Rename Provider", isPresented: Binding(get: { renamingProfile != nil },
+            set: { if !$0 { renamingProfile = nil } })) {
+            TextField("Provider name", text: $providerName)
+            Button("Cancel", role: .cancel) { renamingProfile = nil }
+            Button("Save") {
+                if let profile = renamingProfile { library.renameProfile(id: profile.id, name: providerName) }
+                renamingProfile = nil
+            }
+            .disabled(providerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || providerName.count > 80)
+        } message: {
+            Text("Choose a name to identify this service in Settings and Sports channel results.")
+        }
         .sheet(isPresented: $addingProvider) {
             ProfileSetupView(addingProvider: true)
                 .environment(library)

@@ -18,6 +18,10 @@ struct MobileLiveView: View {
     @State private var choosingChannel: SportsGame?
     @State private var showingEventChannels: SportsGame?
     @State private var pendingStream: XtreamStream?
+    @State private var pendingProviderChannel: MobileProviderChannel?
+    @State private var providerSelectionTask: Task<Void, Never>?
+    @State private var connectingProvider: String?
+    @State private var providerSelectionError: String?
     @State private var pendingGame: SportsGame?
     @State private var upcomingGame: SportsGame?
     @State private var racingDetails: SportsGame?
@@ -371,15 +375,24 @@ struct MobileLiveView: View {
             }
             .overlay(alignment: .top) {
                 if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
+                if let connectingProvider {
+                    ProgressView("Opening \(connectingProvider)…")
+                        .font(.inter(14, .semibold)).padding(16)
+                        .background(LineupStyle.background, in: RoundedRectangle(cornerRadius: 16))
+                }
             }
             .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel(); autoSync.stop() }
             .sheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
-                MobileEventChannelsSheet(library: library, game: game, playingID: previewStream?.id) { stream in
-                    pendingStream = stream
+                MobileEventChannelsSheet(library: library, game: game, playingID: previewStream?.id) { source in
+                    pendingProviderChannel = source
                     pendingGame = game
                     showingEventChannels = nil
                 }
             }
+            .alert("Channel unavailable", isPresented: Binding(get: { providerSelectionError != nil },
+                set: { if !$0 { providerSelectionError = nil } })) {
+                Button("OK", role: .cancel) { providerSelectionError = nil }
+            } message: { Text(providerSelectionError ?? "") }
             .lineupChoices("Game has not started yet", symbol: "clock",
                            isPresented: Binding(get: { upcomingGame != nil },
                                                 set: { if !$0 { upcomingGame = nil } }),
@@ -458,13 +471,20 @@ struct MobileLiveView: View {
                 }] + sides
             }
             .onChange(of: isActive) { _, active in
-                if !active { cancelQualityCheck(); catchUpLookup?.cancel() }
+                if !active {
+                    cancelQualityCheck(); catchUpLookup?.cancel()
+                    providerSelectionTask?.cancel(); connectingProvider = nil
+                }
                 // Leaving the Live tab still closes the preview, unless it is
                 // the stream currently playing in the PiP window.
                 if active { playback.resume() } else { leagueMenuOpen = false }
                 if !active && !playback.pictureInPictureActive { closePreview() }
             }
             .onChange(of: library.activeProfile?.id) { _, _ in
+                // Numeric stream IDs and recents belong to their source account.
+                closePreview()
+                previousChannel = nil
+                scopingSelection = nil
                 catchUpLookup?.cancel()
                 pendingCatchUp = nil
                 catchUpChannel = nil
@@ -491,7 +511,8 @@ struct MobileLiveView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("LINEUP").font(.inter(20, .black)).tracking(-0.5)
                         .foregroundStyle(LineupStyle.text.opacity(0.84))
-                    Text("LIVE SPORTS").font(.inter(8, .bold)).tracking(2.2)
+                    Text(library.activeProfile.map { "Provider: \($0.name)" } ?? "LIVE SPORTS")
+                        .font(.inter(10, .bold)).lineLimit(1)
                         .foregroundStyle(LineupStyle.secondary.opacity(0.76))
                 }
             }
@@ -988,6 +1009,25 @@ struct MobileLiveView: View {
     /// should stick to either team.
     private func finishChannelSelection() {
         // Scope prompts wait until the outgoing channel sheet is gone.
+        if let source = pendingProviderChannel, let game = pendingGame {
+            pendingProviderChannel = nil
+            pendingGame = nil
+            pendingStream = nil
+            providerSelectionTask?.cancel()
+            connectingProvider = source.profile.name
+            providerSelectionTask = Task { @MainActor in
+                let stream = await library.activateEventChannel(source, for: game)
+                guard !Task.isCancelled, isActive else { return }
+                connectingProvider = nil
+                guard let stream else {
+                    providerSelectionError = "This feed from \(source.profile.name) could not be verified. Open Channels to refresh the results."
+                    return
+                }
+                let current = library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+                applySelection(stream, for: current)
+            }
+            return
+        }
         if let stream = pendingStream, let game = pendingGame {
             pendingStream = nil
             pendingGame = nil

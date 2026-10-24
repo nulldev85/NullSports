@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-struct XtreamProfile: Codable, Identifiable, Equatable {
+struct XtreamProfile: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     var name: String
     var serverURL: String

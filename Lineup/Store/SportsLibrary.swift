@@ -1332,7 +1332,8 @@ final class SportsLibrary {
     /// What `eventChannels(for:)` is worked out from, for a view showing its
     /// answer that should ask again when any of it moves.
     var eventChannelsInputs: [AnyHashable] {
-        [activeProfile?.id, indexGeneration, streamsRevision, guideRevision, gamesRevision,
+        [activeProfile?.id, profiles.map { "\($0.id)|\($0.name)|\($0.serverURL)|\($0.username)|\($0.connectionKind ?? "")" },
+         indexGeneration, streamsRevision, guideRevision, gamesRevision,
          scheduleValidatedLeagues, didCompleteMatching, channelsValidatedThisSession,
          guideValidatedThisSession, sportsIndexReady, fastValidatedGameIDs, channelsAreSyncing]
     }
@@ -3082,7 +3083,7 @@ final class SportsLibrary {
         guard await waitForProviderWork() else { isSwitchingProfile = false; return }
         persistFavorites()
         resetProviderState()
-        activeProfile = profile
+        activeProfile = profiles.first { $0.id == profile.id } ?? profile
         restoreFavorites()
         restoreTeamPreferences()
         restoreGameChannelSelections()
@@ -3091,6 +3092,100 @@ final class SportsLibrary {
         isSwitchingProfile = false
         await bootstrap()
     }
+
+    /// Change only the display name. Identity, credentials and every provider's
+    /// favorites, channel preferences, caches and selected Guide category stay put.
+    @discardableResult
+    func renameProfile(id: UUID, name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 80,
+              let index = profiles.firstIndex(where: { $0.id == id }) else { return false }
+        profiles[index].name = trimmed
+        if activeProfile?.id == id { activeProfile = profiles[index] }
+        persistProfiles()
+        return true
+    }
+
+    #if os(iOS)
+    var eventChannelTournamentBoard: [[String]] {
+        Self.tournamentBoard(SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] })
+    }
+
+    /// Promote the exact freshly fetched account snapshot chosen in Channels.
+    /// No second download, mixed-provider guide IDs, or credential fallback.
+    func activateEventChannel(_ choice: MobileProviderChannel, for game: SportsGame,
+                              catalog: MobileProviderCatalog = .shared) async -> XtreamStream? {
+        guard !isSwitchingProfile,
+              let profile = profiles.first(where: { $0.id == choice.profile.id }),
+              Self.sameProviderConnection(profile, choice.profile) else { return nil }
+        guard scheduleValidatedLeagues.contains(game.league) else { return nil }
+        let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+        if activeProfile?.id == profile.id {
+            guard let stream = stream(withID: choice.channel.id), stream == choice.channel.stream,
+                  isEventChannel(stream, verifiedFor: current) else { return nil }
+            return stream
+        }
+        guard let secret = KeychainStore.password(profileID: profile.id) else { return nil }
+        let openedProfileID = activeProfile?.id
+        guard let snapshot = try? await catalog.snapshot(for: profile, secret: secret),
+              !Task.isCancelled, activeProfile?.id == openedProfileID,
+              !isSwitchingProfile else { return nil }
+        isSwitchingProfile = true
+        defer { isSwitchingProfile = false }
+        guard await waitForProviderWork(), !Task.isCancelled,
+              activeProfile?.id == openedProfileID,
+              let saved = profiles.first(where: { $0.id == profile.id }),
+              Self.sameProviderConnection(saved, profile),
+              KeychainStore.password(profileID: profile.id) == secret else { return nil }
+        let latest = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+        let board = eventChannelTournamentBoard
+        let validation = Task.detached(priority: .userInitiated) {
+            snapshot.verifiedStream(choice, game: latest, board: board)
+        }
+        let verified = await withTaskCancellationHandler(operation: { await validation.value },
+                                                        onCancel: { validation.cancel() })
+        guard let stream = verified, !Task.isCancelled,
+              activeProfile?.id == openedProfileID else { return nil }
+        // Schedules are shared sports data; only channels and the guide change.
+        let schedule = gamesByLeague, loaded = scheduleLoadedLeagues
+        let validated = scheduleValidatedLeagues, day = scheduleDay
+        persistFavorites()
+        resetProviderState()
+        activeProfile = profiles.first { $0.id == profile.id }
+        categories = snapshot.categories
+        streams = snapshot.streams
+        programsByChannel = snapshot.programs
+        libraryUpdatedAt = snapshot.fetchedAt
+        guideUpdatedAt = snapshot.fetchedAt
+        // Digests belong to the previous account, even if its channel numbers match.
+        categoriesDigest = nil; streamsDigest = nil; guideDigest = nil
+        savedChannelsDigest = nil; savedGuideDigest = nil
+        passwordCache = nil
+        channelsValidatedThisSession = true
+        guideValidatedThisSession = true
+        gamesByLeague = schedule
+        scheduleLoadedLeagues = loaded
+        scheduleValidatedLeagues = validated
+        scheduleDay = day
+        didRestoreSchedule = true
+        restoreFavorites()
+        restoreTeamPreferences()
+        restoreGameChannelSelections()
+        restoreRecentChannels()
+        persistProfiles()
+        await rebuildProfessionalStreams()
+        guard !Task.isCancelled, activeProfile?.id == profile.id else { return nil }
+        saveCache(profileID: profile.id)
+        let final = gamesByLeague[game.league]?.first { $0.id == game.id } ?? latest
+        guard final.isLive || final.isUpcoming else { return nil }
+        return isEventChannel(stream, verifiedFor: final) ? stream : nil
+    }
+
+    nonisolated static func sameProviderConnection(_ lhs: XtreamProfile, _ rhs: XtreamProfile) -> Bool {
+        lhs.id == rhs.id && lhs.serverURL == rhs.serverURL && lhs.username == rhs.username
+            && lhs.connectionKind == rhs.connectionKind
+    }
+    #endif
 
     func removeActiveProfile() {
         guard let profile = activeProfile else { return }
