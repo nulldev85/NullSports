@@ -135,6 +135,25 @@ struct MobilePlaybackPolicyChecks {
         check(StartTogether.stillPictureDeadline < SystemEngineWatchdog.videoDeadline,
               "A held picture is given up on sooner than a missing one")
 
+        for age in [0.0, 2, 8, 29.9] {
+            check(!MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: false, age: age),
+                  "A movie opening is not a stopped input at \(age)s")
+        }
+        check(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: false, age: 30), "Movie startup remains bounded")
+        check(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: true, hasShownPicture: false, age: 8), "Live stopped-input deadline is retained")
+        check(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: true, age: 2), "An actual playback stop still recovers")
+        check(!StartTogether.canRevealVLC(displayedPictures: 0, settled: false, outputAge: 30), "Output allocation is not a displayed frame")
+        check(StartTogether.canRevealVLC(displayedPictures: 1, settled: false, outputAge: 2.1), "A real frame can leave the shape deadline")
+        check(!StartTogether.canReleaseAudioOnly(heldFor: 20, hasAudio: true, hasVideo: true), "Known video must not release sound alone")
+        check(StartTogether.canReleaseAudioOnly(heldFor: 6, hasAudio: true, hasVideo: false), "Audio-only sources retain their fallback")
+        var presentation = MobilePlaybackPresentation()
+        check(presentation.loadingMessage(waitingForPicture: false) == "Opening stream…", "A new source opens")
+        presentation.presentedVideo()
+        check(presentation.loadingMessage(waitingForPicture: false) == "Buffering…", "A playing title buffers")
+        presentation.beganRecovery()
+        check(presentation.loadingMessage(waitingForPicture: false) == "Reconnecting…", "A retry reconnects")
+        presentation.presentedVideo()
+        check(!presentation.recovering, "A new picture ends recovery")
         print("Mobile playback policy checks passed")
     }
 }

@@ -6,6 +6,62 @@ import LineupAetherPlayback
 
 @MainActor
 final class AetherPlaybackTests: XCTestCase {
+    func testSlowExtensionlessMovieOpeningRetainsTheSameVLCInput() async throws {
+        let origin = try PlaybackFixtureServer(file: fixture("playback-native", "mp4"), contentType: "video/mp4", headerDelay: 4)
+        defer { origin.stop() }
+        try await waitUntil("Delayed Jellyfin-style origin did not start") { origin.port != nil }
+        let url = try XCTUnwrap(origin.url(path: "Videos/movie/stream?Static=true&MediaSourceId=fixture"))
+        let (defaults, suite) = try preferences(.vlc)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = MobilePlaybackController(defaults: defaults)
+        let (window, host, previous) = try show(controller)
+        defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
+        controller.isLive = false
+        controller.start(urls: [url])
+        let input = try XCTUnwrap(controller.player.media)
+        XCTAssertTrue(host.pictureHeld)
+        try await waitUntil("Delayed native VLC input did not render a picture") {
+            controller.engine == .vlc && controller.isPlaying && !controller.loading
+                && controller.player.hasVideoOut && (controller.player.media?.numberOfDisplayedPictures ?? 0) > 0
+        }
+        XCTAssertTrue(controller.player.media === input, "Slow opening must not restart the same movie")
+        XCTAssertNil(controller.error)
+        try await waitUntil("VLC presentation state did not record the displayed picture") { controller.presentation.hasPresentedVideo }
+        XCTAssertEqual(controller.loadingMessage, "Buffering…", "A subsequent wait belongs to this playing title")
+        XCTAssertFalse(host.pictureHeld)
+        XCTAssertGreaterThan(controller.vlcPlaybackSeconds ?? 0, 0)
+    }
+
+    func testReplacingAetherSourceCannotReleaseTheOldPicturesStartupGate() async throws {
+        let file = try fixture("playback-native", "mp4")
+        let first = try PlaybackFixtureServer(file: file, contentType: "video/mp4")
+        let second = try PlaybackFixtureServer(file: file, contentType: "video/mp4", headerDelay: 2)
+        defer { first.stop(); second.stop() }
+        try await waitUntil("Local origins did not start") { first.port != nil && second.port != nil }
+        let (defaults, suite) = try preferences(.aether)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = MobilePlaybackController(defaults: defaults)
+        let (window, host, previous) = try show(controller)
+        defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
+        controller.isLive = false
+        controller.start(urls: [try XCTUnwrap(first.url(path: "Videos/first/stream"))])
+        guard await waitForRenderedPicture(controller, route: "first native source") else { return }
+        let session = try XCTUnwrap(controller.aetherSession)
+        controller.start(urls: [try XCTUnwrap(second.url(path: "Videos/second/stream"))])
+        XCTAssertTrue(controller.aetherSession === session)
+        XCTAssertFalse(session.hasPicture, "Old renderer readiness is not a picture from the new source")
+        XCTAssertFalse(controller.presentation.hasPresentedVideo)
+        XCTAssertTrue(host.pictureHeld)
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertFalse(session.hasPicture)
+        XCTAssertTrue(session.isMuted, "Hold audio while the new title is still opening")
+        guard await waitForRenderedPicture(controller, route: "second delayed source") else { return }
+        XCTAssertFalse(session.isMuted)
+        XCTAssertFalse(host.pictureHeld)
+        XCTAssertEqual(session.surface.frame, host.bounds)
+        XCTAssertEqual(session.surface.subviews.first?.frame, session.surface.bounds)
+    }
+
     func testSourceQualityDeadlineClosesARealHTTPOriginThatNeverSendsHeaders() async throws {
         let ready = expectation(description: "stalled local origin is ready")
         let requested = expectation(description: "probe reached the stalled origin")

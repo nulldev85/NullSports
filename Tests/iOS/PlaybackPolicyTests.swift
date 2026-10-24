@@ -7,6 +7,45 @@ import UIKit
 /// three player surfaces. Pulling them into `MobileBackgroundPolicy` is what
 /// makes them checkable without a device.
 final class PlaybackPolicyTests: XCTestCase {
+    func testSlowMovieOpeningIsNotAStoppedStreamBeforeTheStartupBudget() {
+        for age in [0.0, 2, 8, 29.9] {
+            XCTAssertFalse(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: false, age: age))
+        }
+        XCTAssertTrue(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: false, age: 30))
+        XCTAssertFalse(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: true, hasShownPicture: false, age: 7.9))
+        XCTAssertTrue(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: true, hasShownPicture: false, age: 8))
+        XCTAssertTrue(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: true, age: 2))
+    }
+
+    func testVLCStartupNeedsAnActualPictureEvenAfterTheShapeDeadline() {
+        XCTAssertFalse(StartTogether.canRevealVLC(displayedPictures: 0, settled: false, outputAge: 30))
+        XCTAssertFalse(StartTogether.canRevealVLC(displayedPictures: 0, settled: true, outputAge: 30))
+        XCTAssertFalse(StartTogether.canRevealVLC(displayedPictures: 1, settled: false, outputAge: 0.4))
+        XCTAssertTrue(StartTogether.canRevealVLC(displayedPictures: 1, settled: false, outputAge: 2.1))
+        XCTAssertTrue(StartTogether.canRevealVLC(displayedPictures: 4, settled: true, outputAge: 0.4))
+    }
+
+    func testAudioOnlyFallbackCannotReleaseSoundForAKnownVideoTrack() {
+        XCTAssertFalse(StartTogether.canReleaseAudioOnly(heldFor: 20, hasAudio: true, hasVideo: true))
+        XCTAssertFalse(StartTogether.canReleaseAudioOnly(heldFor: 20, hasAudio: false, hasVideo: false))
+        XCTAssertFalse(StartTogether.canReleaseAudioOnly(heldFor: 5, hasAudio: true, hasVideo: false))
+        XCTAssertTrue(StartTogether.canReleaseAudioOnly(heldFor: 6, hasAudio: true, hasVideo: false))
+    }
+
+    func testBufferingAndRecoveryLabelsRetainTheCurrentTitlesPresentationHistory() {
+        var state = MobilePlaybackPresentation()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: false), "Opening stream…")
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: true), "Waiting for picture…")
+        state.presentedVideo()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: false), "Buffering…")
+        state.beganRecovery()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: false), "Reconnecting…")
+        state.presentedVideo()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: true), "Buffering…")
+        state = MobilePlaybackPresentation()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: false), "Opening stream…")
+    }
+
     func testSettingsExposeVersionsForPackagedPlaybackEngines() {
         XCTAssertNil(MobilePlaybackPreference.automatic.version)
         XCTAssertEqual(MobilePlaybackPreference.aether.version, "7.45.0")

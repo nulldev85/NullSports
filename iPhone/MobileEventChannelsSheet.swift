@@ -1,5 +1,25 @@
 import SwiftUI
 
+struct MobileEventChannelSection: Identifiable {
+    let height: Int
+    let channels: [LiveEventChannel]
+    var id: Int { height }
+    var title: String {
+        switch height {
+        case 4320: "8K"
+        case 2160: "4K / UHD"
+        case 1080: "1080p / Full HD"
+        case 720: "720p / HD"
+        case 0: "Quality not specified"
+        default: "\(height)p"
+        }
+    }
+    static func grouped(_ channels: [LiveEventChannel]) -> [Self] {
+        let groups = Dictionary(grouping: channels, by: { $0.quality.height })
+        return groups.keys.sorted(by: >).map { Self(height: $0, channels: groups[$0] ?? []) }
+    }
+}
+
 /// A focused alternative-feed list. The broad searchable picker stays separate.
 @MainActor
 struct MobileEventChannelsSheet: View {
@@ -100,9 +120,16 @@ struct MobileEventChannelsContent: View {
                         Text("\(channels.count) \(channels.count == 1 ? "CHANNEL" : "CHANNELS")")
                             .font(.inter(11, .heavy)).tracking(1).foregroundStyle(LineupPanelStyle.caption)
                             .padding(.bottom, 2)
-                        ForEach(channels) { channel in
-                            MobileEventChannelRow(channel: channel, isPlaying: channel.id == playingID,
-                                live: game.isLive, fallback: game.matchupLine) { onPick(channel) }
+                        Text("Quality labels supplied by your provider")
+                            .font(.inter(11)).foregroundStyle(LineupPanelStyle.quiet)
+                        ForEach(MobileEventChannelSection.grouped(channels)) { section in
+                            Text(section.title)
+                                .font(.inter(15, .heavy)).foregroundStyle(LineupPanelStyle.caption)
+                                .padding(.top, 8).accessibilityAddTraits(.isHeader)
+                            ForEach(section.channels) { channel in
+                                MobileEventChannelRow(channel: channel, isPlaying: channel.id == playingID,
+                                    live: game.isLive, fallback: game.matchupLine) { onPick(channel) }
+                            }
                         }
                     }
                     .padding(20)

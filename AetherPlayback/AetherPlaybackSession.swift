@@ -164,7 +164,7 @@ public final class AetherPlaybackSession {
         return nil
     }
     public var isPlaying: Bool { wantsToPlay && (phase == .playing || phase == .buffering) }
-    public var hasPicture: Bool { isOpen && engine.hasFirstFrameReadyForDisplay }
+    public var hasPicture: Bool { isOpen && !loading && engine.hasFirstFrameReadyForDisplay }
     public var duration: Double { engine.duration.isFinite ? max(0, engine.duration) : 0 }
     public var position: Double {
         if loading { return initialPosition }

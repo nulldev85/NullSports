@@ -168,10 +168,15 @@ enum StartTogether {
     /// How long a live channel's sound may be held for a picture that will
     /// not move before the channel's other stream is tried instead.
     static let stillPictureDeadline: TimeInterval = 4
-    /// How long VLC may play with no picture at all before its sound goes
-    /// ahead alone. A radio channel has no picture to wait for, and VLC
-    /// cannot say so any sooner.
+    /// Minimum wait before allowing an identified audio-only source to play
+    /// without a picture. A known video track must still produce a frame.
     static let soundAloneAfter: TimeInterval = 6
+    static func canReleaseAudioOnly(heldFor: TimeInterval, hasAudio: Bool, hasVideo: Bool) -> Bool {
+        heldFor >= soundAloneAfter && hasAudio && !hasVideo
+    }
+    static func canRevealVLC(displayedPictures: Int, settled: Bool, outputAge: TimeInterval) -> Bool {
+        displayedPictures > 0 && (settled || outputAge >= vlcSettleDeadline)
+    }
     /// Once VLC's picture is up, how long its size must hold steady before
     /// it shows. VLC can draw a stream's first frames before it has worked
     /// out their shape, stretched to fill until it has.
@@ -195,6 +200,26 @@ enum StartTogether {
     static func shouldTryNext(heldFor: TimeInterval?, isLive: Bool, hasAnotherStream: Bool) -> Bool {
         guard isLive, hasAnotherStream, let heldFor else { return false }
         return heldFor > stillPictureDeadline
+    }
+}
+
+enum MobilePlaybackOpeningPolicy {
+    /// VLC may still report the old stopped/ended state while opening a new
+    /// input. A movie must get its normal startup window before recovery.
+    static func stoppedIsFailure(isLive: Bool, hasShownPicture: Bool, age: TimeInterval) -> Bool {
+        hasShownPicture || age >= (isLive ? 8 : 30)
+    }
+}
+
+struct MobilePlaybackPresentation: Equatable {
+    private(set) var hasPresentedVideo = false
+    private(set) var recovering = false
+    mutating func presentedVideo() { hasPresentedVideo = true; recovering = false }
+    mutating func beganRecovery() { recovering = true }
+    func loadingMessage(waitingForPicture: Bool) -> String {
+        if recovering { return "Reconnecting…" }
+        if hasPresentedVideo { return "Buffering…" }
+        return waitingForPicture ? "Waiting for picture…" : "Opening stream…"
     }
 }
 

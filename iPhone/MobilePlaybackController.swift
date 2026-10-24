@@ -93,6 +93,8 @@ final class MobilePlaybackController: ObservableObject {
         libraryTrackingEvent(sample)
     }
     @Published var loading = true
+    @Published private(set) var presentation = MobilePlaybackPresentation()
+    var loadingMessage: String { presentation.loadingMessage(waitingForPicture: isPlaying && !startGateOpen) }
     @Published var error: String?
     @Published private(set) var videoWidth: Int?
     @Published private(set) var videoHeight: Int?
@@ -805,13 +807,25 @@ final class MobilePlaybackController: ObservableObject {
                 let steady = size.width > 0 && size.height > 0
                     && now - (vlcGateSizeSince ?? now) >= StartTogether.vlcSettle
                     && pictures - vlcPicturesAtUp >= StartTogether.vlcFramesToSettle
-                if steady {
-                    openStartGate("picture up, \(Int(size.width))x\(Int(size.height))")
-                } else if let upAt = vlcPictureUpAt, now - upAt > StartTogether.vlcSettleDeadline {
-                    openStartGate("picture up, shape not settled")
+                if StartTogether.canRevealVLC(displayedPictures: pictures, settled: steady,
+                                             outputAge: now - (vlcPictureUpAt ?? now)) {
+                    if steady {
+                        openStartGate("picture up, \(Int(size.width))x\(Int(size.height))")
+                    } else {
+                        openStartGate("picture rendered, shape not settled")
+                    }
                 }
             } else if let since = heldSoundSince, now - since > StartTogether.soundAloneAfter {
-                openStartGate("no picture after \(Int(StartTogether.soundAloneAfter))s, sound alone")
+                let tracks = player.media?.tracksInformation as? [[String: Any]] ?? []
+                let hasVideo = player.videoSize.width > 0 || tracks.contains {
+                    ($0[VLCMediaTracksInformationType] as? String) == VLCMediaTracksInformationTypeVideo
+                }
+                let hasAudio = tracks.contains {
+                    ($0[VLCMediaTracksInformationType] as? String) == VLCMediaTracksInformationTypeAudio
+                }
+                if StartTogether.canReleaseAudioOnly(heldFor: now - since, hasAudio: hasAudio, hasVideo: hasVideo) {
+                    openStartGate("audio-only stream")
+                }
             }
         }
     }
@@ -836,6 +850,19 @@ final class MobilePlaybackController: ObservableObject {
             player.audio?.isMuted = audioMuted
         }
         videoView?.holdPicture(false)
+        notePresentedVideo()
+    }
+
+    private func notePresentedVideo() {
+        guard startGateOpen else { return }
+        let ready: Bool
+        switch engine {
+        case .vlc: ready = player.hasVideoOut && (player.media?.numberOfDisplayedPictures ?? 0) > 0
+        case .aether: ready = aetherSession?.hasPicture == true
+        case .system: ready = systemPictureSeen
+        case .mpv: ready = mpvSession?.hasVideoOut == true
+        }
+        if ready, !presentation.hasPresentedVideo || presentation.recovering { presentation.presentedVideo() }
     }
 
     /// The sound as the viewer has it, once the start gate has let it out.
@@ -924,6 +951,7 @@ final class MobilePlaybackController: ObservableObject {
         // Also ends any recording: whatever opens next is live unless the
         // recording itself is what is being opened, which says so afterwards.
         stop()
+        presentation = MobilePlaybackPresentation()
         preference = MobilePlaybackPreference.selected(in: defaults)
         failedEngines.removeAll()
         sourceIsRecording = recording
@@ -966,6 +994,7 @@ final class MobilePlaybackController: ObservableObject {
                 // reads tracks from both engines and formats every value.
                 if self.diag.isEnabled { self.diag.update(snapshot: self.diagnosticsSnapshot) }
                 self.refreshMediaInfo()
+                self.notePresentedVideo()
                 if self.isScrubbing { continue }
                 self.sampleProgress()
                 // A recording's place is kept while it is paused too, so the
@@ -1049,6 +1078,7 @@ final class MobilePlaybackController: ObservableObject {
                 guard self.error == nil else { continue }
                 self.isPlaying = self.player.isPlaying
                 self.loading = !self.player.isPlaying || !self.player.hasVideoOut || !self.startGateOpen
+                    || self.player.state == .buffering
                 if self.player.isPlaying && self.player.hasVideoOut { self.refreshStats() }
                 // A backgrounded stream has no video output by design. Feeding
                 // that to the health model would read as a lost picture and
@@ -1064,7 +1094,8 @@ final class MobilePlaybackController: ObservableObject {
                 let state = self.player.state
                 let stopped = state == .error
                     || ((state == .ended || state == .stopped)
-                        && (!self.isLive || self.health.hasShownPicture || self.health.age(now: now) >= 8))
+                        && MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: self.isLive,
+                            hasShownPicture: self.health.hasShownPicture, age: self.health.age(now: now)))
                 // A title that stops at its end has finished. The same stop
                 // anywhere earlier is a dropped stream, reopened in place.
                 if stopped, self.reachedEnd(vlcPosition: self.player.position) {
@@ -1557,6 +1588,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func scheduleRecovery(now: TimeInterval) {
+        presentation.beganRecovery()
         // A channel the server closed while it played is opened again at once
         // on the same address, as other players do; waiting, then trying the
         // other address, turned a moment's drop into a long wait.
@@ -2724,7 +2756,16 @@ final class MobileVideoHost: UIView {
     /// after the picture was held: held from the moment it arrives.
     override func didAddSubview(_ subview: UIView) {
         super.didAddSubview(subview)
-        if subview !== stillPicture { subview.alpha = pictureHeld ? 0 : 1 }
+        guard subview !== stillPicture else { return }
+        subview.alpha = pictureHeld ? 0 : 1
+        subview.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        if bounds.width > 0, bounds.height > 0 {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            subview.frame = bounds
+            subview.layoutIfNeeded()
+            CATransaction.commit()
+        }
     }
 
     private var stillPicture: UIView?
@@ -2782,12 +2823,19 @@ final class MobileVideoHost: UIView {
 
     private weak var engineSurface: UIView?
     func installEngineSurface(_ surface: UIView) {
-        guard engineSurface !== surface || surface.superview !== self else { return }
+        if engineSurface === surface, surface.superview === self {
+            if surface.frame != bounds { surface.frame = bounds }
+            surface.layoutIfNeeded()
+            return
+        }
         removeEngineSurface()
         surface.frame = bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(surface)
         engineSurface = surface
+        // Give the decoder its real viewport before loading, including a
+        // canvas created at a large placeholder size. Keep aspect fit intact.
+        surface.layoutIfNeeded()
     }
     func removeEngineSurface() {
         if engineSurface?.superview === self { engineSurface?.removeFromSuperview() }

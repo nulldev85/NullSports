@@ -85,7 +85,7 @@ struct MobilePlayerView: View {
                 .lineupLiquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .padding(32)
             } else if controller.loading {
-                ProgressView("Opening stream…").padding(24)
+                ProgressView(controller.loadingMessage).padding(24)
                     .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous),
                                      fallback: Material.ultraThinMaterial, border: .clear)
             }
