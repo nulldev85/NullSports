@@ -34,8 +34,8 @@ and the exact "zoomed out" picture still need device verification.
 - iPhone fullscreen and Guide/preview overlays distinguish Opening stream,
   Waiting for picture, Buffering, and Reconnecting. Picture history resets for
   a newly selected source, survives a retry of the same source, and updates only
-  when real video has been presented. VLC's explicit buffering state also shows
-  the loading indicator while its output remains allocated.
+  when real video has been presented. VLC readiness uses the native playing
+  flag, video output and startup gate, rather than its cached state enum.
 
 ## Validation and scope
 
@@ -60,3 +60,30 @@ workflow runs are not inspected or canceled. No merge is authorized/performed.
 
 The user explicitly authorized full Seerr integration in the following build,
 after this fixes build. No Seerr feature or connection is included here.
+
+## Build 136 follow-up
+
+The app and all SDK tests compiled. The package job passed. The full simulator
+suite ran 642 tests (one existing skip), with four failures across three VLC
+playback cases: recording startup, the delayed movie, and embedded/online
+subtitles. A secondary idle-to-failed(deinit) exception followed a timeout; it
+has not been independently diagnosed. Aether MP4/MKV, reused-session startup,
+quality grouping, viewport, UFC and MDBList regressions passed.
+
+The added `state == .buffering` readiness check was unsafe for VLCKit 3: its
+buffering event updates a cached enum without retaining the buffering percent,
+and `state` returns that cached value while `isPlaying` queries libvlc. A cached
+buffering notification must not keep healthy playback stuck under a loading
+overlay. That check is removed. See the official implementation:
+https://github.com/videolan/vlckit/blob/3.0/Sources/VLCMediaPlayer.m
+
+Startup concealment now uses an opaque black cover above renderable decoder
+views/layers instead of setting their alpha/opacity to zero while waiting for
+displayed frames. Late drawables stay beneath the cover; release removes it.
+Sizing assertions are retained. The old alpha-specific assertion is replaced
+with renderability plus cover ordering/bounds checks. Additional pixel and
+native-layer checks prove that video is black before release, visible afterward,
+and covered even when a player layer is attached later. Existing
+real playback assertions and 30-second deadlines are unchanged. The delayed
+movie failure now includes native/cached state and frame/clock diagnostics.
+This repair's SDK/device validation remains pending the replacement build.

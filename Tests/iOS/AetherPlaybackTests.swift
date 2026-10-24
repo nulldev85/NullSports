@@ -20,7 +20,11 @@ final class AetherPlaybackTests: XCTestCase {
         controller.start(urls: [url])
         let input = try XCTUnwrap(controller.player.media)
         XCTAssertTrue(host.pictureHeld)
-        try await waitUntil("Delayed native VLC input did not render a picture") {
+        try await waitUntil("Delayed native VLC input did not render a picture", diagnostics: {
+            "nativePlaying=\(controller.player.isPlaying), cachedState=\(controller.player.state.rawValue), "
+                + "videoOutput=\(controller.player.hasVideoOut), pictures=\(controller.player.media?.numberOfDisplayedPictures ?? 0), "
+                + "loading=\(controller.loading), held=\(host.pictureHeld), nativeClock=\(controller.vlcPlaybackSeconds ?? -1)"
+        }) {
             controller.engine == .vlc && controller.isPlaying && !controller.loading
                 && controller.player.hasVideoOut && (controller.player.media?.numberOfDisplayedPictures ?? 0) > 0
         }

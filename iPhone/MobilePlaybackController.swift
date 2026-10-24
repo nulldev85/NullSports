@@ -1078,7 +1078,6 @@ final class MobilePlaybackController: ObservableObject {
                 guard self.error == nil else { continue }
                 self.isPlaying = self.player.isPlaying
                 self.loading = !self.player.isPlaying || !self.player.hasVideoOut || !self.startGateOpen
-                    || self.player.state == .buffering
                 if self.player.isPlaying && self.player.hasVideoOut { self.refreshStats() }
                 // A backgrounded stream has no video output by design. Feeding
                 // that to the health model would read as a lost picture and
@@ -2730,34 +2729,55 @@ final class MobileVideoHost: UIView {
         }
         let created = retained ?? AVPlayerLayer(player: player)
         created.videoGravity = .resizeAspect
-        created.opacity = pictureHeld ? 0 : 1
+        created.opacity = 1
         created.frame = bounds
         layer.addSublayer(created)
         playerLayer = created
+        updateStartupCover()
         return created
     }
 
-    /// Kept back while sound and picture wait to start together, so a held
-    /// first frame never shows. Opacity rather than `isHidden`, which the
-    /// dismissal's still picture already uses.
+    /// Cover the picture while it decodes. Hiding the decoder itself can
+    /// prevent the first displayed frame that the startup gate waits for.
     private(set) var pictureHeld = false
+    private var startupCover: UIView?
 
     func holdPicture(_ held: Bool) {
         pictureHeld = held
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        playerLayer?.opacity = held ? 0 : 1
-        // VLC draws into a view of its own inside this one.
-        for renderer in subviews where renderer !== stillPicture { renderer.alpha = held ? 0 : 1 }
+        playerLayer?.opacity = 1
+        for renderer in subviews where renderer !== stillPicture && renderer !== startupCover { renderer.alpha = 1 }
+        updateStartupCover()
         CATransaction.commit()
     }
 
+    private func updateStartupCover() {
+        guard pictureHeld else { startupCover?.removeFromSuperview(); return }
+        if startupCover == nil {
+            let cover = UIView(frame: bounds)
+            cover.backgroundColor = .black
+            cover.isOpaque = true
+            cover.isUserInteractionEnabled = false
+            cover.isAccessibilityElement = false
+            cover.layer.zPosition = 1
+            cover.accessibilityIdentifier = "PlaybackStartupCover"
+            cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            startupCover = cover
+        }
+        guard let cover = startupCover else { return }
+        cover.frame = bounds
+        cover.isHidden = false
+        if cover.superview !== self { addSubview(cover) }
+        bringSubviewToFront(cover)
+    }
+
     /// VLC adds its renderer once the stream's picture starts, which can be
-    /// after the picture was held: held from the moment it arrives.
+    /// after the picture was held: covered from the moment it arrives.
     override func didAddSubview(_ subview: UIView) {
         super.didAddSubview(subview)
-        guard subview !== stillPicture else { return }
-        subview.alpha = pictureHeld ? 0 : 1
+        guard subview !== stillPicture, subview !== startupCover else { return }
+        subview.alpha = 1
         subview.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         if bounds.width > 0, bounds.height > 0 {
             CATransaction.begin()
@@ -2766,6 +2786,7 @@ final class MobileVideoHost: UIView {
             subview.layoutIfNeeded()
             CATransaction.commit()
         }
+        updateStartupCover()
     }
 
     private var stillPicture: UIView?
