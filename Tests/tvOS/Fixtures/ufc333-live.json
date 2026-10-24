@@ -1,0 +1,886 @@
+{
+  "events": [
+    {
+      "id": "600061267",
+      "name": "UFC 333: Volkanovski vs. Evloev",
+      "shortName": "UFC 333",
+      "date": "2026-10-24T14:00Z",
+      "status": {
+        "type": {
+          "id": "2",
+          "name": "STATUS_IN_PROGRESS",
+          "state": "in",
+          "completed": false,
+          "description": "In Progress",
+          "detail": "In Progress",
+          "shortDetail": "In Progress"
+        }
+      },
+      "competitions": [
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Nicolle Caliari"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "9-5-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Iasmin Lucindo"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "19-6-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 300.0,
+            "displayClock": "5:00",
+            "period": 3,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            },
+            "featured": false
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Noah Gugnon"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "10-3-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Kody Steele"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "9-1-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 234.0,
+            "displayClock": "3:54",
+            "period": 1,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            },
+            "featured": false
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Daniel Santos"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "15-3-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Bolaji Oki"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "10-5-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 300.0,
+            "displayClock": "5:00",
+            "period": 3,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            },
+            "featured": false
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Abubakar Vagaev"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "26-4-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Jacob Malkoun"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "10-4-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 300.0,
+            "displayClock": "5:00",
+            "period": 3,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            },
+            "featured": false
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Colby Thicknesse"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "10-1-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Asaf Chopurov"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "11-1-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 300.0,
+            "displayClock": "5:00",
+            "period": 3,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            },
+            "featured": false
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Grant Dawson"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "25-3-1"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Nurullo Aliev"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "12-1-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 300.0,
+            "displayClock": "5:00",
+            "period": 3,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            },
+            "featured": false
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Abus Magomedov"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "30-7-1"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Cam Rowston"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "15-4-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 104.0,
+            "displayClock": "1:44",
+            "period": 1,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            },
+            "featured": false
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Nikita Krylov"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "31-13-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Abdul-Rakhman Yakhyaev"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "11-0-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 158.0,
+            "displayClock": "2:38",
+            "period": 1,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            },
+            "featured": false
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Azamat Murzakanov"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "16-2-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Dominick Reyes"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "17-5-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 160.0,
+            "displayClock": "2:40",
+            "period": 1,
+            "type": {
+              "id": "3",
+              "name": "STATUS_FINAL",
+              "state": "post",
+              "completed": true,
+              "description": "Final",
+              "detail": "Final",
+              "shortDetail": "Final"
+            },
+            "featured": false
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Aaron Pico"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "14-5-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Losene Keita"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "17-2-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 0.0,
+            "displayClock": "-",
+            "period": 0,
+            "type": {
+              "id": "145",
+              "name": "STATUS_PRE_FIGHT",
+              "state": "in",
+              "completed": false,
+              "description": "Pre-fight",
+              "detail": "Pre-fight",
+              "shortDetail": "Pre-fight"
+            }
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Alexander Volkov"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "40-11-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Rizvan Kuniev"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "14-3-1"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 0.0,
+            "displayClock": "-",
+            "period": 0,
+            "type": {
+              "id": "1",
+              "name": "STATUS_SCHEDULED",
+              "state": "pre",
+              "completed": false,
+              "description": "Scheduled",
+              "detail": "Sat, October 24th at 2:00 PM EDT",
+              "shortDetail": "10/24 - 2:00 PM EDT"
+            }
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Ramazan Temirov"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "20-3-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Lone'er Kavanagh"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "10-2-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 0.0,
+            "displayClock": "-",
+            "period": 0,
+            "type": {
+              "id": "1",
+              "name": "STATUS_SCHEDULED",
+              "state": "pre",
+              "completed": false,
+              "description": "Scheduled",
+              "detail": "Sat, October 24th at 2:00 PM EDT",
+              "shortDetail": "10/24 - 2:00 PM EDT"
+            }
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Merab Dvalishvili"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "21-5-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Petr Yan"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "20-5-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 0.0,
+            "displayClock": "-",
+            "period": 0,
+            "type": {
+              "id": "1",
+              "name": "STATUS_SCHEDULED",
+              "state": "pre",
+              "completed": false,
+              "description": "Scheduled",
+              "detail": "Sat, October 24th at 2:00 PM EDT",
+              "shortDetail": "10/24 - 2:00 PM EDT"
+            }
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        },
+        {
+          "competitors": [
+            {
+              "athlete": {
+                "displayName": "Alexander Volkanovski"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "28-4-0"
+                }
+              ]
+            },
+            {
+              "athlete": {
+                "displayName": "Movsar Evloev"
+              },
+              "records": [
+                {
+                  "name": "overall",
+                  "abbreviation": "TOT",
+                  "type": "total",
+                  "summary": "20-0-0"
+                }
+              ]
+            }
+          ],
+          "status": {
+            "clock": 0.0,
+            "displayClock": "-",
+            "period": 0,
+            "type": {
+              "id": "1",
+              "name": "STATUS_SCHEDULED",
+              "state": "pre",
+              "completed": false,
+              "description": "Scheduled",
+              "detail": "Sat, October 24th at 2:00 PM EDT",
+              "shortDetail": "10/24 - 2:00 PM EDT"
+            }
+          },
+          "broadcasts": [
+            {
+              "market": "national",
+              "names": [
+                "Paramount+"
+              ]
+            }
+          ],
+          "venue": {
+            "id": "7126",
+            "fullName": "Etihad Arena",
+            "address": {
+              "city": "Abu Dhabi",
+              "country": "United Arab Emirates"
+            },
+            "indoor": true
+          }
+        }
+      ]
+    }
+  ]
+}

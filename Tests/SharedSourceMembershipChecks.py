@@ -121,6 +121,13 @@ class SharedSourceMembershipChecks(unittest.TestCase):
         for target in ("LineupTests", "LineupiOSTests"):
             self.assertTrue(is_included(project, target, source))
 
+    def test_ufc_schedule_regressions_belong_to_both_test_suites(self):
+        project = (ROOT / "project.yml").read_text(encoding="utf-8")
+        source = "Tests/iOS/UFCScheduleTests.swift"
+        self.assertTrue((ROOT / source).is_file())
+        for target in ("LineupTests", "LineupiOSTests"):
+            self.assertTrue(is_included(project, target, source))
+
     def test_both_frameworks_include_the_probe_implementation(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
         for target in ("LineupAetherPlayback", "LineupAetherPlaybackiOS"):

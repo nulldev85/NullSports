@@ -159,23 +159,25 @@ struct SportsScheduleClient: Sendable {
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw ScheduleError.noHTTPResponse }
         guard http.statusCode == 200 else { throw ScheduleError.httpStatus(http.statusCode) }
+        return try Self.ufcGames(data: data)
+    }
+
+    static func ufcGames(data: Data) throws -> [SportsGame] {
         let envelope = try JSONDecoder().decode(UFCEnvelope.self, from: data)
         return envelope.events.compactMap { event in
             guard let start = Self.parseDate(event.date) else { return nil }
-            // ESPN orders cards from early prelims toward the headliner. Match
-            // number 1 is the main event regardless of that array order.
-            let competition = event.competitions.min {
-                ($0.matchNumber ?? Int.max) < ($1.matchNumber ?? Int.max)
-            }
+            let competition = Self.ufcHeadliner(event)
             let ordered = (competition?.competitors ?? []).sorted {
                 ($0.homeAway == "away" ? 0 : 1) < ($1.homeAway == "away" ? 0 : 1)
             }
-            let namesFromTitle = Self.ufcNames(from: event.shortName ?? event.name)
+            let namesFromTitle = Self.ufcNames(from: event.name)
             let away = ordered.first
             let home = ordered.dropFirst().first
             let awayName = away?.athlete?.displayName ?? namesFromTitle.0
             let homeName = home?.athlete?.displayName ?? namesFromTitle.1
-            let status = competition?.status ?? event.status
+            // A finished prelim is not a finished card. ESPN may omit every
+            // matchNumber and place completed prelims first in the response.
+            let status = Self.ufcCardStatus(event)
             let broadcast = (competition?.broadcasts ?? []).flatMap(\.names)
                 .filter { !$0.isEmpty }.joined(separator: " / ")
             let location = competition?.venue?.address.map {
@@ -197,6 +199,41 @@ struct SportsScheduleClient: Sendable {
                 eventName: event.name
             )
         }.sorted { $0.start < $1.start }
+    }
+
+    private static func ufcCardStatus(_ event: UFCEnvelope.Event) -> UFCEnvelope.Status? {
+        if let status = event.status, ["in", "post"].contains(status.type.state) { return status }
+        let states = event.competitions.compactMap { $0.status?.type.state }
+        if states.contains("in") {
+            return .init(type: .init(state: "in", description: "In Progress", shortDetail: "In Progress"))
+        }
+        if !states.isEmpty, states.count == event.competitions.count, states.allSatisfy({ $0 == "post" }) {
+            return .init(type: .init(state: "post", description: "Final", shortDetail: "Final"))
+        }
+        // Between fights, remaining scheduled bouts keep the event available.
+        // SportsGame's existing bounded clock policy handles a missing status.
+        return event.status?.type.state == "pre" ? event.status : nil
+    }
+
+    private static func ufcHeadliner(_ event: UFCEnvelope.Event) -> UFCEnvelope.Competition? {
+        let numbered = event.competitions.filter { ($0.matchNumber ?? 0) > 0 }
+        if let main = numbered.min(by: { ($0.matchNumber ?? Int.max) < ($1.matchNumber ?? Int.max) }) { return main }
+        let title = ufcNames(from: event.name)
+        func normalized(_ name: String) -> String {
+            name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+                .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        let first = normalized(title.0), second = normalized(title.1)
+        if !first.isEmpty, !second.isEmpty, first != second,
+           let main = event.competitions.first(where: { bout in
+               let names = bout.competitors.map { " " + normalized($0.athlete?.displayName ?? "") + " " }
+               return names.indices.contains { a in
+                   names[a].contains(" " + first + " ") && names.indices.contains { b in
+                       a != b && names[b].contains(" " + second + " ")
+                   }
+               }
+           }) { return main }
+        return event.competitions.first
     }
 
     /// Both tours' singles, from ESPN's tennis scoreboards.
