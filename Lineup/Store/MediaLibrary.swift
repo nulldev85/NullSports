@@ -4639,8 +4639,8 @@ extension MediaLibrary {
         guard ["Movie", "Series", "Episode"].contains(item.type) else { return nil }
         if item.type == "Episode" {
             guard let parent = await metadataParent(for: item) else { return nil }
-            let parent = await libraryExternalIdentity(parent, requiring: "tmdb")
-            return await metadataResolver.mdbTrackingEpisode(item, parent: parent, source: episodeDataSource)
+            let identifiedParent = await libraryExternalIdentity(parent, requiring: "tmdb")
+            return await metadataResolver.mdbTrackingEpisode(item, parent: identifiedParent, source: episodeDataSource)
         }
         let identified = await libraryExternalIdentity(item)
         let target = MDBListTrackingTarget(kind: item.type == "Movie" ? .movie : .show,

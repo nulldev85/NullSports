@@ -81,6 +81,11 @@ Local metadata/source-membership, playback project/pin, tvOS focus and diff
 checks pass. Windows has no Apple SDK: Swift compilation, SDK tests, IPA
 packaging and device behavior remain pending the dispatched CI builds.
 
+Builds iPhone 132 and tvOS 88 stopped at app compilation: the episode identity
+path redeclared `parent` in the same scope. The identified parent now has its
+own binding. No SDK tests ran and neither workflow packaged an IPA. The
+replacement builds retain the complete test suites and tracking behavior.
+
 API contract references (reviewed October 24, 2026):
 - https://api.mdblist.com/docs/
 - https://api.mdblist.com/schema/
