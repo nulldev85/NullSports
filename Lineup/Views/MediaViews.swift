@@ -37,6 +37,7 @@ extension EnvironmentValues {
 struct MediaServersView: View {
     @Environment(MediaLibrary.self) private var media
     @State private var addingServer = false
+    @State private var showingSeerr = false
     @State private var choosingShelf = false
     @State private var reorderingShelves = false
     @State private var clearingHistory = false
@@ -86,7 +87,7 @@ struct MediaServersView: View {
             Group {
                 if !media.hasAnySource {
                     LineupUnavailableView(title: "Add a Media Server", symbol: "play.square.stack",
-                                          description: Text("Connect a Jellyfin, Emby or Plex server to watch your own library here.")) {
+                                          description: Text("Connect a Jellyfin, Emby, Plex or Silo server to watch your own library here.")) {
                         VStack(spacing: 18) {
                             MediaServerLogoRow(size: 34)
                             Button("Add Media Server") { addingServer = true }
@@ -133,6 +134,9 @@ struct MediaServersView: View {
                 MediaServerSetupView()
                     .environment(media)
                     .preferredColorScheme(.dark)
+            }
+            .lineupSheet(isPresented: $showingSeerr) {
+                NavigationStack { SeerrSettingsView().environment(media) }
             }
             .lineupSheet(isPresented: $choosingShelf) {
                 MediaShelfPicker().environment(media)
@@ -200,6 +204,7 @@ struct MediaServersView: View {
             }
         }
         var servers = [
+            MobileMenuItem("Seerr · Discover & Requests", symbol: "tray.and.arrow.down") { showingSeerr = true },
             MobileMenuItem("Refresh", symbol: "arrow.clockwise",
                            isEnabled: !media.isLoading && media.hasAnySource) {
                 Task { await media.reload() }
@@ -2806,6 +2811,11 @@ private struct MediaDetailScreen: View {
                 iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
                     .disabled(episodes.isEmpty)
             }
+            if media.seerr.isConnected {
+                NavigationLink { SeerrLibraryRequestView(item: subject).environment(media) } label: {
+                    Label("Seerr", systemImage: "tray.and.arrow.down")
+                }.lineupButtonStyle()
+            }
         }
         .lineupFocusRegion()
     }
@@ -4994,8 +5004,14 @@ private struct MediaSourcePicker: View {
     }
     #endif
 
-    @ViewBuilder
     private func playback(for source: MediaPlaybackSource) -> some View {
+        SiloPlaybackPreparation(item: item, source: source, startsOver: startsOver) { prepared, native in
+            playback(for: prepared, nativeSilo: native)
+        }
+    }
+
+    @ViewBuilder
+    private func playback(for source: MediaPlaybackSource, nativeSilo: SiloPlaybackSession?) -> some View {
         if let url = media.playbackURL(for: item, source: source) {
             // Capture this presentation's identity. A late callback from the
             // previous episode must not write progress for the next one.
@@ -5004,8 +5020,9 @@ private struct MediaSourcePicker: View {
             let fromBeginning = startsOver
             #if os(tvOS)
             PlayerView(urls: [url], title: item.name, isLive: false,
-                       initialPosition: startsOver ? nil : media.resumePosition(for: item),
-                       expectedDuration: item.runTimeTicks.map { Double($0) / 10_000_000 },
+                       initialPosition: nativeSilo?.asset?.lease.playerStart ?? (startsOver ? nil : media.resumePosition(for: item)),
+                       expectedDuration: nativeSilo != nil ? nativeSilo?.asset?.duration : item.runTimeTicks.map { Double($0) / 10_000_000 },
+                       nativeSiloPlayback: nativeSilo,
                        onProgress: { position, duration in
                            media.trackPlayback(of: trackedItem, position: position, duration: duration,
                                                sessionID: sessionID)
@@ -5032,11 +5049,11 @@ private struct MediaSourcePicker: View {
                            ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
                        seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) },
                        episodes: seasonEpisodes(around: trackedItem))
-            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning, nativeSilo: nativeSilo) }
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #else
-            MobilePlayerView(name: item.name, urls: [url], isLive: false,
+            MobilePlayerView(name: item.name, urls: [url], isLive: false, nativeSiloPlayback: nativeSilo,
                              sourceBitrate: source.formattedBitrate,
                              sourceQuality: source.quality,
                              synopsis: playerSynopsis,
@@ -5052,7 +5069,7 @@ private struct MediaSourcePicker: View {
                                  await media.seekPreview(for: trackedItem, source: source)
                              },
                              // Start Over starts over here too; it resumed.
-                             initialPosition: startsOver ? nil : media.resumePosition(for: item),
+                             initialPosition: nativeSilo?.asset?.lease.playerStart ?? (startsOver ? nil : media.resumePosition(for: item)),
                              onProgress: { position, duration in
                                  media.trackPlayback(of: trackedItem, position: position, duration: duration,
                                                      sessionID: sessionID)
@@ -5067,7 +5084,7 @@ private struct MediaSourcePicker: View {
                                  media.completePlayback(of: trackedItem, sessionID: sessionID)
                                  if advance == nil { advance = .reachedEnd }
                              })
-            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning, nativeSilo: nativeSilo) }
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #endif
         } else {
@@ -6376,7 +6393,7 @@ private struct MediaProgressTrack: View {
 /// phone, the sign-ins sit side by side and a swipe moves between them as a
 /// tap on a logo does.
 ///
-/// All three sign-ins are built once, when the screen opens, and are only
+/// All four sign-ins are built once, when the screen opens, and are only
 /// ever shown and hidden after that. Building one afresh on every move, text
 /// fields and all, is what made moving between them stutter.
 struct MediaServerSetupView: View {
@@ -6511,16 +6528,22 @@ struct MediaServerSetupView: View {
     }
 
     @ViewBuilder private func panel(for brand: MediaServerBrand) -> some View {
-        if brand == .plex {
-            PlexLinkPanel(onAdded: { dismiss() })
-        } else {
-            MediaServerSignInPanel(brand: brand, form: form(for: brand)) { sign in
-                Task {
-                    if await media.addServer(name: sign.name, serverURL: sign.server, username: sign.username,
-                                             password: sign.password, software: brand) { dismiss() }
+        Group {
+            if brand == .silo {
+                SiloSignInPanel(onAdded: { dismiss() })
+            } else if brand == .plex {
+                PlexLinkPanel(onAdded: { dismiss() })
+            } else {
+                MediaServerSignInPanel(brand: brand, form: form(for: brand)) { sign in
+                    Task {
+                        if await media.addServer(name: sign.name, serverURL: sign.server, username: sign.username,
+                                                 password: sign.password, software: brand) { dismiss() }
+                    }
                 }
             }
         }
+        .environment(\.lineupPresentationTint, brand.loginTint)
+        .tint(brand.loginTint)
     }
 
     private func form(for brand: MediaServerBrand) -> Binding<MediaServerSignIn> {
@@ -6587,7 +6610,7 @@ private struct MediaServerPagerTracking: ViewModifier {
 }
 #endif
 
-/// The three kinds of server, by their logos. On the television the one with
+/// All server options share one row. On the television the one with
 /// focus is the one chosen, so moving across them is choosing.
 private struct MediaServerPicker: View {
     @Binding var selection: MediaServerBrand
@@ -6604,7 +6627,7 @@ private struct MediaServerPicker: View {
                 let chosen = selection == brand
                 let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
                 tile(brand, chosen: chosen)
-                    .background(chosen ? LineupStyle.focused : LineupPresentationStyle.row, in: shape)
+                    .background(chosen ? brand.loginTint.opacity(0.18) : LineupPresentationStyle.row, in: shape)
                     .overlay(shape.strokeBorder(chosen ? LineupPresentationStyle.text.opacity(0.6) : LineupStyle.line,
                                                 lineWidth: chosen ? 1.5 : 0.5))
                     .lineupFocusLayer(focused == brand, in: shape.inset(by: -6))
@@ -6652,7 +6675,7 @@ private struct MediaServerPicker: View {
                             .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
                     }
                 }
-                shape.fill(LineupStyle.focused)
+                shape.fill(selection.loginTint.opacity(0.18))
                     .overlay(shape.strokeBorder(LineupPresentationStyle.text.opacity(0.6), lineWidth: 1.5))
                     .frame(width: width)
                     .offset(x: (width + gap) * position)
@@ -6682,17 +6705,17 @@ private struct MediaServerPicker: View {
     private var labelGap: CGFloat { 12 }
     private var labelSize: CGFloat { 24 }
     #else
-    private var gap: CGFloat { 10 }
-    private var logo: CGFloat { 34 }
+    private var gap: CGFloat { 8 }
+    private var logo: CGFloat { 32 }
     private var padding: CGFloat { 12 }
     private var radius: CGFloat { 14 }
     private var labelGap: CGFloat { 8 }
-    private var labelSize: CGFloat { 15 }
+    private var labelSize: CGFloat { 13 }
     #endif
 }
 
 /// A server's own sign-in, under its logo and name.
-private struct MediaServerPanel<Content: View>: View {
+struct MediaServerPanel<Content: View>: View {
     let brand: MediaServerBrand
     let title: String
     @ViewBuilder var content: Content
@@ -6714,8 +6737,9 @@ private struct MediaServerPanel<Content: View>: View {
         // As tall as it is given: beside or behind the other sign-ins, each
         // card takes the tallest one's height.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(brand.loginTint.opacity(0.13), in: shape)
         .background(LineupPresentationStyle.card, in: shape)
-        .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
+        .overlay(shape.strokeBorder(brand.loginTint.opacity(0.24), lineWidth: 0.7))
     }
 
     #if os(tvOS)
@@ -6791,7 +6815,7 @@ private struct MediaServerSignInPanel: View {
             Divider().overlay(LineupStyle.line).padding(.leading, 14)
             MediaServerField(label: "Password", prompt: "Optional", text: $form.password, kind: .password)
         }
-        .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(brand.loginTint.opacity(0.09), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         #endif
     }
 

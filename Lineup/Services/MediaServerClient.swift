@@ -5,7 +5,8 @@ import Foundation
 /// Jellyfin and Emby answer through `JellyfinClient` -- Emby's API is the one
 /// Jellyfin grew from, and differs in little more than where it lives -- and
 /// Plex through `PlexClient`, which asks Plex its own way and hands back the
-/// same items. Everything above this sees one kind of server.
+/// same items. Silo uses its native v2 catalog and protocol-v3 playback plans.
+/// Everything above this sees one kind of server.
 ///
 /// Every requirement takes all of its arguments. Defaults belong to the
 /// concrete clients, where a call cannot be mistaken for another.

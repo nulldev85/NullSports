@@ -169,6 +169,32 @@ final class MobilePlaybackController: ObservableObject {
     /// at the live edge. A title that stops is reopened where it was, and one
     /// that reaches its end has finished, not failed.
     var isLive = true
+    private var nativeSiloPlayback: SiloPlaybackSession?
+    private var pendingSiloSidecars: [SiloPlaybackSession.Sidecar] = []
+    private var siloSidecarRestore: Task<Void, Never>?
+    private var siloSubtitleWasOff = false
+    private var siloSubtitleTitle: String?
+
+    func configureSiloPlayback(_ session: SiloPlaybackSession?) {
+        nativeSiloPlayback = session
+        session?.assetChanged = { [weak self] asset in
+            guard let self else { return }
+            let paused = self.pausedByUser
+            let delay = self.subtitleDelaySeconds
+            let off = self.selectedSubtitleID == PlaybackSubtitleTrack.off.id
+            let selected = self.subtitleTracks.first { $0.id == self.selectedSubtitleID }?.title
+            let sidecars = self.nativeSiloPlayback?.sidecars ?? []
+            self.siloSidecarRestore?.cancel(); self.siloSidecarRestore = nil
+            self.scrubSeeks.cancel()
+            self.start(urls: [asset.url], initialPosition: asset.lease.playerStart)
+            self.subtitleDelaySeconds = delay
+            self.pendingSiloSidecars = sidecars; self.siloSubtitleWasOff = off; self.siloSubtitleTitle = selected
+            if paused { self.toggle() }
+        }
+        session?.failed = { [weak self] message in self?.show(notice: message) }
+        session?.preparing = { [weak self] in self?.error = nil; self?.loading = true }
+        session?.retryFailed = { [weak self] message in self?.loading = false; self?.error = message }
+    }
     /// Where to put a title back once its stream has reopened.
     private var reopenPosition: TimeInterval?
     /// A title played to its end. The player closes on it. So does a
@@ -436,6 +462,29 @@ final class MobilePlaybackController: ObservableObject {
     /// publish and the player shows live chrome instead of a scrubber.
     private func sampleProgress() {
         guard !isScrubbing else { return }
+        if let native = nativeSiloPlayback, let asset = native.asset {
+            restoreSiloSidecarsIfNeeded()
+            let raw: Double?
+            switch engine {
+            case .aether: raw = aetherSession?.position
+            case .system: raw = systemPlayer.currentTime().seconds
+            case .vlc: raw = vlcPlaybackSeconds
+            case .mpv: raw = mpvSession?.position
+            }
+            guard let raw, let sourcePosition = native.sourcePosition(playerTime: raw), let duration = asset.duration else { return }
+            if !appliedInitialPosition, asset.lease.playerStart > 0 {
+                if engine == .system {
+                    guard systemPlayer.currentItem?.status == .readyToPlay else { return }
+                    systemPlayer.seek(to: CMTime(seconds: asset.lease.playerStart, preferredTimescale: 600))
+                    appliedInitialPosition = true
+                    return
+                }
+                guard activeEngineIsPlaying, raw > 0 else { return }
+            }
+            appliedInitialPosition = true
+            progress = MobilePlaybackProgress(position: sourcePosition, duration: duration)
+            return
+        }
         let sampled: MobilePlaybackProgress?
         switch engine {
         case .aether:
@@ -503,6 +552,9 @@ final class MobilePlaybackController: ObservableObject {
     /// where it was left off. VLC starts there itself; AVPlayer is moved
     /// there once it is ready.
     private var openingPlace: TimeInterval? {
+        if let native = nativeSiloPlayback, let asset = native.asset {
+            return reopenPosition.map { max(0, $0 - asset.lease.timelineOffset) } ?? asset.lease.playerStart
+        }
         if let reopenPosition { return reopenPosition }
         guard !appliedInitialPosition, let requestedInitialPosition, requestedInitialPosition >= 10 else {
             return nil
@@ -583,6 +635,12 @@ final class MobilePlaybackController: ObservableObject {
         guard let current = progress, current.duration > 0 else { return }
         guard seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: current.duration)
+        if let native = nativeSiloPlayback, native.asset?.requiresServerSeek == true {
+            scrubSeeks.cancel()
+            native.seek(to: target)
+            progress = MobilePlaybackProgress(position: target, duration: current.duration)
+            return
+        }
         appliedInitialPosition = true
         reopenPosition = nil
         seekLanding.expect(target, now: ProcessInfo.processInfo.systemUptime)
@@ -592,6 +650,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func performSeek(to target: Double) {
+        guard nativeSiloPlayback?.asset?.requiresServerSeek != true else { return }
         guard let current = progress, current.duration > 0 else { return }
         switch engine {
         case .aether:
@@ -1120,6 +1179,11 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func openNext() {
+        let siloCaptions = nativeSiloPlayback?.sidecars ?? []
+        let siloWasOff = selectedSubtitleID == PlaybackSubtitleTrack.off.id
+        let siloSelectedTitle = subtitleTracks.first { $0.id == selectedSubtitleID }?.title
+        let siloDelay = subtitleDelaySeconds
+        if !siloCaptions.isEmpty { siloSidecarRestore?.cancel(); siloSidecarRestore = nil }
         liveQualityReporter.reset()
         systemPictureSeen = false
         resetStartGate()
@@ -1130,6 +1194,11 @@ final class MobilePlaybackController: ObservableObject {
         pictureInPicturePossible = false
         player.stop()
         resetSubtitles()
+        if !siloCaptions.isEmpty {
+            pendingSiloSidecars = siloCaptions
+            siloSubtitleWasOff = siloWasOff; siloSubtitleTitle = siloSelectedTitle
+            subtitleDelaySeconds = siloDelay
+        }
         waitingForVideo = false
         waitingSince = nil
         isPlaying = false
@@ -1582,6 +1651,14 @@ final class MobilePlaybackController: ObservableObject {
     /// From a recording, or a pause that would otherwise resume through one,
     /// it is the channel's live addresses that are opened, not the recording's.
     func goLive() {
+        if let nativeSiloPlayback {
+            if pausedByUser { toggle() }
+            if nativeSiloPlayback.asset?.requiresServerSeek == true {
+                nativeSiloPlayback.seek(to: 0)
+                if let current = progress { progress = MobilePlaybackProgress(position: 0, duration: current.duration) }
+            } else { seek(to: 0) }
+            return
+        }
         if catchUp != nil || pausedAt != nil, let source = catchUpSource {
             diag.record("catch-up: back to live")
             start(urls: source.liveURLs, channelID: source.stream.id, resetFailover: false)
@@ -1801,15 +1878,17 @@ final class MobilePlaybackController: ObservableObject {
 
     func addOnlineSubtitle(_ data: Data, title: String, language: String, sessionID: UUID) async throws {
         guard sessionID == subtitleSessionID, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
         let preparation = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
             guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
+            let prepared = try SubtitleSourceTimeline.rebase(data, offset: offset)
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
             do {
                 try Task.checkCancellation()
-                try data.write(to: file, options: .atomic)
+                try prepared.write(to: file, options: .atomic)
                 try Task.checkCancellation()
                 return file
             } catch { try? FileManager.default.removeItem(at: file); throw error }
@@ -1832,9 +1911,31 @@ final class MobilePlaybackController: ObservableObject {
             case .system: throw MobileSubtitleFailure.unsupported
             }
             onlineSubtitleFiles.append(file)
+            nativeSiloPlayback?.rememberSubtitle(data, title: title, language: language)
         } catch {
             try? FileManager.default.removeItem(at: file)
             throw error
+        }
+    }
+
+    private func restoreSiloSidecarsIfNeeded() {
+        guard !loading, canAttachOnlineSubtitles, !pendingSiloSidecars.isEmpty, siloSidecarRestore == nil else { return }
+        let saved = pendingSiloSidecars, session = subtitleSessionID
+        pendingSiloSidecars = []
+        siloSidecarRestore = Task { [weak self] in
+            guard let self else { return }
+            defer { self.siloSidecarRestore = nil }
+            do {
+                for subtitle in saved {
+                    try await self.addOnlineSubtitle(subtitle.data, title: subtitle.title, language: subtitle.language, sessionID: session)
+                }
+                guard self.subtitleSessionID == session else { return }
+                if self.siloSubtitleWasOff { self.selectSubtitle(.off, byViewer: false) }
+                else if let title = self.siloSubtitleTitle, let selected = self.subtitleTracks.first(where: { $0.title == title }) {
+                    self.selectSubtitle(selected, byViewer: false)
+                }
+                self.applySubtitleAppearance()
+            } catch { if !Task.isCancelled { self.show(notice: "Subtitles could not be restored after seeking. " + error.localizedDescription) } }
         }
     }
 
@@ -2546,6 +2647,7 @@ final class MobilePlaybackController: ObservableObject {
     // MARK: - Teardown
 
     func stop() {
+        siloSidecarRestore?.cancel(); siloSidecarRestore = nil; pendingSiloSidecars = []
         nativeMediaInfo.reset()
         mediaInfo = PlaybackMediaInfo()
         isScrubbing = false

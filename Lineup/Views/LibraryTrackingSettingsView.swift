@@ -16,7 +16,7 @@ struct LibraryTrackingSettingsView: View {
                     .tint(LineupStyle.highlight)
                     .disabled(!media.isMDBListConnected && !media.mdbListTrackingEnabled)
             } header: { Text("Watch Tracking") } footer: {
-                Text("Choose either tracker, both, or neither. Local Tracking saves progress on this device. MDBList Tracking shares your movie and episode activity with your account. Switching a tracker off keeps its saved history. When both are on, local progress drives your Library.")
+                Text("Choose either tracker, both, or neither. Local Tracking saves progress on this device. MDBList Tracking shares your movie and episode activity with your account. Switching a tracker off keeps its saved history. When both are on, local progress drives your Library. A connected Silo server also manages its own profile’s watch state independently.")
             }
             Section {
                 if let account = media.mdbListAccount { LabeledContent("Account", value: "@\(account.username)") }

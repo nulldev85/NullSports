@@ -624,7 +624,7 @@ private struct MobileMediaServerSettingsView: View {
             } header: {
                 Text("Servers").lineupSettingsHeader()
             } footer: {
-                Text("Lineup uses every media server here together, Jellyfin, Emby and Plex alike: their shelves, search and streams all appear in one Library.")
+                Text("Lineup uses every media server here together, Jellyfin, Emby, Plex and Silo alike: their shelves, search and streams all appear in one Library.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -652,6 +652,14 @@ private struct MobileLibrarySettingsView: View {
 
     var body: some View {
         List {
+            Section {
+                NavigationLink { SeerrSettingsView().environment(media) } label: {
+                    SettingsRow("Seerr", symbol: "tray.and.arrow.down", value: media.seerr.isConnected ? "Connected" : "Connect")
+                }
+            } footer: {
+                Text("Request movies and series and manage their availability through your Seerr server.").lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
             Section {
                 NavigationLink {
                     LibraryHeroSettingsView().environment(media)

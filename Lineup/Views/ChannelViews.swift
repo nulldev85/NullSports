@@ -5390,6 +5390,7 @@ struct AccountView: View {
     @State private var choosingProvider = false
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
+    @State private var configuringSeerr = false
     @State private var showingTracking = false
     @State private var managingTeamChannels = false
     @State private var managingTeams = false
@@ -5474,6 +5475,9 @@ struct AccountView: View {
             }
             .lineupSheet(isPresented: $configuringMDBList) {
                 MDBListIntegrationView().environment(media)
+            }
+            .lineupSheet(isPresented: $configuringSeerr) {
+                NavigationStack { SeerrSettingsView().environment(media) }
             }
             .lineupSheet(isPresented: $showingTracking) {
                 NavigationStack { LibraryTrackingSettingsView().environment(media) }
@@ -5765,6 +5769,8 @@ struct AccountView: View {
                          alignment: .leading, spacing: gutter) {
             AccountActionRow(symbol: "checkmark.circle", title: "Watch Tracking",
                              detail: "Choose local tracking, MDBList, both, or neither") { showingTracking = true }
+            AccountActionRow(symbol: "tray.and.arrow.down", title: "Seerr",
+                             detail: media.seerr.isConnected ? "Discover, request and manage titles" : "Connect your request server") { configuringSeerr = true }
             AccountActionRow(symbol: "folder.fill", title: "Collections",
                              detail: own == 0 ? "Group titles your own way" : "\(own) of your own") {
                 showingCollections = true
@@ -7605,6 +7611,7 @@ struct PlayerView: View {
     var isLive = true
     var initialPosition: TimeInterval? = nil
     var expectedDuration: TimeInterval? = nil
+    var nativeSiloPlayback: SiloPlaybackSession? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
     var onTrackingSample: ((LibraryPlaybackSample) -> Void)? = nil
     var game: SportsGame? = nil
@@ -7726,6 +7733,7 @@ struct PlayerView: View {
 
     init(urls: [URL], title: String = "Live TV", program: CurrentProgram? = nil, isLive: Bool = true,
          initialPosition: TimeInterval? = nil, expectedDuration: TimeInterval? = nil,
+         nativeSiloPlayback: SiloPlaybackSession? = nil,
          onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
          onTrackingSample: ((LibraryPlaybackSample) -> Void)? = nil,
          game: SportsGame? = nil, channelID: Int? = nil, synopsis: TVPlayerSynopsis? = nil,
@@ -7745,6 +7753,7 @@ struct PlayerView: View {
         self.isLive = isLive
         self.initialPosition = initialPosition
         self.expectedDuration = expectedDuration
+        self.nativeSiloPlayback = nativeSiloPlayback
         self.onProgress = onProgress
         self.onTrackingSample = onTrackingSample
         self.game = game
@@ -7941,6 +7950,7 @@ struct PlayerView: View {
         .onAppear {
             if continuesPreview { previewFailover = controller.failover }
             controller.libraryTrackingEvent = onTrackingSample
+            controller.configureSiloPlayback(nativeSiloPlayback)
             if let game {
                 configureGameFailover(controller, game: game, library: library) { choosingGame = game }
             }
@@ -9322,6 +9332,34 @@ private struct PlaybackClockReader<Content: View>: View {
         set { if clock.elapsed != newValue { clock.elapsed = newValue }; reportLibraryTracking() }
     }
     @Published private(set) var duration: TimeInterval = 0 { didSet { reportLibraryTracking() } }
+    private var nativeSiloPlayback: SiloPlaybackSession?
+    private var pendingSiloSidecars: [SiloPlaybackSession.Sidecar] = []
+    private var siloSidecarRestore: Task<Void, Never>?
+    private var siloSubtitleWasOff = false
+    private var siloSubtitleTitle: String?
+
+    func configureSiloPlayback(_ session: SiloPlaybackSession?) {
+        nativeSiloPlayback = session
+        session?.assetChanged = { [weak self] asset in
+            guard let self else { return }
+            let paused = self.pausedByUser
+            let delay = self.subtitleDelaySeconds
+            let off = self.selectedSubtitleID == PlaybackSubtitleTrack.off.id
+            let selected = self.subtitleTracks.first { $0.id == self.selectedSubtitleID }?.title
+            let sidecars = self.nativeSiloPlayback?.sidecars ?? []
+            self.discardOnlineSubtitles()
+            self.chosenSubtitle = nil
+            self.scrubSeeks.cancel()
+            self.start(urls: [asset.url], muted: self.muted, initialPosition: asset.lease.playerStart,
+                       isLive: false, keepTrackChoices: true, expectedDuration: asset.duration)
+            self.subtitleDelaySeconds = delay
+            self.pendingSiloSidecars = sidecars; self.siloSubtitleWasOff = off; self.siloSubtitleTitle = selected
+            if paused { self.togglePlayback() }
+        }
+        session?.failed = { [weak self] message in self?.failoverNotice = message }
+        session?.preparing = { [weak self] in self?.error = nil; self?.loading = true }
+        session?.retryFailed = { [weak self] message in self?.loading = false; self?.error = message }
+    }
     /// How to play this channel's recording, while a channel the provider
     /// records is playing live. Nil for a channel that isn't recorded, for a
     /// film, and until the server's time zone is known.
@@ -9581,6 +9619,9 @@ private struct PlaybackClockReader<Content: View>: View {
     /// Where a recorded title's stream is opened: back where it was after a
     /// drop, or where it was left off.
     private var openingPlace: TimeInterval? {
+        if let native = nativeSiloPlayback, let asset = native.asset {
+            return reopenPosition.map { max(0, $0 - asset.lease.timelineOffset) } ?? asset.lease.playerStart
+        }
         if let reopenPosition { return reopenPosition }
         guard !appliedInitialPosition, let requestedInitialPosition, requestedInitialPosition >= 10 else {
             return nil
@@ -9599,6 +9640,13 @@ private struct PlaybackClockReader<Content: View>: View {
     /// correctly after a seek that the viewer makes without resuming.
     private func updateProgress() {
         guard !isScrubbing else { return }
+        if let native = nativeSiloPlayback, let asset = native.asset {
+            guard let time = native.sourcePosition(playerTime: backend.time) else { return }
+            if let length = asset.duration, duration != length { duration = length }
+            elapsed = time
+            appliedInitialPosition = true
+            return
+        }
         let length = backend.duration
         if length.isFinite, length > 0, length != duration { duration = length }
         let time = backend.time
@@ -9657,6 +9705,7 @@ private struct PlaybackClockReader<Content: View>: View {
         guard isScrubbing, seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
         scrubDestination = target
+        guard nativeSiloPlayback?.asset?.requiresServerSeek != true else { return }
         scrubSeeks.preview(target) { [weak self] in self?.backend.seek(to: $0) }
     }
 
@@ -9678,6 +9727,12 @@ private struct PlaybackClockReader<Content: View>: View {
     func seek(to seconds: Double) {
         guard duration > 0, seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
+        if let native = nativeSiloPlayback, native.asset?.requiresServerSeek == true {
+            scrubSeeks.cancel()
+            native.seek(to: target)
+            elapsed = target
+            return
+        }
         appliedInitialPosition = true
         reopenPosition = nil
         seekLanding.expect(target, now: uptime())
@@ -9918,6 +9973,7 @@ private struct PlaybackClockReader<Content: View>: View {
     }
     func toggleMute() { setMuted(!muted) }
     func retry() {
+        if let nativeSiloPlayback { nativeSiloPlayback.retry(); return }
         let place = isLive ? nil : (reopenPosition ?? (elapsed > 0 ? elapsed : nil))
         log("Retry chosen")
         // Asked for before the stream opens, so it opens there.
@@ -9929,6 +9985,13 @@ private struct PlaybackClockReader<Content: View>: View {
     /// channel, which took away its ending: a drop or the real end then
     /// started it over again.
     func goLive() {
+        if let nativeSiloPlayback {
+            if pausedByUser { togglePlayback() }
+            if nativeSiloPlayback.asset?.requiresServerSeek == true {
+                nativeSiloPlayback.seek(to: 0); elapsed = 0
+            } else { seek(to: 0) }
+            return
+        }
         if catchUp != nil || pausedAt != nil, let source = catchUpSource {
             log("Back to live")
             skipTask?.cancel()
@@ -10259,12 +10322,14 @@ private struct PlaybackClockReader<Content: View>: View {
     /// is playing.
     func addOnlineSubtitle(_ data: Data, title: String, language: String, session: UUID) async throws {
         guard session == subtitleSession, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
         let preparation = Task.detached(priority: .userInitiated) { () throws -> URL in
             guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
+            let prepared = try SubtitleSourceTimeline.rebase(data, offset: offset)
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
-            try data.write(to: file, options: .atomic)
+            try prepared.write(to: file, options: .atomic)
             return file
         }
         let file = try await withTaskCancellationHandler(operation: { try await preparation.value },
@@ -10278,6 +10343,7 @@ private struct PlaybackClockReader<Content: View>: View {
             throw MobileSubtitleFailure.invalidFile
         }
         onlineSubtitles.append(OnlineSubtitle(file: file, title: title, language: language))
+        nativeSiloPlayback?.rememberSubtitle(data, title: title, language: language)
         chosenSubtitle = nil
         adoptsAddedSubtitle = true
         log("Added subtitles found online")
@@ -10286,6 +10352,25 @@ private struct PlaybackClockReader<Content: View>: View {
     /// After a reconnect: the subtitles found online, added to the reopened
     /// title once it is showing.
     private func addOnlineSubtitlesAgain() {
+        if backend.hasVideoOut, !pendingSiloSidecars.isEmpty, siloSidecarRestore == nil {
+            let saved = pendingSiloSidecars, session = subtitleSession
+            pendingSiloSidecars = []
+            siloSidecarRestore = Task { [weak self] in
+                guard let self else { return }
+                defer { self.siloSidecarRestore = nil }
+                do {
+                    for subtitle in saved {
+                        try await self.addOnlineSubtitle(subtitle.data, title: subtitle.title, language: subtitle.language, session: session)
+                    }
+                    guard self.subtitleSession == session else { return }
+                    self.refreshSubtitleTracks()
+                    if self.siloSubtitleWasOff { self.selectSubtitle(.off, byViewer: false) }
+                    else if let title = self.siloSubtitleTitle, let selected = self.subtitleTracks.first(where: { $0.title == title }) {
+                        self.selectSubtitle(selected, byViewer: false)
+                    }
+                } catch { if !Task.isCancelled { self.failoverNotice = "Subtitles could not be restored after seeking. " + error.localizedDescription } }
+            }
+        }
         guard !onlineSubtitlesToAdd.isEmpty, backend.hasVideoOut else { return }
         for subtitle in onlineSubtitlesToAdd {
             _ = backend.addSubtitle(file: subtitle.file, title: subtitle.title, language: subtitle.language)
@@ -10294,6 +10379,7 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     private func discardOnlineSubtitles() {
+        siloSidecarRestore?.cancel(); siloSidecarRestore = nil; pendingSiloSidecars = []
         for subtitle in onlineSubtitles { try? FileManager.default.removeItem(at: subtitle.file) }
         onlineSubtitles = []
         onlineSubtitlesToAdd = []

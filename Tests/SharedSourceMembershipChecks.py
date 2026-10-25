@@ -12,6 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 SHARED = (
     "Lineup/Views/LiveQualityProgress.swift",
     "Lineup/Design/LineupPresentationStyle.swift",
+    "Lineup/Services/MediaIntegrationHTTP.swift",
+    "Lineup/Services/SeerrClient.swift",
+    "Lineup/Services/SiloClient.swift",
+    "Lineup/Services/SiloPlayback.swift",
+    "Lineup/Services/SubtitleSourceTimeline.swift",
+    "Lineup/Store/SeerrStore.swift",
+    "Lineup/Views/SeerrViews.swift",
+    "Lineup/Views/SiloViews.swift",
     "Lineup/Services/LiveSourceQuality.swift",
     "Lineup/Services/M3UPlaylist.swift",
     "Lineup/Services/MediaPlaybackRequest.swift",
@@ -121,10 +129,11 @@ class SharedSourceMembershipChecks(unittest.TestCase):
 
     def test_tracking_regressions_belong_to_both_test_suites(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
-        source = "Tests/iOS/MDBListTrackingTests.swift"
-        self.assertTrue((ROOT / source).is_file())
-        for target in ("LineupTests", "LineupiOSTests"):
-            self.assertTrue(is_included(project, target, source))
+        for source in ("Tests/iOS/MDBListTrackingTests.swift", "Tests/iOS/LibraryReliabilityTests.swift",
+                       "Tests/iOS/MediaIntegrationTests.swift"):
+            self.assertTrue((ROOT / source).is_file())
+            for target in ("LineupTests", "LineupiOSTests"):
+                self.assertTrue(is_included(project, target, source))
 
     def test_ufc_schedule_regressions_belong_to_both_test_suites(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")

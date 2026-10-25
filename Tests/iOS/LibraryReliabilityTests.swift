@@ -110,6 +110,7 @@ private final class LibraryReliabilityProtocol: URLProtocol, @unchecked Sendable
     private static var held: [LibraryReliabilityProtocol] = []
     private static var count = 0
     private var stopped = false
+    private var finished = false
     static var requestCount: Int { lock.lock(); defer { lock.unlock() }; return count }
     static func install(_ value: @escaping (URLRequest) throws -> String?) {
         lock.lock(); defer { lock.unlock() }; handler = value
@@ -122,14 +123,17 @@ private final class LibraryReliabilityProtocol: URLProtocol, @unchecked Sendable
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "library-review.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        Self.lock.lock(); Self.count += 1; let handler = Self.handler; Self.lock.unlock()
+        Self.lock.lock(); Self.count += 1; Self.held.append(self); let handler = Self.handler; Self.lock.unlock()
         do {
             if let json = try handler?(request) { finish(json) }
-            else { Self.lock.lock(); Self.held.append(self); Self.lock.unlock() }
-        } catch { client?.urlProtocol(self, didFailWithError: error) }
+        } catch {
+            Self.lock.lock(); Self.held.removeAll { $0 === self }; Self.lock.unlock()
+            client?.urlProtocol(self, didFailWithError: error)
+        }
     }
     private func finish(_ json: String) {
-        Self.lock.lock(); let active = !stopped; Self.lock.unlock()
+        Self.lock.lock(); let active = !stopped && !finished; finished = true
+        Self.held.removeAll { $0 === self }; Self.lock.unlock()
         guard active else { return }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
             httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)

@@ -676,6 +676,7 @@ struct LineupButtonStyle: ButtonStyle {
     // sits on, its words in white -- red for one that takes something away --
     // and its icon on a tile in the accent.
     private struct PurpleButtonLabel: View {
+        @Environment(\.lineupPresentationTint) private var presentationTint
         @Environment(\.isFocused) private var focused
         @Environment(\.isEnabled) private var enabled
         let configuration: ButtonStyle.Configuration
@@ -688,7 +689,7 @@ struct LineupButtonStyle: ButtonStyle {
                 .foregroundStyle(configuration.role == .destructive ? LineupIconTile.red : LineupStyle.text)
                 .padding(.horizontal, 20).padding(.vertical, 12)
                 .frame(minHeight: Self.height)
-                .background(LineupPanelStyle.well, in: shape)
+                .background(presentationTint?.opacity(0.15) ?? LineupPanelStyle.well, in: shape)
                 .lineupFocusLayer(focused, in: shape)
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
                 .animation(.easeOut(duration: 0.16), value: focused)
@@ -706,6 +707,7 @@ struct LineupButtonStyle: ButtonStyle {
 /// A Label's icon on a tile in the accent, beside its words: how a control
 /// with an icon reads anywhere in the app.
 struct LineupTileLabelStyle: LabelStyle {
+    @Environment(\.lineupPresentationTint) private var presentationTint
     #if os(tvOS)
     var tile: CGFloat = 34
     #else
@@ -718,7 +720,7 @@ struct LineupTileLabelStyle: LabelStyle {
                 .font(.system(size: tile * 0.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
                 .frame(width: tile, height: tile)
-                .background(LineupStyle.highlight,
+                .background(presentationTint ?? LineupStyle.highlight,
                             in: RoundedRectangle(cornerRadius: tile * 0.26, style: .continuous))
             configuration.title
         }

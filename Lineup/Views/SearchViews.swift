@@ -346,6 +346,11 @@ struct AppSearchView: View {
         } else {
             VStack(alignment: .leading, spacing: Metrics.sectionGap) {
                 chips
+                if media.seerr.isConnected {
+                    NavigationLink { SeerrBrowserView(query: searchedTerm).environment(media) } label: {
+                        Label("Search Seerr for \"\(searchedTerm)\"", systemImage: "tray.and.arrow.down")
+                    }.lineupButtonStyle().padding(.horizontal, Metrics.inset)
+                }
                 if let category {
                     categoryBody(category)
                 } else {
@@ -711,6 +716,7 @@ private struct AppSearchGenreBrowseView: View {
     @State private var openingID: String?
     @State private var unavailableTitle: String?
     @State private var showUnavailable = false
+    @State private var requestingSeerr: SeerrTitleRoute?
     @State private var openTask: Task<Void, Never>?
 
     #if os(tvOS)
@@ -739,6 +745,9 @@ private struct AppSearchGenreBrowseView: View {
         .lineupMessage("Not found in your sources", symbol: "magnifyingglass", isPresented: $showUnavailable,
             message: "\(unavailableTitle ?? "That title") is in TMDB’s catalog, but it was not found on your connected media servers or IPTV VOD.",
             onDismiss: { unavailableTitle = nil })
+        .lineupSheet(item: $requestingSeerr) { route in
+            NavigationStack { SeerrTitleView(id: route.id, kind: route.kind, initialTitle: route.title).environment(media) }
+        }
         .onDisappear { openTask?.cancel() }
     }
 
@@ -937,7 +946,9 @@ private struct AppSearchGenreBrowseView: View {
                 return
             }
             unavailableTitle = item.name
-            showUnavailable = true
+            if media.seerr.isConnected {
+                requestingSeerr = SeerrTitleRoute(id: title.id, kind: item.isSeries ? .tv : .movie, title: item.name)
+            } else { showUnavailable = true }
         }
     }
 }

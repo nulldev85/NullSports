@@ -17,6 +17,7 @@ struct MobilePlayerView: View {
     /// title from a media server, which has a length and a position. The two
     /// want different chrome, and showing a LIVE dot over a film was the tell.
     var isLive: Bool = true
+    var nativeSiloPlayback: SiloPlaybackSession? = nil
     var providerName: String? = nil
     var onPlaybackStarted: (() -> Void)? = nil
     /// The bitrate the server reported for this source. The server holds the
@@ -76,10 +77,12 @@ struct MobilePlayerView: View {
                 VStack(spacing: 16) {
                     Text(error).multilineTextAlignment(.center)
                     Button("Retry", systemImage: "arrow.clockwise") {
+                        if let nativeSiloPlayback { nativeSiloPlayback.retry(); return }
                         // A title picks up where it was when it stopped, not
                         // where it was when the player opened.
-                        controller.start(urls: urls, initialPosition: isLive ? nil
-                            : (lastReportedPosition > 0 ? lastReportedPosition : initialPosition))
+                        controller.start(urls: nativeSiloPlayback?.asset.map { [$0.url] } ?? urls,
+                            initialPosition: nativeSiloPlayback?.asset?.lease.playerStart ?? (isLive ? nil
+                            : (lastReportedPosition > 0 ? lastReportedPosition : initialPosition)))
                     }
                         .lineupProminentButton()
                 }
@@ -317,6 +320,7 @@ struct MobilePlayerView: View {
         .onAppear {
             controller.libraryTrackingEvent = onTrackingSample
             controller.isLive = isLive
+            controller.configureSiloPlayback(nativeSiloPlayback)
             controller.remembersTracks(forShow: isLive ? nil : trackMemoryShow)
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
         }

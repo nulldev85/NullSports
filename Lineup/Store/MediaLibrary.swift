@@ -304,6 +304,7 @@ final class MediaLibrary {
     @ObservationIgnored private var inventoryLoad: (id: UUID, profiles: [MediaServerProfile], task: Task<(items: [MediaItem], failure: Error?), Never>)?
     @ObservationIgnored private var inventoryGeneration = UUID()
     @ObservationIgnored private let serverClientFactory: ((MediaServerProfile) throws -> any MediaServerClient)?
+    let seerr: SeerrStore
     @ObservationIgnored private var reconciledSeriesServers: Set<UUID> = []
     @ObservationIgnored private var seriesReconcileTasks: [UUID: Task<Void, Never>] = [:]
     /// One client per server. Making one reads its token from the Keychain,
@@ -319,13 +320,19 @@ final class MediaLibrary {
         let catalogs: [MediaCatalog]
         let counts: MediaLibraryCounts?
         let refreshedAt: Date
+        let siloPlayback: [LocalMediaPlayback]?
+        let siloFavorites: [MediaItem]?
     }
+    private var nativeSiloRecords: [UUID: [LocalMediaPlayback]] = [:]
+    private var nativeSiloFavorites: [UUID: [MediaItem]] = [:]
+    @ObservationIgnored private var snapshotWrites: [UUID: Task<Void, Never>] = [:]
     private struct CachedDetail {
         let item: MediaItem
         let storedAt: Date
     }
     @ObservationIgnored private var detailCache: [String: CachedDetail] = [:]
     @ObservationIgnored private var detailLoads: [String: (id: UUID, task: Task<MediaItem, Error>)] = [:]
+    @ObservationIgnored private var siloPlaybackSessions: [UUID: SiloPlaybackSession] = [:]
     private struct CachedCounterpart {
         let item: MediaItem?
         let storedAt: Date
@@ -357,6 +364,7 @@ final class MediaLibrary {
          trackingKey: @escaping () -> String? = { MDBListKeychainStore.apiKey() },
          serverClientFactory: ((MediaServerProfile) throws -> any MediaServerClient)? = nil) {
         self.defaults = defaults
+        seerr = SeerrStore(defaults: defaults)
         self.serverClientFactory = serverClientFactory
         self.trackingKey = trackingKey
         mdbListTracking = MDBListTrackingService(defaults: defaults, session: trackingSession)
@@ -556,8 +564,13 @@ final class MediaLibrary {
 
     var favoriteMedia: [MediaItem] {
         let connected = recordSources
-        return localFavorites.filter { connected.contains($0.profileID) }
+        var items = localFavorites.filter { connected.contains($0.profileID) }
             .sorted { $0.addedAt > $1.addedAt }.map(\.item)
+        var known = Set(items.map(\.libraryKey))
+        for profile in profiles {
+            items += (nativeSiloFavorites[profile.id] ?? []).filter { known.insert($0.libraryKey).inserted }
+        }
+        return items
     }
 
     /// Every row on the Media Servers tab.
@@ -634,6 +647,27 @@ final class MediaLibrary {
     /// The device's id as Plex counts devices, for linking it to a Plex account.
     var plexClientID: String { deviceID }
 
+    func addSiloServer(_ client: SiloClient, account: SiloAccount, household: SiloProfile, name: String) async -> Bool {
+        guard !isAddingServer else { return false }
+        isAddingServer = true; errorMessage = nil
+        defer { isAddingServer = false }
+        do {
+            // Validate the selected profile's access before saving a connection.
+            _ = try await client.views(userID: account.id)
+            try Task.checkCancellation()
+            let address = client.http.base.absoluteString
+            let existing = profiles.firstIndex { $0.brand == .silo && $0.serverURL == address && $0.userID == account.id && $0.siloProfileID == household.id }
+            let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let profile = MediaServerProfile(id: existing.map { profiles[$0].id } ?? UUID(),
+                name: typed.isEmpty ? (existing.map { profiles[$0].name } ?? "Silo · " + household.name) : typed, serverURL: address,
+                username: account.username + " · " + household.name, userID: account.id, software: .silo, siloProfileID: household.id)
+            let data = try JSONEncoder().encode(await client.credential())
+            guard let secret = String(data: data, encoding: .utf8) else { throw MediaIntegrationError.invalidResponse }
+            try await adopt(profile, token: secret, replacing: existing)
+            return true
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+
     /// A Plex server the linked account can reach, at the first of its
     /// addresses that answers -- on the same network if it can be.
     func addPlexServer(_ server: PlexAccount.Server, accountName: String) async -> Bool {
@@ -690,6 +724,12 @@ final class MediaLibrary {
     }
 
     func remove(_ profile: MediaServerProfile) {
+        nativeSiloRecords[profile.id] = nil
+        nativeSiloFavorites[profile.id] = nil
+        for (id, session) in siloPlaybackSessions where session.sourceProfileID == profile.id {
+            Task { await session.stop() }
+            siloPlaybackSessions[id] = nil
+        }
         loadIDs[profile.id] = nil
         inventoryLoad?.task.cancel()
         inventoryLoad = nil
@@ -721,7 +761,13 @@ final class MediaLibrary {
         if shelfChoices.removeValue(forKey: profile.id.uuidString) != nil {
             defaults.set(try? JSONEncoder().encode(shelfChoices), forKey: shelvesKey)
         }
-        try? FileManager.default.removeItem(at: Self.snapshotURL(profileID: profile.id))
+        let pendingSnapshot = snapshotWrites.removeValue(forKey: profile.id)
+        pendingSnapshot?.cancel()
+        let snapshotFile = Self.snapshotURL(profileID: profile.id)
+        Task.detached {
+            await pendingSnapshot?.value
+            try? FileManager.default.removeItem(at: snapshotFile)
+        }
         // Its titles leave the MDBList shelves with it; the lists stay.
         mdbListShelves = mdbListShelves.map { shelf in
             MediaCatalog(root: shelf.root, items: shelf.items.filter { $0.serverID != profile.id })
@@ -892,6 +938,9 @@ final class MediaLibrary {
                 self.update(profile) { $0.counts = counts }
                 self.persistLibrarySnapshot(for: profile)
             }
+            if profile.brand == .silo {
+                Task { [weak self] in await self?.refreshNativeSiloState(for: profile, requestID: requestID) }
+            }
         } catch {
             guard isCurrent() else { return }
             // A cancelled load is the app's own bookkeeping, not a fault: a
@@ -916,6 +965,31 @@ final class MediaLibrary {
     }
 
     // MARK: - Titles
+
+    func refreshNativeSiloState(for profile: MediaServerProfile, requestID: UUID? = nil) async {
+        guard contains(profile), profile.brand == .silo, let source = try? client(for: profile) as? SiloClient else { return }
+        let expected = requestID ?? loadIDs[profile.id]
+        async let history = source.recentPlayback()
+        async let favorites = source.favorites()
+        let loadedHistory = try? await history
+        let loadedFavorites = try? await favorites
+        guard !Task.isCancelled, contains(profile), loadIDs[profile.id] == expected else { return }
+        if let loadedHistory {
+            var records = loadedHistory.map {
+                LocalMediaPlayback(profileID: profile.id, item: $0.item.servedBy(profile.id), position: $0.position,
+                    duration: $0.duration, updatedAt: $0.updatedAt, completed: $0.completed)
+            }
+            // History can omit a just-unwatched item. Keep the acknowledged
+            // server action until newer server progress replaces it.
+            for mark in nativeSiloRecords[profile.id] ?? [] where mark.explicitlyUnwatched == true {
+                guard !records.contains(where: { $0.id == mark.id && $0.updatedAt > mark.updatedAt }) else { continue }
+                records.removeAll { $0.id == mark.id }; records.append(mark)
+            }
+            nativeSiloRecords[profile.id] = records
+        }
+        if let loadedFavorites { nativeSiloFavorites[profile.id] = loadedFavorites.map { $0.servedBy(profile.id) } }
+        persistLibrarySnapshot(for: profile)
+    }
 
     func setMetadataSource(_ source: LibraryMetadataSource, episodes: Bool = false) {
         if episodes { episodeDataSource = source }
@@ -1032,7 +1106,7 @@ final class MediaLibrary {
         }
         guard let profile = profile(for: parent) else { return [] }
         return try await client(for: profile).items(userID: profile.userID,
-            parentID: parent.id, sortBy: "IndexNumber", limit: 500)
+            parent: parent, sortBy: "IndexNumber", limit: 500)
             .map { $0.servedBy(profile.id) }
     }
 
@@ -1229,6 +1303,22 @@ final class MediaLibrary {
         do {
             try await client(for: profile)
                 .setPlayed(userID: profile.userID, itemID: item.id, isPlayed: isPlayed)
+            if contains(profile), profile.brand == .silo {
+                let key = profile.id.uuidString + "|" + item.id
+                let targets = item.isSeries ? (seriesEpisodes[key] ?? []) + [item] : [item]
+                var records = nativeSiloRecords[profile.id] ?? []
+                for target in targets {
+                    let previous = records.first { $0.item.id == target.id }
+                    let duration = target.runTimeTicks.map { max(1, Double($0) / 10_000_000) } ?? previous?.duration ?? 1
+                    records.removeAll { $0.item.id == target.id }
+                    records.append(LocalMediaPlayback(profileID: profile.id, item: target.servedBy(profile.id),
+                        position: isPlayed ? duration : 0, duration: duration, updatedAt: Date(),
+                        completed: isPlayed, explicitlyUnwatched: isPlayed ? nil : true))
+                    detailCache[target.libraryKey] = nil
+                }
+                nativeSiloRecords[profile.id] = records
+                persistLibrarySnapshot(for: profile)
+            }
         } catch {
             report(error, from: profile)
         }
@@ -1473,9 +1563,9 @@ final class MediaLibrary {
         guard let profileID = serverID(of: item) else { return nil }
         if item.type != "Episode" {
             if let held = heldPlayback, held.profileID == profileID, held.item.id == item.id { return held }
-            return localPlayback.first { $0.profileID == profileID && $0.item.id == item.id }
+            return playbackForConnectedServers.first { $0.profileID == profileID && $0.item.id == item.id }
         }
-        var records = localPlayback.filter { $0.profileID == profileID && Self.samePlaybackItem($0.item, item) }
+        var records = playbackForConnectedServers.filter { $0.profileID == profileID && Self.samePlaybackItem($0.item, item) }
         if let held = heldPlayback, held.profileID == profileID, Self.samePlaybackItem(held.item, item) {
             records.removeAll { $0.id == held.id }
             records.append(held)
@@ -1504,7 +1594,7 @@ final class MediaLibrary {
             return record
         }
         var best: LocalMediaPlayback?
-        for record in localPlayback where record.profileID == profileID {
+        for record in playbackForConnectedServers where record.profileID == profileID {
             guard record.item.type == "Episode",
                   usableQueuedPosition(record),
                   (record.explicitlyUnwatched != true || record.isUpNext == true) else { continue }
@@ -1703,11 +1793,21 @@ final class MediaLibrary {
     }
 
     func resumePosition(for item: MediaItem) -> TimeInterval? {
-        guard let record = localPlaybackRecord(for: item) else { return nil }
-        return LocalMediaTrackingPolicy.resumePosition(for: record)
+        if let record = localPlaybackRecord(for: item) { return LocalMediaTrackingPolicy.resumePosition(for: record) }
+        guard profile(for: item)?.brand == .silo, !item.isPlayed,
+              let percent = item.userData?.playedPercentage, percent.isFinite, percent > 0, percent < 100,
+              let ticks = item.runTimeTicks, ticks > 0 else { return nil }
+        return Double(ticks) / 10_000_000 * percent / 100
     }
 
-    func beginPlaybackSession(for item: MediaItem, id: UUID, startsOver: Bool = false) {
+    func beginPlaybackSession(for item: MediaItem, id: UUID, startsOver: Bool = false, nativeSilo: SiloPlaybackSession? = nil) {
+        if let nativeSilo {
+            siloPlaybackSessions[id] = nativeSilo
+            nativeSilo.retryAllowed = { [weak self, weak nativeSilo] in
+                guard let self, let nativeSilo, let profileID = nativeSilo.sourceProfileID else { return false }
+                return self.siloPlaybackSessions[id] === nativeSilo && self.profiles.contains { $0.id == profileID }
+            }
+        }
         guard playbackSessions[id] == nil, let profileID = serverID(of: item) else { return }
         playbackSessions[id] = PlaybackSession(profileID: profileID, item: item.servedBy(profileID),
             initialPosition: startsOver ? 0 : (resumePosition(for: item) ?? 0),
@@ -1725,6 +1825,21 @@ final class MediaLibrary {
         }
         finishMDBPlayback(id)
         playbackSessions[id] = nil
+        endSiloPlayback(id)
+    }
+
+    private func endSiloPlayback(_ id: UUID) {
+        guard let session = siloPlaybackSessions.removeValue(forKey: id) else { return }
+        Task { [weak self] in
+            await session.stop()
+            guard let self, let profile = self.profiles.first(where: { $0.id == session.sourceProfileID }) else { return }
+            await self.refreshNativeSiloState(for: profile)
+        }
+    }
+
+    func releaseUnpresentedSiloPlayback(_ session: SiloPlaybackSession) {
+        guard !siloPlaybackSessions.values.contains(where: { $0 === session }) else { return }
+        Task { await session.stop() }
     }
 
     private func acceptsPlayback(of item: MediaItem, profileID: UUID, sessionID: UUID?) -> Bool {
@@ -1735,9 +1850,11 @@ final class MediaLibrary {
 
     func trackPlayback(of item: MediaItem, position: TimeInterval, duration: TimeInterval,
                        sessionID: UUID? = nil) {
+        if let sessionID, siloPlaybackSessions[sessionID]?.isReplanning == true { return }
         guard let profileID = serverID(of: item), position.isFinite, duration.isFinite,
               position >= 0, duration > 0,
               acceptsPlayback(of: item, profileID: profileID, sessionID: sessionID) else { return }
+        if let sessionID { siloPlaybackSessions[sessionID]?.finalPosition(position) }
         if let sessionID, let prior = mdbPlaybackSessions[sessionID]?.sample {
             // The player's forced closing report can be newer than the
             // throttled transport sample; retain that final native clock.
@@ -1886,11 +2003,15 @@ final class MediaLibrary {
 
     func isLocalFavorite(_ item: MediaItem) -> Bool {
         guard let profileID = serverID(of: item) else { return false }
-        return localFavorites.contains { $0.profileID == profileID && $0.item.id == item.id }
+        return favoriteMedia.contains { $0.serverID == profileID && $0.id == item.id }
     }
 
     func setLocalFavorite(_ favorite: Bool, for item: MediaItem) {
         guard let profileID = serverID(of: item) else { return }
+        if let profile = profiles.first(where: { $0.id == profileID && $0.brand == .silo }) {
+            nativeSiloFavorites[profileID]?.removeAll { $0.id == item.id }
+            persistLibrarySnapshot(for: profile)
+        }
         localFavorites.removeAll { $0.profileID == profileID && $0.item.id == item.id }
         if favorite {
             localFavorites.append(LocalMediaFavorite(profileID: profileID,
@@ -1964,6 +2085,10 @@ final class MediaLibrary {
         applyLocalEpisodeProgression(played, for: episode, following: nil)
         let revision = localPlaybackRecord(for: episode)?.updatedAt
         let generation = playbackGeneration
+        if !localTrackingEnabled, !mdbListTrackingEnabled, profile(for: episode)?.brand == .silo {
+            await setPlayed(played, for: episode)
+            return
+        }
         if ProviderItem(id: episode.id) != nil {
             if played, let profileID = serverID(of: episode) {
                 await advanceProviderEpisode(after: episode, profileID: profileID)
@@ -2126,7 +2251,7 @@ final class MediaLibrary {
     /// This device's records of a show's episodes.
     private func seriesRecords(of series: MediaItem, profileID: UUID) -> [LocalMediaPlayback] {
         let scope = LocalContinueWatchingDismissal(item: series, profileID: profileID)
-        var records = localPlayback
+        var records = playbackForConnectedServers
         if let held = heldPlayback {
             records.removeAll { $0.id == held.id }
             records.append(held)
@@ -2426,7 +2551,20 @@ final class MediaLibrary {
 
     private var playbackForConnectedServers: [LocalMediaPlayback] {
         let connected = recordSources
-        return localPlayback.filter { connected.contains($0.profileID) }
+        var records = localPlayback.filter { connected.contains($0.profileID) }
+        guard !nativeSiloRecords.isEmpty else { return records }
+        var positions = Dictionary(records.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
+        let active = Set(playbackSessions.values.filter(\.hasAdvanced).map { $0.profileID.uuidString + "|" + $0.item.id })
+        for remote in nativeSiloRecords.values.flatMap({ $0 }) where connected.contains(remote.profileID) {
+            if let position = positions[remote.id] {
+                if active.contains(remote.id) || records[position].updatedAt >= remote.updatedAt { continue }
+                records[position] = remote
+            } else {
+                positions[remote.id] = records.count
+                records.append(remote)
+            }
+        }
+        return records
     }
 
     /// A record saved before items carried their server gets it from the
@@ -2478,10 +2616,13 @@ final class MediaLibrary {
         guard contains(profile), let state = servers[profile.id] else { return }
         let snapshot = LibrarySnapshot(roots: state.roots, collections: state.collections,
             importedCatalogs: state.importedCatalogs, catalogs: state.catalogs,
-            counts: state.counts, refreshedAt: state.refreshedAt ?? Date())
+            counts: state.counts, refreshedAt: state.refreshedAt ?? Date(),
+            siloPlayback: nativeSiloRecords[profile.id], siloFavorites: nativeSiloFavorites[profile.id])
         let url = Self.snapshotURL(profileID: profile.id)
-        Task.detached(priority: .utility) {
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        let prior = snapshotWrites[profile.id]
+        snapshotWrites[profile.id] = Task.detached(priority: .utility) {
+            await prior?.value
+            guard !Task.isCancelled, let data = try? JSONEncoder().encode(snapshot), !Task.isCancelled else { return }
             try? data.write(to: url, options: .atomic)
         }
     }
@@ -2508,6 +2649,10 @@ final class MediaLibrary {
         }
         state.counts = snapshot.counts
         state.refreshedAt = snapshot.refreshedAt
+        if profile.brand == .silo {
+            nativeSiloRecords[profile.id] = snapshot.siloPlayback?.filter { $0.profileID == profile.id }
+            nativeSiloFavorites[profile.id] = snapshot.siloFavorites?.map { $0.servedBy(profile.id) }
+        }
         state.loadFailed = false
         // MDBList shelves used to be saved with the server that was active,
         // when a list was matched against one server's titles. They are the
@@ -2997,6 +3142,19 @@ final class MediaLibrary {
     }
 
     // MARK: - Playback
+
+    func prepareSiloPlayback(for item: MediaItem, source: MediaPlaybackSource, startsOver: Bool) async throws -> SiloPlaybackSession {
+        guard let file = source.siloFileID, let id = source.serverID,
+              let profile = profiles.first(where: { $0.id == id && $0.brand == .silo }),
+              let client = try client(for: profile) as? SiloClient else { throw MediaIntegrationError.disconnected }
+        let session = SiloPlaybackSession()
+        session.sourceProfileID = profile.id
+        do {
+            _ = try await session.open(client: client, fileID: file, position: startsOver ? 0 : resumePosition(for: item) ?? 0, defaults: defaults)
+            guard contains(profile), !Task.isCancelled else { await session.stop(); throw CancellationError() }
+            return session
+        } catch { await session.stop(); throw error }
+    }
 
     func playbackURL(for item: MediaItem) -> URL? {
         guard let profile = profile(for: item) else { return nil }
@@ -3726,6 +3884,19 @@ final class MediaLibrary {
         }
         let made: any MediaServerClient
         switch profile.brand {
+        case .silo:
+            guard let data = token.data(using: .utf8), let credential = try? JSONDecoder().decode(SiloCredential.self, from: data) else {
+                throw MediaIntegrationError.disconnected
+            }
+            made = try SiloClient(address: profile.serverURL, credential: credential, profileID: profile.siloProfileID,
+                deviceID: deviceID, persist: { [weak self] value in
+                    await MainActor.run {
+                        guard let self, self.contains(profile), let data = try? JSONEncoder().encode(value),
+                              let secret = String(data: data, encoding: .utf8) else { return }
+                        do { try MediaKeychainStore.save(token: secret, profileID: profile.id) }
+                        catch { self.errorMessage = "Silo refreshed your sign-in, but it could not be saved. Reconnect before closing the app." }
+                    }
+                })
         case .plex:
             made = try PlexClient(serverURL: profile.serverURL, token: token, clientID: deviceID)
         case .jellyfin, .emby:
@@ -4605,6 +4776,10 @@ extension MediaLibrary {
     }
 
     func reportTrackingSample(_ sample: LibraryPlaybackSample, for item: MediaItem, sessionID: UUID) {
+        guard siloPlaybackSessions[sessionID]?.isReplanning != true else { return }
+        if sample.duration.isFinite, sample.duration > 0, sample.position.isFinite, sample.position >= 0 {
+            siloPlaybackSessions[sessionID]?.sample(position: sample.position, paused: !sample.playing)
+        }
         guard let profile = serverID(of: item), recordSources.contains(profile),
               var state = mdbPlaybackSessions[sessionID], !state.closed,
               state.item.serverID == profile, Self.samePlaybackItem(state.item, item) else { return }
@@ -4621,6 +4796,7 @@ extension MediaLibrary {
             finishMDBPlayback(sessionID)
             flushLocalPlayback()
             playbackSessions[sessionID] = nil
+            endSiloPlayback(sessionID)
             return
         }
         guard mdbListTrackingEnabled, sample.duration > 0, sample.duration.isFinite,

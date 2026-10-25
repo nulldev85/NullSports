@@ -7,6 +7,10 @@ struct MediaServerLogo: View {
 
     var body: some View {
         switch brand {
+        case .silo:
+            Image("SiloServerLogo").resizable().aspectRatio(contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityLabel(brand.name)
         case .jellyfin:
             JellyfinMark()
                 .fill(LinearGradient(colors: [Color(red: 0xAA / 255, green: 0x5C / 255, blue: 0xC3 / 255),
@@ -53,7 +57,18 @@ struct MediaServerLogoRow: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Jellyfin, Emby or Plex")
+        .accessibilityLabel("Jellyfin, Emby, Plex or Silo")
+    }
+}
+
+extension MediaServerBrand {
+    var loginTint: Color {
+        switch self {
+        case .jellyfin: Color(red: 0.67, green: 0.36, blue: 0.76)
+        case .emby: Color(red: 0.32, green: 0.71, blue: 0.29)
+        case .plex: Color(red: 0.90, green: 0.63, blue: 0.05)
+        case .silo: Color(red: 0.09, green: 0.31, blue: 1.0)
+        }
     }
 }
 

@@ -6,9 +6,11 @@ things a lineup means: the games on now, and the library you browse.
 **Live** organizes an Xtream provider's channels around the NFL, NBA, NHL, MLB
 and college football rather than dropping everything into one enormous grid, and
 matches each game to the channel actually carrying it. **Guide** is the full
-channel list with search and favorites. **Media Servers** browses Jellyfin and
-Nullfin libraries, including the catalogs and streams from any addons configured
-on the server.
+channel list with search and favorites. **Library** combines Jellyfin, Emby,
+Plex and native Silo servers, including Nullfin catalogs and streams from addons
+configured on the server. **Seerr** adds account-based discovery, movie and season
+requests, availability, and permission-controlled request management on both
+devices. See [Library and integration notes](docs/library-seerr-silo-integration.md).
 
 Xtream-compatible profiles, passwords stored in the device Keychain, and
 selectable playback engines. You supply the provider, server and streams you are
