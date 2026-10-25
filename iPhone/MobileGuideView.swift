@@ -28,6 +28,7 @@ private struct PendingRecording {
 
 struct MobileGuideView: View {
     @Environment(SportsLibrary.self) private var library
+    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
@@ -61,6 +62,7 @@ struct MobileGuideView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var reorderingFavorites = false
     @State private var managingCategories = false
+    @State private var showingSeerr = false
     /// The channel before the one in the player, for Last Channel.
     @State private var previousChannel: XtreamStream?
     /// The channel just tuned to, named over the picture for a moment.
@@ -429,6 +431,9 @@ struct MobileGuideView: View {
             .lineupSheet(isPresented: $managingCategories) {
                 MobileGuideCategoryVisibilityView().environment(library).preferredColorScheme(.dark)
             }
+            .lineupSheet(isPresented: $showingSeerr) {
+                NavigationStack { SeerrSettingsView().environment(media) }
+            }
     }
 
     private var enabledProviderIDs: [UUID] { library.providerRoot.enabledProfiles.map(\.id) }
@@ -652,6 +657,9 @@ struct MobileGuideView: View {
         else {
             sections.append(MobileMenuSection(id: "categories", items: [
                 MobileMenuItem("Manage Categories", symbol: "eye.slash", isEnabled: !library.categories.isEmpty) { managingCategories = true }
+            ]))
+            sections.append(MobileMenuSection(id: "integrations", items: [
+                MobileMenuItem("Seerr · Discover & Requests", imageName: "SeerrLogo") { showingSeerr = true }
             ]))
         }
         sections.append(MobileMenuSection(id: "refresh", items: [

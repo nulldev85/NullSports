@@ -52,6 +52,23 @@ not retire the account session before its final stop.
 
 ## Delivery and account changes
 
+### MDBList-only resume cache
+
+Playback writes retain the real player's measured duration before falling back
+to catalog metadata. A zero or different catalog runtime must not rebuild a
+half-watched title as a sub-five-second record or move its resume point. An
+account-scoped movie identity link lets a snapshot find the exact source/item
+when its lightweight inventory lacks IDs or its VOD catalog is not loaded.
+No title-name match or forced provider-catalog download is used. Legacy records
+remain decodable; Local Tracking stays off when the viewer chose it off.
+
+The actual copy's measured duration is retained through imports. A materially
+different remote runtime cannot overwrite that copy's time or erase its saved
+resume point. Newer watched history still wins; authoritative empty snapshots
+still remove account-only progress. Pending uploads and failed/partial reads
+keep the existing safeguards. See `ios-151-mdb-resume-and-navigation.md` for
+the same-device VOD/Jellyfin round-trip, relaunch and legacy-cache regressions.
+
 A serialized writer coalesces stale progress. Explicit watched/unwatched marks
 retire queued samples that could undo the newer choice. HTTP failures retain
 the outbox with bounded exponential retry; 429 honors Retry-After across app

@@ -9,6 +9,8 @@ struct MobileMenuItem: Identifiable {
     /// as a channel category or a season, where a tile on every row would
     /// say nothing.
     var symbol: String?
+    /// Original-color integration artwork, fitted to the same icon slot.
+    var imageName: String?
     var isSelected = false
     var isEnabled = true
     var isDestructive = false
@@ -22,12 +24,13 @@ struct MobileMenuItem: Identifiable {
     var badge: String? = nil
     var action: () -> Void = {}
 
-    init(_ title: String, symbol: String? = nil, id: String? = nil,
+    init(_ title: String, symbol: String? = nil, imageName: String? = nil, id: String? = nil,
          isSelected: Bool = false, isEnabled: Bool = true, isDestructive: Bool = false, namesEngine: Bool = false,
          children: [MobileMenuSection]? = nil, action: @escaping () -> Void = {}) {
         self.id = id ?? title
         self.title = title
         self.symbol = symbol
+        self.imageName = imageName
         self.isSelected = isSelected
         self.isEnabled = isEnabled
         self.isDestructive = isDestructive
@@ -199,7 +202,10 @@ struct MobileMenuRow: View {
 
     private var label: some View {
         HStack(spacing: 12) {
-            if let symbol = item.symbol {
+            if let imageName = item.imageName {
+                Image(imageName).renderingMode(.original).resizable().scaledToFit()
+                    .frame(width: 28, height: 28).accessibilityHidden(true)
+            } else if let symbol = item.symbol {
                 LineupIconTile(symbol: symbol, size: 28)
             }
             (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 16) : Text(item.title))

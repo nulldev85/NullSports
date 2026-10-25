@@ -1904,8 +1904,11 @@ final class MediaLibrary {
             completed = localPlaybackRecord(for: item)?.completed == true
                 || (sessionID.flatMap { mdbPlaybackSessions[$0]?.sample?.playing } == false && safePosition / duration >= 0.8)
         }
+        let resolvedMovieIDs = sessionID.flatMap { mdbPlaybackSessions[$0]?.target }
+            .flatMap { $0.kind == .movie ? $0.ids : nil } ?? localPlaybackRecord(for: item)?.mdbMovieIDs
         let record = LocalMediaPlayback(profileID: profileID, item: item.servedBy(profileID),
-            position: safePosition, duration: duration, updatedAt: Date(), completed: completed)
+            position: safePosition, duration: duration, updatedAt: Date(), completed: completed,
+            nativeDuration: duration, mdbMovieIDs: resolvedMovieIDs)
         // Another title's progress is never held over this one's.
         if let held = heldPlayback, held.id != record.id { commitHeldPlayback() }
         let stored = localPlayback.first { $0.id == record.id }
@@ -4917,13 +4920,18 @@ extension MediaLibrary {
         guard let account = trackingAccountID, let profile = serverID(of: item) else { return }
         let key = LibraryTrackingPreferences.cacheKey(account)
         var records = defaults.data(forKey: key).flatMap { try? JSONDecoder().decode([LocalMediaPlayback].self, from: $0) } ?? []
+        let previous = records.first { $0.profileID == profile && Self.samePlaybackItem($0.item, item) }
         records.removeAll { $0.profileID == profile && Self.samePlaybackItem($0.item, item) }
-        let duration = max(1, item.runTimeTicks.map { Double($0) / 10_000_000 }
-            ?? mdbPlaybackSessions[event.sessionID ?? UUID()]?.sample?.duration ?? 1)
+        let sample = event.sessionID.flatMap { mdbPlaybackSessions[$0]?.sample }
+        let nativeDuration = [sample?.duration, previous?.nativeDuration].compactMap { $0 }
+            .first { $0.isFinite && $0 > 0 }
+        let duration = nativeDuration ?? [item.runTimeTicks.map { Double($0) / 10_000_000 }, previous?.duration]
+            .compactMap { $0 }.first { $0.isFinite && $0 > 0 } ?? 1
         let watched = event.action == .watched || ([.pause, .stop].contains(event.action) && event.progress >= 80)
         records.append(LocalMediaPlayback(profileID: profile, item: item, position: duration * event.progress / 100,
             duration: duration, updatedAt: event.occurredAt, completed: watched,
-            explicitlyUnwatched: event.action == .unwatched ? true : nil))
+            explicitlyUnwatched: event.action == .unwatched ? true : nil, nativeDuration: nativeDuration,
+            mdbMovieIDs: event.target.kind == .movie ? event.target.ids : nil))
         if let data = try? JSONEncoder().encode(records) { defaults.set(data, forKey: key) }
         if !localTrackingEnabled {
             if heldPlayback.map({ Self.samePlaybackItem($0.item, item) && $0.profileID == profile }) == true { heldPlayback = nil }
@@ -4949,6 +4957,9 @@ extension MediaLibrary {
         trackingImport?.cancel()
         let token = trackingRevision, started = Date(), account = trackingAccountID
         let localMode = localTrackingEnabled
+        let cached = account.flatMap { defaults.data(forKey: LibraryTrackingPreferences.cacheKey($0)) }
+            .flatMap { try? JSONDecoder().decode([LocalMediaPlayback].self, from: $0) } ?? []
+        let knownPlayback = Dictionary(cached.map { ($0.id, $0) }, uniquingKeysWith: { a, b in a.updatedAt > b.updatedAt ? a : b })
         trackingImport = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
             let inventory: (items: [MediaItem], failure: Error?) = records.isEmpty
@@ -4963,6 +4974,19 @@ extension MediaLibrary {
             for item in titles where ["Movie", "Series"].contains(item.type) {
                 for (provider, id) in MDBListTrackingTarget.normalizedIDs(LibraryMetadataIdentity.ids(item)) {
                     index[item.type + "|" + provider + ":" + id, default: []].append(item)
+                }
+            }
+            let inventoryByID = Dictionary(titles.map { ($0.libraryKey, $0) }, uniquingKeysWith: { first, _ in first })
+            for value in cached where value.item.type == "Movie" && self.recordSources.contains(value.profileID) {
+                let item = inventoryByID[value.item.libraryKey] ?? value.item
+                guard item.type == "Movie" else { continue }
+                let ids = MDBListTrackingTarget.normalizedIDs(value.mdbMovieIDs ?? LibraryMetadataIdentity.ids(value.item))
+                let inventoryIDs = LibraryMetadataIdentity.ids(item)
+                guard !inventoryIDs.contains(where: { provider, id in
+                    ids[provider].map { cachedID in cachedID != id } == true
+                }) else { continue }
+                for (provider, id) in ids {
+                    index["Movie|" + provider + ":" + id, default: []].append(item)
                 }
             }
             var episodeCache: [String: [MediaItem]] = [:]
@@ -4997,19 +5021,32 @@ extension MediaLibrary {
                         target = episode
                     }
                     guard let profile = self.serverID(of: target) else { continue }
-                    if record.state == .progress, (target.runTimeTicks ?? 0) <= 0, record.runtime <= 0 {
+                    let previous = knownPlayback[profile.uuidString + "|" + target.id]
+                    let observedDuration = previous?.nativeDuration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+                    if record.state == .progress, observedDuration == nil, (target.runTimeTicks ?? 0) <= 0, record.runtime <= 0 {
                         do { target = try await self.details(of: target) }
                         catch { return }
                     }
-                    let ownDuration = target.runTimeTicks.map { Double($0) / 10_000_000 } ?? 0
+                    let ownDuration = observedDuration ?? target.runTimeTicks.map { Double($0) / 10_000_000 } ?? 0
                     if record.state == .progress, ownDuration > 0, record.runtime > 0,
-                       abs(ownDuration - record.runtime) > max(60, ownDuration * 0.02) { continue }
+                       abs(ownDuration - record.runtime) > max(60, ownDuration * 0.02) {
+                        // Do not apply another cut's percentage, or erase the
+                        // real resume point this device recorded for its copy.
+                        if observedDuration != nil, var previous {
+                            previous.item = target
+                            if imported[previous.id].map({ $0.updatedAt >= previous.updatedAt }) != true {
+                                imported[previous.id] = previous
+                            }
+                        }
+                        continue
+                    }
                     let duration = max(1, ownDuration > 0 ? ownDuration : record.runtime)
                     if record.state == .progress, duration <= 1 { continue }
                     let value = LocalMediaPlayback(profileID: profile, item: target,
                         position: record.state == .watched ? duration : duration * record.progress / 100,
                         duration: duration, updatedAt: record.updatedAt, completed: record.state == .watched,
-                        isUpNext: record.state == .upNext ? true : nil)
+                        isUpNext: record.state == .upNext ? true : nil, nativeDuration: observedDuration,
+                        mdbMovieIDs: record.target.kind == .movie ? record.target.ids : nil)
                     if let previous = imported[value.id], previous.updatedAt > value.updatedAt { continue }
                     imported[value.id] = value
                 }

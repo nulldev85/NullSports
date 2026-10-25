@@ -105,6 +105,8 @@ struct MobileLineupNavigationBar: View {
                             Text(tab.title)
                                 .font(.inter(labelSize, .semibold))
                                 .lineLimit(1).minimumScaleFactor(0.75)
+                                .foregroundStyle(!liquidGlass && selected ? LineupStyle.highlight
+                                    : (selected ? LineupPresentationStyle.text : LineupPresentationStyle.secondary))
                         }
                     }
                     .foregroundStyle(compact || selected ? LineupPresentationStyle.text : LineupPresentationStyle.secondary)

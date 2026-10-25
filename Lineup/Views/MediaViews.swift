@@ -204,7 +204,7 @@ struct MediaServersView: View {
             }
         }
         var servers = [
-            MobileMenuItem("Seerr · Discover & Requests", symbol: "tray.and.arrow.down") { showingSeerr = true },
+            MobileMenuItem("Seerr · Discover & Requests", imageName: "SeerrLogo") { showingSeerr = true },
             MobileMenuItem("Refresh", symbol: "arrow.clockwise",
                            isEnabled: !media.isLoading && media.hasAnySource) {
                 Task { await media.reload() }

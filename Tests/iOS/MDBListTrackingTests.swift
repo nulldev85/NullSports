@@ -37,15 +37,21 @@ final class MDBListTrackingTests: XCTestCase {
         XCTAssertTrue(condition(), description)
         if !condition() { throw NSError(domain: "MDBListTrackingTests", code: 1) }
     }
-    private func makeLibrary(_ defaults: UserDefaults, mdb: Bool = false, itemID: String = "matrix") throws -> (MediaLibrary, MediaItem) {
+    private func makeLibrary(_ defaults: UserDefaults, mdb: Bool = false, itemID: String = "matrix",
+                             runtime: Int64? = 36_000_000_000, vod: Bool = false) throws -> (MediaLibrary, MediaItem) {
         let profile = MediaServerProfile(name: "Jellyfin", serverURL: "https://server.invalid", username: "viewer", userID: itemID)
-        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        defaults.set(try JSONEncoder().encode(vod ? [] : [profile]), forKey: "NullSports.mediaServers")
+        let provider = XtreamProfile(name: "Fixture VOD", serverURL: "https://provider.invalid", username: "viewer")
+        if vod {
+            defaults.set(try JSONEncoder().encode([provider]), forKey: "NullSports.profiles")
+            defaults.set(provider.id.uuidString, forKey: "NullSports.activeProfile")
+        }
         defaults.set(mdb, forKey: LibraryTrackingPreferences.mdbKey)
         defaults.set(try JSONEncoder().encode(MDBListTrackingAccount(userID: 7,
             keyDigest: MDBListTrackingAccount.digest(key))), forKey: LibraryTrackingPreferences.accountKey)
-        let movie = MediaItem(id: itemID, name: "The Matrix", type: "Movie", overview: nil,
+        let movie = MediaItem(id: vod ? ProviderItem.film(streamID: 42).id : itemID, name: "The Matrix", type: "Movie", overview: nil,
             productionYear: 1999, primaryImageAspectRatio: nil, childCount: nil,
-            runTimeTicks: 36_000_000_000, providerIDs: ["Imdb": "tt0133093"]).servedBy(profile.id)
+            runTimeTicks: runtime, providerIDs: ["Imdb": "tt0133093"]).servedBy(vod ? provider.id : profile.id)
         let transport = session()
         let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""),
             trackingSession: transport, trackingKey: { self.key },
@@ -150,6 +156,125 @@ final class MDBListTrackingTests: XCTestCase {
         XCTAssertEqual(defaults.data(forKey: "Lineup.localMediaPlayback.v1"), saved)
         library.setLocalTrackingEnabled(true)
         XCTAssertEqual(library.resumePosition(for: movie), 420)
+    }
+
+    func testMDBOnlyHalfWatchedVODSurvivesZeroRuntimeAndColdCatalog() async throws {
+        try await assertHalfWatchedMovieRoundTrip(runtime: 0, vod: true)
+    }
+
+    func testMDBOnlyHalfWatchedJellyfinUsesPlayerInsteadOfCatalogRuntime() async throws {
+        try await assertHalfWatchedMovieRoundTrip(runtime: 0)
+        try await assertHalfWatchedMovieRoundTrip(runtime: 72_000_000_000)
+        try await assertHalfWatchedMovieRoundTrip(runtime: nil)
+    }
+
+    private func assertHalfWatchedMovieRoundTrip(runtime: Int64?, vod: Bool = false) async throws {
+        let backend = CrossDeviceTrackingBackend(catalogName: "Catalog Matrix", includesInventoryIDs: false)
+        TrackingTestProtocol.install { try backend.respond(to: $0) }
+        let defaults = try defaults()
+        let (library, movie) = try makeLibrary(defaults, runtime: runtime, vod: vod)
+        library.trackPlayback(of: movie, position: 420, duration: 3600)
+        library.flushLocalPlayback()
+        let localHistory = defaults.data(forKey: "Lineup.localMediaPlayback.v1")
+        library.setLocalTrackingEnabled(false)
+        library.setMDBListTrackingEnabled(true)
+        defer { library.setMDBListTrackingEnabled(false) }
+        try await eventually("initial empty account loaded") { library.mdbListTracking.hasSnapshot }
+        let id = UUID()
+        library.beginPlaybackSession(for: movie, id: id)
+        library.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 10, duration: 3600), for: movie, sessionID: id)
+        try await eventually("real player start uploaded") { backend.progress != nil && library.mdbListTracking.pendingCount == 0 }
+        library.reportTrackingSample(.init(playing: false, pictureInPicture: false, position: 1800, duration: 3600), for: movie, sessionID: id)
+        library.endPlaybackSession(id)
+        try await eventually("half-watched stop acknowledged") {
+            backend.progress == 50 && library.mdbListTracking.pendingCount == 0
+                && TrackingTestProtocol.posts.contains { $0.url?.path == "/scrobble/stop" }
+        }
+        XCTAssertEqual(try XCTUnwrap(library.resumePosition(for: movie)), 1800, accuracy: 0.000001)
+        XCTAssertEqual(try XCTUnwrap(library.continueWatching.first).fraction, 0.5, accuracy: 0.000001)
+        XCTAssertEqual(library.localPlaybackRecord(for: movie)?.nativeDuration, 3600)
+        let stop = try XCTUnwrap(TrackingTestProtocol.posts.last { $0.url?.path == "/scrobble/stop" }).trackingBody()
+        XCTAssertEqual(stop["progress"] as? Double, 50, "The actual 50% must reach MDBList")
+        library.refreshTracking(force: true)
+        try await eventually("same-device progress comes back from the paused account bucket") {
+            guard library.mdbListTracking.hasSnapshot,
+                  let remote = library.mdbListTracking.records.first(where: { $0.state == .progress }),
+                  let current = library.localPlaybackRecord(for: movie) else { return false }
+            return abs(current.updatedAt.timeIntervalSince(remote.updatedAt)) < 0.000001
+                && abs(current.position - 1800) < 0.000001
+        }
+        XCTAssertEqual(library.continueWatching.first?.item.id, movie.id)
+        XCTAssertEqual(defaults.data(forKey: "Lineup.localMediaPlayback.v1"), localHistory, "MDB-only mode keeps device history separate")
+        if vod { XCTAssertNil(library.providerVOD.ready, "The resume point must not wait for the provider catalog") }
+        else { XCTAssertEqual(library.localPlaybackRecord(for: movie)?.item.name, "Catalog Matrix") }
+        // Relaunch with a fresh service and the same account-scoped cache.
+        let restored = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""),
+            trackingSession: session(), trackingKey: { self.key })
+        defer { restored.setMDBListTrackingEnabled(false) }
+        XCTAssertEqual(try XCTUnwrap(restored.resumePosition(for: movie)), 1800, accuracy: 0.000001)
+    }
+
+    func testMDBOnlyKeepsItsNativeResumeWhenRemoteRuntimeDescribesAnotherCut() async throws {
+        let backend = CrossDeviceTrackingBackend(remoteRuntime: 120, catalogName: "Catalog Matrix")
+        TrackingTestProtocol.install { try backend.respond(to: $0) }
+        let defaults = try defaults()
+        let (library, movie) = try makeLibrary(defaults)
+        library.setLocalTrackingEnabled(false)
+        library.setMDBListTrackingEnabled(true)
+        defer { library.setMDBListTrackingEnabled(false) }
+        try await eventually("initial account snapshot") { library.mdbListTracking.hasSnapshot }
+        let id = UUID()
+        library.beginPlaybackSession(for: movie, id: id)
+        library.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 1800, duration: 3600), for: movie, sessionID: id)
+        try await eventually("player start sent") { backend.progress == 50 && library.mdbListTracking.pendingCount == 0 }
+        library.endPlaybackSession(id)
+        try await eventually("stop sent") { TrackingTestProtocol.posts.contains { $0.url?.path == "/scrobble/stop" } && library.mdbListTracking.pendingCount == 0 }
+        library.refreshTracking(force: true)
+        try await eventually("incompatible remote cut preserves this copy and refreshes its display metadata") {
+            library.mdbListTracking.hasSnapshot && library.localPlaybackRecord(for: movie)?.item.name == "Catalog Matrix"
+        }
+        XCTAssertEqual(try XCTUnwrap(library.resumePosition(for: movie)), 1800, accuracy: 0.000001)
+        XCTAssertEqual(library.continueWatching.first?.duration, 3600, "Never reinterpret this copy's 50% as 3600 seconds of a two-hour cut")
+        let watchedAt = ISO8601DateFormatter().string(from: Date().addingTimeInterval(60))
+        TrackingTestProtocol.install { request in
+            if request.url?.path == "/sync/watched",
+               URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains(where: {
+                   $0.name == "mediatype" && $0.value == "movie"
+               }) == true {
+                return (200, [:], "{\"movies\":[{\"last_watched_at\":\"\(watchedAt)\",\"movie\":{\"ids\":{\"imdb\":\"tt0133093\"}}}],\"pagination\":{\"next_cursor\":null}}")
+            }
+            return try backend.respond(to: request)
+        }
+        library.refreshTracking(force: true)
+        try await eventually("newer watched history wins over preserved progress for an incompatible cut") {
+            library.isWatched(movie) && library.continueWatching.isEmpty
+        }
+    }
+
+    func testMDBMovieIdentityLinkRestoresMetadataPoorInventoryAndLegacyCacheStillDecodes() async throws {
+        let backend = CrossDeviceTrackingBackend(includesInventoryIDs: false)
+        backend.setPausedProgress(50)
+        TrackingTestProtocol.install { try backend.respond(to: $0) }
+        let defaults = try defaults()
+        let (library, movie) = try makeLibrary(defaults)
+        let sparse = MediaItem(id: movie.id, name: "Provider title", type: "Movie", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil).servedBy(movie.serverID!)
+        let known = LocalMediaPlayback(profileID: movie.serverID!, item: sparse, position: 1500, duration: 3600,
+            updatedAt: .distantPast, completed: false, nativeDuration: 3600, mdbMovieIDs: ["imdb": "tt0133093"])
+        defaults.set(try JSONEncoder().encode([known]), forKey: LibraryTrackingPreferences.cacheKey(7))
+        library.setLocalTrackingEnabled(false)
+        library.setMDBListTrackingEnabled(true)
+        defer { library.setMDBListTrackingEnabled(false) }
+        try await eventually("verified movie link matches exact source/item despite missing inventory IDs") {
+            library.mdbListTracking.hasSnapshot && library.resumePosition(for: sparse) == 1800
+        }
+        XCTAssertEqual(library.continueWatching.first?.profileID, movie.serverID)
+        XCTAssertNil(defaults.data(forKey: "Lineup.localMediaPlayback.v1"))
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(known)) as? [String: Any])
+        legacy.removeValue(forKey: "nativeDuration"); legacy.removeValue(forKey: "mdbMovieIDs")
+        let decoded = try JSONDecoder().decode(LocalMediaPlayback.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertNil(decoded.nativeDuration); XCTAssertNil(decoded.mdbMovieIDs)
+        XCTAssertEqual(decoded.position, known.position)
     }
 
     func testOpeningThenClosingNeverSendsRemoteActivity() async throws {
@@ -580,15 +705,29 @@ private final class CrossDeviceTrackingBackend: @unchecked Sendable {
     private var stored: [String: Any]?
     private var paused = false
     private var gate: DispatchSemaphore?
-    init(firstWriteGate: DispatchSemaphore? = nil) { gate = firstWriteGate }
+    private let remoteRuntime: Int
+    private let catalogName: String
+    private let includesInventoryIDs: Bool
+    init(firstWriteGate: DispatchSemaphore? = nil, remoteRuntime: Int = 0,
+         catalogName: String = "The Matrix", includesInventoryIDs: Bool = true) {
+        gate = firstWriteGate; self.remoteRuntime = remoteRuntime
+        self.catalogName = catalogName; self.includesInventoryIDs = includesInventoryIDs
+    }
     var progress: Double? { lock.lock(); defer { lock.unlock() }; return stored?["progress"] as? Double }
+    func setPausedProgress(_ progress: Double) {
+        lock.lock(); defer { lock.unlock() }
+        stored = ["progress": progress, "updated_at_ts": Date().timeIntervalSince1970, "runtime": remoteRuntime,
+                  "movie": ["ids": ["imdb": "tt0133093"]]]
+        paused = true
+    }
     func respond(to request: URLRequest) throws -> (Int, [String: String], String) {
         let path = request.url!.path
         if request.url?.host == "server.invalid" {
             let parts = path.split(separator: "/")
             let user = parts.firstIndex(of: "users").map { String(parts[$0 + 1]) } ?? "matrix"
             if path.hasSuffix("/items") {
-                return (200, [:], "{\"Items\":[{\"Id\":\"\(user)\",\"Name\":\"The Matrix\",\"Type\":\"Movie\",\"ProviderIds\":{\"Imdb\":\"tt0133093\"}}]}")
+                let ids = includesInventoryIDs ? ",\"ProviderIds\":{\"Imdb\":\"tt0133093\"}" : ""
+                return (200, [:], "{\"Items\":[{\"Id\":\"\(user)\",\"Name\":\"\(catalogName)\",\"Type\":\"Movie\"\(ids)}]}")
             }
             let item = parts.last.map(String.init) ?? user
             return (200, [:], "{\"Id\":\"\(item)\",\"Name\":\"The Matrix\",\"Type\":\"Movie\",\"RunTimeTicks\":36000000000,\"ProviderIds\":{\"Imdb\":\"tt0133093\"}}")
@@ -600,7 +739,7 @@ private final class CrossDeviceTrackingBackend: @unchecked Sendable {
             lock.lock()
             if let progress = body["progress"] as? Double {
                 stored = ["progress": progress, "progress_at_update": progress,
-                    "updated_at_ts": Date().timeIntervalSince1970, "runtime": 0,
+                    "updated_at_ts": Date().timeIntervalSince1970, "runtime": remoteRuntime,
                     "movie": ["ids": ["imdb": "tt0133093"]]]
                 paused = path != "/scrobble/start"
             } else if path == "/sync/watched/remove" { stored = nil }

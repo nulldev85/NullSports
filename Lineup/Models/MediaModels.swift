@@ -579,6 +579,13 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     /// playback. Optional keeps existing on-device records decodable.
     var isUpNext: Bool? = nil
 
+    /// A duration measured by this copy's player, rather than catalog runtime.
+    /// Optional keeps existing device/account caches compatible.
+    var nativeDuration: TimeInterval? = nil
+    /// Verified account identity for a movie whose lightweight provider row
+    /// may omit external IDs. Never used to match by title alone.
+    var mdbMovieIDs: [String: String]? = nil
+
     var id: String { profileID.uuidString + "|" + item.id }
 
     var fraction: Double {
