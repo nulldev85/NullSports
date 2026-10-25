@@ -49,7 +49,6 @@ extension MediaLibrary {
 }
 
 extension MediaLibrary {
-    #if os(iOS)
     /// Visible title art does not wait for full cast/overview/ratings metadata.
     /// Resolve only a missing external identity required by Fanart's namespace.
     func fastFanartLogo(for item: MediaItem) async -> URL? {
@@ -62,22 +61,14 @@ extension MediaLibrary {
         return await MobileFanart.shared.logo(for: identity)
     }
 
-    func warmTitleLogos(for item: MediaItem, pixels: Int) async {
-        if let own = logoURL(for: item) {
-            LineupArt.prefetch(own, pixels: pixels)
-            return
-        }
-        guard fanartEnabled else { return }
-        await withTaskGroup(of: URL?.self) { group in
-            group.addTask { await self.fastFanartLogo(for: item) }
-            group.addTask { await self.tmdbTitleLogo(for: item) }
-            for await url in group {
-                guard !Task.isCancelled else { group.cancelAll(); return }
-                LineupArt.prefetch(url, pixels: pixels)
-            }
-        }
+    func warmTitleLogos(for item: MediaItem) async {
+        let enabled = fanartEnabled
+        let key = LineupTitleArtwork.cacheKey(for: item, catalogEnabled: enabled)
+        let artwork = LineupTitleArtwork()
+        await artwork.load(key: key, pixels: LineupTitleArtwork.pixels, server: logoURL(for: item), cacheKey: key,
+            fanart: { enabled ? await self.fastFanartLogo(for: item) : nil },
+            tmdb: { enabled ? await self.tmdbTitleLogo(for: item) : nil })
     }
-    #endif
 
     /// A server logo remains first choice. For title artwork, Fanart.tv is
     /// preferred, then TMDB's matching logo artwork, with the title text as

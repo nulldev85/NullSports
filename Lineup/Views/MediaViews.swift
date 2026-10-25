@@ -2541,6 +2541,11 @@ private struct MediaDetailScreen: View {
         #endif
         .modifier(FullBleedHeader())
         .task(id: item.libraryKey) { await load() }
+        .task(id: "title-logo|" + media.metadataRequestKey(for: detail ?? item)) {
+            // Begin even while TV prepares seasons/backdrop/focus. The title
+            // view can use the same decoded logo on its very first frame.
+            await media.warmTitleLogos(for: detail ?? item)
+        }
         .task(id: media.metadataRequestKey(for: detail ?? item)) {
             await media.resolveMetadata(for: detail ?? item)
         }
@@ -3989,8 +3994,6 @@ private struct TVMediaLibraryPreview: View {
     /// Each title's ratings once found. The hero moves on every few seconds
     /// and comes back round, and a title it has shown keeps its chips.
     @State private var ratings: [String: MediaRatings] = [:]
-    /// Catalog title logos, for titles whose server has none of its own.
-    @State private var titleLogos: [String: URL] = [:]
 
     var body: some View {
         Group {
@@ -4024,34 +4027,20 @@ private struct TVMediaLibraryPreview: View {
             let found = await media.ratings(for: item)
             ratings[item.libraryKey] = found
         }
-        // A server's own logo comes first; catalog title logos fill in where
-        // there is none -- a provider's title, a list's -- as on the phone.
-        .task(id: originalItem.map { "\(media.metadataRequestKey(for: $0))|\(media.fanartEnabled)" }) {
-            guard let item, media.logoURL(for: item, width: 620) == nil,
-                  titleLogos[item.libraryKey] == nil else { return }
-            if let logo = await media.titleLogo(for: item), !Task.isCancelled {
-                titleLogos[item.libraryKey] = logo
-            }
-        }
     }
 
     @ViewBuilder
     private func titleLockup(_ item: MediaItem) -> some View {
-        let titleLogo = media.fanartEnabled ? titleLogos[item.libraryKey] : nil
-        LineupArtView(url: media.logoURL(for: item, width: 620) ?? titleLogo, width: 620) { loaded in
-            if let loaded {
-                loaded.resizable().scaledToFit()
-            } else {
-                Text(item.name)
-                    .font(.inter(46, .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
-                    .multilineTextAlignment(steady ? .center : .leading)
-                    .shadow(color: .black.opacity(0.72), radius: 12, y: 3)
-            }
+        LineupTitleLogo(item: item, width: 620, height: compact ? 76 : 105,
+                        alignment: steady ? .center : .leading) {
+            Text(item.name)
+                .font(.inter(46, .bold))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .multilineTextAlignment(steady ? .center : .leading)
+                .shadow(color: .black.opacity(0.72), radius: 12, y: 3)
         }
-        .frame(width: 620, height: compact ? 76 : 105, alignment: steady ? .center : .leading)
     }
 
     @ViewBuilder
@@ -4194,13 +4183,12 @@ private struct MediaLibraryHero: View {
                         let candidates = items
                         guard isVisible, scenePhase == .active, candidates.count > 1 else { return }
                         do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
-                        let logoPixels = LineupArt.pixels(for: min(copyWidth, max(32, viewport.size.width - heroHorizontalPadding * 2)))
                         // Only the next two hero titles, never every Library
                         // poster. Existing API/image coalescers bound the work.
                         await withTaskGroup(of: Void.self) { group in
                             for step in 1...min(2, candidates.count - 1) {
                                 let upcoming = candidates[(current + step) % candidates.count]
-                                group.addTask(priority: .utility) { await media.warmTitleLogos(for: upcoming, pixels: logoPixels) }
+                                group.addTask(priority: .utility) { await media.warmTitleLogos(for: upcoming) }
                             }
                         }
                     }

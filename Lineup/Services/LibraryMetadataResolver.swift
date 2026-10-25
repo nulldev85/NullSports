@@ -98,6 +98,8 @@ actor LibraryMetadataResolver {
     private let credentials: LibraryMetadataCredentials
     private let session: URLSession
     private let cacheURL: URL?
+    private let titleLogoCache: TitleLogoURLCache
+    private var titleLogoLoads: [String: Task<URL?, Never>] = [:]
     private var restored = false
     private var cache: [String: Entry] = [:]
     private var inFlight: [String: Task<LibraryMetadata?, Never>] = [:]
@@ -118,6 +120,7 @@ actor LibraryMetadataResolver {
         self.credentials = credentials
         self.session = session
         self.cacheURL = cacheURL
+        self.titleLogoCache = TitleLogoURLCache(cacheURL: cacheURL?.appendingPathExtension("title-logos"))
     }
 
     func resolve(_ item: MediaItem, source: LibraryMetadataSource, parent: MediaItem? = nil) async -> LibraryMetadata? {
@@ -208,14 +211,27 @@ actor LibraryMetadataResolver {
     /// shares the resolver's coalescing, response cache, and request limits.
     func titleLogo(for item: MediaItem) async -> URL? {
         guard ["Movie", "Series"].contains(item.type), credentials.contains(.tmdb) else { return nil }
+        let logoKey = "tmdb|" + LibraryMetadataIdentity.requestKey(item, source: .tmdb)
+        if let task = titleLogoLoads[logoKey] { return await task.value }
+        let task = Task { await self.resolveTitleLogo(for: item, key: logoKey) }
+        titleLogoLoads[logoKey] = task
+        let result = await task.value
+        titleLogoLoads[logoKey] = nil
+        return result
+    }
+
+    private func resolveTitleLogo(for item: MediaItem, key logoKey: String) async -> URL? {
+        if let remembered = await titleLogoCache.logo(for: logoKey) { return remembered }
         let resolvedID: String?
-        do { resolvedID = try await tmdbID(item.withMetadata(nil)) }
+        do { resolvedID = try await tmdbID(item) }
         catch { return nil }
         guard let resolvedID, let numericID = Int(resolvedID), numericID > 0 else { return nil }
         let kind = item.isSeries ? "tv" : "movie"
         guard let data = try? await tmdbCatalogData("\(kind)/\(numericID)/images",
             query: ["include_image_language": "en-US,null"], lifetime: 86_400) else { return nil }
-        return TMDBTitleLogoPolicy.logo(data, expectedID: numericID)
+        guard let logo = TMDBTitleLogoPolicy.logo(data, expectedID: numericID) else { return nil }
+        await titleLogoCache.remember(logo, for: logoKey)
+        return logo
     }
 
     /// On-demand display data. Credits are tied to a verified external title ID

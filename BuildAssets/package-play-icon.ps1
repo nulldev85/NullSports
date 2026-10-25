@@ -41,21 +41,21 @@ function Write-TV([Drawing.Image]$Mark, [int]$Width, [int]$Height, [string]$Stac
     $middle = New-Canvas $Width $Height $false
     $foreground = New-Canvas $Width $Height $false
     $bg = New-Graphics $background
-    $glow = New-Graphics $middle
+    $shade = New-Graphics $middle
     $fg = New-Graphics $foreground
     $field = [Drawing.Drawing2D.LinearGradientBrush]::new(
         [Drawing.Rectangle]::new(0, 0, $Width, $Height),
-        [Drawing.Color]::FromArgb(9, 9, 10), [Drawing.Color]::FromArgb(2, 2, 3),
+        [Drawing.Color]::FromArgb(18, 18, 20), [Drawing.Color]::FromArgb(3, 3, 4),
         [Drawing.Drawing2D.LinearGradientMode]::Vertical)
-    $haloPath = [Drawing.Drawing2D.GraphicsPath]::new()
-    $haloPath.AddEllipse([single]($Width * 0.19), [single](-$Height * 0.04), [single]($Width * 0.62), [single]($Height * 1.08))
-    $halo = [Drawing.Drawing2D.PathGradientBrush]::new($haloPath)
-    $halo.CenterColor = [Drawing.Color]::FromArgb(112, 158, 0, 37)
-    $halo.SurroundColors = @([Drawing.Color]::FromArgb(0, 0, 0, 0))
+    $shadowPath = [Drawing.Drawing2D.GraphicsPath]::new()
+    $shadowPath.AddEllipse([single]($Width * 0.29), [single]($Height * 0.20), [single]($Width * 0.44), [single]($Height * 0.78))
+    $shadow = [Drawing.Drawing2D.PathGradientBrush]::new($shadowPath)
+    $shadow.CenterColor = [Drawing.Color]::FromArgb(160, 0, 0, 0)
+    $shadow.SurroundColors = @([Drawing.Color]::FromArgb(0, 0, 0, 0))
     try {
         $bg.FillRectangle($field, 0, 0, $Width, $Height)
-        $glow.Clear([Drawing.Color]::Transparent)
-        $glow.FillPath($halo, $haloPath)
+        $shade.Clear([Drawing.Color]::Transparent)
+        $shade.FillPath($shadow, $shadowPath)
         $fg.Clear([Drawing.Color]::Transparent)
         # Uniform scaling preserves the triangle's proportions in the 5:3 tile.
         $edge = [single]($Height * 1.25)
@@ -65,22 +65,26 @@ function Write-TV([Drawing.Image]$Mark, [int]$Width, [int]$Height, [string]$Stac
         Save-Canvas $middle (Join-Path $base ("Middle.imagestacklayer/Content.imageset/Middle{0}.png" -f $Suffix))
         Save-Canvas $foreground (Join-Path $base ("Foreground.imagestacklayer/Content.imageset/Foreground{0}.png" -f $Suffix))
     } finally {
-        $halo.Dispose(); $haloPath.Dispose(); $field.Dispose()
-        $bg.Dispose(); $glow.Dispose(); $fg.Dispose()
+        $shadow.Dispose(); $shadowPath.Dispose(); $field.Dispose()
+        $bg.Dispose(); $shade.Dispose(); $fg.Dispose()
         $background.Dispose(); $middle.Dispose(); $foreground.Dispose()
     }
 }
 
-function Write-Banner([Drawing.Image]$Artwork, [int]$Width, [int]$Height, [string]$Folder, [string]$Suffix) {
+function Write-Banner([Drawing.Image]$Mark, [int]$Width, [int]$Height, [string]$Folder, [string]$Suffix) {
     $canvas = New-Canvas $Width $Height $true
     $graphics = New-Graphics $canvas
+    $field = [Drawing.Drawing2D.LinearGradientBrush]::new(
+        [Drawing.Rectangle]::new(0, 0, $Width, $Height),
+        [Drawing.Color]::FromArgb(18, 18, 20), [Drawing.Color]::FromArgb(3, 3, 4),
+        [Drawing.Drawing2D.LinearGradientMode]::Vertical)
     try {
-        $graphics.Clear([Drawing.Color]::FromArgb(7, 7, 8))
+        $graphics.FillRectangle($field, 0, 0, $Width, $Height)
         $edge = [single]($Height * 0.95)
-        $graphics.DrawImage($Artwork, [Drawing.RectangleF]::new(($Width - $edge) / 2, ($Height - $edge) / 2, $edge, $edge))
+        $graphics.DrawImage($Mark, [Drawing.RectangleF]::new(($Width - $edge) / 2, ($Height - $edge) / 2, $edge, $edge))
         $filename = $Folder.Replace(' ', '') + $Suffix + '.png'
         Save-Canvas $canvas (Join-Path $television ($Folder + '.imageset/' + $filename))
-    } finally { $graphics.Dispose(); $canvas.Dispose() }
+    } finally { $field.Dispose(); $graphics.Dispose(); $canvas.Dispose() }
 }
 
 $color = [Drawing.Image]::FromFile((Join-Path $masters 'icon-color.png'))
@@ -93,8 +97,8 @@ try {
     Write-TV $mark 400 240 'App Icon - Small' ''
     Write-TV $mark 800 480 'App Icon - Small' '@2x'
     Write-TV $mark 1280 768 'App Icon - Large' ''
-    Write-Banner $color 1920 720 'Top Shelf Image' ''
-    Write-Banner $color 3840 1440 'Top Shelf Image' '@2x'
-    Write-Banner $color 2320 720 'Top Shelf Image Wide' ''
-    Write-Banner $color 4640 1440 'Top Shelf Image Wide' '@2x'
+    Write-Banner $mark 1920 720 'Top Shelf Image' ''
+    Write-Banner $mark 3840 1440 'Top Shelf Image' '@2x'
+    Write-Banner $mark 2320 720 'Top Shelf Image Wide' ''
+    Write-Banner $mark 4640 1440 'Top Shelf Image Wide' '@2x'
 } finally { $color.Dispose(); $tinted.Dispose(); $mark.Dispose() }

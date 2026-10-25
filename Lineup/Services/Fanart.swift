@@ -1,7 +1,7 @@
 import Foundation
 
 actor MobileFanart {
-    static let shared = MobileFanart()
+    static let shared = MobileFanart(logoCache: .shared)
     static let bundledKey: String = {
         guard let url = Bundle.main.url(forResource: "LineupMetadata", withExtension: "json"),
               let data = try? Data(contentsOf: url),
@@ -12,12 +12,15 @@ actor MobileFanart {
     private struct Entry { let logo: URL?; let expiry: Date }
     private let key: String
     private let session: URLSession
+    private let logoCache: TitleLogoURLCache
     private var cache: [MobileFanartIdentity: Entry] = [:]
     private var running: [MobileFanartIdentity: Task<Entry, Never>] = [:]
     private var retryAfter = Date.distantPast
 
-    init(key: String = MobileFanart.bundledKey, session: URLSession? = nil) {
+    init(key: String = MobileFanart.bundledKey, session: URLSession? = nil,
+         logoCache: TitleLogoURLCache = TitleLogoURLCache(cacheURL: nil)) {
         self.key = key
+        self.logoCache = logoCache
         if let session { self.session = session }
         else {
             let config = URLSessionConfiguration.ephemeral
@@ -29,7 +32,10 @@ actor MobileFanart {
     }
 
     func logo(for identity: MobileFanartIdentity) async -> URL? {
+        guard !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if let cached = cache[identity], cached.expiry > Date() { return cached.logo }
+        let logoKey = "fanart|\(identity.kind.rawValue)|\(identity.id)"
+        if let remembered = await logoCache.logo(for: logoKey) { return remembered }
         if let task = running[identity] { return await task.value.logo }
         guard retryAfter <= Date(), running.count < 8, let request = identity.request(key: key) else { return nil }
         let session = session
@@ -61,6 +67,7 @@ actor MobileFanart {
             if cache.count >= 256 { cache.removeAll() }
         }
         cache[identity] = entry
+        if let logo = entry.logo { await logoCache.remember(logo, for: logoKey) }
         return entry.logo
     }
 }

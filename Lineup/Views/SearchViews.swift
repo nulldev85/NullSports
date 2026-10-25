@@ -76,6 +76,17 @@ struct AppSearchView: View {
         .id(homeRevision)
         .mobileTabHome(.search) {
             pushed = nil
+            selectedGenre = nil
+            query = ""
+            searchedTerm = ""
+            category = nil
+            results = AppSearchResults()
+            serverProblem = nil
+            searchingServers = false
+            choice = nil
+            cancelQualityCheck()
+            providerResultsTask?.cancel()
+            providerSearchID = UUID()
             homeRevision &+= 1
         }
         #endif
