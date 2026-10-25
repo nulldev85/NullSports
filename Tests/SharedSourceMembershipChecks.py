@@ -104,7 +104,7 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                        "iPhone/MobileWelcomePosterBackdrop.swift", "iPhone/MobileNavigationScrollObserver.swift",
                        "iPhone/MobileGuideDefaultCategory.swift", "iPhone/MobileGuideCategoryVisibility.swift",
                        "iPhone/MobileAccentWheel.swift", "iPhone/MobileWelcomeSignalBackdrop.swift",
-                       "iPhone/MobileIntegrationControls.swift"):
+                       "iPhone/MobileIntegrationControls.swift", "iPhone/MobileLibraryDetailControls.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))
             self.assertFalse(is_included(project, "Lineup", source))

@@ -2787,34 +2787,60 @@ private struct MediaDetailScreen: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 12) {
-            Button { chosen = playTarget } label: { playLabel.modifier(MediaChromeFocus()) }
-            .lineupFlatButton()
-            .disabled(playTarget == nil)
-            .opacity(playTarget == nil ? 0.45 : 1)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Button { chosen = playTarget } label: {
+                    playLabel
+                        #if os(tvOS)
+                        .modifier(MediaChromeFocus())
+                        #endif
+                }
+                #if os(tvOS)
+                .lineupFlatButton()
+                #else
+                .buttonStyle(MobileLibraryDetailButtonStyle())
+                #endif
+                .disabled(playTarget == nil)
+                #if os(tvOS)
+                .opacity(playTarget == nil ? 0.45 : 1)
+                #endif
 
-            // Keep the Library useful even when a server cannot write user
-            // state, while still mirroring the choice back when it can.
-            Group {
-                iconButton("heart", on: favorite) {
-                    favorite.toggle()
-                    media.setLocalFavorite(favorite, for: subject)
-                    Task { await media.setFavorite(favorite, for: subject) }
+                // Keep the Library useful even when a server cannot write user
+                // state, while still mirroring the choice back when it can.
+                Group {
+                    iconButton("heart", on: favorite) {
+                        favorite.toggle()
+                        media.setLocalFavorite(favorite, for: subject)
+                        Task { await media.setFavorite(favorite, for: subject) }
+                    }
+                    iconButton("eye", on: watched) {
+                        let value = !media.isWatched(subject)
+                        Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
+                    }
                 }
-                iconButton("eye", on: watched) {
-                    let value = !media.isWatched(subject)
-                    Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
+                // Nothing to shuffle through on a film.
+                if subject.isSeries {
+                    iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
+                        .disabled(episodes.isEmpty)
                 }
-            }
-            // Nothing to shuffle through on a film.
-            if subject.isSeries {
-                iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
-                    .disabled(episodes.isEmpty)
             }
             if media.seerr.isConnected {
                 NavigationLink { SeerrLibraryRequestView(item: subject).environment(media) } label: {
+                    #if os(tvOS)
                     Label("Seerr", systemImage: "tray.and.arrow.down")
-                }.lineupButtonStyle()
+                    #else
+                    HStack(spacing: 8) {
+                        Image("SeerrLogo").renderingMode(.original).resizable().scaledToFit()
+                            .frame(width: 22, height: 22).accessibilityHidden(true)
+                        Text("Seerr")
+                    }.padding(.horizontal, 14)
+                    #endif
+                }
+                #if os(tvOS)
+                .lineupButtonStyle()
+                #else
+                .buttonStyle(MobileLibraryDetailButtonStyle())
+                #endif
             }
         }
         .lineupFocusRegion()
@@ -2834,9 +2860,14 @@ private struct MediaDetailScreen: View {
     @ViewBuilder
     private var playLabel: some View {
         let text = HStack(spacing: 10) {
+            #if os(tvOS)
             LineupIconTile(symbol: "play.fill", size: 26)
+            #else
+            Image(systemName: "play.fill").font(.system(size: 18, weight: .bold))
+                .foregroundStyle(LineupStyle.highlight).accessibilityHidden(true)
+            #endif
             Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
-                .font(.inter(17, .semibold))
+                .font(.inter(17, .heavy))
             if let code = playTarget?.episodeCode {
                 // Quieter than the word beside it, on the same dark surface
                 // both platforms now use.
@@ -2853,6 +2884,7 @@ private struct MediaDetailScreen: View {
 
     @ViewBuilder
     private func iconButton(_ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
+        #if os(tvOS)
         // The reference app's tile, in its own colour while on and grey
         // while off, standing in for the button it is.
         let label = LineupIconTile(symbol: symbol, size: buttonHeight,
@@ -2860,10 +2892,17 @@ private struct MediaDetailScreen: View {
             .overlay(RoundedRectangle(cornerRadius: buttonHeight * 0.26, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
             .modifier(MediaChromeFocus())
-        #if os(tvOS)
         TVSelectable(scale: LineupStyle.controlLift, action: action) { label }
         #else
-        Button(action: action) { label }.lineupFlatButton()
+        Button(action: action) {
+            Image(systemName: on && ["heart", "eye"].contains(symbol) ? symbol + ".fill" : symbol)
+                .font(.system(size: 21, weight: .semibold))
+                .frame(width: buttonHeight, height: buttonHeight)
+        }
+        .buttonStyle(MobileLibraryDetailButtonStyle(selected: on))
+        .accessibilityLabel(symbol == "heart" ? (on ? "Remove from Favorites" : "Add to Favorites")
+            : symbol == "eye" ? (on ? "Mark Unwatched" : "Mark Watched") : "Shuffle Episodes")
+        .accessibilityAddTraits(on && symbol != "shuffle" ? [.isSelected] : [])
         #endif
     }
 
