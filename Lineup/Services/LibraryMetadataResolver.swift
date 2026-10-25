@@ -217,6 +217,17 @@ actor LibraryMetadataResolver {
         return TMDBTitleLogoPolicy.logo(data, expectedID: numericID)
     }
 
+    /// On-demand display data. Credits are tied to a verified external title ID
+    /// and share the existing bounded, coalesced request/cache implementation.
+    func cast(for item: MediaItem) async -> [LibraryCastMember] {
+        guard ["Movie", "Series"].contains(item.type), credentials.contains(.tmdb),
+              !LibraryMetadataIdentity.ids(item).isEmpty,
+              let raw = try? await tmdbID(item), let id = Int(raw), id > 0 else { return [] }
+        let path = item.isSeries ? "tv/\(id)/aggregate_credits" : "movie/\(id)/credits"
+        guard let data = try? await tmdbCatalogData(path, query: [:], lifetime: 86_400) else { return [] }
+        return LibraryCastMember.credits(data, expectedID: id)
+    }
+
     private func tmdbCatalogData(_ path: String, query: [String: String], lifetime: TimeInterval) async throws -> Data {
         guard credentials.contains(.tmdb) else { throw Failure.unavailable }
         let cacheKey = ([path] + query.keys.sorted().map { "\($0)=\(query[$0] ?? "")" }).joined(separator: "?")
@@ -229,7 +240,8 @@ actor LibraryMetadataResolver {
             catalogInFlight[cacheKey] = nil
             catalogCache[cacheKey] = CatalogEntry(data: data, expires: Date().addingTimeInterval(lifetime))
             if catalogCache.count > 80 {
-                catalogCache = catalogCache.filter { $0.value.expires > Date() }
+                catalogCache = Dictionary(uniqueKeysWithValues: catalogCache.filter { $0.value.expires > Date() }
+                    .sorted { $0.value.expires > $1.value.expires }.prefix(80).map { ($0.key, $0.value) })
             }
             return data
         } catch {

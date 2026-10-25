@@ -2495,6 +2495,7 @@ private struct MediaDetailScreen: View {
     /// IMDb, TMDB and Rotten Tomatoes, once found. The television draws its
     /// page through the hero's own view, which finds them itself.
     @State private var pageRatings: MediaRatings?
+    @State private var castCredits: [LibraryCastMember] = []
     #endif
 
     private var subject: MediaItem { media.displayItem(detail ?? item) }
@@ -2513,8 +2514,8 @@ private struct MediaDetailScreen: View {
             detailContent
             #endif
         }
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
+        .background(detailGround.ignoresSafeArea())
+        .foregroundStyle(detailText)
         #if !os(tvOS)
         .overlayPreferenceValue(MediaSeasonMenuAnchor.self) { anchor in
             GeometryReader { proxy in
@@ -2532,6 +2533,14 @@ private struct MediaDetailScreen: View {
         }
         #if !os(tvOS)
         .task(id: item.libraryKey) { pageRatings = await media.ratings(for: item) }
+        .task(id: castRequestKey) {
+            castCredits = []
+            let requested = subject
+            let credits = await media.castCredits(for: requested)
+            guard !Task.isCancelled else { return }
+            castCredits = credits
+        }
+        .mobileExpandNavigationOnAppear()
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .toolbar {
             if ["Movie", "Series"].contains(subject.type) {
@@ -2568,8 +2577,9 @@ private struct MediaDetailScreen: View {
                 hero
                 VStack(alignment: .leading, spacing: 16) {
                     GeometryReader { titleArea in
-                        MobileFanartTitle(item: subject, width: titleArea.size.width, height: 88) {
+                        MobileFanartTitle(item: subject, width: titleArea.size.width, height: 88, alignment: .center) {
                             Text(subject.name).font(titleFont).lineLimit(2).minimumScaleFactor(0.8)
+                                .multilineTextAlignment(.center).frame(maxWidth: .infinity)
                         }
                     }.frame(height: 88)
                     if let ratings = pageRatings ?? media.knownRatings(for: subject), !ratings.isEmpty {
@@ -2592,6 +2602,8 @@ private struct MediaDetailScreen: View {
             }
             .padding(.bottom, 44)
         }
+        .defaultScrollAnchor(.top)
+        .id(item.libraryKey)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #endif
     }
@@ -2710,7 +2722,7 @@ private struct MediaDetailScreen: View {
                         Image(uiImage: preparedHero).resizable().scaledToFill()
                     }
                     #else
-                    LineupArtView(url: heroURL, width: heroWidth) { loaded in
+                    MobileLibraryArtView(url: heroURL, pixels: LineupArt.pixels(for: heroWidth)) { loaded in
                         if let image = loaded { image.resizable().scaledToFill() }
                         // The gradient behind is the placeholder, so there is
                         // nothing to draw here -- but something has to be
@@ -2733,8 +2745,8 @@ private struct MediaDetailScreen: View {
             .overlay(alignment: .bottom) {
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: LineupStyle.background.opacity(0.62), location: 0.46),
-                    .init(color: LineupStyle.background, location: 0.9)
+                    .init(color: detailGround.opacity(0.62), location: 0.46),
+                    .init(color: detailGround, location: 0.9)
                 ], startPoint: .top, endPoint: .bottom)
                     .frame(height: fadeHeight)
             }
@@ -3003,7 +3015,7 @@ private struct MediaDetailScreen: View {
                 #endif
             }
         }
-        .modifier(PhoneShelfPanel(bottom: 18))
+        .modifier(PhoneDetailPanel(bottom: 18))
     }
 
     // MARK: - More about this title
@@ -3036,7 +3048,7 @@ private struct MediaDetailScreen: View {
                     .padding(.horizontal, horizontalPadding)
                 }
             }
-            .modifier(PhoneShelfPanel(bottom: 18))
+            .modifier(PhoneDetailPanel(bottom: 18))
         }
     }
 
@@ -3063,7 +3075,13 @@ private struct MediaDetailScreen: View {
 
     @ViewBuilder
     private var castSection: some View {
+        #if os(tvOS)
         let cast = (subject.people ?? []).filter { $0.type?.lowercased() == "actor" }
+        #else
+        let cast = LibraryCastMember.merged(provider: subject.people ?? [], credits: castCredits) {
+            media.personImageURL(for: $0, of: subject)
+        }
+        #endif
         if !cast.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 detailSectionTitle("Cast", symbol: "person.2")
@@ -3072,6 +3090,7 @@ private struct MediaDetailScreen: View {
                         ForEach(cast) { person in
                             VStack(alignment: .leading, spacing: 6) {
                                 ZStack {
+                                    #if os(tvOS)
                                     RoundedRectangle(cornerRadius: 12).fill(LineupStyle.surface)
                                     LineupArtView(url: media.personImageURL(for: person, of: subject), width: 112) { loaded in
                                         if let image = loaded {
@@ -3082,8 +3101,11 @@ private struct MediaDetailScreen: View {
                                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.35))
                                         }
                                     }
+                                    #else
+                                    MobileCastPortrait(member: person)
+                                    #endif
                                 }
-                                .frame(width: 112, height: 150)
+                                .frame(width: castPortraitWidth, height: castPortraitHeight)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 Text(person.name).font(.inter(.caption, .semibold)).lineLimit(2)
                                 if let role = person.role, !role.isEmpty {
@@ -3091,13 +3113,20 @@ private struct MediaDetailScreen: View {
                                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                                 }
                             }
-                            .frame(width: 112, alignment: .leading)
+                            .frame(width: castPortraitWidth, alignment: .leading)
                         }
                     }
                     .padding(.horizontal, horizontalPadding)
                 }
+                #if !os(tvOS)
+                if !castCredits.isEmpty {
+                    Link("Cast · TMDB", destination: URL(string: "https://www.themoviedb.org/")!)
+                        .font(.inter(.caption2)).foregroundStyle(LineupPresentationStyle.secondary)
+                        .padding(.horizontal, horizontalPadding)
+                }
+                #endif
             }
-            .modifier(PhoneShelfPanel(bottom: 18))
+            .modifier(PhoneDetailPanel(bottom: 18))
         }
     }
 
@@ -3143,7 +3172,7 @@ private struct MediaDetailScreen: View {
                 .lineupFocusRegion()
                 #endif
             }
-            .modifier(PhoneShelfPanel())
+            .modifier(PhoneDetailPanel())
         }
     }
 
@@ -3212,12 +3241,16 @@ private struct MediaDetailScreen: View {
     private func load() async {
         loading = true
         error = nil
+        detail = nil
+        nextUp = nil
+        seasons = []; selectedSeason = nil; episodes = []
         related = []
         pageReady = false
         #if os(tvOS)
         preparedHero = nil
         #endif
         let loaded = try? await media.details(of: item)
+        guard !Task.isCancelled else { return }
         detail = loaded ?? item
         favorite = (loaded ?? item).isFavorite || media.isLocalFavorite(loaded ?? item)
         let detailedItem = subject
@@ -3316,11 +3349,50 @@ private struct MediaDetailScreen: View {
 
     // MARK: - Metrics
 
+    private var detailGround: Color {
+        #if os(tvOS)
+        LineupStyle.background
+        #else
+        LineupPresentationStyle.ground
+        #endif
+    }
+
+    private var detailText: Color {
+        #if os(tvOS)
+        LineupStyle.lightPurple
+        #else
+        LineupPresentationStyle.text
+        #endif
+    }
+
+    private var castPortraitWidth: CGFloat {
+        #if os(tvOS)
+        112
+        #else
+        96
+        #endif
+    }
+
+    private var castPortraitHeight: CGFloat {
+        #if os(tvOS)
+        150
+        #else
+        128
+        #endif
+    }
+
+    #if !os(tvOS)
+    private var castRequestKey: String {
+        let ids = LibraryMetadataIdentity.ids(subject)
+        return ([subject.libraryKey] + ids.keys.sorted().map { "\($0):\(ids[$0] ?? "")" }).joined(separator: "|")
+    }
+    #endif
+
     private var heroURL: URL? {
         #if os(tvOS)
         media.backdropURL(for: subject) ?? media.imageURL(for: subject, width: 1280)
         #else
-        media.imageURL(for: subject, width: 900)
+        media.backdropURL(for: subject, width: 1280) ?? media.imageURL(for: subject, width: 900)
         #endif
     }
     /// Wider than any iPhone, so the hero is never decoded short of the screen
@@ -3346,7 +3418,7 @@ private struct MediaDetailScreen: View {
         // the whole page on entry and clipped the tab/navigation chrome.
         3
         #else
-        2 / 3
+        16 / 10
         #endif
     }
     /// How far the page's text reaches up into the fading art. Negative: it is
@@ -3355,17 +3427,15 @@ private struct MediaDetailScreen: View {
         #if os(tvOS)
         -110
         #else
-        0
+        -36
         #endif
     }
-    /// How far the art is feathered into the page at its foot. A phone keeps
-    /// this short: the fade used to run 160 points up a poster and take the
-    /// artwork's own title into shadow with it.
+    /// Feather the landscape backdrop into the detail page's title block.
     private var fadeHeight: CGFloat {
         #if os(tvOS)
         250
         #else
-        80
+        120
         #endif
     }
     private var horizontalPadding: CGFloat {
@@ -7271,8 +7341,23 @@ private struct TVShelfTitle: View {
 }
 #endif
 
-/// A Library shelf as a panel on the phone: its posters scroll inside the
-/// card, between its edges. The television keeps its open rows.
+/// Details use the same dark panels as the updated app presentations.
+private struct PhoneDetailPanel: ViewModifier {
+    var bottom: CGFloat = 6
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content
+        #else
+        content.padding(.bottom, bottom)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
+            .overlay(LineupPanelStyle.shape.strokeBorder(LineupPresentationStyle.border, lineWidth: 0.7))
+            .padding(.horizontal, LineupPanelStyle.margin)
+        #endif
+    }
+}
+
+/// Main Library shelves keep their existing approved panel appearance.
 private struct PhoneShelfPanel: ViewModifier {
     /// Under the last row: posters bring 8 of their own, other rows none.
     var bottom: CGFloat = 6

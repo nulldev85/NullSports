@@ -1022,6 +1022,10 @@ final class MediaLibrary {
         await metadataResolver.titleLogo(for: item)
     }
 
+    func castCredits(for item: MediaItem) async -> [LibraryCastMember] {
+        await metadataResolver.cast(for: item)
+    }
+
     func metadataRequestKey(for item: MediaItem) -> String {
         let source = item.type == "Episode" ? episodeDataSource : metadataSource
         if source == .provider { return "provider|" + item.libraryKey }

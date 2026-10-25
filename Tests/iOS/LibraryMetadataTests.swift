@@ -26,6 +26,61 @@ final class LibraryMetadataTests: XCTestCase {
         super.tearDown()
     }
 
+    func testCastCreditsUseExactMovieIdentityAndCoalesceWithoutSearchingForPeople() async {
+        MetadataTestProtocol.install { request in
+            XCTAssertEqual(request.url?.path, "/3/movie/603/credits")
+            return (200, #"{"id":603,"cast":[{"id":10,"name":"Actor One","character":"Lead","profile_path":"/first.jpg"},{"id":11,"name":"Actor Two","profile_path":null},{"id":10,"name":"Duplicate"},{"id":0,"name":"Invalid"},{"id":12,"name":" "}]}"#)
+        }
+        let service = resolver()
+        let movie = item("Movie", ids: ["tmdb": "603"])
+        async let first = service.cast(for: movie)
+        async let second = service.cast(for: movie)
+        let (a, b) = await (first, second)
+        XCTAssertEqual(a, b)
+        XCTAssertEqual(a.map(\.name), ["Actor One", "Actor Two"])
+        XCTAssertEqual(a.first?.imageURL?.absoluteString, "https://image.tmdb.org/t/p/w185/first.jpg")
+        XCTAssertEqual(a.first?.role, "Lead")
+        XCTAssertNil(a.last?.imageURL)
+        XCTAssertEqual(MetadataTestProtocol.requestCount, 1)
+        let cached = await service.cast(for: movie)
+        XCTAssertEqual(cached, a)
+        let unverified = await service.cast(for: item("No external identity"))
+        XCTAssertTrue(unverified.isEmpty)
+        XCTAssertEqual(MetadataTestProtocol.requestCount, 1, "Unidentified titles must not trigger a people/name search")
+    }
+
+    func testSeriesCastUsesAggregateCreditsAndRejectsMismatchedTitlesAndUnsafePortraitPaths() async {
+        MetadataTestProtocol.install { request in
+            XCTAssertEqual(request.url?.path, "/3/tv/1000/aggregate_credits")
+            return (200, #"{"id":1000,"cast":[{"id":10,"name":"Actor One","roles":[{"character":"Doctor"},{"character":"Narrator"}],"profile_path":"/portrait.jpg"},{"id":11,"name":"Actor Two","profile_path":"//untrusted.test/portrait.jpg"}]}"#)
+        }
+        let credits = await resolver().cast(for: item("Series", type: "Series", ids: ["tmdb": "1000"]))
+        XCTAssertEqual(credits.first?.role, "Doctor, Narrator")
+        XCTAssertEqual(credits.first?.imageURL?.host, "image.tmdb.org")
+        XCTAssertNil(credits.last?.imageURL)
+        let wrong = Data(#"{"id":1001,"cast":[{"id":10,"name":"Wrong title","profile_path":"/portrait.jpg"}]}"#.utf8)
+        XCTAssertTrue(LibraryCastMember.credits(wrong, expectedID: 1000).isEmpty)
+    }
+
+    func testCastMergePreservesServerRolesPhotosAndNamesWithOnlyUniqueTitleCreditFallbacks() {
+        let serverURL = URL(string: "https://provider.test/person.jpg")!
+        let remoteURL = URL(string: "https://image.tmdb.org/t/p/w185/person.jpg")!
+        let people = [MediaPerson(personID: "person-1", name: "Actor One", role: "Provider role", type: "Actor", primaryImageTag: "tag"),
+                      MediaPerson(personID: nil, name: "Actor Two", role: nil, type: "Actor", primaryImageTag: nil)]
+        let remote = [LibraryCastMember(id: "tmdb:10", name: "actor ONE", role: "Remote role", imageURL: remoteURL),
+                      LibraryCastMember(id: "tmdb:11", name: "Actor Two", role: "Second role", imageURL: remoteURL),
+                      LibraryCastMember(id: "tmdb:12", name: "Actor Three", role: nil, imageURL: nil)]
+        let merged = LibraryCastMember.merged(provider: people, credits: remote) { $0.personID == "person-1" ? serverURL : nil }
+        XCTAssertEqual(merged.map(\.name), ["Actor One", "Actor Two", "Actor Three"])
+        XCTAssertEqual(merged[0].role, "Provider role")
+        XCTAssertEqual(merged[0].imageURL, serverURL)
+        XCTAssertEqual(merged[0].fallbackImageURL, remoteURL, "A refused server image can fall back to the same actor's verified title credit")
+        XCTAssertEqual(merged[1].imageURL, remoteURL)
+        let ambiguous = remote + [.init(id: "tmdb:20", name: "Actor One", role: nil, imageURL: remoteURL)]
+        let unmatched = LibraryCastMember.merged(provider: people, credits: ambiguous) { _ in nil }
+        XCTAssertNil(unmatched.first?.imageURL, "Ambiguous equal names must not guess an actor portrait")
+    }
+
     func testProviderJSONAndPlaybackHistoryRetainOriginalData() throws {
         let raw = MediaItem(id: "ep", name: "Provider name", type: "Episode", overview: "Provider summary",
             productionYear: 2024, primaryImageAspectRatio: nil, childCount: nil,

@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[1]
 SHARED = (
     "Lineup/Views/LiveQualityProgress.swift",
+    "Lineup/Models/LibraryCast.swift",
     "Lineup/Design/LineupPresentationStyle.swift",
     "Lineup/Services/MediaIntegrationHTTP.swift",
     "Lineup/Services/SeerrClient.swift",
@@ -104,7 +105,8 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                        "iPhone/MobileWelcomePosterBackdrop.swift", "iPhone/MobileNavigationScrollObserver.swift",
                        "iPhone/MobileGuideDefaultCategory.swift", "iPhone/MobileGuideCategoryVisibility.swift",
                        "iPhone/MobileAccentWheel.swift", "iPhone/MobileWelcomeSignalBackdrop.swift",
-                       "iPhone/MobileIntegrationControls.swift", "iPhone/MobileLibraryDetailControls.swift"):
+                       "iPhone/MobileIntegrationControls.swift", "iPhone/MobileLibraryDetailControls.swift",
+                       "iPhone/MobileCastPortrait.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))
             self.assertFalse(is_included(project, "Lineup", source))

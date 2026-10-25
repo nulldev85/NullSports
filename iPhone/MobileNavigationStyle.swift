@@ -475,7 +475,16 @@ private struct MobileNativeTabBarVisibility: ViewModifier {
     }
 }
 
+private struct MobileExpandedNavigation: ViewModifier {
+    @Environment(\.mobileTabNavigation) private var navigation
+    func body(content: Content) -> some View {
+        content.onAppear { navigation?.expand() }
+    }
+}
+
 extension View {
+    func mobileExpandNavigationOnAppear() -> some View { modifier(MobileExpandedNavigation()) }
+
     func mobileTabHome(_ tab: MobileNavigationTab, reset: @escaping () -> Void) -> some View {
         background(MobileTabHomeRegistration(tab: tab, reset: reset)
             .frame(width: 0, height: 0).allowsHitTesting(false))
