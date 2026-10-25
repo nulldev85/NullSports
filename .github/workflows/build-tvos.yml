@@ -103,8 +103,8 @@ jobs:
 
       # The icon layers are committed artwork. They used to be rebuilt here from
       # a source bitmap on every run, which meant a new icon was overwritten by
-      # the old one before it ever reached a build. BuildAssets/generate-icons.py
-      # draws them when the mark itself changes.
+      # the old one before it ever reached a build. BuildAssets/package-play-icon.ps1
+      # packages the approved masters when the artwork itself changes.
       - name: Generate project
         run: |
           set -euo pipefail

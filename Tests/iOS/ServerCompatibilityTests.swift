@@ -50,6 +50,43 @@ final class ServerCompatibilityTests: XCTestCase {
         let items = try await client.items(userID: "user-1", ids: ["item-1"])
         XCTAssertEqual(items.first?.name, "Movie")
         CompatibilityProtocol.install { request in
+            XCTAssertEqual(request.url?.path, "/jellyfin/u/test-alias/users/user-1/items/item-1")
+            XCTAssertEqual(request.httpMethod, "GET")
+            let value = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?
+                .first { $0.name == "Fields" }?.value
+            // Nullfin defaults a missing Fields query to resolving streams.
+            // Make that expensive branch fail: details must work without it.
+            guard let value, !value.split(separator: ",").contains("MediaSources") else {
+                XCTFail("Opening details must not require stream addons or their probes")
+                throw URLError(.timedOut)
+            }
+            let fields = Set(value.split(separator: ",").map(String.init))
+            XCTAssertTrue(fields.isSuperset(of: ["People", "ProviderIds", "RunTimeTicks",
+                                                 "Genres", "RemoteTrailers", "Overview"]))
+            return #"""
+            {"Id":"item-1","Name":"Movie","Type":"Movie",
+             "Overview":"Full details without stream resolution","RunTimeTicks":72000000000,
+             "Genres":["Comedy"],"ProviderIds":{"Tmdb":"603","Imdb":"tt0133093"},
+             "People":[{"Id":"person-1","Name":"Actor","Type":"Actor","PrimaryImageTag":"portrait"}],
+             "RemoteTrailers":[{"Name":"Trailer","Url":"https://example.test/trailer"}],
+             "ImageTags":{"Primary":"poster","Logo":"title-logo"},
+             "UserData":{"Played":false,"IsFavorite":true,"PlayedPercentage":50}}
+            """#
+        }
+        let detail = try await client.item(userID: "user-1", itemID: "item-1")
+        XCTAssertEqual(detail.id, "item-1")
+        XCTAssertEqual(detail.overview, "Full details without stream resolution")
+        XCTAssertEqual(detail.runtimeMinutes, 120)
+        XCTAssertEqual(detail.genres, ["Comedy"])
+        XCTAssertEqual(detail.people?.first?.primaryImageTag, "portrait")
+        XCTAssertEqual(detail.providerIDs?["Tmdb"], "603")
+        XCTAssertEqual(detail.remoteTrailers?.first?.name, "Trailer")
+        XCTAssertEqual(detail.imageTags?["Logo"], "title-logo")
+        XCTAssertEqual(detail.userData?.isFavorite, true)
+        XCTAssertEqual(detail.userData?.playedPercentage, 50)
+        // The same client's Play request still resolves fresh versions and
+        // retains the exact version/snapshot needed for reliable playback.
+        CompatibilityProtocol.install { request in
             XCTAssertEqual(request.url?.path, "/jellyfin/u/test-alias/items/item-1/playbackinfo")
             XCTAssertEqual(request.httpMethod, "POST")
             let body = try XCTUnwrap(JSONSerialization.jsonObject(with: CompatibilityProtocol.body(request)) as? [String: Any])

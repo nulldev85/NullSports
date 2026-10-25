@@ -621,6 +621,10 @@ struct AppSearchGenre: Identifiable, Hashable {
         .init(title: "War", assetName: "SearchGenreWar", movieGenre: "War", seriesGenre: "War & Politics"),
         .init(title: "Western", assetName: "SearchGenreWestern", movieGenre: "Western", seriesGenre: "Western")
     ]
+
+    static let alphabetical = all.sorted {
+        $0.title.localizedStandardCompare($1.title) == .orderedAscending
+    }
 }
 
 private struct AppSearchGenreGrid: View {
@@ -628,14 +632,16 @@ private struct AppSearchGenreGrid: View {
     #if os(tvOS)
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 24), count: 4)
     private let spacing: CGFloat = 24
+    private let genres = AppSearchGenre.all
     #else
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
     private let spacing: CGFloat = 12
+    private let genres = AppSearchGenre.alphabetical
     #endif
 
     var body: some View {
         LazyVGrid(columns: columns, alignment: .center, spacing: spacing) {
-            ForEach(AppSearchGenre.all) { genre in
+            ForEach(genres) { genre in
                 #if os(tvOS)
                 TVSelectable(drawsFocusChrome: false, action: { select(genre) }) {
                     AppSearchGenreCard(genre: genre)

@@ -308,6 +308,13 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(genres.count, 18)
         XCTAssertEqual(Set(genres.map(\.assetName)).count, genres.count)
         XCTAssertEqual(Set(genres.map(\.title)).count, genres.count)
+        XCTAssertEqual(AppSearchGenre.alphabetical.map(\.title), [
+            "Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary",
+            "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Mystery",
+            "Romance", "Sci-Fi", "Thriller", "War", "Western"
+        ])
+        XCTAssertEqual(Set(AppSearchGenre.alphabetical), Set(genres),
+                       "Sorting must retain every genre's artwork and movie/series mappings")
         for genre in genres {
             XCTAssertTrue(genre.assetName.hasPrefix("SearchGenre"))
             XCTAssertNotNil(UIImage(named: genre.assetName), "\(genre.title) art must be in the app's asset catalog")
