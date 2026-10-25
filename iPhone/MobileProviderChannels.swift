@@ -1,6 +1,12 @@
 import Foundation
 import CryptoKit
 
+@MainActor
+struct MobileProviderPlaybackSource {
+    let library: SportsLibrary
+    let stream: XtreamStream
+}
+
 /// Numbered channel IDs are unique only inside the account that issued them.
 struct MobileProviderChannel: Identifiable, Sendable {
     struct ID: Hashable, Sendable {
@@ -45,6 +51,8 @@ actor MobileProviderCatalog {
     private var cached: [String: MobileProviderSnapshot] = [:]
     private var pending: [String: Task<MobileProviderSnapshot, Error>] = [:]
     private var waiters: [UUID: CheckedContinuation<Void, Error>] = [:]
+
+    func invalidate() { cached.removeAll() }
 
     init(loader: @escaping Loader = MobileProviderCatalog.download) { self.loader = loader }
 

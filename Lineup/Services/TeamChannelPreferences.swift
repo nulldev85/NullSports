@@ -145,6 +145,14 @@ struct GameChannelSelection: Codable, Equatable, Sendable {
         expiresAt = max(gameStart.addingTimeInterval(lifetime),
                         savedAt.addingTimeInterval(lifetime))
     }
+
+    private init(streamID: Int, channelName: String, expiresAt: Date) {
+        self.streamID = streamID; self.channelName = channelName; self.expiresAt = expiresAt
+    }
+
+    func replacingStreamID(_ id: Int) -> Self {
+        Self(streamID: id, channelName: channelName, expiresAt: expiresAt)
+    }
 }
 
 /// Provider-scoped working channels for individual games, chosen by the viewer

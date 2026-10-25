@@ -1,5 +1,11 @@
 # iPhone provider identity and game feeds
 
+Build 142 supersedes the single-active-provider behavior described below.
+See [Concurrent providers](iphone-concurrent-providers.md): enabled providers
+are combined in Sports, TV Guide and Search, and selecting a feed no longer
+switches the preferred account. Build 141's complete IPA workflow passed before
+this extension; the new SDK regressions await the build142 workflow.
+
 Build 138 adds the active IPTV provider's name beneath the Sports masthead and
 in the manual channel search. Sports → Channels now searches every saved provider,
 keeps the quality sections, and labels every feed with its service name.

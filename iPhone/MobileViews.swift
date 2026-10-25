@@ -77,8 +77,7 @@ struct MainView: View {
         case .sports:
             MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
         case .guide:
-            MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
-                .id(library.activeProfile?.id)
+            MobileCombinedGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
         case .library: MediaServersView()
         case .search: AppSearchView { playing = $0 }
         case .settings: MobileAccountView(selectedTab: $tab)
@@ -471,7 +470,7 @@ private struct AccountSourceRow: View {
             }
             .buttonStyle(.plain)
             .disabled(selectionDisabled)
-            .accessibilityLabel("\(name), \(isActive ? "active provider" : "switch provider")")
+            .accessibilityLabel("\(name), \(isActive ? "preferred provider" : "make preferred provider")")
             Button(action: rename) {
                 Image(systemName: "pencil").frame(minWidth: 44, minHeight: 44)
                     .foregroundStyle(LineupPanelStyle.listValue)
@@ -528,16 +527,23 @@ private struct MobileIPTVSettingsView: View {
             }
             Section {
                 ForEach(library.profiles) { profile in
+                    VStack(alignment: .leading, spacing: 8) {
                     AccountSourceRow(
                         name: profile.name,
                         detail: profile.username,
                         isActive: library.activeProfile?.id == profile.id,
-                        selectionDisabled: library.isSwitchingProfile || library.channelsAreSyncing,
+                        selectionDisabled: library.isSwitchingProfile || library.channelsAreSyncing || !library.isProviderEnabled(profile.id),
                         removalDisabled: library.isSwitchingProfile,
                         select: { Task { await library.selectProfile(profile) } },
                         rename: { providerName = profile.name; renamingProfile = profile },
                         remove: { removingProfile = profile }
                     )
+                    Toggle("Enabled for Sports, TV Guide & Search", isOn: Binding(
+                        get: { library.isProviderEnabled(profile.id) },
+                        set: { library.setProviderEnabled(profile.id, enabled: $0) }))
+                        .font(.inter(.caption)).tint(LineupStyle.highlight)
+                        .accessibilityLabel("Enable \(profile.name)")
+                    }
                 }
                 Button { addingProvider = true } label: {
                     SettingsRow("Add Provider", symbol: "plus")
@@ -547,7 +553,7 @@ private struct MobileIPTVSettingsView: View {
             } header: {
                 Text("Providers").lineupSettingsHeader()
             } footer: {
-                Text("The checked provider is active. Sports → Channels searches all saved providers. Each keeps its own favorites, preferred channels and recents. Use the pencil to rename a provider.")
+                Text("Enable multiple providers together. Sports, TV Guide and Search combine their live channels. Each keeps its own login, favorites, preferred channels and recents. The checkmark selects the preferred provider for provider VOD and legacy defaults; selecting a feed does not change it. Use the pencil to rename a provider.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()

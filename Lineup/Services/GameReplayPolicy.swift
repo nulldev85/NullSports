@@ -53,7 +53,7 @@ enum MobileGameReplayPolicy {
     /// followed team's game and are checked by their recorded program titles.
     static func candidates(streams: [XtreamStream], categories: [XtreamCategory],
                            followed: Set<String>, teams: [Team]) -> [XtreamStream] {
-        let names = Dictionary(categories.map { ($0.id, $0.categoryName) }, uniquingKeysWith: { first, _ in first })
+        let names = Dictionary(categories.map { ($0.id, $0.matchingName) }, uniquingKeysWith: { first, _ in first })
         return streams.filter { stream in
             guard !Task.isCancelled, stream.hasCatchUp else { return false }
             let context = text(stream.name + " " + (names[stream.categoryID ?? ""] ?? ""))

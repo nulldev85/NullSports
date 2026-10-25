@@ -28,6 +28,10 @@ enum MobileGuideDefaultCategory {
                               hasFavorites: Bool, isGamePicker: Bool = false) -> MobileGuideFilter {
         guard !isGamePicker else { return .all }
         if let id = categoryID(for: profileID, in: value), categoryIDs.contains(id) { return .category(id) }
+        if let profileID, let id = categoryID(for: profileID, in: value) {
+            let qualified = "\(profileID.uuidString)|\(id)"
+            if categoryIDs.contains(qualified) { return .category(qualified) }
+        }
         // A removed category must never strand the user on an empty Guide.
         return hasFavorites ? .favorites : .all
     }

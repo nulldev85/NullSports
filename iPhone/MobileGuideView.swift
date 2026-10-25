@@ -34,6 +34,7 @@ struct MobileGuideView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
     @AppStorage(MobileGuideDefaultCategory.storageKey) private var defaultCategories = "{}"
+    @AppStorage("lineup.mobile.guide.combinedDefaultProvider.v1") private var defaultProviderValue = ""
     @State private var query = ""
     @State private var showsSearch = false
     /// The TV Guide's options, dropped from the bar's ellipsis.
@@ -102,9 +103,15 @@ struct MobileGuideView: View {
     /// behavior. Manual choices last until the next entry to this tab.
     private var filter: MobileGuideFilter {
         if let chosenFilter { return chosenFilter }
-        return MobileGuideDefaultCategory.initialFilter(for: library.activeProfile?.id, in: defaultCategories,
+        return MobileGuideDefaultCategory.initialFilter(for: defaultCategoryProfile, in: defaultCategories,
             categoryIDs: library.categories.map(\.id), hasFavorites: !library.favoriteStreamOrder.isEmpty,
             isGamePicker: game != nil)
+    }
+
+    private var defaultCategoryProfile: UUID? {
+        if library.providerRoot !== library, let id = UUID(uuidString: defaultProviderValue),
+           library.isProviderEnabled(id) { return id }
+        return library.activeProfile?.id
     }
 
     /// A search looks through every channel, whatever the Guide is showing.
@@ -159,7 +166,10 @@ struct MobileGuideView: View {
                                     .font(.inter(.caption2)).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
                         }
-                        if channels.isEmpty && filter == .favorites && !searching {
+                        if library.providerRoot.enabledProfiles.isEmpty {
+                            LineupUnavailableView("No enabled providers", systemImage: "tv",
+                                description: Text("Enable a service in Settings → IPTV."))
+                        } else if channels.isEmpty && filter == .favorites && !searching {
                             LineupUnavailableView("No favorites", systemImage: "star",
                                 description: Text("Touch and hold a channel to add it to your favorites, or pick All channels from the menu."))
                         } else if channels.isEmpty {
@@ -192,7 +202,7 @@ struct MobileGuideView: View {
                                 expanded: fillsScreen, showsMetadata: showsMetadata,
                                 videoHeight: fillsScreen ? fullHeight : videoHeight,
                                 screenInsets: viewport.safeAreaInsets,
-                                providerName: library.activeProfile?.name,
+                                providerName: library.providerName(for: stream),
                                 onClose: closePlayer, onExpand: sideways ? nil : { setExpanded(!expanded) },
                                 onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) },
                                 // Up and down the list on screen, whatever it
@@ -327,7 +337,18 @@ struct MobileGuideView: View {
             .onChange(of: query) { _, _ in resetGuideScrollPosition() }
             .onChange(of: library.favoriteStreamOrder) { _, _ in resetGuideScrollPosition() }
             .onChange(of: library.recentStreamOrder) { _, _ in resetGuideScrollPosition() }
-            .onChange(of: library.streamsRevision) { _, _ in resetGuideScrollPosition() }
+            .onChange(of: library.streamsRevision) { _, _ in
+                if let stream = selectedStream, library.stream(withID: stream.id) == nil { closePlayer() }
+                if let id = chosenFilter?.categoryID, !library.categories.contains(where: { $0.id == id }) { chosenFilter = nil }
+                resetGuideScrollPosition()
+            }
+            .onChange(of: library.providerRoot.enabledProfiles.map(\.id)) { _, _ in
+                if let stream = selectedStream {
+                    let source = library.playbackSource(for: stream)
+                    if library.stream(withID: stream.id) == nil
+                        || source.library.activeProfile.map({ library.providerRoot.isProviderEnabled($0.id) }) != true { closePlayer() }
+                }
+            }
             .onChange(of: isActive) { _, active in
                 if !active { cancelQualityCheck() }
                 // Leaving the Guide tab still tears the player down — except
@@ -491,17 +512,18 @@ struct MobileGuideView: View {
     }
 
     private var filterSections: [MobileMenuSection] {
-        let profileID = library.activeProfile?.id
-        let defaultID = MobileGuideDefaultCategory.categoryID(for: profileID, in: defaultCategories)
         let currentFilter = filter
         let categories = library.categories.map { category in
-            MobileGuideCategoryMenu.item(for: category, isSelected: currentFilter == .category(category.id),
-                isDefault: defaultID == category.id, allowsDefault: game == nil && profileID != nil, select: {
+            let source = library.categorySource(for: category.id)
+            let defaultID = MobileGuideDefaultCategory.categoryID(for: source.profileID, in: defaultCategories)
+            return MobileGuideCategoryMenu.item(for: category, isSelected: currentFilter == .category(category.id),
+                isDefault: defaultID == source.categoryID, allowsDefault: game == nil && source.profileID != nil, select: {
                 chosenFilter = .category(category.id)
             }, changeDefault: { categoryID in
-                guard let profileID, library.activeProfile?.id == profileID, game == nil,
+                guard let profileID = source.profileID, library.isProviderEnabled(profileID), game == nil,
                       library.categories.contains(where: { $0.id == category.id }) else { return }
-                defaultCategories = MobileGuideDefaultCategory.setting(categoryID, for: profileID, in: defaultCategories)
+                defaultCategories = MobileGuideDefaultCategory.setting(categoryID == nil ? nil : source.categoryID, for: profileID, in: defaultCategories)
+                defaultProviderValue = categoryID == nil ? "" : profileID.uuidString
                 chosenFilter = nil
                 setFilterMenu(false)
             })
@@ -529,7 +551,7 @@ struct MobileGuideView: View {
 
     private func restoreDefaultCategoryOnEntry() {
         chosenFilter = MobileGuideDefaultCategory.selectionOnEntry(chosenFilter,
-            for: library.activeProfile?.id, in: defaultCategories, isGamePicker: game != nil)
+            for: defaultCategoryProfile, in: defaultCategories, isGamePicker: game != nil)
     }
 
     /// What the TV Guide's dropdown offers: getting about, which channels the

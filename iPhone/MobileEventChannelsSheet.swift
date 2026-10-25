@@ -27,6 +27,7 @@ struct MobileEventChannelsSheet: View {
     let library: SportsLibrary
     let game: SportsGame
     let playingID: Int?
+    let playingProfileID: UUID?
     let onPick: (MobileProviderChannel) -> Void
     @State private var channels: [MobileProviderChannel] = []
     @State private var providerIssues: [MobileProviderIssue] = []
@@ -35,21 +36,24 @@ struct MobileEventChannelsSheet: View {
     @State private var retry = 0
     @State private var openedProfileID: UUID?
 
-    init(library: SportsLibrary, game: SportsGame, playingID: Int?, onPick: @escaping (MobileProviderChannel) -> Void) {
-        self.library = library; self.game = game; self.playingID = playingID; self.onPick = onPick
-        _openedProfileID = State(initialValue: library.activeProfile?.id)
+    init(library: SportsLibrary, game: SportsGame, playingID: Int?, playingProfileID: UUID? = nil,
+         onPick: @escaping (MobileProviderChannel) -> Void) {
+        self.library = library.providerRoot; self.game = game; self.playingID = playingID; self.onPick = onPick
+        self.playingProfileID = playingProfileID
+        _openedProfileID = State(initialValue: library.providerRoot.activeProfile?.id)
     }
 
     private var current: SportsGame { library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game }
 
     var body: some View {
         MobileEventChannelsContent(game: current, channels: channels, loading: loading,
-            waiting: waiting, playingID: playingID, playingProfileID: openedProfileID,
-            activeProviderName: library.activeProfile?.name, providerIssues: providerIssues, onPick: { entry in
+            waiting: waiting, playingID: playingID, playingProfileID: playingProfileID,
+            activeProviderName: library.profiles.first { $0.id == playingProfileID }?.name, providerIssues: providerIssues, onPick: { entry in
                 // Activation revalidates this exact source and evidence after
                 // the sheet dismisses, before recording a manual preference.
                 guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
                 guard current.isLive || current.isUpcoming,
+                      library.isProviderEnabled(entry.profile.id),
                       library.profiles.contains(where: {
                           SportsLibrary.sameProviderConnection($0, entry.profile)
                       }) else { reload(); return }
@@ -68,7 +72,7 @@ struct MobileEventChannelsSheet: View {
     private func load() async {
         guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
         let event = current
-        let profiles = library.profiles
+        let profiles = library.enabledProfiles
         let board = library.eventChannelTournamentBoard
         loading = true
         providerIssues = []
@@ -166,10 +170,10 @@ struct MobileEventChannelsContent: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if let name = activeProviderName {
-                            Label("Active provider: \(name)", systemImage: "checkmark.circle.fill")
+                            Label("Playing provider: \(name)", systemImage: "checkmark.circle.fill")
                                 .font(.inter(12, .semibold)).foregroundStyle(LineupStyle.secondary)
                         }
-                        Text("All saved providers · Selecting a feed makes its provider active")
+                        Text("Channels from all enabled providers")
                             .font(.inter(11)).foregroundStyle(LineupPanelStyle.quiet)
                         ForEach(providerIssues) { issue in
                             Label(issue.message, systemImage: "exclamationmark.triangle")

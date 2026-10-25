@@ -7,6 +7,58 @@ import VLCKitSPM
 
 @MainActor
 final class AetherPlaybackTests: XCTestCase {
+    func testTwoEnabledProvidersWithTheSameNativeChannelIDPlayConcurrentlyWithoutSwitchingAccounts() async throws {
+        let file = try fixture("playback-live", "ts")
+        let firstOrigin = try PlaybackFixtureServer(file: file, contentType: "video/mp2t")
+        let secondOrigin = try PlaybackFixtureServer(file: file, contentType: "video/mp2t")
+        defer { firstOrigin.stop(); secondOrigin.stop() }
+        try await waitUntil("Both provider origins must be listening") { firstOrigin.port != nil && secondOrigin.port != nil }
+        let first = XtreamProfile(name: "First IPTV", serverURL: "http://127.0.0.1:\(try XCTUnwrap(firstOrigin.port))", username: "one")
+        let second = XtreamProfile(name: "Second IPTV", serverURL: "http://127.0.0.1:\(try XCTUnwrap(secondOrigin.port))", username: "two")
+        let suite = "AetherConcurrentProviders.\(UUID())"
+        let saved = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { saved.removePersistentDomain(forName: suite) }
+        saved.set(try JSONEncoder().encode([first, second]), forKey: "NullSports.profiles")
+        saved.set(first.id.uuidString, forKey: "NullSports.activeProfile")
+        let credentials = ProviderCredentialStore(password: { $0 == first.id ? "first-test" : "second-test" },
+            save: { _, _ in XCTFail("Playback must not rewrite credentials") }, delete: { _ in XCTFail("Playback must not delete credentials") })
+        let root = SportsLibrary(profileDefaults: saved, credentials: credentials)
+        let channel = XtreamStream(num: 1, name: "Concurrent fixture", streamType: "live", streamID: 7,
+            streamIcon: nil, epgChannelID: nil, categoryID: nil)
+        let catalog = MobileProviderCatalog { _, _ in
+            MobileProviderSnapshot(categories: [], streams: [channel], programs: [:], fetchedAt: Date())
+        }
+        let guide = await root.combinedGuide(catalog: catalog)
+        let a = try XCTUnwrap(guide.streams.first { guide.playbackSource(for: $0).library.activeProfile?.id == first.id })
+        let b = try XCTUnwrap(guide.streams.first { guide.playbackSource(for: $0).library.activeProfile?.id == second.id })
+        let (defaults, preferenceSuite) = try preferences(.aether)
+        defer { defaults.removePersistentDomain(forName: preferenceSuite) }
+        let one = MobilePlaybackController(defaults: defaults), two = MobilePlaybackController(defaults: defaults)
+        one.isLive = false; two.isLive = false
+        one.allowsPictureInPicture = false; two.allowsPictureInPicture = false
+        two.isPrimaryOutput = false; two.audioMuted = true
+        let (window, _, previous) = try show(one)
+        let host = MobileVideoHost(frame: CGRect(x: 0, y: 300, width: 390, height: 220))
+        host.controller = two
+        window.rootViewController?.view.addSubview(host)
+        two.attachVideo(host)
+        defer { one.shutdown(); two.shutdown(); window.isHidden = true; previous?.makeKey() }
+        one.start(urls: guide.playbackURLs(for: a).filter { $0.pathExtension == "ts" }, channelID: a.id)
+        two.start(urls: guide.playbackURLs(for: b).filter { $0.pathExtension == "ts" }, channelID: b.id)
+        guard await waitForRenderedPicture(one, route: "first IPTV provider"),
+              await waitForRenderedPicture(two, route: "second IPTV provider") else { return }
+        let firstSession = try XCTUnwrap(one.aetherSession), secondSession = try XCTUnwrap(two.aetherSession)
+        XCTAssertFalse(firstSession === secondSession)
+        let timeA = firstSession.position, timeB = secondSession.position
+        try await waitUntil("Both independent provider clocks must advance together") {
+            one.isPlaying && two.isPlaying && firstSession.hasPicture && secondSession.hasPicture
+                && firstSession.position > timeA + 0.25 && secondSession.position > timeB + 0.25
+        }
+        XCTAssertEqual(root.activeProfile?.id, first.id)
+        XCTAssertEqual(saved.string(forKey: "NullSports.activeProfile"), first.id.uuidString)
+        XCTAssertEqual(Set(root.enabledProfiles.map(\.id)), [first.id, second.id])
+    }
+
     func testSlowExtensionlessMovieOpeningRetainsTheSameVLCInput() async throws {
         let origin = try PlaybackFixtureServer(file: fixture("playback-native", "mp4"), contentType: "video/mp4", headerDelay: 4)
         defer { origin.stop() }

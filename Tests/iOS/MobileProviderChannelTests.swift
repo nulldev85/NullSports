@@ -131,7 +131,7 @@ final class MobileProviderChannelTests: XCTestCase {
         let library = SportsLibrary(profileDefaults: defaults)
         let event = game()
         let channel = try XCTUnwrap(snapshot().matching(event, board: []).first)
-        let result = await library.activateEventChannel(.init(profile: removed, channel: channel), for: event)
+        let result = await library.prepareEventChannel(.init(profile: removed, channel: channel), for: event)
         XCTAssertNil(result)
         XCTAssertEqual(library.activeProfile, first)
         var renamed = first

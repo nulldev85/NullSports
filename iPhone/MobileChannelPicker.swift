@@ -28,7 +28,9 @@ struct MobileChannelPicker: View {
     }
 
     var body: some View {
-        MobileChannelPickerContent(game: game, search: search, providerName: library.activeProfile?.name, onPick: onPick)
+        MobileChannelPickerContent(game: game, search: search,
+            providerName: library.enabledProfiles.count > 1 ? "All enabled providers" : library.enabledProfiles.first?.name,
+            onPick: onPick)
             .presentationDetents([.large])
             .presentationBackground(LineupStyle.background)
             .task { reloadChannels() }

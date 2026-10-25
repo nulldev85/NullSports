@@ -46,6 +46,8 @@ struct AppSearchHit: Identifiable, Sendable {
 
     let id: String
     let kind: Kind
+    var providerID: UUID? = nil
+    var providerName: String? = nil
 
     var category: AppSearchCategory {
         switch kind {
@@ -92,6 +94,7 @@ enum AppSearch {
         let programs: [String: [CurrentProgram]]
         /// Every game the schedule holds, with the channel it was matched to.
         let games: [(game: SportsGame, channel: XtreamStream?)]
+        var providers: [Int: XtreamProfile] = [:]
     }
 
     static let channelLimit = 40
@@ -123,8 +126,22 @@ enum AppSearch {
     static func live(_ query: String, in snapshot: LiveSnapshot, now: Date = Date()) -> [AppSearchHit] {
         let wanted = words(of: query)
         guard !wanted.isEmpty else { return [] }
-        return games(wanted, snapshot, now: now) + channels(query, wanted, snapshot, now: now)
+        let hits = games(wanted, snapshot, now: now) + channels(query, wanted, snapshot, now: now)
             + airings(wanted, snapshot, now: now)
+        return hits.map { hit in
+            let channel: XtreamStream?
+            switch hit.kind {
+            case .game(_, let value): channel = value
+            case .channel(let value, _, _), .airing(_, let value, _, _): channel = value
+            default: channel = nil
+            }
+            var result = hit
+            if let channel, let profile = snapshot.providers[channel.id] {
+                result.providerID = profile.id
+                result.providerName = profile.name
+            }
+            return result
+        }
     }
 
     /// Games still to be played or playing, by the teams, the event or the
@@ -143,7 +160,11 @@ enum AppSearch {
             return left.game.start < right.game.start
         }
         .prefix(gameLimit)
-        .map { AppSearchHit(id: "game|" + $0.game.id, kind: .game($0.game, channel: $0.channel)) }
+        .map { entry in
+            let provider = entry.channel.flatMap { snapshot.providers[$0.id] }
+            return AppSearchHit(id: "game|" + entry.game.id + (provider.map { "|" + $0.id.uuidString } ?? ""),
+                kind: .game(entry.game, channel: entry.channel))
+        }
     }
 
     /// Channels by name: a name that starts with the query first, then one

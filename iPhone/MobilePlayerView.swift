@@ -17,6 +17,8 @@ struct MobilePlayerView: View {
     /// title from a media server, which has a length and a position. The two
     /// want different chrome, and showing a LIVE dot over a film was the tell.
     var isLive: Bool = true
+    var providerName: String? = nil
+    var onPlaybackStarted: (() -> Void)? = nil
     /// The bitrate the server reported for this source. The server holds the
     /// file, so this is the one number nothing on the device can improve on.
     var sourceBitrate: String? = nil
@@ -113,6 +115,7 @@ struct MobilePlayerView: View {
             if controlsVisible {
                 VStack(spacing: 0) {
                     LineupGlassGroup {
+                    VStack(alignment: .leading, spacing: 8) {
                     MobilePlayerHeader {
                     HStack(spacing: 10) {
                         control("xmark", label: "Close player") { exit() }
@@ -148,6 +151,16 @@ struct MobilePlayerView: View {
                             if let detail = badgeDetail { qualityBadge(detail).fixedSize() }
                             ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
                         }
+                    }
+                    if let providerName {
+                        Label("Provider: \(providerName)", systemImage: "antenna.radiowaves.left.and.right")
+                            .font(.inter(.caption2, .semibold)).lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(LineupStyle.mediaText.opacity(0.86))
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Color.black.opacity(0.66), in: Capsule())
+                            .accessibilityLabel("IPTV provider: \(providerName)")
+                            .accessibilityIdentifier("lineup.playback.provider").allowsHitTesting(false)
+                    }
                     }
                     }
                     .padding(.horizontal, 14)
@@ -328,7 +341,8 @@ struct MobilePlayerView: View {
             controller.handleScenePhase(active: phase == .active)
         }
         .onChange(of: controller.isPlaying) { _, playing in
-            if playing { scheduleAutoHide() } else { hideControlsTask?.cancel(); controlsVisible = true }
+            if playing { onPlaybackStarted?(); scheduleAutoHide() }
+            else { hideControlsTask?.cancel(); controlsVisible = true }
         }
     }
 
