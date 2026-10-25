@@ -58,3 +58,18 @@ Movies and TV Shows push/back repeatedly, saved palettes survive upgrade, Guide
 hide/unhide across providers, native/fallback labels, background animation and
 Reduce Motion. Both platforms must be updated to the MDBList handoff repair for
 the reported TV-to-phone scenario.
+
+## iPhone 146 failure follow-up
+
+The full app compiled and its package job uploaded the IPA; the separate simulator
+gate failed on Library reliability and MDBList assertions. The navigation test,
+Native render/fallback and strict-refusal tests, color wheel, category visibility
+and tour-following cases passed. No visual or playback feature was reverted.
+
+The shelf reliability case now explicitly adds the server shelf through the real
+Add Shelf action before testing refresh failure and authoritative empty results;
+server shelves intentionally are not added automatically. Explicit Add/Remove
+Shelf choices also mark the old automatic-shelf migration complete immediately,
+so a chosen shelf cannot be retired on its next reload merely because it matches
+the former default IDs. The original retain/clear/failure assertions remain.
+MDBList fixes and their replacement verification are documented separately.

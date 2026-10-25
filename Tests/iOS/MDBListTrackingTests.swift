@@ -374,7 +374,12 @@ final class MDBListTrackingTests: XCTestCase {
         tv.reportTrackingSample(.init(playing: false, pictureInPicture: false, position: 1200, duration: 3600), for: tvMovie, sessionID: playback)
         try await eventually("Pause acknowledged") { backend.progress == 100.0 / 3 && tv.mdbListTracking.pendingCount == 0 }
         phone.refreshTracking(force: true)
-        try await eventually("Phone imports paused TV progress") { phone.resumePosition(for: phoneMovie) == 1200 }
+        // A percentage round trip (33.333...%) can produce 1200.0000000000002.
+        // Keep the time assertion precise without requiring bit-identical FP.
+        try await eventually("Phone imports paused TV progress") {
+            phone.resumePosition(for: phoneMovie).map { abs($0 - 1200) < 0.000001 } == true
+        }
+        XCTAssertEqual(try XCTUnwrap(phone.resumePosition(for: phoneMovie)), 1200, accuracy: 0.000001)
         XCTAssertEqual(phoneDefaults.data(forKey: "Lineup.localMediaPlayback.v1"), savedLocal)
         let current = UUID()
         phone.beginPlaybackSession(for: phoneMovie, id: current)
@@ -389,6 +394,42 @@ final class MDBListTrackingTests: XCTestCase {
         }
         phone.setMDBListTrackingEnabled(false)
         XCTAssertTrue(phone.localPlaybackRecord(for: phoneMovie)?.explicitlyUnwatched == true)
+    }
+
+    func testUnwatchedAccountEvidenceSurvivesEmptySnapshotsUntilNewerRemotePlayback() async throws {
+        let backend = CrossDeviceTrackingBackend()
+        TrackingTestProtocol.install { try backend.respond(to: $0) }
+        let defaults = try defaults()
+        let (library, movie) = try makeLibrary(defaults, mdb: true)
+        defer { library.setMDBListTrackingEnabled(false) }
+        library.trackPlayback(of: movie, position: 450, duration: 3600)
+        library.flushLocalPlayback()
+        library.setLocallyPlayed(false, for: movie)
+        try await eventually("Manual unwatched acknowledged") {
+            TrackingTestProtocol.posts.contains { $0.url?.path == "/sync/watched/remove" }
+                && library.mdbListTracking.pendingCount == 0
+        }
+        let savedLocal = defaults.data(forKey: "Lineup.localMediaPlayback.v1")
+        library.refreshTracking(force: true)
+        try await eventually("Empty positive buckets preserve the negative account choice") {
+            library.mdbListTracking.hasSnapshot && library.mdbListTracking.records.isEmpty
+        }
+        let cacheKey = LibraryTrackingPreferences.cacheKey(7)
+        let cached = try JSONDecoder().decode([LocalMediaPlayback].self, from: XCTUnwrap(defaults.data(forKey: cacheKey)))
+        XCTAssertEqual(cached.count, 1)
+        XCTAssertTrue(cached.first?.explicitlyUnwatched == true)
+        XCTAssertFalse(cached.first?.completed == true)
+        XCTAssertEqual(defaults.data(forKey: "Lineup.localMediaPlayback.v1"), savedLocal)
+        library.setLocalTrackingEnabled(false)
+        XCTAssertTrue(library.localPlaybackRecord(for: movie)?.explicitlyUnwatched == true)
+        // A later actual play on another device supersedes that account mark.
+        try await MDBListTrackingClient(apiKey: key, session: session()).write(event(.pause, progress: 25))
+        library.refreshTracking(force: true)
+        try await eventually("Newer account playback replaces the older unwatched mark") {
+            library.resumePosition(for: movie) == 900
+        }
+        XCTAssertNotEqual(library.localPlaybackRecord(for: movie)?.explicitlyUnwatched, true)
+        XCTAssertEqual(defaults.data(forKey: "Lineup.localMediaPlayback.v1"), savedLocal)
     }
 
     func testSyncNowWaitsForAnAcknowledgedWriterAndReadsTheNewestQueuedSample() async throws {

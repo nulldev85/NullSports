@@ -4025,6 +4025,11 @@ final class MediaLibrary {
 
     /// A server's shelves are saved by its own ids for them.
     private func saveShelfIDs(for profile: MediaServerProfile) {
+        // These calls follow an explicit Add/Remove Shelf action. A real
+        // choice must never later be mistaken for the retired automatic list.
+        var retired = Set(defaults.stringArray(forKey: Self.autoShelvesRetiredKey) ?? [])
+        retired.insert(profile.id.uuidString)
+        defaults.set(retired.sorted(), forKey: Self.autoShelvesRetiredKey)
         saveShelfIDs(state(of: profile).catalogs.map(\.root.id), profileID: profile.id)
     }
 
@@ -5009,17 +5014,28 @@ extension MediaLibrary {
                   self.localTrackingEnabled == localMode, self.mdbListTrackingEnabled,
                   self.mdbListTracking.hasSnapshot, self.mdbListTracking.records == records,
                   self.mdbListTracking.pendingCount == 0 else { return }
-            let active = Set(self.playbackSessions.values.filter { !localMode || $0.hasAdvanced }.map { $0.item.libraryKey })
-            for value in self.localPlayback where value.updatedAt >= started || active.contains(value.item.libraryKey) {
-                imported[value.id] = value
+            // The API's positive-state buckets cannot express an explicit
+            // unwatched choice. Retain that account-scoped evidence until a
+            // newer positive account record supersedes it.
+            if let account, let data = self.defaults.data(forKey: LibraryTrackingPreferences.cacheKey(account)),
+               let cached = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data) {
+                for value in cached where value.explicitlyUnwatched == true && self.recordSources.contains(value.profileID) {
+                    if imported[value.id].map({ $0.updatedAt > value.updatedAt }) != true { imported[value.id] = value }
+                }
             }
             if localMode {
+                // Local records are already merged at read time. Copying them
+                // into the account overlay resurrects cleared device history.
                 self.remoteMDBPlayback = Array(imported.values)
                 self.remoteMDBAccount = account
                 if let account, let data = try? JSONEncoder().encode(self.remoteMDBPlayback) {
                     self.defaults.set(data, forKey: LibraryTrackingPreferences.cacheKey(account))
                 }
             } else {
+                let active = Set(self.playbackSessions.values.map { $0.item.libraryKey })
+                for value in self.localPlayback where value.updatedAt >= started || active.contains(value.item.libraryKey) {
+                    imported[value.id] = value
+                }
                 self.localPlayback = Array(imported.values)
                 self.persistLocalPlayback()
             }

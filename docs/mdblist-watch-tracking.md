@@ -103,6 +103,28 @@ Sync Now reads after acknowledged uploads, including a newer queued sample.
 Snapshot coverage also checks active clock anchors and expired sessions. These
 new SDK cases require the iPhone 146 / tvOS 94 CI builds; they are not run on Windows.
 
+### iPhone 146 follow-up
+
+The reported iPhone run compiled both configurations, packaged/uploaded the IPA
+in its package job and ran 698 SDK tests (one existing skip). Four test cases
+reported eight assertions/errors: the selected-shelf reliability fixture, cleared
+local history, the account unwatched-cache record and the paused handoff assertion.
+Publication was correctly gated by the failed test job. The navigation, Native
+player/fallback, wheel, visibility, tour and serialized Sync Now cases passed.
+The Apple TV 94 result has not been inspected.
+
+Both-on import now keeps the account overlay free of copied device records;
+device records remain protected by the existing merge at read time. A subsequent
+clear therefore cannot leave a duplicate local record visible through the overlay.
+Explicit account unwatched evidence survives an empty positive-state snapshot
+until a newer account playback/watched record supersedes it. A regression covers
+this across both-on and MDBList-only modes while preserving saved local bytes.
+The paused handoff test retains its four-second bound and now compares resume
+time within one microsecond: the exact percentage conversion produces
+1200.0000000000002 for a 1200-second sample. No production position is rounded
+and no playback assertion/feature is removed. These repairs require replacement
+iPhone 147 / Apple TV 95 SDK verification.
+
 Local metadata/source-membership, playback project/pin, tvOS focus and diff
 checks pass. Windows has no Apple SDK: Swift compilation, SDK tests, IPA
 packaging and device behavior remain pending the dispatched CI builds.

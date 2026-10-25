@@ -78,6 +78,11 @@ final class LibraryReliabilityTests: XCTestCase {
                 return #"{"Items":[],"TotalRecordCount":0}"#
             }
             await library.reload()
+            if phase == 0 {
+                XCTAssertTrue(library.state(of: profile).catalogs.isEmpty, "Servers do not automatically add shelves")
+                let root = try XCTUnwrap(library.state(of: profile).roots.first)
+                await library.addShelf(root)
+            }
             XCTAssertEqual(library.state(of: profile).loadFailed, phase == 1)
             XCTAssertFalse(library.state(of: profile).isLoading)
             XCTAssertEqual(library.state(of: profile).catalogs.first?.items.map(\.id), phase == 2 ? [] : ["film"])
