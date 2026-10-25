@@ -8,8 +8,8 @@ the viewer into account writes.
 | Local | MDBList | Library behavior |
 | --- | --- | --- |
 | On | Off | Existing device progress, history and Up Next |
-| On | On | Device history drives the Library; playback and explicit watched/unwatched actions also go to MDBList |
-| Off | On | Account history, paused progress and Up Next are matched to connected Library titles; pending activity is cached for retries |
+| On | On | Device history stays saved separately; newer matched account progress supplies Library resume points, with current playback and newer local choices protected; playback and explicit watched/unwatched actions also go to MDBList |
+| Off | On | Account history, active/paused progress and Up Next are matched to connected Library titles; pending activity is cached for retries |
 | Off | Off | No Lineup playback/history writes; saved device and account histories are retained |
 
 Device history keeps its existing defaults key. The MDBList working cache,
@@ -35,17 +35,19 @@ converted with TMDb's external-ID lookup and checked against the parent show.
 Manual episode marks prefer direct episode IDs. Provider numbering without
 identity evidence is not guessed. Unmatched titles are surfaced in Tracking.
 
-MDBList-only imports match namespaced external IDs, then verified episode IDs
+Account imports in both tracking modes match namespaced external IDs, then verified episode IDs
 or explicit TMDb/TVDB numbering evidence. Resume points with materially
 different runtimes are not applied to another cut. Full cursor-paginated movie
-and episode history, paused playback and paginated Up Next must all succeed
+and episode history, paused playback, active Now Playing and paginated Up Next must all succeed
 before a snapshot is published. Failed/malformed pages keep the previous data.
 An authoritative empty snapshot can clear the account cache without touching
 device history. Inventory/episode read failures keep the working Library cache.
 
 MDBList marks a title watched on pause/stop at 80%. Device tracking retains its
 existing 92%/last-two-minutes completion policy. With both enabled, MDBList's
-threshold does not change the device's watched state. Library completion does
+threshold does not rewrite saved device history. A newer account watched record
+can appear in the merged Library, while active local playback retains its own
+completion policy. Library completion does
 not retire the account session before its final stop.
 
 ## Delivery and account changes
@@ -56,6 +58,21 @@ the outbox with bounded exponential retry; 429 honors Retry-After across app
 relaunches. Authentication failures require reconnecting. Invalid acknowledgments
 are not treated as success. A new local write invalidates an older downloaded
 snapshot until the next full read. Outdated starts are not resurrected later.
+
+Sync Now queues the latest actual player sample even when the normal minute
+heartbeat is not due. It waits for pending identity resolution and upload
+acknowledgements before requesting the full account snapshot. A Sync Now tap
+during another write/read is retained and coalesced. Retry-After and authentication
+blocks still apply; Sync Now does not bypass them or replay stale starts.
+
+The active session endpoint is `/sync/now-playing`; `/sync/playback` contains
+paused resume points. Active imports use the server's `progress_at_update` anchor
+rather than projecting an unobserved playback clock. Expired sessions are ignored.
+When MDBList reports an unknown runtime, an exact matched server item's details
+can supply it. Materially different known runtimes are still rejected. A failed
+inventory/details read keeps the previous mapped cache. Both-on mode merges the
+mapped account records at read time without modifying the local-history defaults
+key. Opting out immediately removes that account overlay.
 
 Disabling account tracking cancels outstanding work and discards that account's
 pending outbox. Account changes invalidate pending identity resolutions and
@@ -69,13 +86,22 @@ to use the current integration independently of these switches.
 
 ## Validation
 
-Twenty-one shared SDK regressions cover defaults, independent caches, opt-out,
+Shared SDK regressions cover defaults, independent caches, opt-out,
 real MediaLibrary start/pause/stop/EOF/PiP callbacks, both completion rules,
 manual actions, TMDb/TVDB episode mapping, source/numbering isolation, cursor
 pagination, malformed/partial/empty snapshots, durable rate-limit backoff,
 account switches and failed acknowledgments. Existing real Aether MP4/MKV and
 VLC playback tests additionally require tracking samples from the same player.
 Both full platform suites remain enabled; no assertions or deadlines weakened.
+
+The cross-device repair adds two independently persisted virtual-device instances
+sharing a mocked account: a TV sample is synced before its heartbeat, then imported
+on a phone with both switches enabled and different server/item IDs. It covers
+active and paused buckets, unknown-runtime details, unchanged saved local bytes,
+current playback and newer manual choices. A blocked-writer regression proves
+Sync Now reads after acknowledged uploads, including a newer queued sample.
+Snapshot coverage also checks active clock anchors and expired sessions. These
+new SDK cases require the iPhone 146 / tvOS 94 CI builds; they are not run on Windows.
 
 Local metadata/source-membership, playback project/pin, tvOS focus and diff
 checks pass. Windows has no Apple SDK: Swift compilation, SDK tests, IPA
@@ -99,7 +125,7 @@ progress/EOF, and account completion after clearing device history. The
 original failing regression remains unchanged. SDK verification of this repair
 is pending the replacement builds.
 
-API contract references (reviewed October 24, 2026):
+API contract references (reviewed October 25, 2026):
 - https://api.mdblist.com/docs/
 - https://api.mdblist.com/schema/
 - https://api.mdblist.com/docs/authentication/

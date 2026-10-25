@@ -98,17 +98,23 @@ struct MobileLineupNavigationBar: View {
                 } label: {
                     VStack(spacing: 3) {
                         tab.icon(selected: compact || selected)
-                            .resizable().scaledToFit()
+                            .renderingMode(.template).resizable().scaledToFit()
                             .frame(width: compact ? 28 : 25, height: compact ? 28 : 24)
+                            .foregroundStyle(!liquidGlass && (compact || selected) ? LineupStyle.highlight : (selected ? Color.white : LineupPresentationStyle.secondary))
                         if !compact {
                             Text(tab.title)
                                 .font(.inter(labelSize, .semibold))
                                 .lineLimit(1).minimumScaleFactor(0.75)
                         }
                     }
-                    .foregroundStyle(compact || selected ? Color.white : LineupPanelStyle.caption)
+                    .foregroundStyle(compact || selected ? LineupPresentationStyle.text : LineupPresentationStyle.secondary)
                     .frame(maxWidth: .infinity, minHeight: MobileLineupNavigationLayout.itemHeight)
-                    .background(selected && !compact ? LineupPanelStyle.well : .clear, in: Capsule())
+                    .background {
+                        if selected && !compact {
+                            Capsule().fill(liquidGlass ? LineupPanelStyle.well : LineupStyle.highlight.opacity(0.11))
+                                .overlay(Capsule().strokeBorder(liquidGlass ? .clear : LineupStyle.highlight.opacity(0.18), lineWidth: 0.6))
+                        }
+                    }
                     .contentShape(Capsule())
                 }
                 .buttonStyle(MobileNavigationButtonStyle())
@@ -137,10 +143,12 @@ private struct MobileNavigationSurface: ViewModifier {
             content.glassEffect(.regular, in: Capsule())
         } else {
             content
-                .background(LineupPanelStyle.fill, in: Capsule())
+                .background(LineupPresentationStyle.card, in: Capsule())
                 .overlay {
-                    Capsule().strokeBorder(LineupPanelStyle.divider, lineWidth: 1).allowsHitTesting(false)
+                    Capsule().strokeBorder(LinearGradient(colors: [.white.opacity(0.16), LineupPresentationStyle.divider, .white.opacity(0.035)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.8).allowsHitTesting(false)
                 }
+                .shadow(color: .black.opacity(0.28), radius: 16, x: 0, y: 8)
         }
     }
 }

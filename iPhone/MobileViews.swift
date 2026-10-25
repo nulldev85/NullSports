@@ -873,7 +873,12 @@ private struct MobileAccountView: View {
 }
 
 private struct MobilePlaybackSettingsView: View {
-    @AppStorage(MobilePlaybackPreference.storageKey) private var preference = MobilePlaybackPreference.automatic.rawValue
+    @AppStorage(MobilePlaybackPreference.storageKey) private var preference = MobilePlaybackPreference.native.rawValue
+    @AppStorage(MobilePlaybackPreference.nativeFallbackKey) private var nativeFallback = true
+    private var selected: MobilePlaybackPreference {
+        let value = MobilePlaybackPreference(rawValue: preference) ?? .native
+        return value == .automatic ? .native : value
+    }
     var body: some View {
         List {
             Section {
@@ -881,6 +886,10 @@ private struct MobilePlaybackSettingsView: View {
                     Button { preference = choice.rawValue } label: {
                         HStack {
                             HStack(spacing: 8) {
+                                if choice == .native {
+                                    Image(systemName: "apple.logo").font(.system(size: 21)).frame(width: 24)
+                                        .foregroundStyle(LineupPresentationStyle.text).accessibilityHidden(true)
+                                }
                                 PlaybackEngineText(choice.title, style: .body).foregroundStyle(LineupStyle.text)
                                 if let version = choice.version {
                                     Text(version)
@@ -890,7 +899,7 @@ private struct MobilePlaybackSettingsView: View {
                                 }
                             }
                             Spacer()
-                            if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
+                            if choice == selected {
                                 Image(systemName: "checkmark").foregroundStyle(LineupStyle.highlight)
                             }
                         }
@@ -899,10 +908,17 @@ private struct MobilePlaybackSettingsView: View {
                     .accessibilityIdentifier("lineup.playback.preference.\(choice.rawValue)")
                 }
             } footer: {
-                PlaybackEngineText("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture; VLC and MPVKit do not. MPVKit is a trial and falls back to AetherEngine, then VLC, if needed. Choosing VLC always uses VLC.", size: 13)
+                PlaybackEngineText("Native player uses Apple’s AVPlayer for HLS and a compatibility layer around Apple’s native video pipeline for files and other containers. It retains Lineup’s track, subtitle and seeking controls. Sources that need another decoder can use the optional, clearly labeled AetherEngine/VLC fallback. AetherEngine, VLC and MPVKit remain separate choices. VLC and MPVKit do not support Picture in Picture.", size: 13)
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
+            if selected == .native {
+                Section {
+                    Toggle("Compatibility Fallback", isOn: $nativeFallback).tint(LineupStyle.highlight)
+                } footer: {
+                    Text("Keeps unsupported sources playable using AetherEngine, then VLC. Turn off to stay on Apple’s native video pipeline and show a compatibility message instead. Applies to the next video.").lineupSettingsFooter()
+                }.lineupSettingsRows()
+            }
         }
         .lineupSettingsList()
         .navigationTitle("Playback Engine")

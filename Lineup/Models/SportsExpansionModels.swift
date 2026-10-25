@@ -57,12 +57,19 @@ extension SportsGame {
         return race?.title
     }
     var racingFollow: FollowedTeam? {
-        league.seriesFollow
+        guard league.isRacing else { return nil }
+        return league.seriesFollow
     }
 }
 
 extension SportsLeague {
     var seriesFollow: FollowedTeam? {
+        #if os(iOS)
+        if isTennis {
+            return FollowedTeam(key: TeamChannelKey(league: rawValue, abbreviation: "TOUR", name: fullName),
+                name: self == .atp ? "ATP Tour" : "WTA Tour", abbreviation: "TOUR", logo: "")
+        }
+        #endif
         guard isRacing else { return nil }
         return FollowedTeam(key: TeamChannelKey(league: rawValue, abbreviation: "SERIES", name: fullName),
             name: fullName, abbreviation: "SERIES", logo: officialLogoURL ?? "")

@@ -59,6 +59,12 @@ struct MDBListTrackingClient: Sendable {
             throw MDBListTrackingFailure.invalidResponse
         }
         records += Self.playback(playback)
+        // MDBList separates running sessions from paused resume points.
+        // Reading only /sync/playback hides activity on another device.
+        guard let playing = try await request("sync/now-playing") as? [[String: Any]] else {
+            throw MDBListTrackingFailure.invalidResponse
+        }
+        records += Self.playback(playing, active: true)
         var offset = 0
         while true {
             guard let object = try await request("upnext", query: [URLQueryItem(name: "limit", value: "100"),
@@ -140,11 +146,12 @@ struct MDBListTrackingClient: Sendable {
             return .init(target: target, state: .watched, progress: 100, updatedAt: date)
         }
     }
-    static func playback(_ rows: [[String: Any]]) -> [MDBListTrackingRecord] {
+    static func playback(_ rows: [[String: Any]], active: Bool = false) -> [MDBListTrackingRecord] {
         rows.compactMap { row in
             guard let target = target(movie: row["movie"] as? [String: Any], episode: row["episode"] as? [String: Any],
                                       show: row["show"] as? [String: Any]),
-                  let progress = row["progress"] as? Double, progress.isFinite, (0...100).contains(progress),
+                  let progress = (active ? row["progress_at_update"] ?? row["progress"] : row["progress"]) as? Double,
+                  progress.isFinite, (0...100).contains(progress),
                   let updated = date(row["updated_at"] ?? row["updated_at_ts"] ?? row["paused_at"]) else { return nil }
             if let expiry = date(row["expires_at"]), expiry <= Date() { return nil }
             return .init(target: target, state: .progress, progress: progress, updatedAt: updated,

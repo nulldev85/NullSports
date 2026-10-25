@@ -283,7 +283,8 @@ final class SiloPlaybackSession {
         let systemOnly = false
         let platform = "tvos", form = "tv"
         #else
-        let systemOnly = MobilePlaybackPreference.selected(in: defaults) == .system
+        let systemOnly = MobilePlaybackPreference.selected(in: defaults) == .native
+            && !MobilePlaybackPreference.allowsNativeFallback(in: defaults)
         let platform = "ios", form = "phone"
         #endif
         let hevc = VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)

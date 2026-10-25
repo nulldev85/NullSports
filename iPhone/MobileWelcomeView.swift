@@ -2,8 +2,8 @@
 import SwiftUI
 import UIKit
 
-/// First-run sign-in. It uses the same provider store as Settings, while the
-/// poster field comes only from TMDB's real movie and television artwork.
+/// First-run sign-in, using the same provider store as Settings and a local
+/// animated light field that appears on the first frame without downloads.
 struct MobileWelcomeView: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -29,7 +29,7 @@ struct MobileWelcomeView: View {
             ZStack {
                 LineupStyle.background.ignoresSafeArea()
 
-                MobileWelcomePosterBackdrop(isActive: scenePhase == .active && !reduceMotion)
+                MobileWelcomeSignalBackdrop(isActive: scenePhase == .active && !reduceMotion)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
 

@@ -102,7 +102,8 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                        "iPhone/MobileOnlineSubtitlesSheet.swift", "iPhone/MobileSubtitleSettings.swift",
                        "iPhone/MobileFanartTitle.swift", "iPhone/MobileWelcomeRowMotion.swift",
                        "iPhone/MobileWelcomePosterBackdrop.swift", "iPhone/MobileNavigationScrollObserver.swift",
-                       "iPhone/MobileGuideDefaultCategory.swift"):
+                       "iPhone/MobileGuideDefaultCategory.swift", "iPhone/MobileGuideCategoryVisibility.swift",
+                       "iPhone/MobileAccentWheel.swift", "iPhone/MobileWelcomeSignalBackdrop.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))
             self.assertFalse(is_included(project, "Lineup", source))
@@ -114,7 +115,9 @@ class SharedSourceMembershipChecks(unittest.TestCase):
         self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobilePlayerPolishTests.swift"))
         self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobileReplaySeekingTests.swift"))
         self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobileSegmentAndFanartTests.swift"))
-        for source in ("Tests/iOS/MobileEventChannelGroupingTests.swift", "Tests/iOS/MobilePlaybackPresentationTests.swift"):
+        for source in ("Tests/iOS/MobileEventChannelGroupingTests.swift", "Tests/iOS/MobilePlaybackPresentationTests.swift",
+                       "Tests/iOS/MobileGuideCategoryVisibilityTests.swift", "Tests/iOS/MobileAccentWheelTests.swift",
+                       "Tests/iOS/StreamingServiceNavigationTests.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOSTests", source))
             self.assertFalse(is_included(project, "LineupTests", source))

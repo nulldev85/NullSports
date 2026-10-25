@@ -201,7 +201,7 @@ final class AetherPlaybackTests: XCTestCase {
             try await waitUntil("Local media origin did not start") { origin.port != nil }
             // Deliberately omit the extension, like a Nullfin/Jellyfin route.
             let url = try XCTUnwrap(origin.url(path: "Videos/title/stream?mediaSourceId=fixture"))
-            let (defaults, suite) = try preferences(.automatic)
+            let (defaults, suite) = try preferences(.aether)
             defer { defaults.removePersistentDomain(forName: suite) }
             let controller = MobilePlaybackController(defaults: defaults)
             var trackingSamples: [LibraryPlaybackSample] = []
@@ -366,7 +366,7 @@ final class AetherPlaybackTests: XCTestCase {
         defer { origin.stop() }
         try await waitUntil("Local live origin did not start") { origin.port != nil }
         let url = try XCTUnwrap(origin.url(path: "live/fixture.ts"))
-        let (defaults, suite) = try preferences(.automatic)
+        let (defaults, suite) = try preferences(.aether)
         defer { defaults.removePersistentDomain(forName: suite) }
         let controller = MobilePlaybackController(defaults: defaults)
         let (window, _, previous) = try show(controller)
@@ -548,6 +548,53 @@ final class AetherPlaybackTests: XCTestCase {
         await fulfillment(of: [paused], timeout: 5)
         XCTAssertFalse(controller.player.isPlaying, "The actual decoder must also pause, not only the controls")
         XCTAssertFalse(controller.isPlaying)
+    }
+
+    func testNativeChoiceRendersThroughAppleVideoOrClearlyLabelsItsCompatibilityFallback() async throws {
+        let origin = try PlaybackFixtureServer(file: fixture("playback-native", "mp4"), contentType: "video/mp4")
+        defer { origin.stop() }
+        try await waitUntil("Native fixture origin did not start") { origin.port != nil }
+        let url = try XCTUnwrap(origin.url(path: "Videos/native-choice/stream"))
+        let (defaults, suite) = try preferences(.native)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = MobilePlaybackController(defaults: defaults)
+        let (window, _, previous) = try show(controller)
+        defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
+        controller.isLive = false
+        controller.start(urls: [url])
+        guard await waitForRenderedPicture(controller, route: "Native choice") else { return }
+        let session = try XCTUnwrap(controller.aetherSession)
+        #if !targetEnvironment(simulator)
+        XCTAssertTrue(controller.nativeCompatibilityActive, "The H.264 fixture must retain Apple's native video path on a device")
+        #endif
+        if controller.nativeCompatibilityActive {
+            XCTAssertTrue(session.isNativeVideo, "A Native label requires an actual AVPlayerLayer, not a sample-buffer decoder")
+            XCTAssertEqual(controller.engineTitle, "Native player · Compatibility")
+        } else {
+            XCTAssertEqual(controller.engineTitle, "AetherEngine · Fallback")
+            XCTAssertTrue(MobilePlaybackPreference.allowsNativeFallback(in: defaults))
+        }
+        XCTAssertEqual(controller.progress?.duration ?? 0, 36, accuracy: 1)
+        controller.toggle()
+        _ = try await pausedClock(controller, session: session)
+        XCTAssertFalse(controller.isPlaying)
+    }
+
+    func testStrictNativeChoiceRefusesASoftwareOnlySourceWithoutStartingAnotherDecoder() async throws {
+        let (defaults, suite) = try preferences(.native)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: MobilePlaybackPreference.nativeFallbackKey)
+        let controller = MobilePlaybackController(defaults: defaults)
+        let (window, _, previous) = try show(controller)
+        defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
+        controller.isLive = false
+        controller.start(urls: [try fixture("playback-software", "mkv")])
+        try await waitUntil("A software-only source must report a native compatibility failure") { controller.error != nil }
+        XCTAssertEqual(controller.engine, .aether, "The compatibility layer must not silently select VLC")
+        XCTAssertTrue(controller.nativeCompatibilityActive)
+        XCTAssertFalse(controller.aetherSession?.isNativeVideo ?? true)
+        XCTAssertFalse(controller.isPlaying)
+        XCTAssertFalse(controller.loading)
     }
 
     private func fixture(_ name: String, _ ext: String) throws -> URL {

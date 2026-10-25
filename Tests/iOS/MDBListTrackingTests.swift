@@ -37,23 +37,26 @@ final class MDBListTrackingTests: XCTestCase {
         XCTAssertTrue(condition(), description)
         if !condition() { throw NSError(domain: "MDBListTrackingTests", code: 1) }
     }
-    private func makeLibrary(_ defaults: UserDefaults, mdb: Bool = false) throws -> (MediaLibrary, MediaItem) {
-        let profile = MediaServerProfile(name: "Jellyfin", serverURL: "https://server.invalid", username: "viewer", userID: "user")
+    private func makeLibrary(_ defaults: UserDefaults, mdb: Bool = false, itemID: String = "matrix") throws -> (MediaLibrary, MediaItem) {
+        let profile = MediaServerProfile(name: "Jellyfin", serverURL: "https://server.invalid", username: "viewer", userID: itemID)
         defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
         defaults.set(mdb, forKey: LibraryTrackingPreferences.mdbKey)
         defaults.set(try JSONEncoder().encode(MDBListTrackingAccount(userID: 7,
             keyDigest: MDBListTrackingAccount.digest(key))), forKey: LibraryTrackingPreferences.accountKey)
-        let movie = MediaItem(id: "matrix", name: "The Matrix", type: "Movie", overview: nil,
+        let movie = MediaItem(id: itemID, name: "The Matrix", type: "Movie", overview: nil,
             productionYear: 1999, primaryImageAspectRatio: nil, childCount: nil,
             runTimeTicks: 36_000_000_000, providerIDs: ["Imdb": "tt0133093"]).servedBy(profile.id)
+        let transport = session()
         let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""),
-            trackingSession: session(), trackingKey: { self.key })
+            trackingSession: transport, trackingKey: { self.key },
+            serverClientFactory: { profile in try JellyfinClient(serverURL: profile.serverURL,
+                accessToken: "fixture", deviceID: "fixture", session: transport) })
         return (library, movie)
     }
     nonisolated private static func emptyResponse(_ request: URLRequest) -> (Int, [String: String], String) {
         switch request.url!.path {
         case "/sync/watched": return (200, [:], #"{"movies":[],"episodes":[],"pagination":{"next_cursor":null}}"#)
-        case "/sync/playback": return (200, [:], "[]")
+        case "/sync/playback", "/sync/now-playing": return (200, [:], "[]")
         case "/upnext": return (200, [:], #"{"items":[]}"#)
         default: return (200, [:], #"{"action":"pause","updated":{"movies":1},"deleted":{"movies":1}}"#)
         }
@@ -311,7 +314,7 @@ final class MDBListTrackingTests: XCTestCase {
         XCTAssertFalse(MDBListTrackingTarget(kind: .movie, ids: ["imdb": "bad"]).valid)
     }
 
-    func testCompleteCursorSnapshotReadsHistoryPlaybackAndUpNext() async throws {
+    func testCompleteCursorSnapshotReadsHistoryPlaybackNowPlayingAndUpNext() async throws {
         let key = key
         TrackingTestProtocol.install { request in
             let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
@@ -324,16 +327,91 @@ final class MDBListTrackingTests: XCTestCase {
                 if query.contains(where: { $0.name == "cursor" }) { return (200, [:], #"{"movies":[],"pagination":{"next_cursor":null}}"#) }
                 return (200, [:], #"{"movies":[{"watched_at":"2026-10-17T21:30:00Z","movie":{"ids":{"imdb":"tt0133093"}}}],"pagination":{"next_cursor":"page2"}}"#)
             case "/sync/playback": return (200, [:], #"[{"progress":25.0,"updated_at_ts":1792272600,"runtime":120,"movie":{"ids":{"tmdb":603}}}]"#)
+            case "/sync/now-playing": return (200, [:], #"[{"progress":41.0,"progress_at_update":30.0,"updated_at_ts":1792272601,"runtime":120,"movie":{"ids":{"tmdb":604}}},{"progress":50.0,"updated_at_ts":1792272600,"expires_at":"2000-01-01T00:00:00Z","movie":{"ids":{"tmdb":605}}}]"#)
             case "/upnext": return (200, [:], #"{"items":[{"show":{"ids":{"tmdb":1000}},"next_episode":{"season":2,"episode":6,"ids":{"tmdb":111112},"tvdb_ids":{"series":3000,"season":23,"episode":6}}}]}"#)
             default: return (500, [:], "{}")
             }
         }
         let records = try await MDBListTrackingClient(apiKey: key, session: session()).snapshot()
-        XCTAssertEqual(records.count, 4)
+        XCTAssertEqual(records.count, 5)
         XCTAssertEqual(records.filter { $0.state == .watched }.count, 2)
         XCTAssertEqual(records.first { $0.state == .progress }?.runtime, 7200)
+        XCTAssertEqual(records.first { $0.target.ids["tmdb"] == "604" }?.progress, 30, "Resume uses the reported clock anchor, not an estimated running position")
+        XCTAssertFalse(records.contains { $0.target.ids["tmdb"] == "605" }, "Expired sessions cannot become resume points")
         XCTAssertEqual(records.first { $0.state == .upNext }?.target.tvdbSeason, 23)
-        XCTAssertEqual(TrackingTestProtocol.requests.count, 5)
+        XCTAssertEqual(TrackingTestProtocol.requests.count, 6)
+    }
+
+    func testTwoDevicesShareActiveAndPausedProgressWhileKeepingLocalHistorySeparate() async throws {
+        let backend = CrossDeviceTrackingBackend()
+        TrackingTestProtocol.install { try backend.respond(to: $0) }
+        let phoneDefaults = try defaults(), tvDefaults = try defaults()
+        let (phone, phoneMovie) = try makeLibrary(phoneDefaults, itemID: "phone-copy")
+        let (tv, tvMovie) = try makeLibrary(tvDefaults, itemID: "tv-copy")
+        defer { phone.setMDBListTrackingEnabled(false); tv.setMDBListTrackingEnabled(false) }
+        XCTAssertNotEqual(phoneMovie.serverID, tvMovie.serverID)
+        phone.trackPlayback(of: phoneMovie, position: 420, duration: 3600)
+        phone.flushLocalPlayback()
+        let savedLocal = phoneDefaults.data(forKey: "Lineup.localMediaPlayback.v1")
+        tv.setMDBListTrackingEnabled(true)
+        let playback = UUID()
+        tv.beginPlaybackSession(for: tvMovie, id: playback)
+        tv.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 600, duration: 3600), for: tvMovie, sessionID: playback)
+        try await eventually("TV start acknowledged") { backend.progress == 100.0 / 6 && tv.mdbListTracking.pendingCount == 0 }
+        tv.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 900, duration: 3600), for: tvMovie, sessionID: playback)
+        XCTAssertEqual(backend.progress, 100.0 / 6, "Ordinary samples retain the one-minute heartbeat limit")
+        tv.refreshTracking(force: true)
+        try await eventually("Sync Now sends the latest actual TV clock") { backend.progress == 25 && tv.mdbListTracking.pendingCount == 0 }
+        phone.setMDBListTrackingEnabled(true)
+        phone.refreshTracking(force: true)
+        try await eventually("Phone imports active TV progress with both trackers enabled") { phone.resumePosition(for: phoneMovie) == 900 }
+        XCTAssertTrue(phone.localTrackingEnabled)
+        XCTAssertEqual(phone.localPlaybackRecord(for: phoneMovie)?.item.id, "phone-copy", "Match external identity to this device's server item")
+        XCTAssertEqual(phone.localPlaybackRecord(for: phoneMovie)?.profileID, phoneMovie.serverID)
+        XCTAssertEqual(phoneDefaults.data(forKey: "Lineup.localMediaPlayback.v1"), savedLocal, "Remote progress must not overwrite saved device history")
+
+        // Pausing moves the same account session into MDBList's other bucket.
+        tv.reportTrackingSample(.init(playing: false, pictureInPicture: false, position: 1200, duration: 3600), for: tvMovie, sessionID: playback)
+        try await eventually("Pause acknowledged") { backend.progress == 100.0 / 3 && tv.mdbListTracking.pendingCount == 0 }
+        phone.refreshTracking(force: true)
+        try await eventually("Phone imports paused TV progress") { phone.resumePosition(for: phoneMovie) == 1200 }
+        XCTAssertEqual(phoneDefaults.data(forKey: "Lineup.localMediaPlayback.v1"), savedLocal)
+        let current = UUID()
+        phone.beginPlaybackSession(for: phoneMovie, id: current)
+        phone.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 1500, duration: 3600), for: phoneMovie, sessionID: current)
+        XCTAssertEqual(phone.resumePosition(for: phoneMovie), 1500, "Actual local playback wins immediately")
+        phone.setLocallyPlayed(false, for: phoneMovie)
+        XCTAssertTrue(phone.localPlaybackRecord(for: phoneMovie)?.explicitlyUnwatched == true, "A newer manual choice wins over the downloaded record")
+        phone.endPlaybackSession(current)
+        tv.endPlaybackSession(playback)
+        try await eventually("Final manual and closing activity acknowledged") {
+            phone.mdbListTracking.pendingCount == 0 && tv.mdbListTracking.pendingCount == 0
+        }
+        phone.setMDBListTrackingEnabled(false)
+        XCTAssertTrue(phone.localPlaybackRecord(for: phoneMovie)?.explicitlyUnwatched == true)
+    }
+
+    func testSyncNowWaitsForAnAcknowledgedWriterAndReadsTheNewestQueuedSample() async throws {
+        let release = DispatchSemaphore(value: 0)
+        let backend = CrossDeviceTrackingBackend(firstWriteGate: release)
+        TrackingTestProtocol.install { try backend.respond(to: $0) }
+        let service = MDBListTrackingService(defaults: try defaults(), session: session())
+        defer { release.signal(); service.configure(accountID: nil, apiKey: nil, enabled: false) }
+        service.configure(accountID: 7, apiKey: key, enabled: true)
+        let playback = UUID()
+        service.enqueue(event(.pause, progress: 25, session: playback))
+        try await eventually("First upload is in flight") { TrackingTestProtocol.posts.count == 1 }
+        service.synchronize(force: true)
+        service.enqueue(event(.pause, progress: 40, session: playback))
+        XCTAssertFalse(TrackingTestProtocol.requests.contains { $0.httpMethod != "POST" }, "Read must wait for upload acknowledgements")
+        release.signal()
+        try await eventually("Queued Sync Now is fulfilled after the newest write") {
+            service.hasSnapshot && service.records.first?.progress == 40 && service.pendingCount == 0
+        }
+        XCTAssertEqual(TrackingTestProtocol.posts.count, 2, "Each actual sample is written once")
+        let paths = TrackingTestProtocol.requests.map { $0.url!.path }
+        XCTAssertEqual(Array(paths.prefix(2)), ["/scrobble/pause", "/scrobble/pause"])
+        XCTAssertEqual(paths.filter { $0 == "/sync/now-playing" }.count, 1)
     }
 
     func testPartialAndMalformedSnapshotsRetainSavedHistory() async throws {
@@ -450,6 +528,53 @@ final class MDBListTrackingTests: XCTestCase {
         TrackingTestProtocol.install { _ in (200, [:], #"{"updated":{},"not_found":{"movies":[{}]}}"#) }
         do { try await MDBListTrackingClient(apiKey: key, session: session()).write(event(.watched)); XCTFail("Unmatched title") }
         catch MDBListTrackingFailure.unavailable {} catch { XCTFail("Unexpected \(error)") }
+    }
+}
+
+/// An account backend shared by two independently persisted virtual devices.
+/// Runtime is intentionally unknown remotely and absent from the inventory;
+/// the exact local details route must supply it before a resume can be shown.
+private final class CrossDeviceTrackingBackend: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [String: Any]?
+    private var paused = false
+    private var gate: DispatchSemaphore?
+    init(firstWriteGate: DispatchSemaphore? = nil) { gate = firstWriteGate }
+    var progress: Double? { lock.lock(); defer { lock.unlock() }; return stored?["progress"] as? Double }
+    func respond(to request: URLRequest) throws -> (Int, [String: String], String) {
+        let path = request.url!.path
+        if request.url?.host == "server.invalid" {
+            let parts = path.split(separator: "/")
+            let user = parts.firstIndex(of: "users").map { String(parts[$0 + 1]) } ?? "matrix"
+            if path.hasSuffix("/items") {
+                return (200, [:], "{\"Items\":[{\"Id\":\"\(user)\",\"Name\":\"The Matrix\",\"Type\":\"Movie\",\"ProviderIds\":{\"Imdb\":\"tt0133093\"}}]}")
+            }
+            let item = parts.last.map(String.init) ?? user
+            return (200, [:], "{\"Id\":\"\(item)\",\"Name\":\"The Matrix\",\"Type\":\"Movie\",\"RunTimeTicks\":36000000000,\"ProviderIds\":{\"Imdb\":\"tt0133093\"}}")
+        }
+        if request.httpMethod == "POST" {
+            let body = try request.trackingBody()
+            lock.lock(); let wait = gate; gate = nil; lock.unlock()
+            if let wait, wait.wait(timeout: .now() + 2) == .timedOut { throw NSError(domain: "TrackingWriteGate", code: 1) }
+            lock.lock()
+            if let progress = body["progress"] as? Double {
+                stored = ["progress": progress, "progress_at_update": progress,
+                    "updated_at_ts": Date().timeIntervalSince1970, "runtime": 0,
+                    "movie": ["ids": ["imdb": "tt0133093"]]]
+                paused = path != "/scrobble/start"
+            } else if path == "/sync/watched/remove" { stored = nil }
+            lock.unlock()
+            return (200, [:], #"{"action":"pause","updated":{"movies":1},"deleted":{"movies":1}}"#)
+        }
+        if path == "/sync/playback" || path == "/sync/now-playing" {
+            lock.lock(); let row = stored; let isPaused = paused; lock.unlock()
+            let include = path == "/sync/playback" ? isPaused : !isPaused
+            let rows = include ? row.map { [$0] } ?? [] : []
+            return (200, [:], String(decoding: try JSONSerialization.data(withJSONObject: rows), as: UTF8.self))
+        }
+        if path == "/sync/watched" { return (200, [:], #"{"movies":[],"episodes":[],"pagination":{"next_cursor":null}}"#) }
+        if path == "/upnext" { return (200, [:], #"{"items":[]}"#) }
+        return (404, [:], "{}")
     }
 }
 

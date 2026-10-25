@@ -78,6 +78,38 @@ final class TennisTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testATPandWTAToursCanBeFollowedIndependentlyAndPersistAlongsideExistingTeams() throws {
+        let suite = "TennisTourFollows." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let profile = XtreamProfile(name: "Fixture", serverURL: "https://example.invalid", username: "fixture")
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.profiles")
+        defaults.set(profile.id.uuidString, forKey: "NullSports.activeProfile")
+        let library = SportsLibrary(profileDefaults: defaults)
+        let atp = try XCTUnwrap(matches().first)
+        let women = try JSONDecoder().decode(TennisEnvelope.self, from: Data(feed.replacingOccurrences(of: "mens-", with: "womens-").utf8))
+        let wta = try XCTUnwrap(women.events.flatMap {
+            SportsScheduleClient.tennisMatches(in: $0, tour: .wta, from: day, to: day.addingTimeInterval(86_400))
+        }.first)
+        let existing = FollowedTeam(key: TeamChannelKey(league: "nfl", abbreviation: "KC", name: "Chiefs"),
+            name: "Chiefs", abbreviation: "KC", logo: "")
+        let men = try XCTUnwrap(SportsLeague.atp.seriesFollow), ladies = try XCTUnwrap(SportsLeague.wta.seriesFollow)
+        library.toggleFollow(existing)
+        library.toggleFollow(men)
+        XCTAssertTrue(library.isFollowing(atp))
+        XCTAssertFalse(library.isFollowing(wta))
+        library.toggleFollow(ladies)
+        let restored = SportsLibrary(profileDefaults: defaults)
+        XCTAssertTrue(restored.isFollowing(atp))
+        XCTAssertTrue(restored.isFollowing(wta))
+        XCTAssertTrue(restored.isFollowing(existing.key))
+        restored.toggleFollow(men)
+        XCTAssertFalse(restored.isFollowing(atp))
+        XCTAssertTrue(restored.isFollowing(wta))
+        XCTAssertTrue(restored.isFollowing(existing.key))
+    }
+
     func testOnlyMainDrawSinglesWithRealPlayersAndTimesAreKept() throws {
         let ids = Set(try matches().map(\.id))
         XCTAssertEqual(ids, ["tennis-1001", "tennis-1002"],

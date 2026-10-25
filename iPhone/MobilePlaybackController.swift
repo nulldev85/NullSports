@@ -71,6 +71,9 @@ final class MobilePlaybackController: ObservableObject {
     private let defaults: UserDefaults
     private var preference = MobilePlaybackPreference.automatic
     private var failedEngines: [URL: Set<MobileStreamEngine>] = [:]
+    private var nativeCompatibilityFailures: Set<URL> = []
+    private var nativeFallbackAllowed = true
+    @Published private(set) var nativeCompatibilityActive = false
     private var sourceIsRecording = false
     private(set) var aetherSession: AetherPlaybackSession?
     private(set) var mpvSession: MPVPlaybackSession?
@@ -104,7 +107,11 @@ final class MobilePlaybackController: ObservableObject {
     /// Which engine is currently rendering. Views use it only to decide whether
     /// a Picture in Picture button can do anything.
     @Published private(set) var engine: MobileStreamEngine = .vlc
-    var engineTitle: String { engine.title }
+    var engineTitle: String {
+        if nativeCompatibilityActive { return "Native player · Compatibility" }
+        if preference == .native, engine != .system { return engine.title + " · Fallback" }
+        return engine.title
+    }
     @Published private(set) var pictureInPicturePossible = false
     @Published private(set) var pictureInPictureActive = false { didSet { reportLibraryTracking() } }
     /// A short, self-clearing line shown when Lineup moves to a different feed.
@@ -1014,6 +1021,8 @@ final class MobilePlaybackController: ObservableObject {
         presentation = MobilePlaybackPresentation()
         preference = MobilePlaybackPreference.selected(in: defaults)
         failedEngines.removeAll()
+        nativeCompatibilityFailures = []
+        nativeFallbackAllowed = MobilePlaybackPreference.allowsNativeFallback(in: defaults)
         sourceIsRecording = recording
         // A recording belongs to its channel. Another channel -- the viewer's
         // choice or failover's -- leaves the last one's behind.
@@ -1215,11 +1224,12 @@ final class MobilePlaybackController: ObservableObject {
         let url = candidates.removeFirst()
         currentURL = url
         guard let selected = MobileEngineSelection.engine(for: url, preference: preference,
-                                                          failed: failedEngines[url] ?? []) else {
+                                                          failed: failedEngines[url] ?? [], nativeFallback: nativeFallbackAllowed) else {
             openNext()
             return
         }
         engine = selected
+        nativeCompatibilityActive = preference == .native && selected == .aether && !nativeCompatibilityFailures.contains(url)
         health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
         diag.record("openNext \(url.lastPathComponent) engine=\(engine.rawValue) remaining=\(candidates.count)")
         started = Date()
@@ -1262,7 +1272,8 @@ final class MobilePlaybackController: ObservableObject {
                          isLive: isLive && !sourceIsRecording, expectedDuration: nil,
                          primary: isPrimaryOutput, matchContent: false,
                          preferredSubtitleLanguages: preferredSubtitleLanguages,
-                         preferredAudioLanguages: preferredAudioLanguages)
+                         preferredAudioLanguages: preferredAudioLanguages, requireNativeVideo: nativeCompatibilityActive)
+            if pausedByUser { session.pause() }
             applySubtitleAppearance()
             closeStartGate()
             UIApplication.shared.isIdleTimerDisabled = true
@@ -1295,7 +1306,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func checkAetherPlayback() {
-        guard engine == .aether, let session = aetherSession, retryAt == nil else { return }
+        guard engine == .aether, let session = aetherSession, retryAt == nil, error == nil else { return }
         if !inBackground { session.restoreForegroundVideo() }
         session.refreshPictureInPicture()
         let possible = session.pictureInPicturePossible
@@ -1393,17 +1404,25 @@ final class MobilePlaybackController: ObservableObject {
 
     private func advanceAfterEngineFailure() {
         guard let url = currentURL else { return }
+        if nativeCompatibilityActive, engine == .aether, nativeFallbackAllowed {
+            nativeCompatibilityFailures.insert(url)
+            if !isLive, reopenPosition == nil, let position = progress?.position, position > 0 { reopenPosition = position }
+            show(notice: "Using AetherEngine compatibility fallback for this source.")
+            candidates.insert(url, at: 0)
+            openNext()
+            return
+        }
         if isLive && !health.hasShownPicture {
             Task { await LiveQualityVerifier.shared.forgetPlayback(url: url) }
         }
         failedEngines[url, default: []].insert(engine)
-        if let next = MobileEngineSelection.engine(for: url, preference: preference, failed: failedEngines[url] ?? []) {
+        if let next = MobileEngineSelection.engine(for: url, preference: preference, failed: failedEngines[url] ?? [], nativeFallback: nativeFallbackAllowed) {
             // Try the provider's other PiP-capable endpoint before settling
             // for VLC, or retrying a broken HLS address through another engine.
             if (engine == .system || next == .vlc),
                let index = candidates.firstIndex(where: {
                    MobileEngineSelection.engine(for: $0, preference: preference,
-                       failed: failedEngines[$0] ?? [])?.supportsPictureInPicture == true
+                       failed: failedEngines[$0] ?? [], nativeFallback: nativeFallbackAllowed)?.supportsPictureInPicture == true
                }) {
                 let alternative = candidates.remove(at: index)
                 candidates.append(url)
@@ -1416,6 +1435,12 @@ final class MobilePlaybackController: ObservableObject {
             candidates.insert(url, at: 0)
             openNext()
         } else if !candidates.isEmpty { openNext() }
+        else if preference == .native, !nativeFallbackAllowed {
+            loading = false
+            isPlaying = false
+            aetherSession?.pause()
+            error = aetherSession?.errorMessage ?? "Apple’s native player could not open this source. Choose another feed or enable compatibility fallback in Settings."
+        }
         else {
             // A genuinely failed playback session gets a fresh bounded retry.
             // Keep the final engine so an unsupported Aether source does not

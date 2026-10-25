@@ -207,6 +207,9 @@ final class MediaLibrary {
     @ObservationIgnored private var trackingRevision = UUID()
     @ObservationIgnored private var trackingContext: String?
     @ObservationIgnored private var trackingImport: Task<Void, Never>?
+    @ObservationIgnored private var trackingRefresh: Task<Void, Never>?
+    private var remoteMDBPlayback: [LocalMediaPlayback] = []
+    private var remoteMDBAccount: Int?
     private struct MDBPlaybackSession {
         let item: MediaItem
         var sample: LibraryPlaybackSample?
@@ -2552,10 +2555,12 @@ final class MediaLibrary {
     private var playbackForConnectedServers: [LocalMediaPlayback] {
         let connected = recordSources
         var records = localPlayback.filter { connected.contains($0.profileID) }
-        guard !nativeSiloRecords.isEmpty else { return records }
+        let mdb = localTrackingEnabled && mdbListTrackingEnabled && remoteMDBAccount == trackingAccountID ? remoteMDBPlayback : []
+        let remoteRecords = mdb + nativeSiloRecords.values.flatMap({ $0 })
+        guard !remoteRecords.isEmpty else { return records }
         var positions = Dictionary(records.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
         let active = Set(playbackSessions.values.filter(\.hasAdvanced).map { $0.profileID.uuidString + "|" + $0.item.id })
-        for remote in nativeSiloRecords.values.flatMap({ $0 }) where connected.contains(remote.profileID) {
+        for remote in remoteRecords where connected.contains(remote.profileID) {
             if let position = positions[remote.id] {
                 if active.contains(remote.id) || records[position].updatedAt >= remote.updatedAt { continue }
                 records[position] = remote
@@ -4731,7 +4736,7 @@ extension MediaLibrary {
         let saved = activeTrackingCacheKey.flatMap { defaults.data(forKey: $0) }
             .flatMap { try? JSONDecoder().decode([LocalMediaPlayback].self, from: $0) } ?? []
         localPlayback = saved.map { Self.marked($0) }
-        if !localTrackingEnabled, mdbListTrackingEnabled { importMDBTracking(mdbListTracking.records) }
+        if mdbListTrackingEnabled { importMDBTracking(mdbListTracking.records) }
     }
     private func rememberMDBTrackingAccount(_ account: MDBListAccount, apiKey: String) {
         guard let id = account.userID, id > 0,
@@ -4752,6 +4757,9 @@ extension MediaLibrary {
         if context != trackingContext {
             trackingContext = context
             trackingRevision = UUID()
+            trackingRefresh?.cancel(); trackingRefresh = nil
+            trackingImport?.cancel()
+            remoteMDBPlayback = []; remoteMDBAccount = nil
             for id in Array(mdbPlaybackSessions.keys) {
                 mdbPlaybackSessions[id]?.resolving?.cancel()
                 if mdbPlaybackSessions[id]?.closed == true { mdbPlaybackSessions[id] = nil; continue }
@@ -4763,7 +4771,7 @@ extension MediaLibrary {
         }
         mdbListTracking.configure(accountID: trackingAccountID, apiKey: trackingKey(), enabled: mdbListTrackingEnabled)
         if mdbListTrackingEnabled {
-            if !localTrackingEnabled { importMDBTracking(mdbListTracking.records) }
+            importMDBTracking(mdbListTracking.records)
             if trackingAccountID == nil { loadMDBListIntegrationIfNeeded() }
             else { mdbListTracking.synchronize() }
         }
@@ -4772,7 +4780,24 @@ extension MediaLibrary {
         guard mdbListTrackingEnabled else { return }
         configureMDBTracking()
         if trackingAccountID == nil { loadMDBListIntegrationIfNeeded() }
-        else { mdbListTracking.synchronize(force: force) }
+        else if force {
+            // Commit each active player's latest real sample before a manual
+            // sync, even when its ordinary one-minute heartbeat is not due.
+            for id in Array(mdbPlaybackSessions.keys) {
+                guard let state = mdbPlaybackSessions[id], !state.closed, let sample = state.sample,
+                      sample.playing || state.lastSent != nil, sample.duration.isFinite, sample.duration > 0,
+                      sample.position.isFinite, sample.position >= 0 else { continue }
+                queueMDBPlayback(id, action: sample.playing ? .start : .pause, progress: 100 * sample.position / sample.duration)
+            }
+            let token = trackingRevision
+            let resolutions = mdbPlaybackSessions.values.compactMap(\.resolving)
+            trackingRefresh?.cancel()
+            trackingRefresh = Task { [weak self] in
+                for resolution in resolutions { await resolution.value }
+                guard let self, !Task.isCancelled, self.trackingRevision == token, self.mdbListTrackingEnabled else { return }
+                self.mdbListTracking.synchronize(force: true)
+            }
+        } else { mdbListTracking.synchronize() }
     }
 
     func reportTrackingSample(_ sample: LibraryPlaybackSample, for item: MediaItem, sessionID: UUID) {
@@ -4911,9 +4936,10 @@ extension MediaLibrary {
     }
 
     private func importMDBTracking(_ records: [MDBListTrackingRecord]) {
-        guard !localTrackingEnabled, mdbListTrackingEnabled, trackingAccountID != nil, mdbListTracking.hasSnapshot else { return }
+        guard mdbListTrackingEnabled, trackingAccountID != nil, mdbListTracking.hasSnapshot else { return }
         trackingImport?.cancel()
         let token = trackingRevision, started = Date(), account = trackingAccountID
+        let localMode = localTrackingEnabled
         trackingImport = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
             let inventory: (items: [MediaItem], failure: Error?) = records.isEmpty
@@ -4962,6 +4988,10 @@ extension MediaLibrary {
                         target = episode
                     }
                     guard let profile = self.serverID(of: target) else { continue }
+                    if record.state == .progress, (target.runTimeTicks ?? 0) <= 0, record.runtime <= 0 {
+                        do { target = try await self.details(of: target) }
+                        catch { return }
+                    }
                     let ownDuration = target.runTimeTicks.map { Double($0) / 10_000_000 } ?? 0
                     if record.state == .progress, ownDuration > 0, record.runtime > 0,
                        abs(ownDuration - record.runtime) > max(60, ownDuration * 0.02) { continue }
@@ -4976,13 +5006,23 @@ extension MediaLibrary {
                 }
             }
             guard !Task.isCancelled, token == self.trackingRevision, account == self.trackingAccountID,
-                  !self.localTrackingEnabled, self.mdbListTrackingEnabled, self.mdbListTracking.pendingCount == 0 else { return }
-            let active = Set(self.playbackSessions.values.map { $0.item.libraryKey })
+                  self.localTrackingEnabled == localMode, self.mdbListTrackingEnabled,
+                  self.mdbListTracking.hasSnapshot, self.mdbListTracking.records == records,
+                  self.mdbListTracking.pendingCount == 0 else { return }
+            let active = Set(self.playbackSessions.values.filter { !localMode || $0.hasAdvanced }.map { $0.item.libraryKey })
             for value in self.localPlayback where value.updatedAt >= started || active.contains(value.item.libraryKey) {
                 imported[value.id] = value
             }
-            self.localPlayback = Array(imported.values)
-            self.persistLocalPlayback()
+            if localMode {
+                self.remoteMDBPlayback = Array(imported.values)
+                self.remoteMDBAccount = account
+                if let account, let data = try? JSONEncoder().encode(self.remoteMDBPlayback) {
+                    self.defaults.set(data, forKey: LibraryTrackingPreferences.cacheKey(account))
+                }
+            } else {
+                self.localPlayback = Array(imported.values)
+                self.persistLocalPlayback()
+            }
         }
     }
 

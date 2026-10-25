@@ -81,6 +81,13 @@ struct StreamingServicePoster: View {
 
 // MARK: - One service
 
+/// A presentation owned by the service page, independent of the Library's
+/// value path and of the movie/show grids that refresh underneath it.
+final class StreamingServiceNavigation: ObservableObject {
+    @Published var item: MediaItem?
+    func select(_ item: MediaItem) { self.item = item }
+}
+
 /// What one service has on that the viewer can play: its films or its shows,
 /// one at a time, in the order the viewer chooses. Each title is the same
 /// card, and opens the same page, as anywhere else in the Library.
@@ -93,12 +100,18 @@ struct StreamingServiceScreen: View {
     @AppStorage("Lineup.streamingSort.movie") private var movieSort: StreamingSort = .popular
     @AppStorage("Lineup.streamingSort.show") private var showSort: StreamingSort = .popular
     @State private var choosingSort = false
-    #if os(tvOS)
-    // tvOS pushes by hand: its cards are not NavigationLinks.
-    @State private var pushed: MediaItem?
-    #endif
+    // The service owns only its selected title. Registering another value
+    // destination for MediaItem here shadows the Library's service route and
+    // can rebuild the current destination instead of pushing the title.
+    @StateObject private var navigation: StreamingServiceNavigation
+    private let catalog: StreamingServiceTitles?
 
-    private var titles: StreamingServiceTitles { media.streamingTitles(for: service) }
+    init(service: StreamingService, navigation: StreamingServiceNavigation? = nil, catalog: StreamingServiceTitles? = nil) {
+        self.service = service; self.catalog = catalog
+        _navigation = StateObject(wrappedValue: navigation ?? StreamingServiceNavigation())
+    }
+
+    private var titles: StreamingServiceTitles { catalog ?? media.streamingTitles(for: service) }
 
     private var sort: StreamingSort { kind == .movie ? movieSort : showSort }
 
@@ -136,8 +149,8 @@ struct StreamingServiceScreen: View {
             // A service with only shows opens on its shows.
             if titles.movies.isEmpty, !titles.shows.isEmpty { kind = .show }
         }
+        .navigationDestination(item: $navigation.item) { item in MediaBrowseDestination(item: item) }
         #if os(tvOS)
-        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .tvChoices("Sort \(kind == .movie ? "Movies" : "TV Shows")", symbol: "arrow.up.arrow.down",
                    isPresented: $choosingSort) {
             StreamingSort.allCases.map { option in
@@ -156,7 +169,6 @@ struct StreamingServiceScreen: View {
                     .accessibilityLabel(service.name)
             }
         }
-        .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .lineupChoices("Sort \(kind == .movie ? "Movies" : "TV Shows")", symbol: "arrow.up.arrow.down",
                        isPresented: $choosingSort) {
             StreamingSort.allCases.map { option in
@@ -264,12 +276,13 @@ struct StreamingServiceScreen: View {
     @ViewBuilder
     private func cell(_ item: MediaItem) -> some View {
         #if os(tvOS)
-        TVSelectable(drawsFocusChrome: false, action: { pushed = item }) {
+        TVSelectable(drawsFocusChrome: false, action: { navigation.select(item) }) {
             MediaItemCard(item: item, shape: .poster)
         }
         #else
-        NavigationLink(value: item) { MediaItemCard(item: item, shape: .poster) }
+        Button { navigation.select(item) } label: { MediaItemCard(item: item, shape: .poster) }
             .lineupFlatButton()
+            .accessibilityIdentifier("lineup.streaming.title.\(item.libraryKey)")
         #endif
     }
 }
@@ -279,9 +292,7 @@ struct StreamingServiceScreen: View {
 /// The whole row, from its See All: every service with something to play.
 struct StreamingServicesScreen: View {
     @Environment(MediaLibrary.self) private var media
-    #if os(tvOS)
     @State private var pushed: MediaItem?
-    #endif
 
     private var services: [MediaItem] { media.streamingShelf?.items ?? [] }
 
@@ -300,7 +311,7 @@ struct StreamingServicesScreen: View {
                                 MediaItemCard(item: item, shape: .poster)
                             }
                             #else
-                            NavigationLink(value: item) { MediaItemCard(item: item, shape: .poster) }
+                            Button { pushed = item } label: { MediaItemCard(item: item, shape: .poster) }
                                 .lineupFlatButton()
                             #endif
                         }
@@ -314,11 +325,9 @@ struct StreamingServicesScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LineupStyle.background.ignoresSafeArea())
         .foregroundStyle(LineupStyle.lightPurple)
-        #if os(tvOS)
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
-        #else
+        #if !os(tvOS)
         .navigationTitle(StreamingService.rowTitle)
-        .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         #endif
     }
 }

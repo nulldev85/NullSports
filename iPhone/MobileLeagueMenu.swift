@@ -14,19 +14,21 @@ struct MobileLeagueMenuButton: View {
                 // A league's mark when one is chosen. Every league needs no
                 // icon: the words say it, and the pill stays small.
                 if let league { MobileLeagueLogo(league: league, size: 22) }
+                else { LineupIconTile(symbol: "sportscourt.fill", size: 22) }
                 Text(MobileLeagueMenu.title(league))
                     .font(.inter(15, .bold))
-                    .foregroundStyle(LineupStyle.text.opacity(0.76))
+                    .foregroundStyle(LineupPresentationStyle.text)
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
-                    .foregroundStyle(LineupPanelStyle.quiet)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
                     .rotationEffect(.degrees(isOpen ? -180 : 0))
             }
-            .padding(.leading, league == nil ? 14 : 10).padding(.trailing, 12)
+            .padding(.leading, 10).padding(.trailing, 12)
             .frame(height: 36)
             // A panel's own fill, a step lighter while its list is open.
-            .background(isOpen ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Capsule())
+            .background(isOpen ? LineupPresentationStyle.card : LineupPresentationStyle.row, in: Capsule())
+            .overlay(Capsule().strokeBorder(isOpen ? LineupStyle.highlight.opacity(0.4) : LineupPresentationStyle.divider, lineWidth: 0.7))
             .contentShape(Capsule())
         }
         .buttonStyle(MobileCardButtonStyle())

@@ -2684,6 +2684,10 @@ final class SportsLibrary {
     private(set) var followedTeams = FollowedTeams()
 
     func isFollowing(_ game: SportsGame) -> Bool {
+        #if os(iOS)
+        // A tour follow supplements any existing individual-player follows.
+        if game.league.isTennis, let tour = game.league.seriesFollow, followedTeams.contains(tour.key) { return true }
+        #endif
         if let racing = game.racingFollow { return followedTeams.contains(racing.key) }
         return FollowedSlate.follows(Self.preferenceGame(game), in: followedTeams)
     }

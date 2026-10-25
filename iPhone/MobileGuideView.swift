@@ -34,6 +34,7 @@ struct MobileGuideView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
     @AppStorage(MobileGuideDefaultCategory.storageKey) private var defaultCategories = "{}"
+    @AppStorage(MobileGuideCategoryVisibility.storageKey) private var hiddenCategories = "{}"
     @AppStorage("lineup.mobile.guide.combinedDefaultProvider.v1") private var defaultProviderValue = ""
     @State private var query = ""
     @State private var showsSearch = false
@@ -59,6 +60,7 @@ struct MobileGuideView: View {
     @State private var expanded = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var reorderingFavorites = false
+    @State private var managingCategories = false
     /// The channel before the one in the player, for Last Channel.
     @State private var previousChannel: XtreamStream?
     /// The channel just tuned to, named over the picture for a moment.
@@ -102,10 +104,20 @@ struct MobileGuideView: View {
     /// A provider's saved starting category, then the existing Favorites/All
     /// behavior. Manual choices last until the next entry to this tab.
     private var filter: MobileGuideFilter {
-        if let chosenFilter { return chosenFilter }
+        if let chosenFilter, chosenFilter.categoryID.map({ !hiddenCategoryIDs.contains($0) }) ?? true { return chosenFilter }
         return MobileGuideDefaultCategory.initialFilter(for: defaultCategoryProfile, in: defaultCategories,
-            categoryIDs: library.categories.map(\.id), hasFavorites: !library.favoriteStreamOrder.isEmpty,
+            categoryIDs: visibleCategories.map(\.id), hasFavorites: !library.favoriteStreamOrder.isEmpty,
             isGamePicker: game != nil)
+    }
+
+    private var hiddenCategoryIDs: Set<String> {
+        guard game == nil else { return [] }
+        let preferences = MobileGuideCategoryVisibility(hiddenCategories)
+        return preferences.hiddenDisplayIDs(in: library.categories, source: { library.categorySource(for: $0) })
+    }
+    private var visibleCategories: [XtreamCategory] {
+        let hidden = hiddenCategoryIDs
+        return library.categories.filter { !hidden.contains($0.id) }
     }
 
     private var defaultCategoryProfile: UUID? {
@@ -118,9 +130,11 @@ struct MobileGuideView: View {
     private var searching: Bool { !query.isEmpty }
 
     private var channels: [XtreamStream] {
-        let listed = library.guideStreams(categoryID: searching ? nil : filter.categoryID,
+        let found = library.guideStreams(categoryID: searching ? nil : filter.categoryID,
                                           favoritesOnly: !searching && filter == .favorites,
                                           query: query, recentsOnly: !searching && filter == .recents)
+        let listed = MobileGuideCategoryVisibility.filtered(found, hidden: hiddenCategoryIDs,
+            personalList: !searching && (filter == .favorites || filter == .recents), gamePicker: game != nil)
         // Only when picking a channel for a game. The Guide's own ordering —
         // favorites, then the provider's order — is left exactly as it was.
         guard game != nil, let recommendedStreamID,
@@ -180,6 +194,11 @@ struct MobileGuideView: View {
                     } else if channels.isEmpty && filter == .favorites && !searching {
                         LineupUnavailableView("No favorites", systemImage: "star",
                             description: Text("Touch and hold a channel to add it to your favorites, or pick All channels from the menu."))
+                    } else if channels.isEmpty, game == nil, !library.categories.isEmpty, visibleCategories.isEmpty, filter == .all {
+                        LineupUnavailableView(title: "Categories Hidden", symbol: "eye.slash",
+                            description: Text("Choose which categories you want to see in TV Guide.")) {
+                            Button("Manage Categories") { managingCategories = true }.lineupButtonStyle()
+                        }
                     } else if channels.isEmpty {
                         LineupUnavailableView("No channels", systemImage: "tv",
                             description: Text("Try another category or search, or refresh your guide."))
@@ -371,6 +390,10 @@ struct MobileGuideView: View {
                 }
             }
             .onAppear(perform: guideDidAppear)
+            .onChange(of: hiddenCategories) { _, _ in
+                if let category = chosenFilter?.categoryID, hiddenCategoryIDs.contains(category) { chosenFilter = nil }
+                resetPosition = UUID()
+            }
     }
 
     private var guidePresentations: some View {
@@ -402,6 +425,9 @@ struct MobileGuideView: View {
                     .environment(library)
                     .tint(LineupStyle.highlight)
                     .preferredColorScheme(.dark)
+            }
+            .lineupSheet(isPresented: $managingCategories) {
+                MobileGuideCategoryVisibilityView().environment(library).preferredColorScheme(.dark)
             }
     }
 
@@ -453,6 +479,15 @@ struct MobileGuideView: View {
             })
         } else {
             items.append(MobileMenuItem("Add Favorite", symbol: "star") { library.addFavorite(stream) })
+        }
+        if game == nil {
+            if let category = stream.categoryID {
+                let hidden = hiddenCategoryIDs.contains(category)
+                items.append(MobileMenuItem(hidden ? "Show This Category" : "Hide This Category", symbol: hidden ? "eye" : "eye.slash") {
+                    setCategory(category, hidden: !hidden)
+                })
+            }
+            items.append(MobileMenuItem("Manage Categories", symbol: "list.bullet") { managingCategories = true })
         }
         // Beside the channel already playing, rather than instead of it.
         if let current = selectedStream, current.id != stream.id, game == nil {
@@ -540,10 +575,10 @@ struct MobileGuideView: View {
 
     private var filterSections: [MobileMenuSection] {
         let currentFilter = filter
-        let categories = library.categories.map { category in
+        let categories = visibleCategories.map { category in
             let source = library.categorySource(for: category.id)
             let defaultID = MobileGuideDefaultCategory.categoryID(for: source.profileID, in: defaultCategories)
-            return MobileGuideCategoryMenu.item(for: category, isSelected: currentFilter == .category(category.id),
+            var item = MobileGuideCategoryMenu.item(for: category, isSelected: currentFilter == .category(category.id),
                 isDefault: defaultID == source.categoryID, allowsDefault: game == nil && source.profileID != nil, select: {
                 chosenFilter = .category(category.id)
             }, changeDefault: { categoryID in
@@ -554,6 +589,10 @@ struct MobileGuideView: View {
                 chosenFilter = nil
                 setFilterMenu(false)
             })
+            if game == nil {
+                item.holdItems.append(MobileMenuItem("Hide Category", symbol: "eye.slash") { setCategory(category.id, hidden: true) })
+            }
+            return item
         }
         let inCategory: Bool = { if case .category = currentFilter { return true } else { return false } }()
         return [
@@ -581,6 +620,14 @@ struct MobileGuideView: View {
             for: defaultCategoryProfile, in: defaultCategories, isGamePicker: game != nil)
     }
 
+    private func setCategory(_ category: String, hidden: Bool) {
+        let source = library.categorySource(for: category)
+        if let raw = MobileGuideCategoryVisibility(hiddenCategories).setting(hidden, category: source.categoryID, provider: source.profileID) {
+            hiddenCategories = raw
+        }
+        setFilterMenu(false)
+    }
+
     /// What the TV Guide's dropdown offers: getting about, which channels the
     /// guide displays, playback modes, and refresh actions. Channel filters
     /// belong to the centered selector on the main Guide, and remain in this
@@ -602,6 +649,11 @@ struct MobileGuideView: View {
             ])
         ]
         if game != nil { sections.append(contentsOf: filterSections) }
+        else {
+            sections.append(MobileMenuSection(id: "categories", items: [
+                MobileMenuItem("Manage Categories", symbol: "eye.slash", isEnabled: !library.categories.isEmpty) { managingCategories = true }
+            ]))
+        }
         sections.append(MobileMenuSection(id: "refresh", items: [
             MobileMenuItem("Refresh Guide", symbol: "arrow.clockwise",
                            isEnabled: !library.channelsAreSyncing) {

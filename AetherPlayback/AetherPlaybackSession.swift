@@ -46,6 +46,7 @@ public final class AetherPlaybackSession {
         return current.width > 0 && current.height > 0 ? current : probedVideoSize
     }
     public var surface: UIView { canvas }
+    public var isNativeVideo: Bool { engine.nativePlayerLayer != nil }
     public var mediaInfo: PlaybackMediaInfo {
         guard isOpen, !loading, hasPicture else { return PlaybackMediaInfo() }
         let range: String?
@@ -214,7 +215,7 @@ public final class AetherPlaybackSession {
 
     public func load(url: URL, startPosition: Double?, isLive: Bool, expectedDuration: Double?, primary: Bool, matchContent: Bool,
                      preferredSubtitleLanguages: [String] = [],
-                     preferredAudioLanguages: [String] = ["en", "eng"]) {
+                     preferredAudioLanguages: [String] = ["en", "eng"], requireNativeVideo: Bool = false) {
         stop()
         let token = generation
         isOpen = true
@@ -231,6 +232,7 @@ public final class AetherPlaybackSession {
         options.isLive = isLive
         options.liveJoinProfile = .fastZap
         options.autoplay = false
+        if requireNativeVideo { options.escalatesToSoftwarePath = false }
         #if targetEnvironment(simulator)
         // The simulator lacks the hardware decoder used on an Apple device.
         // Live H.264 otherwise stays on a native path that cannot show frames.
@@ -255,6 +257,12 @@ public final class AetherPlaybackSession {
                 guard !Task.isCancelled, self.generation == token else { return }
                 let probe = try await self.engine.load(url: url, startPosition: startPosition, options: options)
                 guard !Task.isCancelled, self.generation == token else { return }
+                if requireNativeVideo, !self.isNativeVideo {
+                    self.isOpen = false
+                    self.engine.stop()
+                    throw NSError(domain: "Lineup.NativeCompatibility", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                        "This source needs a decoder Apple’s native player cannot use. Enable compatibility fallback or choose AetherEngine."])
+                }
                 // load() awaits the engine's audio-category declaration. Bare
                 // AVPlayerLayer hosts activate it before starting transport.
                 try await AetherAudioActivation.shared.activate()

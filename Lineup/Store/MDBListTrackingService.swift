@@ -29,6 +29,7 @@ final class MDBListTrackingService {
     @ObservationIgnored private var queue: [MDBListTrackingWrite] = []
     @ObservationIgnored private var work: Task<Void, Never>?
     @ObservationIgnored private var syncWork: Task<Void, Never>?
+    @ObservationIgnored private var pendingSyncForce: Bool?
     @ObservationIgnored private var retry: Task<Void, Never>?
     @ObservationIgnored private var retryAt: Date?
     @ObservationIgnored private var lastSnapshot: Date?
@@ -52,6 +53,7 @@ final class MDBListTrackingService {
         generation = UUID()
         work?.cancel(); work = nil
         syncWork?.cancel(); syncWork = nil
+        pendingSyncForce = nil
         retry?.cancel(); retry = nil
         if let old = account, old != next { defaults.removeObject(forKey: queueKey(old)) }
         account = next; key = next == nil ? nil : apiKey
@@ -74,6 +76,7 @@ final class MDBListTrackingService {
     func enqueue(_ event: MDBListTrackingWrite) {
         guard account != nil, key != nil, event.target.valid, event.progress.isFinite else { return }
         revision += 1
+        if syncWork != nil { pendingSyncForce = true }
         // An earlier read is no longer an authoritative snapshot after a
         // local write. Keep the working Library cache until a fresh full read.
         hasSnapshot = false
@@ -143,14 +146,23 @@ final class MDBListTrackingService {
             guard self.generation == token else { return }
             self.work = nil
             if self.queue.isEmpty { self.status = self.rejected > 0 ? "Some titles could not be matched" : "Up to date" }
+            if let force = self.pendingSyncForce { self.synchronize(force: force) }
         }
     }
 
     func synchronize(force: Bool = false) {
+        guard account != nil, key != nil, !needsAuthentication else { return }
+        let force = force || pendingSyncForce == true
+        if syncWork != nil || work != nil || !queue.isEmpty {
+            pendingSyncForce = force
+            flush()
+            return
+        }
         flush()
         guard syncWork == nil, work == nil, queue.isEmpty, let key, let account, !needsAuthentication else { return }
-        if let retryAt, retryAt > Date() { return }
-        if !force, let lastSnapshot, Date().timeIntervalSince(lastSnapshot) < 60 { return }
+        if let retryAt, retryAt > Date() { pendingSyncForce = force; scheduleRetry(at: retryAt); return }
+        if !force, let lastSnapshot, Date().timeIntervalSince(lastSnapshot) < 60 { pendingSyncForce = nil; return }
+        pendingSyncForce = nil
         let token = generation, revision = revision
         syncWork = Task { [weak self] in
             guard let self, self.generation == token, !Task.isCancelled else { return }
@@ -169,7 +181,10 @@ final class MDBListTrackingService {
                 guard self.generation == token, !Task.isCancelled else { return }
                 self.handle(error)
             }
-            if self.generation == token { self.syncWork = nil }
+            if self.generation == token {
+                self.syncWork = nil
+                if let force = self.pendingSyncForce { self.synchronize(force: force) }
+            }
         }
     }
 

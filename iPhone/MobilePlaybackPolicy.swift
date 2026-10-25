@@ -14,28 +14,34 @@ enum MobileRecordingSeekPolicy {
 enum MobileStreamEngine: String, Hashable {
     case system, aether, vlc, mpv
     var title: String {
-        switch self { case .system: "AVPlayer"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit" }
+        switch self { case .system: "Native player"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit" }
     }
     var supportsPictureInPicture: Bool { self == .system || self == .aether }
 }
 
 enum MobilePlaybackPreference: String, CaseIterable, Identifiable {
-    case automatic, aether, vlc, mpv
+    case automatic, native, aether, vlc, mpv
     static let storageKey = "Lineup.mobile.playbackEngine.v1"
+    static let nativeFallbackKey = "Lineup.mobile.nativePlayer.fallback.v1"
+    static let allCases: [Self] = [.native, .aether, .vlc, .mpv]
     var id: String { rawValue }
     var title: String {
-        switch self { case .automatic: "Automatic"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit (Trial)" }
+        switch self { case .automatic, .native: "Native player"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit (Trial)" }
     }
     var version: String? {
         switch self {
-        case .automatic: nil
+        case .automatic, .native: nil
         case .aether: PlaybackEngineVersions.aether
         case .vlc: PlaybackEngineVersions.vlc
         case .mpv: PlaybackEngineVersions.mpv
         }
     }
     static func selected(in defaults: UserDefaults = .standard) -> Self {
-        defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .automatic
+        let saved = defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .native
+        return saved == .automatic ? .native : saved
+    }
+    static func allowsNativeFallback(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: nativeFallbackKey) as? Bool ?? true
     }
 }
 
@@ -44,9 +50,14 @@ enum MobileEngineSelection {
     /// extensionless server routes with native or sample-buffer PiP. Failed
     /// engines are skipped for this URL, so fallback cannot loop forever.
     static func engine(for url: URL, preference: MobilePlaybackPreference = .automatic,
-                       failed: Set<MobileStreamEngine> = []) -> MobileStreamEngine? {
+                       failed: Set<MobileStreamEngine> = [], nativeFallback: Bool = true) -> MobileStreamEngine? {
         let order: [MobileStreamEngine]
         switch preference {
+        case .native:
+            // Files use the native compatibility pipeline as well, retaining
+            // the app's track, subtitle and seeking features around AVPlayer.
+            let direct = ["m3u8", "m3u"].contains(url.pathExtension.lowercased())
+            order = (direct ? [.system, .aether] : [.aether]) + (nativeFallback ? [.vlc] : [])
         case .automatic:
             order = ["m3u8", "m3u"].contains(url.pathExtension.lowercased())
                 ? [.system, .aether, .vlc] : [.aether, .vlc]

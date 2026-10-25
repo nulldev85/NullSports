@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// Choosing the phone's accent, laid out like any other settings sheet: the
-/// app in the colour being tried, the ten presets as plain swatches, then a
-/// colour of one's own by its code or from the mixer, and the ones kept.
+/// app preview, a precise color wheel, saved colors, presets and fine tuning.
 /// Nothing changes until Done.
 struct MobileAccentPicker: View {
     @Environment(\.dismiss) private var dismiss
@@ -31,14 +30,10 @@ struct MobileAccentPicker: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     AccentPreviewCard(accent: accent)
-                    section("Color", symbol: "paintpalette", trailing: accent.isPreset ? accent.name : nil) {
-                        swatchGrid
-                    }
-                    section("Custom", symbol: "slider.horizontal.3") {
+                    section("Color", symbol: "paintpalette", trailing: accent.isPreset ? accent.name : "Custom") {
                         VStack(spacing: 0) {
+                            MobileAccentWheel(hex: $draft).padding(20)
                             hexRow
-                            Divider().overlay(LineupStyle.line).padding(.leading, 16)
-                            mixRow(accent)
                             Divider().overlay(LineupStyle.line).padding(.leading, 16)
                             saveRow(accent)
                         }
@@ -48,6 +43,8 @@ struct MobileAccentPicker: View {
                             savedGrid
                         }
                     }
+                    section("Presets", symbol: "circle.grid.2x2") { swatchGrid }
+                    section("Fine Tuning", symbol: "slider.horizontal.3") { mixRow(accent) }
                     if draft != LineupAccent.red.hex {
                         Button("Reset to Red") { choose(LineupAccent.red.hex) }
                             .font(.inter(.subheadline, .medium))

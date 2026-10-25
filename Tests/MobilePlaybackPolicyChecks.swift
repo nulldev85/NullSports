@@ -56,6 +56,14 @@ struct MobilePlaybackPolicyChecks {
         check(MobileEngineSelection.engine(for: hls, failed: [.system, .aether, .vlc]) == nil, "Exhaustion cannot loop")
         check(!MobileEngineSelection.canPictureInPicture([]), "No candidates cannot offer PiP")
 
+        check(MobilePlaybackPreference.allCases == [.native, .aether, .vlc, .mpv], "Native replaces Automatic in Settings")
+        check(MobileEngineSelection.engine(for: ts, preference: .native, nativeFallback: false) == .aether,
+              "Strict Native retains the demux/remux compatibility layer")
+        check(MobileEngineSelection.engine(for: hls, preference: .native, failed: [.system, .aether], nativeFallback: false) == nil,
+              "Strict Native cannot silently choose another decoder")
+        check(MobileEngineSelection.engine(for: ts, preference: .native, failed: [.aether], nativeFallback: true) == .vlc,
+              "Opted-in compatibility exhaustion retains the bounded fallback ladder")
+
         // Background policy ------------------------------------------------
         func action(background: Bool, pip: Bool = false, paused: Bool = false,
                     backgroundAudio: Bool = true) -> MobilePlaybackPhaseAction {
