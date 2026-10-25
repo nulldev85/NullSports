@@ -90,11 +90,30 @@ struct IntegrationAction: View {
     var destructive = false
     let action: () -> Void
     var body: some View {
+        #if os(tvOS)
         Button(action: action) {
             Label(title, systemImage: symbol).font(.inter(.body, .heavy))
                 .foregroundStyle(destructive ? LineupPresentationStyle.destructive : LineupPresentationStyle.text)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(6)
         }.lineupButtonStyle()
+        #else
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .foregroundStyle(destructive ? LineupPresentationStyle.destructive : LineupPresentationStyle.text)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }.buttonStyle(IntegrationButtonStyle())
+        #endif
+    }
+}
+
+struct IntegrationButtonStyle: ButtonStyle {
+    @ViewBuilder func makeBody(configuration: Configuration) -> some View {
+        #if os(tvOS)
+        LineupButtonStyle().makeBody(configuration: configuration)
+        #else
+        MobileIntegrationButtonStyle().makeBody(configuration: configuration)
+        #endif
     }
 }
 
@@ -157,9 +176,16 @@ struct SeerrSettingsView: View {
                     ScrollView(.horizontal) {
                         HStack {
                             ForEach(SeerrSignInMethod.allCases, id: \.self) { choice in
+                                #if os(tvOS)
                                 IntegrationAction(title: (method == choice ? "✓ " : "") + choice.title, symbol: "person.crop.circle") { method = choice }
+                                #else
+                                MobileSeerrSignInChoice(method: choice, selected: method == choice) { method = choice }
+                                #endif
                             }
                         }
+                        #if !os(tvOS)
+                        .padding(.horizontal, 1).padding(.vertical, 2)
+                        #endif
                     }.scrollIndicators(.hidden)
                     if method == .plex {
                         if let pinCode {

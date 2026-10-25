@@ -6781,11 +6781,8 @@ private struct MediaServerSignInPanel: View {
                 connect(form)
             } label: {
                 Text(media.isAddingServer ? "Connecting…" : "Connect")
-                    #if !os(tvOS)
-                    .frame(maxWidth: .infinity)
-                    #endif
             }
-            .lineupButtonStyle()
+            .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
             .disabled(media.isAddingServer || !form.isComplete)
             Text(footer)
                 .font(.inter(footerSize)).foregroundStyle(LineupPresentationStyle.secondary)
@@ -6912,8 +6909,8 @@ private struct PlexLinkPanel: View {
                 Text("You'll get a short code to enter at plex.tv/link on any phone or computer. Lineup never sees your Plex password.")
                     .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button { link() } label: { wide("Link Plex Account") }
-                    .lineupButtonStyle()
+                Button { link() } label: { actionTitle("Link Plex Account") }
+                    .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
             case .waiting(let code):
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Go to **plex.tv/link** and enter this code:")
@@ -6929,8 +6926,8 @@ private struct PlexLinkPanel: View {
                     }
                 }
                 #if !os(tvOS)
-                Button { openURL(URL(string: "https://plex.tv/link")!) } label: { wide("Open plex.tv/link") }
-                    .lineupButtonStyle()
+                Button { openURL(URL(string: "https://plex.tv/link")!) } label: { actionTitle("Open plex.tv/link") }
+                    .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
                 #endif
             case .finding:
                 HStack(spacing: 10) {
@@ -6950,26 +6947,25 @@ private struct PlexLinkPanel: View {
                                     Text(server.owned == false ? "Shared with you" : "Your server")
                                         .font(.inter(captionSize)).foregroundStyle(LineupPresentationStyle.secondary)
                                 }
+                                #if os(tvOS)
                                 Spacer(minLength: 0)
+                                #endif
                             }
                         }
-                        .lineupButtonStyle()
+                        .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
                     }
                 }
             case .failed(let message):
                 Text(message).font(.inter(bodySize)).foregroundStyle(LineupStyle.live)
-                Button { link() } label: { wide("Try Again") }
-                    .lineupButtonStyle()
+                Button { link() } label: { actionTitle("Try Again") }
+                    .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
             }
         }
         .onDisappear { linking?.cancel() }
     }
 
-    private func wide(_ title: String) -> some View {
+    private func actionTitle(_ title: String) -> some View {
         Text(title)
-            #if !os(tvOS)
-            .frame(maxWidth: .infinity)
-            #endif
     }
 
     private func link() {

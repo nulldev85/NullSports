@@ -110,9 +110,8 @@ struct MobileLineupNavigationBar: View {
                     .foregroundStyle(compact || selected ? LineupPresentationStyle.text : LineupPresentationStyle.secondary)
                     .frame(maxWidth: .infinity, minHeight: MobileLineupNavigationLayout.itemHeight)
                     .background {
-                        if selected && !compact {
-                            Capsule().fill(liquidGlass ? LineupPanelStyle.well : LineupStyle.highlight.opacity(0.11))
-                                .overlay(Capsule().strokeBorder(liquidGlass ? .clear : LineupStyle.highlight.opacity(0.18), lineWidth: 0.6))
+                        if selected && !compact && liquidGlass {
+                            Capsule().fill(LineupPanelStyle.well)
                         }
                     }
                     .contentShape(Capsule())
