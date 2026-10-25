@@ -161,6 +161,7 @@ targets:
       - Tests/iOS/ExpandedSportsTests.swift
       - Tests/iOS/LiveEventChannelTests.swift
       - Tests/iOS/ServerCompatibilityTests.swift
+        - Tests/iOS/LibraryReliabilityTests.swift
       - Tests/iOS/PlaylistCompatibilityTests.swift
       - Tests/iOS/LiveSourceQualityTests.swift
       - Tests/iOS/PlaybackSeekingTests.swift

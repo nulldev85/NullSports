@@ -301,6 +301,9 @@ final class MediaLibrary {
     /// Every server's films and shows, as last fetched, kept a few minutes so
     /// the MDBList shelves and the Streaming Services row share one fetch.
     @ObservationIgnored private var inventoryMemo: (sources: [UUID], at: Date, items: [MediaItem])?
+    @ObservationIgnored private var inventoryLoad: (id: UUID, profiles: [MediaServerProfile], task: Task<(items: [MediaItem], failure: Error?), Never>)?
+    @ObservationIgnored private var inventoryGeneration = UUID()
+    @ObservationIgnored private let serverClientFactory: ((MediaServerProfile) throws -> any MediaServerClient)?
     @ObservationIgnored private var reconciledSeriesServers: Set<UUID> = []
     @ObservationIgnored private var seriesReconcileTasks: [UUID: Task<Void, Never>] = [:]
     /// One client per server. Making one reads its token from the Keychain,
@@ -321,7 +324,8 @@ final class MediaLibrary {
         let item: MediaItem
         let storedAt: Date
     }
-    private var detailCache: [String: CachedDetail] = [:]
+    @ObservationIgnored private var detailCache: [String: CachedDetail] = [:]
+    @ObservationIgnored private var detailLoads: [String: (id: UUID, task: Task<MediaItem, Error>)] = [:]
     private struct CachedCounterpart {
         let item: MediaItem?
         let storedAt: Date
@@ -350,8 +354,10 @@ final class MediaLibrary {
          metadataCredentials: LibraryMetadataCredentials = .bundled,
          metadataResolver: LibraryMetadataResolver? = nil,
          trackingSession: URLSession = .shared,
-         trackingKey: @escaping () -> String? = { MDBListKeychainStore.apiKey() }) {
+         trackingKey: @escaping () -> String? = { MDBListKeychainStore.apiKey() },
+         serverClientFactory: ((MediaServerProfile) throws -> any MediaServerClient)? = nil) {
         self.defaults = defaults
+        self.serverClientFactory = serverClientFactory
         self.trackingKey = trackingKey
         mdbListTracking = MDBListTrackingService(defaults: defaults, session: trackingSession)
         localTrackingEnabled = defaults.object(forKey: LibraryTrackingPreferences.localKey) as? Bool ?? true
@@ -685,6 +691,14 @@ final class MediaLibrary {
 
     func remove(_ profile: MediaServerProfile) {
         loadIDs[profile.id] = nil
+        inventoryLoad?.task.cancel()
+        inventoryLoad = nil
+        inventoryGeneration = UUID()
+        inventoryMemo = nil
+        for (key, load) in detailLoads where key.hasPrefix(profile.id.uuidString + "|") {
+            load.task.cancel()
+            detailLoads[key] = nil
+        }
         seriesReconcileTasks[profile.id]?.cancel()
         seriesReconcileTasks[profile.id] = nil
         reconciledSeriesServers.remove(profile.id)
@@ -768,6 +782,9 @@ final class MediaLibrary {
         // A reload is a fresh look at every server's titles; within it, the
         // MDBList shelves and the Streaming Services row share one fetch.
         inventoryMemo = nil
+        inventoryLoad?.task.cancel()
+        inventoryLoad = nil
+        inventoryGeneration = UUID()
         await withTaskGroup(of: Void.self) { group in
             for profile in targets {
                 group.addTask { await self.loadServer(profile) }
@@ -804,24 +821,43 @@ final class MediaLibrary {
             // as in the views above. Whatever a library already offers is the
             // library's.
             let known = Set(loaded.map(\.id))
+            let oldState = state(of: profile)
             let loadedCollections = ((try? await source.allCollections(
                 userID: profile.userID, pageSize: MediaServerQuery.collectionPage,
-                maxPages: MediaServerQuery.collectionPages)) ?? [])
+                maxPages: MediaServerQuery.collectionPages)) ?? oldState.collections)
                 .filter { !known.contains($0.id) }
                 .map { $0.servedBy(profile.id) }
             let selectedRoots = selectedShelfRoots(from: loaded + loadedCollections, profileID: profile.id)
             let coldStart = state(of: profile).catalogs.isEmpty
-            let loadedCatalogs = await withTaskGroup(of: (Int, MediaCatalog).self) { group in
-                for (index, root) in selectedRoots.enumerated() {
-                    group.addTask {
-                        let items = (try? await source.items(userID: profile.userID, parent: root,
-                                                             sortBy: MediaServerQuery.shelfSort,
-                                                             limit: MediaServerQuery.shelfLimit)) ?? []
-                        return (index, MediaCatalog(root: root, items: items.map { $0.servedBy(profile.id) }))
-                    }
-                }
+            let oldCatalogs = Dictionary(oldState.catalogs.map { ($0.root.id, $0) }, uniquingKeysWith: { first, _ in first })
+            var shelfFailure: Error?
+            let loadShelf: @Sendable (Int) async -> (Int, Result<MediaCatalog, Error>) = { index in
+                let root = selectedRoots[index]
+                do {
+                    let items = try await source.items(userID: profile.userID, parent: root,
+                                                       sortBy: MediaServerQuery.shelfSort,
+                                                       limit: MediaServerQuery.shelfLimit)
+                    return (index, .success(MediaCatalog(root: root, items: items.map { $0.servedBy(profile.id) })))
+                } catch { return (index, .failure(error)) }
+            }
+            let loadedCatalogs = await withTaskGroup(of: (Int, Result<MediaCatalog, Error>).self) { group in
+                var next = min(4, selectedRoots.count)
+                for index in 0..<next { group.addTask { await loadShelf(index) } }
                 var result: [Int: MediaCatalog] = [:]
-                for await (index, catalog) in group {
+                for await (index, answer) in group {
+                    if next < selectedRoots.count, !Task.isCancelled {
+                        let index = next
+                        group.addTask { await loadShelf(index) }
+                        next += 1
+                    }
+                    let catalog: MediaCatalog
+                    switch answer {
+                    case .success(let loaded): catalog = loaded
+                    case .failure(let error):
+                        if shelfFailure == nil { shelfFailure = error }
+                        guard let previous = oldCatalogs[selectedRoots[index].id] else { continue }
+                        catalog = previous
+                    }
                     result[index] = catalog
                     // On a device with no snapshot yet, reveal the first real
                     // shelf as soon as it arrives. Later results are committed
@@ -844,14 +880,15 @@ final class MediaLibrary {
                 state.catalogs = loadedCatalogs
                 state.isConnected = true
                 state.isLoading = false
-                state.loadFailed = false
+                state.loadFailed = shelfFailure != nil
                 state.isLoaded = true
                 state.refreshedAt = Date()
             }
+            if let shelfFailure, !Self.isCancellation(shelfFailure) { report(shelfFailure, from: profile) }
             persistLibrarySnapshot(for: profile)
             Task { [weak self] in
                 let counts = try? await source.libraryCounts(userID: profile.userID)
-                guard let self, self.loadIDs[profile.id] == requestID else { return }
+                guard let self, self.loadIDs[profile.id] == requestID, self.contains(profile) else { return }
                 self.update(profile) { $0.counts = counts }
                 self.persistLibrarySnapshot(for: profile)
             }
@@ -952,14 +989,11 @@ final class MediaLibrary {
         let task = Task<MediaItem?, Never> { [weak self] in
             guard let self else { return nil }
             if parent.isProviderTitle { return await self.providerDetails(of: parent) }
-            guard let profile = self.profile(for: parent) else { return parent }
-            return (try? await self.client(for: profile).item(userID: profile.userID, itemID: parent.id))?
-                .servedBy(profile.id) ?? parent
+            return try? await self.details(of: parent)
         }
         metadataParentLoads[parent.libraryKey] = task
         let result = await task.value
         metadataParentLoads[parent.libraryKey] = nil
-        if let result { detailCache[parent.libraryKey] = CachedDetail(item: result, storedAt: Date()) }
         return result
     }
 
@@ -1010,10 +1044,35 @@ final class MediaLibrary {
         if let cached = detailCache[key], Date().timeIntervalSince(cached.storedAt) < 600 {
             return cached.item
         }
-        let detailed = try await client(for: profile).item(userID: profile.userID, itemID: item.id)
-            .servedBy(profile.id)
-        detailCache[key] = CachedDetail(item: detailed, storedAt: Date())
-        return detailed
+        let load: (id: UUID, task: Task<MediaItem, Error>)
+        if let existing = detailLoads[key] { load = existing }
+        else {
+            let source = try client(for: profile)
+            load = (UUID(), Task { try await source.item(userID: profile.userID, itemID: item.id).servedBy(profile.id) })
+            detailLoads[key] = load
+        }
+        do {
+            let detailed = try await load.task.value
+            guard contains(profile), !load.task.isCancelled else { throw CancellationError() }
+            if detailLoads[key]?.id == load.id {
+                detailLoads[key] = nil
+                cacheDetail(detailed, key: key)
+            }
+            try Task.checkCancellation()
+            return detailed
+        } catch {
+            if detailLoads[key]?.id == load.id { detailLoads[key] = nil }
+            throw error
+        }
+    }
+
+    private func cacheDetail(_ item: MediaItem, key: String) {
+        let cutoff = Date().addingTimeInterval(-600)
+        detailCache = detailCache.filter { $0.value.storedAt > cutoff }
+        if detailCache.count >= 256, let oldest = detailCache.min(by: { $0.value.storedAt < $1.value.storedAt })?.key {
+            detailCache[oldest] = nil
+        }
+        detailCache[key] = CachedDetail(item: item, storedAt: Date())
     }
 
     func related(to item: MediaItem) async -> [MediaItem] {
@@ -1339,13 +1398,26 @@ final class MediaLibrary {
 
     /// Every connected server's films and shows, servers in the order they
     /// were added, with the first failure for when none of them answered.
-    private func combinedInventory() async -> (items: [MediaItem], failure: Error?) {
+    func combinedInventory() async -> (items: [MediaItem], failure: Error?) {
         let sources = profiles.map(\.id)
         if let memo = inventoryMemo, memo.sources == sources, Date().timeIntervalSince(memo.at) < 10 * 60 {
             return (memo.items, nil)
         }
-        let fetched = await fetchInventory()
-        if fetched.failure == nil, !fetched.items.isEmpty {
+        let requested = profiles
+        let generation = inventoryGeneration
+        let load: (id: UUID, profiles: [MediaServerProfile], task: Task<(items: [MediaItem], failure: Error?), Never>)
+        if let existing = inventoryLoad, existing.profiles == requested { load = existing }
+        else {
+            inventoryLoad?.task.cancel()
+            load = (UUID(), requested, Task { await self.fetchInventory() })
+            inventoryLoad = load
+        }
+        let fetched = await load.task.value
+        guard profiles == requested, inventoryGeneration == generation, !load.task.isCancelled else {
+            return ([], CancellationError())
+        }
+        if inventoryLoad?.id == load.id { inventoryLoad = nil }
+        if fetched.failure == nil {
             inventoryMemo = (sources, Date(), fetched.items)
         }
         return fetched
@@ -3433,7 +3505,8 @@ final class MediaLibrary {
         default:
             return item
         }
-        detailCache[key] = CachedDetail(item: detailed, storedAt: Date())
+        guard providerVOD.profile?.id == provider else { return item }
+        cacheDetail(detailed, key: key)
         return detailed
     }
 
@@ -3643,6 +3716,11 @@ final class MediaLibrary {
     /// way, Jellyfin and Emby through the API they share.
     private func client(for profile: MediaServerProfile) throws -> any MediaServerClient {
         if let made = clients[profile.id] { return made }
+        if let serverClientFactory {
+            let made = try serverClientFactory(profile)
+            clients[profile.id] = made
+            return made
+        }
         guard let token = MediaKeychainStore.token(profileID: profile.id) else {
             throw JellyfinError.authenticationFailed
         }
@@ -3673,7 +3751,7 @@ final class MediaLibrary {
     /// Whether a server is still one of the Library's: a load can outlive
     /// the server it was for.
     private func contains(_ profile: MediaServerProfile) -> Bool {
-        profiles.contains { $0.id == profile.id }
+        profiles.contains(profile)
     }
 
     /// Change one server's state, and only while it is still connected: a

@@ -1,6 +1,6 @@
 import Foundation
 
-struct MediaServerProfile: Codable, Identifiable, Equatable {
+struct MediaServerProfile: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     var name: String
     var serverURL: String
