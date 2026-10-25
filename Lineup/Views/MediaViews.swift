@@ -1916,6 +1916,13 @@ struct MediaGridScreen: View {
             .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         #else
         grid.navigationTitle(title)
+            .background(LineupPresentationStyle.ground.ignoresSafeArea())
+            .foregroundStyle(LineupPresentationStyle.text)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(LineupPresentationStyle.ground, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .lineupPresentation()
+            .mobileExpandNavigationOnAppear()
             .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
             .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         #endif
@@ -2496,6 +2503,12 @@ private struct MediaDetailScreen: View {
     /// page through the hero's own view, which finds them itself.
     @State private var pageRatings: MediaRatings?
     @State private var castCredits: [LibraryCastMember] = []
+    @State private var openingSimilar: String?
+    @State private var similarTask: Task<Void, Never>?
+    @State private var similarLookupID = UUID()
+    @State private var similarRequest: SeerrTitleRoute?
+    @State private var similarUnavailable = false
+    @State private var similarTitle = ""
     #endif
 
     private var subject: MediaItem { media.displayItem(detail ?? item) }
@@ -2541,6 +2554,27 @@ private struct MediaDetailScreen: View {
             castCredits = credits
         }
         .mobileExpandNavigationOnAppear()
+        .task(id: "similar|" + castRequestKey) {
+            related = []
+            let titles = await media.similarCatalogTitles(for: subject)
+            guard !Task.isCancelled else { return }
+            related = titles
+        }
+        .onDisappear {
+            similarLookupID = UUID(); similarTask?.cancel(); openingSimilar = nil
+        }
+        .overlay {
+            if openingSimilar != nil {
+                ProgressView("Finding your sources…").font(.inter(.callout, .semibold))
+                    .padding(20).lineupPresentationSurface(RoundedRectangle(cornerRadius: 18))
+                    .allowsHitTesting(false)
+            }
+        }
+        .lineupMessage("Not found in your sources", symbol: "magnifyingglass", isPresented: $similarUnavailable,
+            message: "\(similarTitle) was suggested by TMDB, but wasn't found on your connected servers or IPTV VOD.")
+        .lineupSheet(item: $similarRequest) { route in
+            NavigationStack { SeerrTitleView(id: route.id, kind: route.kind, initialTitle: route.title).environment(media) }
+        }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .toolbar {
             if ["Movie", "Series"].contains(subject.type) {
@@ -2583,12 +2617,12 @@ private struct MediaDetailScreen: View {
                         }
                     }.frame(height: 88)
                     if let ratings = pageRatings ?? media.knownRatings(for: subject), !ratings.isEmpty {
-                        MediaRatingChips(ratings: ratings)
+                        MediaRatingChips(ratings: ratings, centered: true).frame(maxWidth: .infinity, alignment: .center)
                     }
-                    metaLine
+                    metaLine.frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
                     actions
                     overview
-                    LibraryMetadataCredit(item: subject)
+                    LibraryMetadataCredit(item: subject).frame(maxWidth: .infinity, alignment: .center)
                 }
                 .padding(.horizontal, horizontalPadding)
                 // Up into the fade. The art running down the screen and the
@@ -2799,7 +2833,7 @@ private struct MediaDetailScreen: View {
     }
 
     private var actions: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: detailActionAlignment, spacing: 10) {
             HStack(spacing: 8) {
                 Button { chosen = playTarget } label: {
                     playLabel
@@ -2855,29 +2889,34 @@ private struct MediaDetailScreen: View {
                 #endif
             }
         }
+        #if !os(tvOS)
+        .frame(maxWidth: .infinity, alignment: .center)
+        #endif
         .lineupFocusRegion()
     }
 
-    /// The play button.
-    ///
-    /// The same surface as the heart, the eye and the shuffle beside it. It
-    /// used to be filled on the phone, on the theory that a primary action
-    /// should be the one thing a thumb goes for -- but the fill is a pale slab
-    /// against a dark page, sitting directly beside three dark controls, and
-    /// what it read as was a mistake rather than an emphasis. The television
-    /// had already dropped it for the same reason.
-    ///
-    /// It is still the widest thing in the row, which is how it says it is the
-    /// main one. Width is the emphasis now; brightness was too much of it.
+    private var detailActionAlignment: HorizontalAlignment {
+        #if os(tvOS)
+        .leading
+        #else
+        .center
+        #endif
+    }
+
+    /// iPhone uses a compact transport glyph with a spoken Play/Resume label;
+    /// television retains its existing text and episode-code label.
     @ViewBuilder
     private var playLabel: some View {
+        #if !os(tvOS)
+        Image(systemName: "play.fill")
+            .font(.system(size: 20, weight: .bold))
+            .foregroundStyle(LineupStyle.highlight)
+            .frame(width: buttonHeight, height: buttonHeight)
+            .accessibilityLabel(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
+            .accessibilityValue(playTarget?.episodeCode ?? subject.name)
+        #else
         let text = HStack(spacing: 10) {
-            #if os(tvOS)
             LineupIconTile(symbol: "play.fill", size: 26)
-            #else
-            Image(systemName: "play.fill").font(.system(size: 18, weight: .bold))
-                .foregroundStyle(LineupStyle.highlight).accessibilityHidden(true)
-            #endif
             Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
                 .font(.inter(17, .heavy))
             if let code = playTarget?.episodeCode {
@@ -2887,10 +2926,7 @@ private struct MediaDetailScreen: View {
             }
         }
         .font(.inter(17))
-        #if os(tvOS)
         text.padding(.horizontal, 22).frame(height: buttonHeight)
-        #else
-        text.frame(maxWidth: .infinity).frame(height: buttonHeight)
         #endif
     }
 
@@ -2925,7 +2961,11 @@ private struct MediaDetailScreen: View {
                 .font(.inter(.subheadline))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.76))
                 .lineLimit(expandedOverview ? nil : 3)
+                #if os(tvOS)
                 .multilineTextAlignment(.leading)
+                #else
+                .multilineTextAlignment(.center).frame(maxWidth: .infinity, alignment: .center)
+                #endif
                 .onTapGesture {
                     withAnimation(.easeInOut(duration: 0.2)) { expandedOverview.toggle() }
                 }
@@ -3137,10 +3177,17 @@ private struct MediaDetailScreen: View {
                 // Named for what it holds, because a row of posters under a
                 // bare "Related" does not say whether it is offering films or
                 // series.
+                #if os(tvOS)
                 detailSectionTitle(subject.isSeries ? "Related Shows" : "Related Movies",
                                    symbol: "square.stack")
+                #else
+                detailSectionTitle(subject.isSeries ? "Similar Shows" : "Similar Movies", symbol: "square.stack")
+                #endif
                 #if !os(tvOS)
-                MobileLibraryShelf(items: related, shape: .poster) { pushed = $0 }
+                MobileLibraryShelf(items: related, shape: .poster, discoversSources: true) { openSimilar($0) }
+                Link("Suggestions · TMDB", destination: URL(string: "https://www.themoviedb.org/")!)
+                    .font(.inter(.caption2)).foregroundStyle(LineupPresentationStyle.secondary)
+                    .padding(.horizontal, horizontalPadding)
                 #else
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: relatedItemSpacing) {
@@ -3244,9 +3291,9 @@ private struct MediaDetailScreen: View {
         detail = nil
         nextUp = nil
         seasons = []; selectedSeason = nil; episodes = []
-        related = []
         pageReady = false
         #if os(tvOS)
+        related = []
         preparedHero = nil
         #endif
         let loaded = try? await media.details(of: item)
@@ -3267,7 +3314,8 @@ private struct MediaDetailScreen: View {
         related = await relatedItems
         preparedHero = (await heroData).flatMap(UIImage.init(data:))
         #else
-        related = await media.related(to: detailedItem)
+        // TMDB suggestions have their own task; they never hold up seasons,
+        // episode/resume selection or the detail header.
         #endif
         // A film is the whole of itself: nothing underneath to go and get.
         guard subject.isSeries else { loading = false; pageReady = true; return }
@@ -3299,6 +3347,23 @@ private struct MediaDetailScreen: View {
     }
 
     #if !os(tvOS)
+    private func openSimilar(_ item: MediaItem) {
+        guard openingSimilar == nil else { return }
+        similarTask?.cancel()
+        let request = UUID()
+        similarLookupID = request
+        openingSimilar = item.libraryKey
+        similarTask = Task { @MainActor in
+            defer { if similarLookupID == request { openingSimilar = nil } }
+            let copy = await media.libraryCopy(of: item)
+            guard !Task.isCancelled, similarLookupID == request else { return }
+            if let copy { pushed = copy }
+            else if media.seerr.isConnected, let raw = LibraryMetadataIdentity.ids(item)["tmdb"], let id = Int(raw) {
+                similarRequest = SeerrTitleRoute(id: id, kind: item.isSeries ? .tv : .movie, title: item.name)
+            } else { similarTitle = item.name; similarUnavailable = true }
+        }
+    }
+
     private func setSeasonMenu(_ open: Bool) {
         guard seasonMenuOpen != open else { return }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
@@ -4122,6 +4187,22 @@ private struct MediaLibraryHero: View {
                                                     enabled: rotates, pixels: pixels)) {
                         guard rotates else { return }
                         await rotate(pixels: pixels)
+                    }
+                    .task(id: LibraryHeroRotationKey(items: items.map(\.libraryKey), index: current,
+                                                    enabled: isVisible && scenePhase == .active,
+                                                    pixels: pixels)) {
+                        let candidates = items
+                        guard isVisible, scenePhase == .active, candidates.count > 1 else { return }
+                        do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+                        let logoPixels = LineupArt.pixels(for: min(copyWidth, max(32, viewport.size.width - heroHorizontalPadding * 2)))
+                        // Only the next two hero titles, never every Library
+                        // poster. Existing API/image coalescers bound the work.
+                        await withTaskGroup(of: Void.self) { group in
+                            for step in 1...min(2, candidates.count - 1) {
+                                let upcoming = candidates[(current + step) % candidates.count]
+                                group.addTask(priority: .utility) { await media.warmTitleLogos(for: upcoming, pixels: logoPixels) }
+                            }
+                        }
                     }
                 }
             }
@@ -5945,6 +6026,7 @@ private enum MediaStreamStyle {
 /// wrap onto as many lines as the width needs.
 private struct BadgeFlow: Layout {
     var spacing: CGFloat = 6
+    var centered = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let lines = wrap(subviews, within: proposal.width ?? .infinity)
@@ -5955,7 +6037,7 @@ private struct BadgeFlow: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var y = bounds.minY
         for line in wrap(subviews, within: bounds.width) {
-            var x = bounds.minX
+            var x = bounds.minX + (centered ? max(0, (bounds.width - line.width) / 2) : 0)
             for index in line.indices {
                 let size = subviews[index].sizeThatFits(.unspecified)
                 subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
@@ -5995,6 +6077,7 @@ private struct BadgeFlow: Layout {
 /// each source named in its own colour the way the sites' own badges are.
 struct MediaRatingChips: View {
     let ratings: MediaRatings
+    var centered = false
 
     private typealias Metrics = MediaRatingMetrics
 
@@ -6005,7 +6088,7 @@ struct MediaRatingChips: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: Metrics.gap) { chips(tight: false) }.fixedSize()
             HStack(spacing: Metrics.tightGap) { chips(tight: true) }.fixedSize()
-            BadgeFlow(spacing: Metrics.tightGap) { chips(tight: true) }
+            BadgeFlow(spacing: Metrics.tightGap, centered: centered) { chips(tight: true) }
         }
         #else
         HStack(spacing: Metrics.gap) { chips(tight: false) }
@@ -6846,9 +6929,13 @@ struct MediaServerPanel<Content: View>: View {
         // As tall as it is given: beside or behind the other sign-ins, each
         // card takes the tallest one's height.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        #if os(tvOS)
         .background(brand.loginTint.opacity(0.13), in: shape)
         .background(LineupPresentationStyle.card, in: shape)
         .overlay(shape.strokeBorder(brand.loginTint.opacity(0.24), lineWidth: 0.7))
+        #else
+        .modifier(MobileBrandPanel(palette: .server(brand)))
+        #endif
     }
 
     #if os(tvOS)

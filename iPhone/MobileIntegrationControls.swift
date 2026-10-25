@@ -6,6 +6,7 @@ struct MobileIntegrationButtonStyle: ButtonStyle {
     var selected = false
     @Environment(\.isEnabled) private var enabled
     @Environment(\.lineupPresentationTint) private var tint
+    @Environment(\.mobileIntegrationPalette) private var palette
 
     func makeBody(configuration: Configuration) -> some View {
         let accent = tint ?? LineupStyle.highlight
@@ -15,8 +16,16 @@ struct MobileIntegrationButtonStyle: ButtonStyle {
             .font(.inter(.subheadline, .heavy))
             .padding(.horizontal, 14).padding(.vertical, 8)
             .frame(minHeight: 44)
-            .background(selected ? accent.opacity(0.20) : (tint?.opacity(0.12) ?? LineupPresentationStyle.row), in: shape)
-            .overlay(shape.strokeBorder(selected ? accent.opacity(0.38) : LineupPresentationStyle.border, lineWidth: 0.7))
+            .background {
+                if let palette {
+                    shape.fill(LineupPresentationStyle.row)
+                    shape.fill(palette.gradient(selected ? 0.40 : 0.23))
+                } else { shape.fill(selected ? accent.opacity(0.20) : (tint?.opacity(0.12) ?? LineupPresentationStyle.row)) }
+            }
+            .overlay {
+                if let palette { shape.strokeBorder(palette.gradient(selected ? 0.7 : 0.4), lineWidth: 0.7) }
+                else { shape.strokeBorder(selected ? accent.opacity(0.38) : LineupPresentationStyle.border, lineWidth: 0.7) }
+            }
             .contentShape(shape)
             .opacity(enabled ? (configuration.isPressed ? 0.7 : 1) : 0.4)
     }
@@ -41,6 +50,7 @@ struct MobileSeerrSignInChoice: View {
             }
         }
         .buttonStyle(MobileIntegrationButtonStyle(selected: selected))
+        .environment(\.mobileIntegrationPalette, MobileIntegrationPalette.seerr(method))
         .accessibilityLabel(method.title)
         .accessibilityAddTraits(selected ? [.isSelected] : [])
         .accessibilityIdentifier("lineup.seerr.signin.\(method.rawValue)")

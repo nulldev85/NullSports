@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import XCTest
+import Combine
 @testable import LineupiOS
 
 @MainActor
@@ -164,6 +165,70 @@ final class MobileLibraryShelfTests: XCTestCase {
         XCTAssertNil(model.image(for: request))
     }
 
+    func testTitleLogoPublishesFastTMDBWhileFanartIsPendingThenUsesPreferredArtwork() async {
+        let model = MobileTitleArtwork()
+        let fallback = UIImage(systemName: "star")!, preferred = UIImage(systemName: "film")!
+        let fastURL = URL(string: "https://image.invalid/tmdb.png")!
+        let preferredURL = URL(string: "https://image.invalid/fanart.png")!
+        let started = expectation(description: "Fanart metadata request pending")
+        let published = expectation(description: "TMDB image published without waiting for Fanart")
+        var reported = false
+        let observer = model.objectWillChange.sink {
+            Task { @MainActor in
+                if !reported, model.image(for: "title") === fallback { reported = true; published.fulfill() }
+            }
+        }
+        defer { observer.cancel() }
+        var reply: CheckedContinuation<URL?, Never>?
+        let load = Task {
+            await model.load(key: "title", pixels: 600, server: nil,
+                fanart: { await withCheckedContinuation { reply = $0; started.fulfill() } },
+                tmdb: { fastURL }, fetch: { url, _ in url == fastURL ? fallback : preferred })
+        }
+        await fulfillment(of: [started, published], timeout: 5)
+        XCTAssertTrue(model.image(for: "title") === fallback)
+        reply?.resume(returning: preferredURL)
+        await load.value
+        XCTAssertTrue(model.image(for: "title") === preferred)
+    }
+
+    func testLateTitleLogoCannotOverwriteANewerTitleOrPixelRequest() async {
+        let model = MobileTitleArtwork()
+        let oldImage = UIImage(systemName: "film")!, newImage = UIImage(systemName: "star.fill")!
+        let url = URL(string: "https://image.invalid/\(UUID().uuidString).png")!
+        let started = expectation(description: "old title request started")
+        var reply: CheckedContinuation<URL?, Never>?
+        let old = Task {
+            await model.load(key: "old|300", pixels: 300, server: nil,
+                fanart: { await withCheckedContinuation { reply = $0; started.fulfill() } },
+                tmdb: { nil }, fetch: { _, _ in oldImage })
+        }
+        await fulfillment(of: [started], timeout: 5)
+        await model.load(key: "new|600", pixels: 600, server: nil,
+            fanart: { nil }, tmdb: { url }, fetch: { _, pixels in
+                XCTAssertEqual(pixels, 600); return newImage
+            })
+        reply?.resume(returning: url)
+        await old.value
+        XCTAssertTrue(model.image(for: "new|600") === newImage)
+        XCTAssertNil(model.image(for: "old|300"))
+    }
+
+    func testSimilarCatalogShelfHoldFindsSourcesWithoutWritingSyntheticWatchState() throws {
+        let items = titles(2)
+        let fixture = try ShelfFixture(items: items, discoversSources: true)
+        defer { fixture.close() }
+        let cell = try XCTUnwrap(fixture.collection.cellForItem(at: IndexPath(item: 0, section: 0)))
+        let more = try XCTUnwrap(cell.accessibilityCustomActions?.first)
+        XCTAssertTrue(more.actionHandler?(more) == true)
+        let choices = try XCTUnwrap(fixture.holdMenu.request?.items)
+        XCTAssertEqual(choices.map(\.title), ["Find in My Sources"])
+        choices[0].action()
+        XCTAssertEqual(fixture.selected, [items[0].libraryKey])
+        XCTAssertTrue(fixture.media.localPlayback.isEmpty)
+        XCTAssertTrue(fixture.media.favoriteMedia.isEmpty)
+    }
+
     private func titles(_ count: Int, type: String = "Movie") -> [MediaItem] {
         (0..<count).map { title("title-\($0)", type: type) }
     }
@@ -183,6 +248,7 @@ private final class ShelfFixture {
     let holdMenu = MobileHoldMenu()
     let metrics: MobileLibraryShelfMetrics
     let shape: MediaArtShape
+    let discoversSources: Bool
     private(set) var items: [MediaItem]
     var selected: [String] { selections.keys }
     private let window: UIWindow
@@ -193,17 +259,20 @@ private final class ShelfFixture {
 
     init(items: [MediaItem], position: MobileLibraryShelfPosition = MobileLibraryShelfPosition(),
          shape: MediaArtShape = .poster,
-         metrics: MobileLibraryShelfMetrics = .init(width: 150, ratio: 2 / 3, titleHeight: 40, metadataHeight: 16)) throws {
+         metrics: MobileLibraryShelfMetrics = .init(width: 150, ratio: 2 / 3, titleHeight: 40, metadataHeight: 16),
+         discoversSources: Bool = false) throws {
         self.items = items
         self.position = position
         self.shape = shape
         self.metrics = metrics
+        self.discoversSources = discoversSources
         defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""))
         selections = ShelfSelections()
         let selectionStore = selections
         let shelf = MobileLibraryShelfView(items: items, shape: shape, metrics: metrics, media: media,
-            position: position, holdMenu: holdMenu, onSelect: { selectionStore.keys.append($0.libraryKey) })
+            position: position, holdMenu: holdMenu, discoversSources: discoversSources,
+            onSelect: { selectionStore.keys.append($0.libraryKey) })
         coordinator = MobileLibraryShelfView.Coordinator(shelf)
         collection = coordinator.makeCollectionView()
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -222,7 +291,8 @@ private final class ShelfFixture {
     func update(items: [MediaItem]) {
         self.items = items
         coordinator.update(MobileLibraryShelfView(items: items, shape: shape, metrics: metrics, media: media,
-            position: position, holdMenu: holdMenu, onSelect: { [selections] in selections.keys.append($0.libraryKey) }))
+            position: position, holdMenu: holdMenu, discoversSources: discoversSources,
+            onSelect: { [selections] in selections.keys.append($0.libraryKey) }))
     }
 
     func close() {

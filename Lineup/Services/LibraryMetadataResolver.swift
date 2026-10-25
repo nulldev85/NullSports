@@ -52,6 +52,7 @@ struct TMDBCatalogTitle: Decodable, Identifiable, Hashable, Sendable {
     let first_air_date: String?
     let poster_path: String?
     let backdrop_path: String?
+    var adult: Bool? = nil
 
     var productionYear: Int? {
         (release_date ?? first_air_date).flatMap { Int($0.prefix(4)) }
@@ -226,6 +227,19 @@ actor LibraryMetadataResolver {
         let path = item.isSeries ? "tv/\(id)/aggregate_credits" : "movie/\(id)/credits"
         guard let data = try? await tmdbCatalogData(path, query: [:], lifetime: 86_400) else { return [] }
         return LibraryCastMember.credits(data, expectedID: id)
+    }
+
+    /// Suggestions come exclusively from TMDB, never from local genre overlap
+    /// or a media server's recommendation algorithm.
+    func similar(for item: MediaItem) async -> [MediaItem] {
+        guard ["Movie", "Series"].contains(item.type), credentials.contains(.tmdb),
+              let raw = try? await tmdbID(item), let id = Int(raw), id > 0 else { return [] }
+        let kind: TMDBCatalogMediaKind = item.isSeries ? .series : .movie
+        guard let data = try? await tmdbCatalogData("\(kind.rawValue)/\(id)/similar", query: ["page": "1"], lifetime: 86_400),
+              let page = try? JSONDecoder().decode(TMDBCatalogPage.self, from: data) else { return [] }
+        var seen: Set<Int> = [id]
+        return page.results.filter { $0.adult != true && $0.id > 0 && seen.insert($0.id).inserted }
+            .compactMap { $0.mediaItem(kind: kind) }.prefix(20).map { $0 }
     }
 
     private func tmdbCatalogData(_ path: String, query: [String: String], lifetime: TimeInterval) async throws -> Data {

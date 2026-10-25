@@ -1026,6 +1026,21 @@ final class MediaLibrary {
         await metadataResolver.cast(for: item)
     }
 
+    func similarCatalogTitles(for item: MediaItem) async -> [MediaItem] {
+        await metadataResolver.similar(for: displayItem(item))
+    }
+
+    /// Resolve a selected discovery result through the same source lookup as
+    /// genre browsing. Recommendations themselves remain TMDB-only.
+    func libraryCopy(of item: MediaItem) async -> MediaItem? {
+        let vod = await searchProviderVOD(item.name)
+        guard !Task.isCancelled else { return nil }
+        if let match = vod.first(where: { MediaTitleMatch.isSame(item, $0.item) }) { return match.item }
+        let servers = await searchServers(item.name)
+        guard !Task.isCancelled else { return nil }
+        return servers.groups.lazy.flatMap(\.items).first { MediaTitleMatch.isSame(item, $0) }
+    }
+
     func metadataRequestKey(for item: MediaItem) -> String {
         let source = item.type == "Episode" ? episodeDataSource : metadataSource
         if source == .provider { return "provider|" + item.libraryKey }

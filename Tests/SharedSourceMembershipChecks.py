@@ -5,6 +5,7 @@ all XcodeGen options. The normal generated-project build remains required.
 """
 import re
 import json
+import hashlib
 import unittest
 from pathlib import Path, PurePosixPath
 
@@ -93,7 +94,13 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                 self.assertTrue(image.startswith(b"\xff\xd8"))
                 self.assertGreater(len(image), 1000)
                 copies.append(image)
-            self.assertEqual(*copies, f"{name} must use the existing genre artwork on both devices")
+            if name == "SearchGenreComedy":
+                # This replacement is explicitly iOS-only. Keep the approved
+                # TV asset unchanged until a TV visual update is requested.
+                self.assertEqual(hashlib.sha256(copies[0]).hexdigest(), "89c616bbd2fad4924420841b79476cdadbb2e19d5d10daadb94aff5a6b306443")
+                self.assertEqual(hashlib.sha256(copies[1]).hexdigest(), "96adf4313336facff7a6afc843377935c3258c1f9fcafbec8784f1bada03743e")
+            else:
+                self.assertEqual(*copies, f"{name} must use the existing genre artwork on both devices")
 
     def test_mobile_library_rows_and_artwork_are_iphone_only(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
@@ -106,7 +113,8 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                        "iPhone/MobileGuideDefaultCategory.swift", "iPhone/MobileGuideCategoryVisibility.swift",
                        "iPhone/MobileAccentWheel.swift", "iPhone/MobileWelcomeSignalBackdrop.swift",
                        "iPhone/MobileIntegrationControls.swift", "iPhone/MobileLibraryDetailControls.swift",
-                       "iPhone/MobileCastPortrait.swift"):
+                       "iPhone/MobileCastPortrait.swift", "iPhone/MobileIntegrationPalette.swift",
+                       "iPhone/MobileTitleArtwork.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))
             self.assertFalse(is_included(project, "Lineup", source))

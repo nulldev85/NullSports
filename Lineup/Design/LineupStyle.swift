@@ -123,26 +123,49 @@ enum LineupPanelStyle {
     static let headerSize: CGFloat = 15
     static let headerTracking: CGFloat = 0.4
     #endif
+    #if os(iOS)
+    static let fill = LineupPresentationStyle.card
+    static let well = LineupPresentationStyle.row
+    static let divider = LineupPresentationStyle.divider
+    #else
     static let fill = rgb(0x2C2C2E)
     /// Inside a card: a bar's empty track, a pressed row, a chosen one.
     static let well = rgb(0x3A3A3C)
     static let divider = rgb(0x404043)
+    #endif
     /// Headers and body copy. White is kept for the numbers and names a card
     /// is about, so they stand out from the words around them.
+    #if os(iOS)
+    static let caption = LineupPresentationStyle.text
+    static let quiet = LineupPresentationStyle.secondary
+    #else
     static let caption = rgb(0xCCCCCC)
     static let quiet = rgb(0x9E9EA5)
+    #endif
     static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
 
     // Settings and the lists under it, as the reference app draws its own:
     // a dark grey ground with its rows a step lighter, hairlines between
     // them, and values in a quiet grey.
+    #if os(iOS)
+    static let listGround = LineupPresentationStyle.ground
+    static let listCard = LineupPresentationStyle.card
+    static let listSeparator = LineupPresentationStyle.divider
+    #else
     static let listGround = rgb(0x1C1C1E)
     static let listCard = rgb(0x2C2C2E)
     static let listSeparator = rgb(0x404043)
+    #endif
+    #if os(iOS)
+    static let listValue = LineupPresentationStyle.secondary
+    static let listChevron = Color.white.opacity(0.32)
+    static let listLogoTile = LineupPresentationStyle.row
+    #else
     static let listValue = rgb(0x9E9EA5)
     static let listChevron = rgb(0x656569)
     /// Under a server's own mark, as an app icon's dark ground.
     static let listLogoTile = rgb(0x1F1F1F)
+    #endif
 }
 
 /// A symbol on a small square of colour, the way Settings draws its rows --
@@ -426,25 +449,33 @@ extension LineupPanelHeader where Accessory == EmptyView {
 }
 
 enum LineupStyle {
-    /// One palette for the phone and the television, so the two apps are
-    /// the same colours: the same ground, panels and greys, the viewer's
-    /// accent for what is chosen and live, the same colour for each league.
+    /// Shared semantic colors. iOS pages use the current presentation tones;
+    /// television retains its approved surfaces and both retain custom accents.
     private static var palette: LineupPalette { .phone }
     /// The theme's text tint. Named for Velvet's lilac, which is no longer the
     /// only thing it can be.
-    static var lightPurple: Color { palette.accent }
+    static var lightPurple: Color { text }
     /// The frame on a selected Live card: the one place a theme is allowed its
     /// brightest edge.
     static var liveSelectionBorder: Color {
         return LineupAccent.current.color
     }
+    #if os(iOS)
+    static var background: Color { LineupPresentationStyle.ground }
+    static var surface: Color { LineupPresentationStyle.card }
+    static var raised: Color { LineupPresentationStyle.row }
+    static var sidebarRow: Color { LineupPresentationStyle.card }
+    static var selected: Color { LineupPresentationStyle.row }
+    static var focused: Color { LineupPresentationStyle.row }
+    #else
     static var background: Color { palette.background }
     static var surface: Color { palette.surface }
     static var raised: Color { palette.raised }
     static var sidebarRow: Color { palette.sidebar }
     static var selected: Color { palette.selected }
     static var focused: Color { palette.focused }
-    static var liveSurface: Color { palette.selected }
+    #endif
+    static var liveSurface: Color { selected }
     /// The accent the viewer chose, on the phone and the television alike.
     static var highlight: Color {
         return LineupAccent.current.color
@@ -457,14 +488,18 @@ enum LineupStyle {
         return LineupAccent.current.onAccent
     }
     static var liveBorder: Color { highlight.opacity(0.72) }
+    #if os(iOS)
+    static var line: Color { LineupPresentationStyle.border }
+    static var text: Color { LineupPresentationStyle.text }
+    static var secondary: Color { LineupPresentationStyle.secondary }
+    #else
     static var line: Color { palette.line }
     static var text: Color { palette.accent }
-    static var secondary: Color {
-        return lightPurple.opacity(0.66)
-    }
+    static var secondary: Color { lightPurple.opacity(0.66) }
+    #endif
     /// Playback chrome stays legible against video.
-    static var mediaText: Color { text }
-    static var mediaSecondary: Color { secondary }
+    static var mediaText: Color { .white }
+    static var mediaSecondary: Color { Color.white.opacity(0.66) }
     static var mediaAccent: Color { text }
     static var field: Color { lightPurple }
     /// An error is red whatever the accent.

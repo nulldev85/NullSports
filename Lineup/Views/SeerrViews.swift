@@ -79,7 +79,11 @@ struct IntegrationField: View {
             }
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .font(.inter(.body, .semibold)).padding(14)
+            #if os(tvOS)
             .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 12))
+            #else
+            .modifier(MobileIntegrationFieldSurface())
+            #endif
         }
     }
 }
@@ -167,7 +171,12 @@ struct SeerrSettingsView: View {
                     NavigationLink { SeerrRequestsView() } label: { Label("Requests", systemImage: "tray.full") }.lineupButtonStyle()
                     IntegrationAction(title: "Reconnect", symbol: "arrow.clockwise") { editing.toggle() }
                     IntegrationAction(title: "Disconnect", symbol: "link.badge.minus", destructive: true) { confirmingDisconnect = true }
-                }.padding(20).lineupPresentationSurface(RoundedRectangle(cornerRadius: 20))
+                }.padding(20)
+                #if os(tvOS)
+                .lineupPresentationSurface(RoundedRectangle(cornerRadius: 20))
+                #else
+                .modifier(MobileBrandPanel(palette: .seerr(method)))
+                #endif
             }
             if !media.seerr.isConnected || editing {
                 VStack(spacing: 16) {
@@ -213,11 +222,19 @@ struct SeerrSettingsView: View {
                     }
                     Text("Connect an account enabled on your configured Seerr server, or use its API key. Plex uses a code; Jellyfin and Emby use the server already linked to Seerr. Your session stays in this device’s Keychain. Seerr controls permissions, approvals and quotas.")
                         .font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.secondary)
-                }.padding(20).lineupPresentationSurface(RoundedRectangle(cornerRadius: 20))
+                }.padding(20)
+                #if os(tvOS)
+                .lineupPresentationSurface(RoundedRectangle(cornerRadius: 20))
+                #else
+                .modifier(MobileBrandPanel(palette: .seerr(method)))
+                #endif
             }
             IntegrationErrorText(message: media.seerr.error)
             IntegrationAction(title: "Done", symbol: "checkmark") { dismiss() }
         }
+        #if !os(tvOS)
+        .modifier(MobileSeerrTheme(method: method))
+        #endif
         .task { address = media.seerr.connection?.address ?? ""; await media.seerr.refreshAccount() }
         .integrationConfirm("Disconnect Seerr?", isPresented: $confirmingDisconnect, destructive: true) { media.seerr.disconnect() }
         .onChange(of: method) { _, _ in cancelPlexLink() }

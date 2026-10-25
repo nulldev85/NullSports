@@ -215,6 +215,39 @@ final class LibraryMetadataTests: XCTestCase {
         XCTAssertEqual(MetadataTestProtocol.requestCount, 3)
     }
 
+    func testSimilarMoviesUseOnlyTMDBAndFilterSelfDuplicatesAndAdultTitles() async {
+        MetadataTestProtocol.install { request in
+            XCTAssertEqual(request.url?.path, "/3/movie/603/similar")
+            return (200, #"{"page":1,"total_pages":1,"results":[{"id":603,"title":"Self"},{"id":604,"title":"Suggested film","poster_path":"/film.jpg"},{"id":604,"title":"Duplicate"},{"id":605,"title":"Excluded","adult":true},{"id":0,"title":"Invalid"}]}"#)
+        }
+        let service = resolver()
+        async let first = service.similar(for: item("Movie", ids: ["tmdb": "603"]))
+        async let second = service.similar(for: item("Movie", ids: ["tmdb": "603"]))
+        let (a, b) = await (first, second)
+        XCTAssertEqual(a.map(\.name), ["Suggested film"])
+        XCTAssertEqual(a, b)
+        XCTAssertEqual(a.first?.providerIDs?["tmdb"], "604")
+        XCTAssertNil(a.first?.serverID, "A catalog suggestion must not pretend to be a playable server copy")
+        XCTAssertEqual(MetadataTestProtocol.requestCount, 1)
+    }
+
+    func testSimilarShowsMapExternalTVDBIdentityThroughTMDBAndDoNotMixMediaTypes() async {
+        MetadataTestProtocol.install { request in
+            switch request.url?.path {
+            case "/3/find/1000":
+                XCTAssertTrue(request.url?.query?.contains("external_source=tvdb_id") == true)
+                return (200, #"{"movie_results":[],"tv_results":[{"id":2000,"name":"Original"}]}"#)
+            case "/3/tv/2000/similar":
+                return (200, #"{"page":1,"total_pages":1,"results":[{"id":2001,"name":"Similar show","poster_path":"/show.jpg"}]}"#)
+            default: XCTFail("Suggestions must use TMDB only"); return (404, "{}")
+            }
+        }
+        let titles = await resolver().similar(for: item("Show", type: "Series", ids: ["tvdb": "1000"]))
+        XCTAssertEqual(titles.first?.type, "Series")
+        XCTAssertEqual(titles.first?.name, "Similar show")
+        XCTAssertEqual(MetadataTestProtocol.requestCount, 2)
+    }
+
     func testWelcomeArtworkUsesOfficialMovieAndSeriesPostersAndCachesTrendingResults() async throws {
         MetadataTestProtocol.install { request in
             XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-read-token")

@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// App-owned presentations share the Guide's near-black ground, subdued
-/// rounded type and deep tinted rows. Video and the main tab layouts keep
-/// their existing surfaces; this scope follows menus and sheets only.
+/// rounded type and deep tinted rows. iOS pages use these same neutral tokens;
+/// playback chrome keeps its contrast and tvOS retains its approved surfaces.
 enum LineupPresentationStyle {
     static let ground = Color(red: 0.025, green: 0.028, blue: 0.032)
     static let card = Color(red: 0.067, green: 0.073, blue: 0.082)
