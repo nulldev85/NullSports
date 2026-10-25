@@ -351,6 +351,43 @@ final class PlaybackEngineTests: XCTestCase {
         }
     }
 
+    func testSiloRetryOwnsReconnectionWhileThePreviousInputHasFailed() async throws {
+        let fixture = try Fixture(.aether)
+        defer { fixture.clean() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TVSiloRetryProtocol.self]
+        let transport = URLSession(configuration: configuration)
+        defer { transport.invalidateAndCancel(); TVSiloRetryProtocol.reset() }
+        TVSiloRetryProtocol.reset()
+        let client = try SiloClient(address: "https://tvos-silo-retry.test", credential: .init(accessToken: "fixture"),
+            profileID: "profile:1", deviceID: "fixture", session: transport)
+        let silo = SiloPlaybackSession()
+        let asset = try await silo.open(client: client, fileID: "file:42", position: 600, defaults: fixture.defaults)
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.configureSiloPlayback(silo)
+        controller.start(urls: [asset.url], initialPosition: asset.lease.playerStart, isLive: false, expectedDuration: asset.duration)
+        silo.finalPosition(625)
+        controller.retry()
+        XCTAssertTrue(silo.isReplanning)
+        XCTAssertTrue(controller.reconnecting)
+        fixture.aether.state = .error
+        fixture.now += 60
+        controller.checkPlayback()
+        fixture.now += 2
+        controller.checkPlayback()
+        XCTAssertEqual(fixture.aether.loads.count, 1, "A stale decoder failure must not reopen the old signed URL during server planning")
+        XCTAssertTrue(controller.reconnecting)
+        XCTAssertFalse(controller.finished)
+        let deadline = Date().addingTimeInterval(4)
+        while controller.error == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertNotNil(controller.error, "A rejected fresh plan must show the retry error")
+        XCTAssertFalse(controller.reconnecting)
+        XCTAssertEqual(fixture.aether.loads.count, 1, "Failed planning cannot silently revive an expired lease")
+        XCTAssertEqual(TVSiloRetryProtocol.startCount, 2)
+        await silo.stop()
+    }
+
     func testReconnectRetainsVODPositionAndNeverMarksADroppedStreamFinished() throws {
         for kind in TVPlaybackEngine.allCases {
             let fixture = try Fixture(kind)
@@ -546,4 +583,33 @@ private final class MockTVBackend: TVPlaybackBackend {
     func setOpeningLanguages(_ languages: PlaybackLanguages) { openingLanguages = languages }
     func styleSubtitles(_ style: PlaybackSubtitleStyle) { subtitleStyle = style }
     func addSubtitle(file: URL, title: String, language: String) -> Bool { addedSubtitles.append(file); return true }
+}
+
+private final class TVSiloRetryProtocol: URLProtocol, @unchecked Sendable {
+    private static let lock = NSLock()
+    private static var starts = 0
+    static var startCount: Int { lock.lock(); defer { lock.unlock() }; return starts }
+    static func reset() { lock.lock(); defer { lock.unlock() }; starts = 0 }
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "tvos-silo-retry.test" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let path = request.url!.path
+        let body: String
+        var status = 200
+        if path.hasSuffix("/capabilities") {
+            body = #"{"protocol_versions":[3],"features":["playback_plan_v3","seek_reanchor_v1"],"deliveries":["server_remux_hls"],"installation_id":"installation:1","state":"available","allowed":true}"#
+        } else if path.hasSuffix("/start") {
+            Self.lock.lock(); Self.starts += 1; let number = Self.starts; Self.lock.unlock()
+            if number == 1 {
+                status = 201
+                body = #"{"protocol_version":3,"outcome":"playable","session_id":"session:1","playback_plan":{"plan_id":"plan:1","plan_attempt_key":"v3:fixture","delivery":"server_remux_hls","stream":{"url":"/api/v2/playback/transcode/session:1/master.m3u8","headers":{},"header_refresh":"none"},"timeline":{"source_start_seconds":600,"player_start_seconds":2,"timeline_offset_seconds":598,"can_seek_anywhere":false},"selected_tracks":{},"source":{"duration_seconds":3600}}}"#
+            } else { status = 503; body = "{}" }
+        } else if request.httpMethod == "DELETE" { body = #"{"outcome":"stopped"}"# }
+        else { status = 404; body = "{}" }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
+            httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

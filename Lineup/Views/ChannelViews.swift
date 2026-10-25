@@ -9357,8 +9357,8 @@ private struct PlaybackClockReader<Content: View>: View {
             if paused { self.togglePlayback() }
         }
         session?.failed = { [weak self] message in self?.failoverNotice = message }
-        session?.preparing = { [weak self] in self?.error = nil; self?.loading = true }
-        session?.retryFailed = { [weak self] message in self?.loading = false; self?.error = message }
+        session?.preparing = { [weak self] in self?.error = nil; self?.reconnecting = true }
+        session?.retryFailed = { [weak self] message in self?.reconnecting = false; self?.error = message }
     }
     /// How to play this channel's recording, while a channel the provider
     /// records is playing live. Nil for a channel that isn't recorded, for a
@@ -9747,6 +9747,13 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func checkPlayback() {
+        // A Silo retry owns the next signed URL. Do not let the old input's
+        // watchdog reopen its expired lease while that plan is being fetched.
+        if nativeSiloPlayback?.isReplanning == true {
+            health = freshHealth()
+            holdScreenAwake()
+            return
+        }
         let nextMediaInfo = backend.mediaInfo
         if mediaInfo != nextMediaInfo { mediaInfo = nextMediaInfo }
         guard !isScrubbing else { return }

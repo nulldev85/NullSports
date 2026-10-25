@@ -7098,7 +7098,9 @@ struct MDBListIntegrationView: View {
                     Section { Text(error).foregroundStyle(.red) }
                 }
             }
+            #if !os(tvOS)
             .scrollContentBackground(.hidden)
+            #endif
             .background(LineupPresentationStyle.ground)
             .navigationTitle("MDBList")
             #if !os(tvOS)
