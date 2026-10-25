@@ -30,12 +30,12 @@ struct RacingSessionDetails: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(current.race?.title ?? "Race").font(.inter(22, .bold)).foregroundStyle(LineupStyle.highlight)
                         Text(current.start.formatted(date: .abbreviated, time: .shortened)).font(.inter(18, .semibold))
-                        if let place = current.placeLine { Text(place).font(.inter(17)).foregroundStyle(LineupStyle.secondary) }
+                        if let place = current.placeLine { Text(place).font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary) }
                         if !current.status.isEmpty { Text(current.status).font(.inter(17, .semibold)) }
-                        if !current.broadcast.isEmpty { Text(current.broadcast).font(.inter(15)).foregroundStyle(LineupStyle.secondary) }
+                        if !current.broadcast.isEmpty { Text(current.broadcast).font(.inter(15)).foregroundStyle(LineupPresentationStyle.secondary) }
                     }
                     .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+                    .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
                     VStack(alignment: .leading, spacing: 16) {
                         Text("DRIVERS").font(.inter(15, .heavy)).tracking(LineupPanelStyle.headerTracking)
                             .foregroundStyle(LineupPanelStyle.caption)
@@ -47,11 +47,11 @@ struct RacingSessionDetails: View {
                             }
                         } else {
                             Text("Driver information isn’t available for this session yet.")
-                                .font(.inter(17)).foregroundStyle(LineupStyle.secondary)
+                                .font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
                     }
                     .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+                    .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
                 }
                 .padding(.bottom, 20)
             }
@@ -59,8 +59,8 @@ struct RacingSessionDetails: View {
         }
         .padding(24).frame(maxWidth: 1000, maxHeight: .infinity)
         .frame(maxWidth: .infinity)
-        .foregroundStyle(LineupStyle.text)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupPresentationStyle.text)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         #if os(tvOS)
         .padding(.horizontal, 100).padding(.vertical, 50)
         .onExitCommand { dismiss() }
@@ -81,7 +81,7 @@ private struct RacingEntrantRow: View {
             Spacer(minLength: 0)
         }
         .padding(12)
-        .background(focused ? LineupPanelStyle.well : .clear, in: RoundedRectangle(cornerRadius: 12))
+        .background(focused ? LineupPresentationStyle.row : .clear, in: RoundedRectangle(cornerRadius: 12))
         #if os(tvOS)
         .focusable().focused($focused).focusEffectDisabled()
         #endif

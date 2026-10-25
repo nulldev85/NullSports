@@ -149,6 +149,7 @@ enum LineupPanelStyle {
 /// and, so the app reads as one, every panel's header too. Each symbol
 /// keeps one colour wherever it appears.
 struct LineupIconTile: View {
+    @Environment(\.lineupIsPresentation) private var presentation
     let symbol: String
     var size: CGFloat = 30
     var tint: Color? = nil
@@ -157,9 +158,10 @@ struct LineupIconTile: View {
         let style = Self.style(for: symbol)
         Image(systemName: style.symbol)
             .font(.system(size: size * 0.5, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
+            .foregroundStyle(presentation ? (tint ?? style.color).opacity(0.88) : Color.white)
             .frame(width: size, height: size)
-            .background(tint ?? style.color, in: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous))
+            .background(presentation ? (tint ?? style.color).opacity(0.15) : (tint ?? style.color),
+                        in: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous))
             .accessibilityHidden(true)
     }
 
@@ -813,8 +815,8 @@ extension View {
         _ shape: S, clear: Bool = false, fallback: F,
         border: Color = .white.opacity(0.12)
     ) -> some View {
-        self.background(LineupPanelStyle.fill.opacity(clear ? 0.86 : 0.97), in: shape)
-            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        self.background(LineupPresentationStyle.card.opacity(clear ? 0.92 : 0.98), in: shape)
+            .overlay(shape.strokeBorder(LineupPresentationStyle.border, lineWidth: 1))
     }
 
     // The floating-control default: dark scrim and hairline below iOS 26.
@@ -852,6 +854,7 @@ extension View {
 /// of games divided by hairlines, a row of posters that scrolls beneath the
 /// card's edges -- take the card's full width instead.
 struct LineupPanel<Content: View, Accessory: View>: View {
+    @Environment(\.lineupIsPresentation) private var presentation
     let title: String
     var systemImage: String?
     var padded = true
@@ -870,7 +873,7 @@ struct LineupPanel<Content: View, Accessory: View>: View {
                 .padding(.top, padded ? 16 : 0).padding(.bottom, padded ? 18 : 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .background(presentation ? LineupPresentationStyle.card : LineupPanelStyle.fill, in: LineupPanelStyle.shape)
         .clipShape(LineupPanelStyle.shape)
     }
 }
@@ -990,9 +993,9 @@ extension View {
         _ shape: S, clear: Bool = false, fallback: F,
         border: Color = .white.opacity(0.12), prominent: Bool = false
     ) -> some View {
-        self.background(prominent ? LineupPanelStyle.well : LineupPanelStyle.fill.opacity(clear ? 0.86 : 0.97),
+        self.background(prominent ? LineupPresentationStyle.row : LineupPresentationStyle.card.opacity(clear ? 0.92 : 0.98),
                         in: shape)
-            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .overlay(shape.strokeBorder(LineupPresentationStyle.border, lineWidth: 1))
     }
 
     func lineupLiquidGlass<S: InsettableShape>(_ shape: S, clear: Bool = false) -> some View {
@@ -1078,9 +1081,7 @@ extension View {
 extension View {
     @ViewBuilder
     func nullGlass(clear: Bool = false, cornerRadius: CGFloat = 18) -> some View {
-        self
-            .background(LineupStyle.surface.opacity(clear ? 0.72 : 0.94), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
+        modifier(LineupScopedSurface(clear: clear, cornerRadius: cornerRadius))
     }
 
     func focusLift(_ focused: Bool, scale: CGFloat = LineupStyle.cardLift) -> some View {

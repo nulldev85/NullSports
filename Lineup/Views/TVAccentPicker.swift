@@ -58,7 +58,7 @@ struct TVAccentPicker: View {
                         panel("My Colors", symbol: "bookmark") {
                             if saved.isEmpty {
                                 Text("Save a custom color to keep it here.")
-                                    .font(.inter(20)).foregroundStyle(LineupPanelStyle.quiet)
+                                    .font(.inter(20)).foregroundStyle(LineupPresentationStyle.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             } else {
                                 LazyVGrid(columns: columns, spacing: 18) {
@@ -72,7 +72,7 @@ struct TVAccentPicker: View {
                                     }
                                 }
                                 Text("Hold a color to remove it.")
-                                    .font(.inter(17)).foregroundStyle(LineupPanelStyle.quiet)
+                                    .font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
                             }
                         }
                     }
@@ -90,7 +90,7 @@ struct TVAccentPicker: View {
                                         .textInputAutocapitalization(.characters)
                                         .autocorrectionDisabled()
                                         .padding(16)
-                                        .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 14))
+                                        .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 14))
                                         .onSubmit { _ = applyHex() }
                                         .accessibilityLabel("Custom color hex code")
                                 }
@@ -122,13 +122,13 @@ struct TVAccentPicker: View {
             .scrollIndicators(.hidden)
             .frame(width: 1440)
         }
-        .foregroundStyle(LineupStyle.text)
+        .foregroundStyle(LineupPresentationStyle.text)
         .padding(.top, 56).padding(.bottom, 36)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .preferredColorScheme(.dark)
         .onExitCommand { dismiss() }
-        .fullScreenCover(isPresented: $mixing) {
+        .lineupFullScreenCover(isPresented: $mixing) {
             TVAccentMixer(hex: draft, onChoose: choose).presentationBackground(.clear)
         }
     }
@@ -141,15 +141,15 @@ struct TVAccentPicker: View {
                 Text(title.uppercased()).font(.inter(21, .heavy)).tracking(0.6)
                 Spacer(minLength: 0)
                 if let trailing {
-                    Text(trailing).font(.inter(18, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                    Text(trailing).font(.inter(18, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
             }
-            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+            Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
             content()
         }
         .padding(28)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
     }
 
     private func swatch(_ hex: String, name: String) -> some View {
@@ -165,7 +165,7 @@ struct TVAccentPicker: View {
                         }
                     }
                 Text(name).font(.inter(14, .semibold)).lineLimit(1).minimumScaleFactor(0.8)
-                    .foregroundStyle(LineupPanelStyle.quiet)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 8)
         }
@@ -180,7 +180,7 @@ struct TVAccentPicker: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("LINEUP").font(.inter(30, .heavy))
                     Text("LIVE SPORTS").font(.inter(12, .bold)).tracking(3)
-                        .foregroundStyle(LineupPanelStyle.quiet)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                 }
                 Spacer()
                 Capsule().fill(accent.color).frame(width: 76, height: 42)
@@ -191,8 +191,8 @@ struct TVAccentPicker: View {
                     .overlay(alignment: .bottom) {
                         Rectangle().fill(accent.color).frame(height: 3).offset(y: 12)
                     }
-                Image(systemName: "square.grid.2x2.fill").foregroundStyle(LineupPanelStyle.quiet)
-                Image(systemName: "sportscourt.fill").foregroundStyle(LineupPanelStyle.quiet)
+                Image(systemName: "square.grid.2x2.fill").foregroundStyle(LineupPresentationStyle.secondary)
+                Image(systemName: "sportscourt.fill").foregroundStyle(LineupPresentationStyle.secondary)
                 Spacer()
                 Text("WATCH").font(.inter(19, .heavy)).tracking(1.5)
                     .foregroundStyle(accent.onAccent)
@@ -202,7 +202,7 @@ struct TVAccentPicker: View {
             .font(.system(size: 28, weight: .bold))
         }
         .padding(30)
-        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview using \(accent.name), #\(draft)")
     }
@@ -259,9 +259,9 @@ private struct TVAccentButton: View {
                 if let symbol { LineupIconTile(symbol: symbol, size: 32) }
                 Text(title).font(.inter(21, .semibold))
             }
-            .foregroundStyle(accent?.onAccent ?? LineupStyle.text)
+            .foregroundStyle(accent?.onAccent ?? LineupPresentationStyle.text)
             .frame(maxWidth: .infinity).frame(height: 62)
-            .background(accent?.color ?? LineupPanelStyle.well,
+            .background(accent?.color ?? LineupPresentationStyle.row,
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .accessibilityAddTraits(.isButton)
@@ -300,7 +300,7 @@ private struct TVAccentMixer: View {
                     Circle().fill(accent.color).frame(width: 40, height: 40)
                     Text("#\(accent.hex)").font(.interDigits(24, .semibold))
                 }
-                Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                 shadeField.frame(height: 210)
                 adjustment("Hue", value: "\(Int((hue * 360).rounded()))°", progress: hue,
                            decrease: { hue = (hue - 1 / 72 + 1).truncatingRemainder(dividingBy: 1) },
@@ -320,8 +320,8 @@ private struct TVAccentMixer: View {
                 }
             }
             .padding(36).frame(width: 1000)
-            .foregroundStyle(LineupStyle.text)
-            .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+            .foregroundStyle(LineupPresentationStyle.text)
+            .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 32).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
             .shadow(color: .black.opacity(0.6), radius: 40, y: 20)
             .focusSection()

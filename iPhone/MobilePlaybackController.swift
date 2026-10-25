@@ -100,6 +100,7 @@ final class MobilePlaybackController: ObservableObject {
     @Published private(set) var videoHeight: Int?
     @Published private(set) var mediaInfo = PlaybackMediaInfo()
     private let nativeMediaInfo = NativePlaybackMediaInfoReader()
+    private let liveQualityReporter = LivePlaybackQualityReporter()
     /// Which engine is currently rendering. Views use it only to decide whether
     /// a Picture in Picture button can do anything.
     @Published private(set) var engine: MobileStreamEngine = .vlc
@@ -945,7 +946,7 @@ final class MobilePlaybackController: ObservableObject {
     func start(urls: [URL], channelID: Int? = nil, resetFailover: Bool = true,
                initialPosition: TimeInterval? = nil, recording: Bool = false) {
         diag.beginSession("start channel=\(channelID.map(String.init) ?? "—") urls=\(urls.count) resetFailover=\(resetFailover)")
-        for url in MobileEngineSelection.ordered(urls) {
+        for url in MobileEngineSelection.ordered(urls, live: isLive) {
             diag.record("  candidate \(url.lastPathComponent) -> \(MobileEngineSelection.engine(for: url)?.title ?? "unavailable")")
         }
         // Also ends any recording: whatever opens next is live unless the
@@ -972,9 +973,9 @@ final class MobilePlaybackController: ObservableObject {
             pendingWorkingChannelID = nil
         }
         retries.reset()
-        // HLS first on the phone so Picture in Picture is reachable; the
-        // transport stream stays queued behind it. Apple TV keeps its own order.
-        candidates = MobileEngineSelection.ordered(urls)
+        // Keep a playback-confirmed live transport first. Fresh provider lists
+        // still start HLS first, and Library ordering/PiP behavior is unchanged.
+        candidates = MobileEngineSelection.ordered(urls, live: isLive)
         do {
             try MobileAudioSession.activate(for: self)
         } catch {
@@ -1119,6 +1120,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func openNext() {
+        liveQualityReporter.reset()
         systemPictureSeen = false
         resetStartGate()
         teardownSystemEngine()
@@ -1322,6 +1324,9 @@ final class MobilePlaybackController: ObservableObject {
 
     private func advanceAfterEngineFailure() {
         guard let url = currentURL else { return }
+        if isLive && !health.hasShownPicture {
+            Task { await LiveQualityVerifier.shared.forgetPlayback(url: url) }
+        }
         failedEngines[url, default: []].insert(engine)
         if let next = MobileEngineSelection.engine(for: url, preference: preference, failed: failedEngines[url] ?? []) {
             // Try the provider's other PiP-capable endpoint before settling
@@ -1619,7 +1624,7 @@ final class MobilePlaybackController: ObservableObject {
             return
         }
         if droppedWhilePlaying { delay = 0 }
-        let ordered = MobileEngineSelection.ordered(originalURLs)
+        let ordered = MobileEngineSelection.ordered(originalURLs, live: isLive)
         let index = currentURL.flatMap { ordered.firstIndex(of: $0) } ?? 0
         // First attempt retries the same endpoint; later ones rotate, so a dead
         // HLS endpoint ends up on the transport stream instead of looping. An
@@ -2083,6 +2088,9 @@ final class MobilePlaybackController: ObservableObject {
                 audioLayout: mpvSession?.audioLayout)
         }
         if mediaInfo != next { mediaInfo = next }
+        liveQualityReporter.observe(url: currentURL, width: videoWidth ?? 0, height: videoHeight ?? 0,
+            frameRate: next.frameRate, live: isLive && !sourceIsRecording, playing: isPlaying,
+            picture: startGateOpen && !loading)
     }
 
     // MARK: - Scene phase

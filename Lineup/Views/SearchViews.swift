@@ -104,12 +104,12 @@ struct AppSearchView: View {
                 tune(station, game: nil)
             }]
         }
-        .fullScreenCover(item: $mobilePlayback) { selection in
+        .lineupFullScreenCover(item: $mobilePlayback) { selection in
             MobileSearchProviderPlayer(selection: selection).environment(library.providerRoot)
         }
         #endif
         #if os(tvOS)
-        .fullScreenCover(item: $playback) { playback in
+        .lineupFullScreenCover(item: $playback) { playback in
             PlayerView(urls: library.playbackURLs(for: playback.channel),
                        title: playback.channel.name,
                        program: library.guidePrograms(for: playback.channel).normalizedEPG().first { $0.isLive },
@@ -736,11 +736,9 @@ private struct AppSearchGenreBrowseView: View {
         #endif
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .task(id: selectedKind) { await loadFirstPage() }
-        .alert("Not found in your sources", isPresented: $showUnavailable) {
-            Button("OK", role: .cancel) { unavailableTitle = nil }
-        } message: {
-            Text("\(unavailableTitle ?? "That title") is in TMDB’s catalog, but it was not found on your connected media servers or IPTV VOD.")
-        }
+        .lineupMessage("Not found in your sources", symbol: "magnifyingglass", isPresented: $showUnavailable,
+            message: "\(unavailableTitle ?? "That title") is in TMDB’s catalog, but it was not found on your connected media servers or IPTV VOD.",
+            onDismiss: { unavailableTitle = nil })
         .onDisappear { openTask?.cancel() }
     }
 

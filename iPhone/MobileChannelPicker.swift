@@ -32,7 +32,7 @@ struct MobileChannelPicker: View {
             providerName: library.enabledProfiles.count > 1 ? "All enabled providers" : library.enabledProfiles.first?.name,
             onPick: onPick)
             .presentationDetents([.large])
-            .presentationBackground(LineupStyle.background)
+            .presentationBackground(LineupPresentationStyle.ground)
             .task { reloadChannels() }
             .onChange(of: library.streamsRevision) { scheduleReload() }
             .onChange(of: library.favoriteStreamOrder) { scheduleReload() }
@@ -53,7 +53,7 @@ struct MobileChannelPickerContent: View {
         let page = search.page
         NavigationStack {
             ZStack {
-                LineupStyle.background.ignoresSafeArea()
+                LineupPresentationStyle.ground.ignoresSafeArea()
                 VStack(spacing: 0) {
                     header
                     MobileChannelSearchField(search: search, automaticallyFocus: automaticallyFocusSearch)
@@ -85,11 +85,11 @@ struct MobileChannelPickerContent: View {
             Text("\(game.awayTeam) vs. \(game.homeTeam)")
                 .font(.inter(.headline, .bold)).lineLimit(1)
             Text(game.broadcast.isEmpty ? "Choose a channel" : "Choose a channel · \(game.broadcast)")
-                .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.62))
+                .font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.text.opacity(0.62))
                 .lineLimit(1)
             if let providerName {
                 Label("Provider: \(providerName)", systemImage: "antenna.radiowaves.left.and.right")
-                    .font(.inter(.caption, .semibold)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                    .font(.inter(.caption, .semibold)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -106,12 +106,12 @@ private struct MobileChannelSearchField: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                .foregroundStyle(LineupPresentationStyle.text.opacity(0.55))
             MobileChannelSearchInput(search: search, automaticallyFocus: automaticallyFocus)
         }
         .font(.inter(.body))
         .padding(.horizontal, 14).frame(height: 44)
-        .background(LineupPanelStyle.fill, in: Capsule())
+        .background(LineupPresentationStyle.card, in: Capsule())
         .padding(.horizontal, LineupPanelStyle.margin).padding(.bottom, 12)
     }
 }

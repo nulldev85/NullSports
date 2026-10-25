@@ -81,9 +81,9 @@ struct MobileProviderAvailabilityNotice: View {
                         .font(.inter(.caption2, .semibold)).lineLimit(2)
                 }
             }
-            .foregroundStyle(LineupStyle.secondary)
+            .foregroundStyle(LineupPresentationStyle.secondary)
             .padding(.horizontal, 16).padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading).background(LineupStyle.background)
+            .frame(maxWidth: .infinity, alignment: .leading).background(LineupPresentationStyle.card)
         }
     }
 }

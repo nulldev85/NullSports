@@ -50,6 +50,6 @@ struct LibraryTrackingSettingsView: View {
             media.loadMDBListIntegrationIfNeeded()
             media.refreshTracking()
         }
-        .sheet(isPresented: $connecting) { MDBListIntegrationView().environment(media) }
+        .lineupSheet(isPresented: $connecting) { MDBListIntegrationView().environment(media) }
     }
 }

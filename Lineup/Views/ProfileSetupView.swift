@@ -15,16 +15,16 @@ struct ProfileSetupView: View {
     var body: some View {
         HStack(spacing: 80) {
             VStack(alignment: .leading, spacing: 26) {
-                Text("LINEUP").foregroundColor(LineupStyle.lightPurple)
+                Text("LINEUP").foregroundColor(LineupPresentationStyle.text)
                     .font(.inter(.caption, .black))
                     .tracking(3)
                     .foregroundStyle(LineupStyle.field)
-                Text(playlistConnection ? "Your playlist.\nYour TV guide." : "Your games.\nYour provider.").foregroundColor(LineupStyle.lightPurple)
+                Text(playlistConnection ? "Your playlist.\nYour TV guide." : "Your games.\nYour provider.").foregroundColor(LineupPresentationStyle.text)
                     .font(.inter(58, .bold))
-                    .foregroundStyle(LineupStyle.text)
-                Text("A quiet, fast home for live American sports.").foregroundColor(LineupStyle.lightPurple)
+                    .foregroundStyle(LineupPresentationStyle.text)
+                Text("A quiet, fast home for live American sports.").foregroundColor(LineupPresentationStyle.text)
                     .font(.inter(.title3))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -39,7 +39,7 @@ struct ProfileSetupView: View {
                 if playlistConnection {
                     TextField("XMLTV guide URL (optional)", text: $guideURL).textContentType(.URL)
                     Text("EPGenius organizes your existing provider's channels and guide. It does not supply video. Paste the playlist and EPG links from its setup.")
-                        .font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.secondary)
                 } else {
                 TextField("Username", text: $username)
                     .textContentType(.username)
@@ -50,7 +50,7 @@ struct ProfileSetupView: View {
                     connect()
                 } label: {
                     HStack {
-                        Text(isConnecting ? "Connecting…" : "Connect").foregroundColor(LineupStyle.lightPurple)
+                        Text(isConnecting ? "Connecting…" : "Connect").foregroundColor(LineupPresentationStyle.text)
                         Spacer()
                         Image(systemName: "arrow.right")
                     }
@@ -60,16 +60,16 @@ struct ProfileSetupView: View {
                 if let connectionError { Text(connectionError).font(.inter(.caption)).foregroundStyle(.red) }
             }
             .textFieldStyle(.plain)
-            .foregroundColor(LineupStyle.lightPurple)
+            .foregroundColor(LineupPresentationStyle.text)
             .focusEffectDisabled()
             .lineupButtonStyle()
             .padding(34)
-            .background(LineupStyle.surface)
+            .background(LineupPresentationStyle.card)
             .overlay(Rectangle().stroke(LineupStyle.line, lineWidth: 1))
             .frame(width: 560)
         }
         .padding(.horizontal, 90)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         // Opened from Account, this is a sheet. The login is checked and saved
         // the moment the provider becomes active; its channels keep loading
         // behind the screen this returns to, as they do after first setup.

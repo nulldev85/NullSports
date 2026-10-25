@@ -64,7 +64,7 @@ struct MobileWelcomeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(LineupStyle.background.ignoresSafeArea())
         }
-        .sheet(isPresented: $showingMediaSetup) {
+        .lineupSheet(isPresented: $showingMediaSetup) {
             MediaServerSetupView()
         }
         .preferredColorScheme(.dark)

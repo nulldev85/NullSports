@@ -7,6 +7,13 @@ import UIKit
 /// three player surfaces. Pulling them into `MobileBackgroundPolicy` is what
 /// makes them checkable without a device.
 final class PlaybackPolicyTests: XCTestCase {
+    func testLiveKeepsAConfirmedTransportFirstWhileLibraryStillUsesItsExistingPiPOrder() {
+        let ts = URL(string: "https://example.test/confirmed.ts")!
+        let hls = URL(string: "https://example.test/other.m3u8")!
+        XCTAssertEqual(MobileEngineSelection.ordered([ts, hls], live: true), [ts, hls])
+        XCTAssertEqual(MobileEngineSelection.ordered([hls, ts], live: true), [hls, ts])
+        XCTAssertEqual(MobileEngineSelection.ordered([ts, hls]), [hls, ts])
+    }
     func testSlowMovieOpeningIsNotAStoppedStreamBeforeTheStartupBudget() {
         for age in [0.0, 2, 8, 29.9] {
             XCTAssertFalse(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: false, age: age))

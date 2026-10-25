@@ -48,9 +48,9 @@ struct TVTeamPage: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 90).padding(.top, 70)
-        .foregroundStyle(LineupStyle.text)
+        .foregroundStyle(LineupPresentationStyle.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .task { info = await client.info(target.path) }
         .task(id: section) { await load(section) }
     }
@@ -68,7 +68,7 @@ struct TVTeamPage: View {
                 .padding(.top, 6)
             let line = [info?.record, info?.standing].compactMap { $0 }.joined(separator: " · ")
             if !line.isEmpty {
-                Text(line).font(.inter(21, .medium)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                Text(line).font(.inter(21, .medium)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                     .padding(.top, 6)
             }
             followButton.padding(.top, 26)
@@ -131,8 +131,8 @@ struct TVTeamPage: View {
         switch load {
         case .loading:
             HStack(spacing: 14) {
-                ProgressView().tint(LineupStyle.text)
-                Text("Loading…").font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                ProgressView().tint(LineupPresentationStyle.text)
+                Text("Loading…").font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 80)
         case .failed:
@@ -144,8 +144,8 @@ struct TVTeamPage: View {
 
     private func message(_ text: String, symbol: String) -> some View {
         VStack(spacing: 16) {
-            Image(systemName: symbol).font(.system(size: 40, weight: .semibold)).foregroundStyle(LineupPanelStyle.quiet)
-            Text(text).font(.inter(22)).foregroundStyle(LineupStyle.secondary).multilineTextAlignment(.center)
+            Image(systemName: symbol).font(.system(size: 40, weight: .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
+            Text(text).font(.inter(22)).foregroundStyle(LineupPresentationStyle.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 80).padding(.horizontal, 40)
     }
@@ -189,11 +189,11 @@ struct TVTeamPage: View {
                 Text(game.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
                     .font(.inter(20, .semibold)).foregroundStyle(LineupPanelStyle.caption)
                 if let label = game.label {
-                    Text(label).font(.inter(16, .medium)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
+                    Text(label).font(.inter(16, .medium)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 }
             }
             .frame(width: 150, alignment: .leading)
-            Text(game.isHome ? "vs" : "@").font(.inter(20, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+            Text(game.isHome ? "vs" : "@").font(.inter(20, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                 .frame(width: 32)
             TeamBadge(url: game.opponentLogo ?? "", fallback: game.opponentAbbreviation, size: 44, tight: true)
             Text(game.opponent).font(.inter(23, .semibold)).lineLimit(1).minimumScaleFactor(0.85)
@@ -204,7 +204,7 @@ struct TVTeamPage: View {
                         if let outcome = game.outcome {
                             Text(outcome.rawValue).font(.inter(21, .heavy))
                                 .foregroundStyle(outcome == .win ? LineupStyle.positive
-                                                 : outcome == .loss ? LineupStyle.live : LineupStyle.secondary)
+                                                 : outcome == .loss ? LineupStyle.live : LineupPresentationStyle.secondary)
                         }
                         Text("\(ours)–\(theirs)").font(.interDigits(23, .bold))
                     }
@@ -214,7 +214,7 @@ struct TVTeamPage: View {
                     Text(game.date.formatted(date: .omitted, time: .shortened)).font(.inter(21, .semibold))
                 }
                 if !game.isFinished, let network = game.broadcast {
-                    Text(network).font(.inter(16, .medium)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
+                    Text(network).font(.inter(16, .medium)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 }
             }
         }
@@ -228,10 +228,10 @@ struct TVTeamPage: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 Text(table.group.uppercased()).font(.inter(17, .heavy)).tracking(LineupPanelStyle.headerTracking)
-                    .foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
+                    .foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 Spacer(minLength: 12)
                 ForEach(Array(table.columns.enumerated()), id: \.offset) { _, column in
-                    Text(column).font(.inter(17, .heavy)).foregroundStyle(LineupPanelStyle.quiet)
+                    Text(column).font(.inter(17, .heavy)).foregroundStyle(LineupPresentationStyle.secondary)
                         .frame(width: columnWidth(table), alignment: .trailing)
                 }
             }
@@ -239,7 +239,7 @@ struct TVTeamPage: View {
             ForEach(Array(table.rows.enumerated()), id: \.element.id) { index, row in
                 let ours = row.id == target.path.teamID
                 HStack(spacing: 16) {
-                    Text("\(index + 1)").font(.interDigits(20, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                    Text("\(index + 1)").font(.interDigits(20, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                         .frame(width: 34, alignment: .leading)
                     TeamBadge(url: row.logo ?? "", fallback: row.abbreviation, size: 36, tight: true)
                     Text(table.columns.count > 6 ? row.abbreviation : row.name)
@@ -257,7 +257,7 @@ struct TVTeamPage: View {
             }
             Color.clear.frame(height: 12)
         }
-        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
         .clipShape(LineupPanelStyle.shape)
     }
 
@@ -270,7 +270,7 @@ struct TVTeamPage: View {
     private func rosterView(_ roster: TeamPageParser.Roster) -> some View {
         VStack(alignment: .leading, spacing: 28) {
             if let coach = roster.coach {
-                Text("Head coach: \(coach)").font(.inter(21, .medium)).foregroundStyle(LineupStyle.secondary)
+                Text("Head coach: \(coach)").font(.inter(21, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                     .padding(.horizontal, 6)
             }
             ForEach(roster.groups) { group in
@@ -282,12 +282,12 @@ struct TVTeamPage: View {
     private func playerRow(_ player: TeamPagePlayer) -> some View {
         HStack(spacing: 18) {
             Text(player.jersey.map { "#\($0)" } ?? "").font(.interDigits(20, .semibold))
-                .foregroundStyle(LineupPanelStyle.quiet).frame(width: 54, alignment: .leading)
+                .foregroundStyle(LineupPresentationStyle.secondary).frame(width: 54, alignment: .leading)
             headshot(player)
             VStack(alignment: .leading, spacing: 2) {
                 Text(player.name).font(.inter(23, .semibold)).lineLimit(1)
                 if let position = player.position {
-                    Text(position).font(.inter(17, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+                    Text(position).font(.inter(17, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
             }
             Spacer(minLength: 10)
@@ -301,10 +301,10 @@ struct TVTeamPage: View {
         AsyncImage(url: player.headshot.flatMap(URL.init(string:))) { image in
             image.resizable().scaledToFill()
         } placeholder: {
-            Image(systemName: "person.fill").font(.system(size: 22)).foregroundStyle(LineupPanelStyle.quiet)
+            Image(systemName: "person.fill").font(.system(size: 22)).foregroundStyle(LineupPresentationStyle.secondary)
         }
         .frame(width: 54, height: 54)
-        .background(LineupPanelStyle.well)
+        .background(LineupPresentationStyle.row)
         .clipShape(Circle())
         .accessibilityHidden(true)
     }
@@ -323,7 +323,7 @@ struct TVTeamPage: View {
                             Text([player.position, player.injuryDate.map {
                                 $0.formatted(.dateTime.month(.abbreviated).day())
                             }].compactMap { $0 }.joined(separator: " · "))
-                                .font(.inter(17, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+                                .font(.inter(17, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
                         Spacer(minLength: 10)
                         if let injury = player.injury { injuryTag(injury) }
@@ -342,7 +342,7 @@ struct TVTeamPage: View {
         let tint: Color = lowered.contains("out") || lowered.contains("reserve") || lowered.contains("suspend")
             ? LineupStyle.live
             : (lowered.contains("question") || lowered.contains("doubt") || lowered.contains("day")
-               ? Color(red: 1, green: 0.74, blue: 0.25) : LineupStyle.secondary)
+               ? Color(red: 1, green: 0.74, blue: 0.25) : LineupPresentationStyle.secondary)
         return Text(status).font(.inter(18, .bold)).foregroundStyle(tint)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .background(tint.opacity(0.15), in: Capsule())
@@ -360,19 +360,19 @@ struct TVTeamPage: View {
                     Text(article.headline).font(.inter(23, .semibold)).lineLimit(3)
                         .multilineTextAlignment(.leading)
                     if let summary = article.summary {
-                        Text(summary).font(.inter(19)).foregroundStyle(LineupStyle.secondary).lineLimit(3)
+                        Text(summary).font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(3)
                             .multilineTextAlignment(.leading)
                     }
                     if let published = article.published {
                         Text(published.formatted(.relative(presentation: .named)))
-                            .font(.inter(16, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+                            .font(.inter(16, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                     }
                 }
                 Spacer(minLength: 6)
                 if let image = article.image.flatMap(URL.init(string:)) {
                     AsyncImage(url: image) { picture in
                         picture.resizable().scaledToFill()
-                    } placeholder: { LineupPanelStyle.well }
+                    } placeholder: { LineupPresentationStyle.row }
                     .frame(width: 192, height: 108)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .accessibilityHidden(true)
@@ -391,17 +391,17 @@ struct TVTeamPage: View {
                                                        row: @escaping (Row) -> Shown) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title).font(.inter(17, .heavy)).tracking(LineupPanelStyle.headerTracking)
-                .foregroundStyle(LineupPanelStyle.quiet)
+                .foregroundStyle(LineupPresentationStyle.secondary)
                 .padding(.horizontal, 26).padding(.top, 22).padding(.bottom, 6)
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
                 if index > 0 {
-                    Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.leading, 26)
+                    Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1).padding(.leading, 26)
                 }
                 row(item).lineupRowFocus()
             }
             Color.clear.frame(height: 10)
         }
-        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
     }
 }
 
@@ -420,11 +420,11 @@ private struct TVTeamPageSectionLabel: View {
             Spacer(minLength: 0)
             if selected {
                 Image(systemName: "chevron.right").font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(LineupPanelStyle.quiet)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
             }
         }
         .padding(.horizontal, 18).frame(height: 66)
-        .background(selected ? LineupPanelStyle.well : LineupPanelStyle.fill, in: shape)
+        .background(selected ? LineupPresentationStyle.row : LineupPresentationStyle.card, in: shape)
         .lineupFocusLayer(focused, in: shape)
         .animation(.easeOut(duration: 0.16), value: focused)
     }
@@ -438,11 +438,11 @@ private struct TVTeamPageFollowLabel: View {
         let shape = Capsule()
         HStack(spacing: 12) {
             Image(systemName: following ? "star.fill" : "star").font(.system(size: 21, weight: .bold))
-                .foregroundStyle(following ? LineupStyle.highlight : LineupStyle.text)
+                .foregroundStyle(following ? LineupStyle.highlight : LineupPresentationStyle.text)
             Text(following ? "In My Teams" : "Add to My Teams").font(.inter(21, .semibold))
         }
         .padding(.horizontal, 24).frame(height: 58)
-        .background(LineupPanelStyle.well, in: shape)
+        .background(LineupPresentationStyle.row, in: shape)
         .lineupFocusLayer(focused, in: shape)
         .animation(.easeOut(duration: 0.16), value: focused)
     }

@@ -44,10 +44,10 @@ struct MobileTeamPage: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .padding(.horizontal, 20).padding(.top, 24)
-        .foregroundStyle(LineupStyle.text)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupPresentationStyle.text)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .presentationDetents([.large])
-        .presentationBackground(LineupStyle.background)
+        .presentationBackground(LineupPresentationStyle.ground)
         .presentationDragIndicator(.visible)
         .task { info = await client.info(target.path) }
         .task(id: section) { await load(section) }
@@ -65,7 +65,7 @@ struct MobileTeamPage: View {
                 Text(info?.name ?? target.name).font(.inter(23, .bold)).lineLimit(2).minimumScaleFactor(0.8)
                 let line = [info?.record, info?.standing].compactMap { $0 }.joined(separator: " · ")
                 if !line.isEmpty {
-                    Text(line).font(.inter(14, .medium)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                    Text(line).font(.inter(14, .medium)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 6)
@@ -76,7 +76,7 @@ struct MobileTeamPage: View {
             } label: {
                 Image(systemName: following ? "star.fill" : "star")
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(following ? LineupStyle.highlight : LineupStyle.text)
+                    .foregroundStyle(following ? LineupStyle.highlight : LineupPresentationStyle.text)
                     .frame(width: 44, height: 44)
                     .lineupGlassControl(Circle())
             }
@@ -125,8 +125,8 @@ struct MobileTeamPage: View {
         switch load {
         case .loading:
             HStack(spacing: 10) {
-                ProgressView().tint(LineupStyle.text)
-                Text("Loading…").font(.inter(14)).foregroundStyle(LineupPanelStyle.quiet)
+                ProgressView().tint(LineupPresentationStyle.text)
+                Text("Loading…").font(.inter(14)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity).padding(.vertical, 40)
         case .failed:
@@ -138,8 +138,8 @@ struct MobileTeamPage: View {
 
     private func message(_ text: String, symbol: String) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 26, weight: .semibold)).foregroundStyle(LineupPanelStyle.quiet)
-            Text(text).font(.inter(15)).foregroundStyle(LineupStyle.secondary).multilineTextAlignment(.center)
+            Image(systemName: symbol).font(.system(size: 26, weight: .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
+            Text(text).font(.inter(15)).foregroundStyle(LineupPresentationStyle.secondary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 40).padding(.horizontal, 20)
     }
@@ -183,11 +183,11 @@ struct MobileTeamPage: View {
                 Text(game.date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
                     .font(.inter(13, .semibold)).foregroundStyle(LineupPanelStyle.caption)
                 if let label = game.label {
-                    Text(label).font(.inter(11, .medium)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
+                    Text(label).font(.inter(11, .medium)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 }
             }
             .frame(width: 92, alignment: .leading)
-            Text(game.isHome ? "vs" : "@").font(.inter(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+            Text(game.isHome ? "vs" : "@").font(.inter(13, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                 .frame(width: 20)
             TeamBadge(url: game.opponentLogo ?? "", fallback: game.opponentAbbreviation, size: 28, tight: true)
             Text(game.opponent).font(.inter(15, .semibold)).lineLimit(1).minimumScaleFactor(0.85)
@@ -198,7 +198,7 @@ struct MobileTeamPage: View {
                         if let outcome = game.outcome {
                             Text(outcome.rawValue).font(.inter(14, .heavy))
                                 .foregroundStyle(outcome == .win ? LineupStyle.positive
-                                                 : outcome == .loss ? LineupStyle.live : LineupStyle.secondary)
+                                                 : outcome == .loss ? LineupStyle.live : LineupPresentationStyle.secondary)
                         }
                         Text("\(ours)–\(theirs)").font(.interDigits(15, .bold))
                     }
@@ -208,7 +208,7 @@ struct MobileTeamPage: View {
                     Text(game.date.formatted(date: .omitted, time: .shortened)).font(.inter(14, .semibold))
                 }
                 if !game.isFinished, let network = game.broadcast {
-                    Text(network).font(.inter(11, .medium)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
+                    Text(network).font(.inter(11, .medium)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 }
             }
         }
@@ -222,10 +222,10 @@ struct MobileTeamPage: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 Text(table.group.uppercased()).font(.inter(11, .heavy)).tracking(LineupPanelStyle.headerTracking)
-                    .foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
+                    .foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 Spacer(minLength: 8)
                 ForEach(Array(table.columns.enumerated()), id: \.offset) { _, column in
-                    Text(column).font(.inter(11, .heavy)).foregroundStyle(LineupPanelStyle.quiet)
+                    Text(column).font(.inter(11, .heavy)).foregroundStyle(LineupPresentationStyle.secondary)
                         .frame(width: columnWidth(table), alignment: .trailing)
                 }
             }
@@ -233,7 +233,7 @@ struct MobileTeamPage: View {
             ForEach(Array(table.rows.enumerated()), id: \.element.id) { index, row in
                 let ours = row.id == target.path.teamID
                 HStack(spacing: 10) {
-                    Text("\(index + 1)").font(.interDigits(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                    Text("\(index + 1)").font(.interDigits(13, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                         .frame(width: 22, alignment: .leading)
                     TeamBadge(url: row.logo ?? "", fallback: row.abbreviation, size: 24, tight: true)
                     Text(table.columns.count > 4 ? row.abbreviation : row.name)
@@ -250,7 +250,7 @@ struct MobileTeamPage: View {
             }
             Color.clear.frame(height: 8)
         }
-        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
         .clipShape(LineupPanelStyle.shape)
     }
 
@@ -263,7 +263,7 @@ struct MobileTeamPage: View {
     private func rosterView(_ roster: TeamPageParser.Roster) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             if let coach = roster.coach {
-                Text("Head coach: \(coach)").font(.inter(14, .medium)).foregroundStyle(LineupStyle.secondary)
+                Text("Head coach: \(coach)").font(.inter(14, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                     .padding(.horizontal, 4)
             }
             ForEach(roster.groups) { group in
@@ -275,12 +275,12 @@ struct MobileTeamPage: View {
     private func playerRow(_ player: TeamPagePlayer) -> some View {
         HStack(spacing: 12) {
             Text(player.jersey.map { "#\($0)" } ?? "").font(.interDigits(13, .semibold))
-                .foregroundStyle(LineupPanelStyle.quiet).frame(width: 34, alignment: .leading)
+                .foregroundStyle(LineupPresentationStyle.secondary).frame(width: 34, alignment: .leading)
             headshot(player)
             VStack(alignment: .leading, spacing: 1) {
                 Text(player.name).font(.inter(15, .semibold)).lineLimit(1)
                 if let position = player.position {
-                    Text(position).font(.inter(12, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+                    Text(position).font(.inter(12, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
             }
             Spacer(minLength: 6)
@@ -294,10 +294,10 @@ struct MobileTeamPage: View {
         AsyncImage(url: player.headshot.flatMap(URL.init(string:))) { image in
             image.resizable().scaledToFill()
         } placeholder: {
-            Image(systemName: "person.fill").font(.system(size: 14)).foregroundStyle(LineupPanelStyle.quiet)
+            Image(systemName: "person.fill").font(.system(size: 14)).foregroundStyle(LineupPresentationStyle.secondary)
         }
         .frame(width: 34, height: 34)
-        .background(LineupPanelStyle.well)
+        .background(LineupPresentationStyle.row)
         .clipShape(Circle())
         .accessibilityHidden(true)
     }
@@ -316,7 +316,7 @@ struct MobileTeamPage: View {
                             Text([player.position, player.injuryDate.map {
                                 $0.formatted(.dateTime.month(.abbreviated).day())
                             }].compactMap { $0 }.joined(separator: " · "))
-                                .font(.inter(12, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+                                .font(.inter(12, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
                         Spacer(minLength: 6)
                         if let injury = player.injury { injuryTag(injury) }
@@ -335,7 +335,7 @@ struct MobileTeamPage: View {
         let tint: Color = lowered.contains("out") || lowered.contains("reserve") || lowered.contains("suspend")
             ? LineupStyle.live
             : (lowered.contains("question") || lowered.contains("doubt") || lowered.contains("day")
-               ? Color(red: 1, green: 0.74, blue: 0.25) : LineupStyle.secondary)
+               ? Color(red: 1, green: 0.74, blue: 0.25) : LineupPresentationStyle.secondary)
         return Text(status).font(.inter(12, .bold)).foregroundStyle(tint)
             .padding(.horizontal, 8).padding(.vertical, 4)
             .background(tint.opacity(0.15), in: Capsule())
@@ -354,19 +354,19 @@ struct MobileTeamPage: View {
                         Text(article.headline).font(.inter(15, .semibold)).lineLimit(3)
                             .multilineTextAlignment(.leading)
                         if let summary = article.summary {
-                            Text(summary).font(.inter(13)).foregroundStyle(LineupStyle.secondary).lineLimit(2)
+                            Text(summary).font(.inter(13)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(2)
                                 .multilineTextAlignment(.leading)
                         }
                         if let published = article.published {
                             Text(published.formatted(.relative(presentation: .named)))
-                                .font(.inter(11, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+                                .font(.inter(11, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
                     }
                     Spacer(minLength: 4)
                     if let image = article.image.flatMap(URL.init(string:)) {
                         AsyncImage(url: image) { picture in
                             picture.resizable().scaledToFill()
-                        } placeholder: { LineupPanelStyle.well }
+                        } placeholder: { LineupPresentationStyle.row }
                         .frame(width: 96, height: 54)
                         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .accessibilityHidden(true)
@@ -388,16 +388,16 @@ struct MobileTeamPage: View {
                                                        row: @escaping (Row) -> Shown) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title).font(.inter(11, .heavy)).tracking(LineupPanelStyle.headerTracking)
-                .foregroundStyle(LineupPanelStyle.quiet)
+                .foregroundStyle(LineupPresentationStyle.secondary)
                 .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 4)
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
                 if index > 0 {
-                    Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.leading, 16)
+                    Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1).padding(.leading, 16)
                 }
                 row(item)
             }
             Color.clear.frame(height: 6)
         }
-        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
     }
 }

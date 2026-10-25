@@ -1457,13 +1457,15 @@ final class SportsLibrary {
         if let source = combinedSources[fallback.id] {
             guard source.library.providerConnectionAvailable else { return nil }
             guard let chosen = await source.library.bestQualityStream(for: game, fallback: source.stream) else { return nil }
+            guard source.library.providerConnectionAvailable else { return nil }
             return displayStream(for: MobileProviderPlaybackSource(library: source.library, stream: chosen))
         }
         if combinedRoot != nil { return nil }
         #endif
+        // Event discovery reads the current catalog, not video inputs. Quality
+        // selection itself uses only sources confirmed by real playback.
         let deadline = ProcessInfo.processInfo.systemUptime + LiveQualityVerifier.startupBudget
         let profileID = activeProfile?.id
-        let generation = indexGeneration
         let identity = Self.matchIdentity(game)
         let found = await eventChannels(for: game, deadline: deadline)
         guard !Task.isCancelled, activeProfile?.id == profileID else { return nil }
@@ -1477,7 +1479,7 @@ final class SportsLibrary {
             !channel.sharedCoverage || !found.contains { !$0.sharedCoverage && (!foreign($0) || foreign(channel)) }
         }
         #if os(iOS)
-        StartupTrace.shared.note("quality discovery", "\(channels.count) verified channels; \(String(format: "%.2f", max(0, deadline - ProcessInfo.processInfo.systemUptime)))s probe budget remaining")
+        StartupTrace.shared.note("quality discovery", "\(channels.count) verified channels; playback-confirmed cache only, no startup video probes")
         #endif
         let context = ([profileID?.uuidString ?? ""] + identity).joined(separator: "|")
         let now = Date()
@@ -1489,20 +1491,31 @@ final class SportsLibrary {
                     category: groups[channel.stream.categoryID ?? ""] ?? "") ? 1 : 0,
                 advertisedHeight: channel.quality.height)
         }
-        let selection = await LiveQualityVerifier.shared.best(candidates, fallback: fallback.id,
-            budget: max(0, deadline - ProcessInfo.processInfo.systemUptime))
-        let selected = selection.streamID
+        let selection = await LiveQualityVerifier.shared.preferredPlayback(candidates, fallback: fallback.id)
+        var selected = selection.streamID
         #if os(iOS)
         StartupTrace.shared.note("quality selection", "\(channels.count) verified event channels; selected ID \(selected), measured \(selection.quality?.label ?? "unknown"), URL variant \(selection.urlIndex.map(String.init) ?? "fallback")")
         #endif
         let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
-        guard !Task.isCancelled, !selection.wasCancelled, activeProfile?.id == profileID, indexGeneration == generation,
+        guard !Task.isCancelled, !selection.wasCancelled, activeProfile?.id == profileID,
               current.isLive, Self.matchIdentity(current) == identity else { return nil }
+        #if os(iOS)
+        guard providerConnectionAvailable else { return nil }
+        #endif
+        // A new index generation alone is not a rejection. Revalidate the
+        // exact source and event now, and fall back if a cached upgrade retired.
+        let choice = stream(withID: selected)
+        let allowed = choice.map { selected == fallback.id
+            ? isStream($0, verifiedFor: current)
+            : isEventChannel($0, verifiedFor: current) } ?? false
+        if !allowed {
+            guard let fallbackStream = stream(withID: fallback.id),
+                  isStream(fallbackStream, verifiedFor: current) else { return nil }
+            selected = fallback.id
+        }
         guard let stream = stream(withID: selected) else { return nil }
-        let allowed = selected == fallback.id ? isStream(stream, verifiedFor: current) : isEventChannel(stream, verifiedFor: current)
-        guard allowed else { return nil }
         measuredPlaybackURLs = measuredPlaybackURLs.filter { $0.value.expires > Date() }
-        if let index = selection.urlIndex, let candidate = candidates.first(where: { $0.id == selected }),
+        if selected == selection.streamID, let index = selection.urlIndex, let candidate = candidates.first(where: { $0.id == selected }),
            candidate.urls.indices.contains(index) {
             measuredPlaybackURLs["\(profileID?.uuidString ?? "")|\(selected)"] =
                 (candidate.urls[index], Date().addingTimeInterval(600))

@@ -28,7 +28,7 @@ struct TVCollectionsScreen: View {
                     LineupIconTile(symbol: "folder.fill", size: 72)
                     Text("Collections").font(.inter(44, .bold)).padding(.top, 26)
                     Text("Hold Select on a movie or show and choose Collections to add it. Your collections are kept on this Apple TV.")
-                        .font(.inter(21)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true).padding(.top, 10)
                     Text("NEW COLLECTION").font(.inter(17, .heavy)).tracking(1)
                         .foregroundStyle(LineupPanelStyle.caption).padding(.top, 36)
@@ -41,13 +41,13 @@ struct TVCollectionsScreen: View {
                 list.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .padding(.horizontal, 90).padding(.top, 70)
-            .foregroundStyle(LineupStyle.text)
+            .foregroundStyle(LineupPresentationStyle.text)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(LineupStyle.background.ignoresSafeArea())
+            .background(LineupPresentationStyle.ground.ignoresSafeArea())
             .navigationDestination(item: $openedPersonal) { TVPersonalCollectionScreen(id: $0) }
             .navigationDestination(item: $openedServer) { MediaBrowseDestination(item: $0) }
         }
-        .fullScreenCover(item: $renaming) { rename in
+        .lineupFullScreenCover(item: $renaming) { rename in
             TVCollectionRenameScreen(rename: rename).environment(media)
         }
         .tvChoices("Delete \(deleting?.name ?? "collection")?", symbol: "trash",
@@ -59,7 +59,7 @@ struct TVCollectionsScreen: View {
             }]
         }
         // Holding a title inside a collection offers Collections too.
-        .fullScreenCover(item: Bindable(media).collectionSelectionItem) { item in
+        .lineupFullScreenCover(item: Bindable(media).collectionSelectionItem) { item in
             TVCollectionPicker(item: item).environment(media)
         }
         .onAppear { media.collectionsScreenShown = true }
@@ -72,7 +72,7 @@ struct TVCollectionsScreen: View {
                 Text("MY COLLECTIONS").font(.inter(17, .heavy)).tracking(1).foregroundStyle(LineupPanelStyle.caption)
                 if media.personalCollections.isEmpty {
                     Text("None yet. Name one on the left, or hold Select on a movie or show.")
-                        .font(.inter(20)).foregroundStyle(LineupPanelStyle.quiet).padding(.vertical, 10)
+                        .font(.inter(20)).foregroundStyle(LineupPresentationStyle.secondary).padding(.vertical, 10)
                 }
                 ForEach(media.personalCollections) { collection in
                     TVSelectable(scale: LineupStyle.cardLift, fillRadius: LineupPanelStyle.radius,
@@ -121,7 +121,7 @@ private struct TVCollectionRow: View {
     var body: some View {
         HStack(spacing: 24) {
             ZStack {
-                LineupPanelStyle.well
+                LineupPresentationStyle.row
                 Image(systemName: symbol).font(.system(size: 30, weight: .semibold)).foregroundStyle(LineupStyle.highlight)
                 if !covers.isEmpty {
                     HStack(spacing: 3) {
@@ -145,14 +145,14 @@ private struct TVCollectionRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             VStack(alignment: .leading, spacing: 6) {
                 Text(name).font(.inter(25, .bold)).lineLimit(2)
-                Text(detail).font(.inter(18)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
+                Text(detail).font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Image(systemName: "chevron.right").font(.system(size: 20, weight: .bold))
-                .foregroundStyle(LineupPanelStyle.quiet)
+                .foregroundStyle(LineupPresentationStyle.secondary)
         }
         .padding(20)
-        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
     }
 }
 
@@ -167,15 +167,15 @@ private struct TVPersonalCollectionScreen: View {
             MediaGridScreen(title: collection.name, items: collection.items)
         } else {
             VStack(spacing: 18) {
-                Image(systemName: "folder").font(.system(size: 54)).foregroundStyle(LineupPanelStyle.quiet)
+                Image(systemName: "folder").font(.system(size: 54)).foregroundStyle(LineupPresentationStyle.secondary)
                 Text(collection?.name ?? "Collection").font(.inter(34, .bold))
                 Text("Hold Select on a movie or show in Library, then choose Collections to add it here.")
-                    .font(.inter(21)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 720)
             }
-            .foregroundStyle(LineupStyle.text)
+            .foregroundStyle(LineupPresentationStyle.text)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(LineupStyle.background.ignoresSafeArea())
+            .background(LineupPresentationStyle.ground.ignoresSafeArea())
         }
     }
 }
@@ -193,7 +193,7 @@ struct TVCollectionPicker: View {
             VStack(alignment: .leading, spacing: 0) {
                 TVRatedPoster(url: media.betterPosterURL(for: item), fallback: media.imageURL(for: item, width: 360),
                               width: 240) { image in
-                    if let image { image.resizable().scaledToFill() } else { LineupPanelStyle.well }
+                    if let image { image.resizable().scaledToFill() } else { LineupPresentationStyle.row }
                 }
                 .frame(width: 240, height: 360)
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -219,15 +219,15 @@ struct TVCollectionPicker: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(collection.name).font(.inter(23, .semibold)).lineLimit(1)
                                     Text(TVCollectionsScreen.count(collection.items.count))
-                                        .font(.inter(17)).foregroundStyle(LineupPanelStyle.quiet)
+                                        .font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
                                 }
                                 Spacer(minLength: 0)
                                 Image(systemName: included ? "checkmark.circle.fill" : "circle")
                                     .font(.system(size: 30, weight: .semibold))
-                                    .foregroundStyle(included ? LineupStyle.highlight : LineupPanelStyle.quiet)
+                                    .foregroundStyle(included ? LineupStyle.highlight : LineupPresentationStyle.secondary)
                             }
                             .padding(22)
-                            .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                            .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                         }
                         .accessibilityValue(included ? "In this collection" : "Not in this collection")
                     }
@@ -243,9 +243,9 @@ struct TVCollectionPicker: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 90).padding(.top, 70)
-        .foregroundStyle(LineupStyle.text)
+        .foregroundStyle(LineupPresentationStyle.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
     }
 }
 
@@ -287,9 +287,9 @@ private struct TVCollectionButtonLabel: View {
             if let symbol { Image(systemName: symbol).font(.system(size: 21, weight: .bold)) }
             Text(title).font(.inter(21, .semibold)).lineLimit(1)
         }
-        .foregroundStyle(prominent ? LineupStyle.onHighlight : LineupStyle.text)
+        .foregroundStyle(prominent ? LineupStyle.onHighlight : LineupPresentationStyle.text)
         .padding(.horizontal, 24).frame(maxWidth: .infinity).frame(height: 58)
-        .background(prominent ? LineupStyle.highlight : LineupPanelStyle.well, in: shape)
+        .background(prominent ? LineupStyle.highlight : LineupPresentationStyle.row, in: shape)
         .lineupFocusLayer(focused, in: shape)
         .animation(.easeOut(duration: 0.16), value: focused)
     }
@@ -320,9 +320,9 @@ private struct TVCollectionRenameScreen: View {
             }
         }
         .frame(width: 720, alignment: .leading)
-        .foregroundStyle(LineupStyle.text)
+        .foregroundStyle(LineupPresentationStyle.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .onAppear { name = rename.name }
     }
 }

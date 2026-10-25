@@ -6,6 +6,95 @@ import XCTest
 #endif
 
 final class LiveSourceQualityTests: XCTestCase {
+    func testColdPlaybackSelectionUsesVerifiedFallbackWithoutOpeningAnyProbe() async {
+        let verifier = LiveQualityVerifier(defaults: nil) { _, _ in
+            XCTFail("Live startup must not open speculative provider connections")
+            throw URLError(.cannotConnectToHost)
+        }
+        let candidates = [LiveQualityVerifier.Candidate(id: 7,
+            urls: [URL(string: "https://example.test/live/a.m3u8")!, URL(string: "https://example.test/live/a.ts")!], context: "event")]
+        let value = await verifier.preferredPlayback(candidates, fallback: 7)
+        XCTAssertEqual(value, .init(streamID: 7))
+    }
+
+    func testFailedConfirmedURLIsRetiredWithoutDiscardingAnotherProvidersWorkingQuality() async {
+        let verifier = LiveQualityVerifier(defaults: nil) { _, _ in
+            XCTFail("Retiring a measurement cannot start a video connection")
+            throw URLError(.timedOut)
+        }
+        let first = LiveQualityVerifier.Candidate(id: 1, urls: [URL(string: "https://first.test/channel.ts")!], context: "event")
+        let second = LiveQualityVerifier.Candidate(id: 2, urls: [URL(string: "https://second.test/channel.ts")!], context: "event")
+        await verifier.rememberPlayback(url: first.urls[0], quality: .init(width: 3840, height: 2160, frameRate: 60))
+        await verifier.rememberPlayback(url: second.urls[0], quality: .init(width: 1920, height: 1080, frameRate: 60))
+        await verifier.forgetPlayback(url: first.urls[0])
+        let selected = await verifier.preferredPlayback([first, second], fallback: 1)
+        XCTAssertEqual(selected.streamID, 2)
+        XCTAssertEqual(selected.quality?.height, 1080)
+    }
+
+    func testConfirmedPlaybackChoosesExactURLWithoutTrustingDemuxOnlyResults() async {
+        let verifier = LiveQualityVerifier(defaults: nil) { _, _ in .init(width: 3840, height: 2160, frameRate: 60) }
+        let first = LiveQualityVerifier.Candidate(id: 1, urls: [URL(string: "https://example.test/claim-4k.m3u8")!], context: "event")
+        let second = LiveQualityVerifier.Candidate(id: 2, urls: [URL(string: "https://example.test/b.m3u8")!,
+            URL(string: "https://example.test/b.ts")!], context: "event")
+        _ = await verifier.best([first], fallback: 1)
+        let unplayed = await verifier.preferredPlayback([first, second], fallback: 2)
+        XCTAssertEqual(unplayed.streamID, 2, "Old probe results are not proof a player can render the input")
+        await verifier.rememberPlayback(url: second.urls[1], quality: .init(width: 1920, height: 1080, frameRate: 60))
+        let played = await verifier.preferredPlayback([first, second], fallback: 1)
+        XCTAssertEqual(played.streamID, 2)
+        XCTAssertEqual(played.urlIndex, 1)
+        XCTAssertEqual(played.quality?.height, 1080)
+    }
+
+    func testConfirmedPlaybackCacheRetainsLanguageCredentialsExpiryAndRelaunchIsolation() async throws {
+        let suite = "ConfirmedPlayback.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let verifier = LiveQualityVerifier(defaults: defaults)
+        let english = LiveQualityVerifier.Candidate(id: 1, urls: [URL(string: "https://example.test/live/user/first-secret/7.ts")!], context: "event")
+        let foreign = LiveQualityVerifier.Candidate(id: 2, urls: [URL(string: "https://other.test/4k.ts")!], context: "event", languageRank: 1)
+        await verifier.rememberPlayback(url: foreign.urls[0], quality: .init(width: 3840, height: 2160, frameRate: 60))
+        let language = await verifier.preferredPlayback([foreign, english], fallback: 1)
+        XCTAssertEqual(language.streamID, 1, "Unknown preferred-language playback must not lose to a cached foreign feed")
+        await verifier.rememberPlayback(url: english.urls[0], quality: .init(width: 1920, height: 1080, frameRate: .nan))
+        let data = try XCTUnwrap(defaults.data(forKey: "lineup.live-playback-quality.v1"))
+        let persisted = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(persisted.contains("first-secret")); XCTAssertFalse(persisted.contains("example.test"))
+        let reopened = LiveQualityVerifier(defaults: defaults)
+        let restored = await reopened.preferredPlayback([english], fallback: 1)
+        XCTAssertEqual(restored.quality?.height, 1080)
+        XCTAssertNil(restored.quality?.frameRate)
+        let changed = LiveQualityVerifier.Candidate(id: 1,
+            urls: [URL(string: "https://example.test/live/user/changed-secret/7.ts")!], context: "event")
+        let unknown = await reopened.preferredPlayback([changed], fallback: 1)
+        XCTAssertNil(unknown.quality)
+        await reopened.rememberPlayback(url: english.urls[0], quality: .init(width: 1920, height: 1080, frameRate: 60),
+            now: Date().addingTimeInterval(-700))
+        let expired = await reopened.preferredPlayback([english], fallback: 1)
+        XCTAssertNil(expired.quality)
+    }
+
+    @MainActor
+    func testReporterRequiresActualLivePictureAndNeverRecordsAudioOnlyOrOpeningMetadata() async throws {
+        let verifier = LiveQualityVerifier(defaults: nil)
+        let reporter = LivePlaybackQualityReporter(verifier: verifier)
+        let source = LiveQualityVerifier.Candidate(id: 1, urls: [URL(string: "https://example.test/source.ts")!], context: "event")
+        XCTAssertNil(reporter.observe(url: source.urls[0], width: 1920, height: 1080, frameRate: 60,
+            live: true, playing: true, picture: false))
+        XCTAssertNil(reporter.observe(url: source.urls[0], width: 0, height: 0, frameRate: nil,
+            live: true, playing: true, picture: true))
+        XCTAssertNil(reporter.observe(url: source.urls[0], width: 1920, height: 1080, frameRate: 60,
+            live: false, playing: true, picture: true))
+        let pending = try XCTUnwrap(reporter.observe(url: source.urls[0], width: 1920, height: 1080, frameRate: 60,
+            live: true, playing: true, picture: true))
+        await pending.value
+        let quality = await verifier.preferredPlayback([source], fallback: 1)
+        XCTAssertEqual(quality.quality?.height, 1080)
+        XCTAssertNil(reporter.observe(url: source.urls[0], width: 1920, height: 1080, frameRate: 60,
+            live: true, playing: true, picture: true), "Identical metadata must not write on every monitor tick")
+    }
+
     func testSelectsExactMeasuredURLAndKeepsExistingLanguagePriority() async {
         let recorder = Recorder()
         let verifier = LiveQualityVerifier(defaults: nil) { url, _ in await recorder.measure(url) }

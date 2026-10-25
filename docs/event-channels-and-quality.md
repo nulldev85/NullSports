@@ -1,5 +1,8 @@
 # Event Channels and automatic quality
 
+For the current playback-confirmed quality policy and shared menu styling in
+iPhone144 / tvOS92, see [Playback and presentation overhaul](live-playback-and-presentation-overhaul.md).
+
 iPhone Sports live-card menus now include **Channels**. The sheet lists only
 channels accepted by that event's existing matcher, with the provider logo,
 channel name, current program, provider-advertised quality/rate, and a play action.

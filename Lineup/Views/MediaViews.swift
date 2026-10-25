@@ -57,20 +57,18 @@ struct MediaServersView: View {
         stack
             .environment(\.playMedia, MediaPlayAction { playing = MediaPlayRequest(item: $0) })
             #if os(tvOS)
-            .fullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
-            .sheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
-            .sheet(item: Bindable(media).collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environment(media) }
-            .alert("New Collection", isPresented: Bindable(media).creatingCollection) {
-                TextField("Collection name", text: $newCollectionName)
-                Button("Create") {
+            .lineupSheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .lineupSheet(item: Bindable(media).collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environment(media) }
+            .lineupTextPrompt("New Collection", symbol: "folder.badge.plus", isPresented: Bindable(media).creatingCollection,
+                text: $newCollectionName, prompt: "Collection name", saveTitle: "Create",
+                canSave: !newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && newCollectionName.count <= 80,
+                onSave: {
                     media.createCollection(named: newCollectionName, adding: media.collectionCreationItem)
                     newCollectionName = ""
                     media.collectionCreationItem = nil
-                }
-                .disabled(newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newCollectionName.count > 80)
-                Button("Cancel", role: .cancel) { newCollectionName = ""; media.collectionCreationItem = nil }
-            }
+                }, onCancel: { newCollectionName = ""; media.collectionCreationItem = nil })
             .mobileTabHome(.library) {
                 optionsOpen = false
                 searchingLibrary = false
@@ -131,15 +129,15 @@ struct MediaServersView: View {
             }
             #endif
             }
-            .sheet(isPresented: $addingServer) {
+            .lineupSheet(isPresented: $addingServer) {
                 MediaServerSetupView()
                     .environment(media)
                     .preferredColorScheme(.dark)
             }
-            .sheet(isPresented: $choosingShelf) {
+            .lineupSheet(isPresented: $choosingShelf) {
                 MediaShelfPicker().environment(media)
             }
-            .sheet(isPresented: $reorderingShelves) {
+            .lineupSheet(isPresented: $reorderingShelves) {
                 LibraryShelfOrderSheet().environment(media)
                     .preferredColorScheme(.dark)
             }
@@ -593,7 +591,7 @@ private struct TVMediaServersHome: View {
         .onAppear { tabBar?.reset() }
         // Collections from a card's hold menu, anywhere in the Library. The
         // Collections screen, opened from Settings, has its own while it is up.
-        .fullScreenCover(item: Binding(get: { media.collectionsScreenShown ? nil : media.collectionSelectionItem },
+        .lineupFullScreenCover(item: Binding(get: { media.collectionsScreenShown ? nil : media.collectionSelectionItem },
                                        set: { media.collectionSelectionItem = $0 })) { item in
             TVCollectionPicker(item: item).environment(media)
         }
@@ -818,11 +816,11 @@ private struct MediaCatalogsScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .lineupReturnToLibraryFront)) { _ in
             pushed = nil
         }
-        .sheet(isPresented: $searchPresented) { searchSheet }
+        .lineupSheet(isPresented: $searchPresented) { searchSheet }
         #if os(tvOS)
-        .fullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
+        .lineupFullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
         #else
-        .sheet(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
+        .lineupSheet(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
         #endif
         .task(id: searchRequestID) {
             let value = submittedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2165,8 +2163,8 @@ struct MediaShelfPicker: View {
         }
         .frame(maxWidth: 1180, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
+        .foregroundStyle(LineupPresentationStyle.text)
         .onExitCommand { dismiss() }
         .task { await loadSources() }
         #else
@@ -2199,7 +2197,7 @@ struct MediaShelfPicker: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("BUILT IN").modifier(LineupGroupHeading())
                             Text("Rows Lineup puts together for you").font(.inter(13))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(media.hiddenBuiltInRows) { row in
@@ -2225,7 +2223,7 @@ struct MediaShelfPicker: View {
                                 Text(group.title).modifier(LineupGroupHeading())
                             }
                             Text(group.detail).font(.inter(13))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(group.items, id: \.libraryKey) { item in
@@ -2250,7 +2248,7 @@ struct MediaShelfPicker: View {
                             Text(group.section.detail + " — playable titles found on "
                                  + (media.profiles.count > 1 ? "your media servers" : "this media server"))
                                 .font(.inter(13))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(group.items) { catalog in
@@ -2290,7 +2288,7 @@ struct MediaShelfPicker: View {
                                 ? "Not imported yet — choosing one starts the import"
                                 : "Importing can take several minutes. You can close this; it keeps going.")
                                 .font(.inter(13))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(group.catalogs) { catalog in
@@ -2318,8 +2316,8 @@ struct MediaShelfPicker: View {
             }
             .lineupFocusRegion()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(LineupStyle.background.ignoresSafeArea())
-            .foregroundStyle(LineupStyle.lightPurple)
+            .background(LineupPresentationStyle.ground.ignoresSafeArea())
+            .foregroundStyle(LineupPresentationStyle.text)
         }
     }
 
@@ -2545,14 +2543,14 @@ private struct MediaDetailScreen: View {
         .onDisappear { tabBar?.pageDisappeared(tabBarPageID) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
-        .fullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
+        .lineupFullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
             MediaSourcePicker(item: episode, startsOver: startingOver)
         }
-        .fullScreenCover(item: $summaryItem) { item in
+        .lineupFullScreenCover(item: $summaryItem) { item in
             TVMediaSummarySheet(item: item).presentationBackground(.clear)
         }
         #else
-        .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
+        .lineupSheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
         #endif
     }
 
@@ -3535,14 +3533,14 @@ private struct MediaPlayableCard: View {
             MediaItemCard(item: item, shape: shape)
         }
             .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") { media.tvCardChoices(for: item) }
-            .fullScreenCover(isPresented: $choosingSource) {
+            .lineupFullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #else
         MediaItemCard(item: item, shape: shape)
             .lineupHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film",
                             items: { media.cardMenuItems(for: item) }, action: choose)
-            .sheet(isPresented: $choosingSource) {
+            .lineupSheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #endif
@@ -4442,7 +4440,7 @@ struct LibraryHeroSettingsView: View {
             .padding(.horizontal, 70).padding(.vertical, 48)
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .task { await loadSources() }
         #else
         List {
@@ -4485,7 +4483,7 @@ struct LibraryHeroSettingsView: View {
             #if os(tvOS)
             Text(group.title)
                 .font(.inter(headingSize, .heavy)).tracking(1.4)
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                .foregroundStyle(LineupPresentationStyle.text.opacity(0.5))
                 .lineLimit(1)
             #else
             Text(group.title).modifier(LineupGroupHeading()).lineLimit(1)
@@ -4500,14 +4498,14 @@ struct LibraryHeroSettingsView: View {
         return HStack(spacing: 16) {
             Image(systemName: "sparkles.rectangle.stack.fill")
                 .font(.system(size: rowSymbolSize, weight: .semibold, design: .rounded))
-                .foregroundStyle(selected ? LineupStyle.highlight : LineupStyle.secondary)
+                .foregroundStyle(selected ? LineupStyle.highlight : LineupPresentationStyle.secondary)
                 .frame(width: rowSymbolFrame)
             VStack(alignment: .leading, spacing: 4) {
                 Text(choice.title).font(.inter(rowTitleSize, .semibold)).lineLimit(1)
                 if let detail = choice.detail, !detail.isEmpty {
                     Text(detail)
                         .font(.inter(rowDetailSize))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                        .foregroundStyle(LineupPresentationStyle.text.opacity(0.58))
                         .lineLimit(1)
                 }
             }
@@ -4521,11 +4519,11 @@ struct LibraryHeroSettingsView: View {
                     .accessibilityLabel("Selected")
             }
         }
-        .foregroundStyle(LineupStyle.lightPurple)
+        .foregroundStyle(LineupPresentationStyle.text)
         .padding(.horizontal, rowHorizontalPadding)
         .frame(minHeight: rowHeight)
         #if os(tvOS)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
             .stroke(LineupStyle.line, lineWidth: 1))
         #endif
@@ -4729,7 +4727,7 @@ private struct MediaSourcePicker: View {
                 nextEpisode = nil
                 nextEpisode = await media.episodeAfter(item)
             }
-            .fullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in
+            .lineupFullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in
                 playback(for: source)
             }
         #else
@@ -4743,7 +4741,7 @@ private struct MediaSourcePicker: View {
             nextEpisode = nil
             nextEpisode = await media.episodeAfter(item)
         }
-        .fullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in playback(for: source) }
+        .lineupFullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in playback(for: source) }
         #endif
     }
 
@@ -5128,13 +5126,13 @@ private struct MediaChromeSurface: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         if filled {
             content
-                .foregroundStyle(LineupStyle.background)
-                .background(LineupStyle.lightPurple, in: shape)
+                .foregroundStyle(LineupPresentationStyle.ground)
+                .background(LineupPresentationStyle.text, in: shape)
                 .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
         } else {
             content
-                .foregroundStyle(LineupStyle.lightPurple)
-                .lineupLiquidGlass(shape, fallback: LineupStyle.surface, border: border)
+                .foregroundStyle(LineupPresentationStyle.text)
+                .lineupLiquidGlass(shape, fallback: LineupPresentationStyle.card, border: border)
                 .lineupFocusLayer(focused, in: shape)
                 .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
         }
@@ -5248,8 +5246,8 @@ private struct MediaStreamBoard: View {
             // below the first screen sit on a plain background.
             .background(alignment: .top) { MediaStreamBackdrop(url: heading.backdrop) }
         }
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
+        .foregroundStyle(LineupPresentationStyle.text)
     }
 
     // MARK: Header
@@ -5265,7 +5263,7 @@ private struct MediaStreamBoard: View {
             if let subtitle = heading.subtitle {
                 Text(subtitle)
                     .font(.inter(Style.subtitleSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.7))
                     .lineLimit(1)
             }
         }
@@ -5379,12 +5377,12 @@ private struct MediaStreamBoard: View {
                         }
                         if let why = status.tried ?? status.failure {
                             Text(why).font(.inter(Style.noteSize - 2)).lineLimit(2)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.7))
                         }
                     }
                 }
             }
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+            .foregroundStyle(LineupPresentationStyle.text.opacity(0.6))
             .padding(.horizontal, Style.rowInsetH)
             .padding(.top, Style.sectionGap)
         }
@@ -5427,7 +5425,7 @@ private struct MediaStreamBoard: View {
             Text(title).font(.inter(Style.noticeTitleSize, .semibold))
             if let detail {
                 Text(detail).font(.inter(Style.noteSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.6))
                     .multilineTextAlignment(.center)
             }
         }
@@ -5445,7 +5443,7 @@ private struct MediaStreamBoard: View {
                 .multilineTextAlignment(.center)
             if let detail {
                 Text(detail).font(.inter(Style.noteSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.6))
                     .multilineTextAlignment(.center).lineLimit(3)
             }
         }
@@ -5477,13 +5475,13 @@ private struct MediaStreamBackdrop: View {
             .clipped()
             .overlay {
                 LinearGradient(stops: [
-                    .init(color: LineupStyle.background.opacity(0.45), location: 0),
-                    .init(color: LineupStyle.background.opacity(0.78), location: 0.5),
-                    .init(color: LineupStyle.background, location: 1)
+                    .init(color: LineupPresentationStyle.ground.opacity(0.45), location: 0),
+                    .init(color: LineupPresentationStyle.ground.opacity(0.78), location: 0.5),
+                    .init(color: LineupPresentationStyle.ground, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
             }
             .overlay {
-                LinearGradient(colors: [LineupStyle.background.opacity(0.7), .clear],
+                LinearGradient(colors: [LineupPresentationStyle.ground.opacity(0.7), .clear],
                                startPoint: .leading, endPoint: .trailing)
             }
             // Up into the margin above the list -- the television's overscan,
@@ -5575,7 +5573,7 @@ private struct MediaStreamRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Text(source.releaseName)
                     .font(.inter(Style.releaseSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.55))
                     .lineLimit(1).truncationMode(.middle)
                 #if !os(tvOS)
                 // A phone is too narrow for a column of sizes beside the
@@ -5583,7 +5581,7 @@ private struct MediaStreamRow: View {
                 if let measures = measuresLine {
                     Text(measures)
                         .font(.interDigits(Style.rateSize, .semibold))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.8))
+                        .foregroundStyle(LineupPresentationStyle.text.opacity(0.8))
                 }
                 #endif
                 origin
@@ -5596,14 +5594,14 @@ private struct MediaStreamRow: View {
         .padding(.horizontal, Style.rowInsetH).padding(.vertical, Style.rowInsetV)
         .frame(maxWidth: .infinity, alignment: .leading)
         #if os(tvOS)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous)
             .strokeBorder(LineupStyle.line, lineWidth: 1))
         #else
         // A panel of its own, as every card on the phone is.
-        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
         #endif
-        .foregroundStyle(LineupStyle.lightPurple)
+        .foregroundStyle(LineupPresentationStyle.text)
         .accessibilityElement(children: .combine)
     }
 
@@ -5622,7 +5620,7 @@ private struct MediaStreamRow: View {
         }
         .padding(.horizontal, 6)
         .frame(width: Style.tileWidth, height: Style.tileHeight)
-        .background(LineupStyle.lightPurple.opacity(0.08),
+        .background(LineupPresentationStyle.text.opacity(0.08),
                     in: RoundedRectangle(cornerRadius: Style.tileRadius, style: .continuous))
     }
 
@@ -5662,7 +5660,7 @@ private struct MediaStreamRow: View {
                 if let rank {
                     Text(rank).tracking(1.2)
                         .font(.interDigits(Style.markSize + 1, .heavy))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.9))
+                        .foregroundStyle(LineupPresentationStyle.text.opacity(0.9))
                         .fixedSize()
                 }
                 if source.isInstant {
@@ -5670,12 +5668,12 @@ private struct MediaStreamRow: View {
                         Image(systemName: "bolt.fill")
                         Text("INSTANT").tracking(1.2)
                     }
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.85))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.85))
                     .fixedSize()
                 }
             }
             .font(.inter(Style.markSize, .heavy))
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+            .foregroundStyle(LineupPresentationStyle.text.opacity(0.45))
         }
     }
 
@@ -5718,8 +5716,8 @@ private enum MediaStreamStyle {
     static let headerBottom: CGFloat = 30
     static let headerGap: CGFloat = 8
     static let eyebrowSize: CGFloat = 15
-    static var caption: Color { LineupStyle.lightPurple.opacity(0.55) }
-    static var sectionCaption: Color { LineupStyle.lightPurple.opacity(0.5) }
+    static var caption: Color { LineupPresentationStyle.text.opacity(0.55) }
+    static var sectionCaption: Color { LineupPresentationStyle.text.opacity(0.5) }
     static let eyebrowTracking: CGFloat = 2.2
     static let titleSize: CGFloat = 54
     static let subtitleSize: CGFloat = 24
@@ -6430,7 +6428,7 @@ struct MediaServerSetupView: View {
             .padding(.horizontal, 90)
             .padding(.vertical, 56)
         }
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .disabled(media.isAddingServer)
         #else
         NavigationStack {
@@ -6465,7 +6463,7 @@ struct MediaServerSetupView: View {
                 .padding(.vertical, 12)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(LineupStyle.background)
+            .background(LineupPresentationStyle.ground)
             .navigationTitle("Add Media Server")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
@@ -6606,8 +6604,8 @@ private struct MediaServerPicker: View {
                 let chosen = selection == brand
                 let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
                 tile(brand, chosen: chosen)
-                    .background(chosen ? LineupStyle.focused : LineupStyle.raised, in: shape)
-                    .overlay(shape.strokeBorder(chosen ? LineupStyle.text.opacity(0.6) : LineupStyle.line,
+                    .background(chosen ? LineupStyle.focused : LineupPresentationStyle.row, in: shape)
+                    .overlay(shape.strokeBorder(chosen ? LineupPresentationStyle.text.opacity(0.6) : LineupStyle.line,
                                                 lineWidth: chosen ? 1.5 : 0.5))
                     .lineupFocusLayer(focused == brand, in: shape.inset(by: -6))
                     .focusable()
@@ -6650,12 +6648,12 @@ private struct MediaServerPicker: View {
             ZStack(alignment: .leading) {
                 HStack(spacing: gap) {
                     ForEach(MediaServerBrand.allCases, id: \.self) { _ in
-                        shape.fill(LineupStyle.raised)
+                        shape.fill(LineupPresentationStyle.row)
                             .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
                     }
                 }
                 shape.fill(LineupStyle.focused)
-                    .overlay(shape.strokeBorder(LineupStyle.text.opacity(0.6), lineWidth: 1.5))
+                    .overlay(shape.strokeBorder(LineupPresentationStyle.text.opacity(0.6), lineWidth: 1.5))
                     .frame(width: width)
                     .offset(x: (width + gap) * position)
             }
@@ -6667,7 +6665,7 @@ private struct MediaServerPicker: View {
         VStack(spacing: labelGap) {
             MediaServerLogo(brand: brand).frame(width: logo, height: logo)
             Text(brand.name).font(.inter(labelSize, .semibold))
-                .foregroundStyle(chosen ? LineupStyle.text : LineupStyle.secondary)
+                .foregroundStyle(chosen ? LineupPresentationStyle.text : LineupPresentationStyle.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, padding)
@@ -6705,8 +6703,8 @@ private struct MediaServerPanel<Content: View>: View {
             HStack(spacing: headerGap) {
                 MediaServerLogo(brand: brand).frame(width: logo, height: logo)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.inter(titleSize, .semibold)).foregroundStyle(LineupStyle.text)
-                    Text(brand.signInNote).font(.inter(noteSize)).foregroundStyle(LineupStyle.secondary)
+                    Text(title).font(.inter(titleSize, .semibold)).foregroundStyle(LineupPresentationStyle.text)
+                    Text(brand.signInNote).font(.inter(noteSize)).foregroundStyle(LineupPresentationStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -6716,7 +6714,7 @@ private struct MediaServerPanel<Content: View>: View {
         // As tall as it is given: beside or behind the other sign-ins, each
         // card takes the tallest one's height.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.surface, in: shape)
+        .background(LineupPresentationStyle.card, in: shape)
         .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
     }
 
@@ -6766,7 +6764,7 @@ private struct MediaServerSignInPanel: View {
             .lineupButtonStyle()
             .disabled(media.isAddingServer || !form.isComplete)
             Text(footer)
-                .font(.inter(footerSize)).foregroundStyle(LineupStyle.secondary)
+                .font(.inter(footerSize)).foregroundStyle(LineupPresentationStyle.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -6793,7 +6791,7 @@ private struct MediaServerSignInPanel: View {
             Divider().overlay(LineupStyle.line).padding(.leading, 14)
             MediaServerField(label: "Password", prompt: "Optional", text: $form.password, kind: .password)
         }
-        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         #endif
     }
 
@@ -6820,17 +6818,17 @@ private struct MediaServerField: View {
     var body: some View {
         #if os(tvOS)
         VStack(alignment: .leading, spacing: 8) {
-            Text(label).font(.inter(20, .semibold)).foregroundStyle(LineupStyle.secondary)
+            Text(label).font(.inter(20, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
             input
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         #else
         HStack(spacing: 12) {
-            Text(label).font(.inter(.subheadline)).foregroundStyle(LineupStyle.secondary)
+            Text(label).font(.inter(.subheadline)).foregroundStyle(LineupPresentationStyle.secondary)
                 .frame(width: 84, alignment: .leading)
             input
                 .font(.inter(.subheadline))
-                .foregroundStyle(LineupStyle.text)
+                .foregroundStyle(LineupPresentationStyle.text)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 13)
@@ -6888,22 +6886,22 @@ private struct PlexLinkPanel: View {
             switch step {
             case .start:
                 Text("You'll get a short code to enter at plex.tv/link on any phone or computer. Lineup never sees your Plex password.")
-                    .font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button { link() } label: { wide("Link Plex Account") }
                     .lineupButtonStyle()
             case .waiting(let code):
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Go to **plex.tv/link** and enter this code:")
-                        .font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
                     Text(code)
                         .font(.interDigits(codeSize, .heavy)).tracking(codeSize * 0.22)
-                        .foregroundStyle(LineupStyle.text)
+                        .foregroundStyle(LineupPresentationStyle.text)
                         .padding(.horizontal, codeSize * 0.6).padding(.vertical, codeSize * 0.3)
-                        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text("Waiting for Plex…").font(.inter(captionSize)).foregroundStyle(LineupStyle.secondary)
+                        Text("Waiting for Plex…").font(.inter(captionSize)).foregroundStyle(LineupPresentationStyle.secondary)
                     }
                 }
                 #if !os(tvOS)
@@ -6913,20 +6911,20 @@ private struct PlexLinkPanel: View {
             case .finding:
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("Finding your Plex servers…").font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                    Text("Finding your Plex servers…").font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
             case .choosing(let servers):
                 Text("Choose the server to add.")
-                    .font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(servers) { server in
                         Button { add(server) } label: {
                             HStack(spacing: 12) {
                                 MediaServerLogo(brand: .plex).frame(width: rowLogo, height: rowLogo)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(server.name).font(.inter(bodySize, .semibold)).foregroundStyle(LineupStyle.text)
+                                    Text(server.name).font(.inter(bodySize, .semibold)).foregroundStyle(LineupPresentationStyle.text)
                                     Text(server.owned == false ? "Shared with you" : "Your server")
-                                        .font(.inter(captionSize)).foregroundStyle(LineupStyle.secondary)
+                                        .font(.inter(captionSize)).foregroundStyle(LineupPresentationStyle.secondary)
                                 }
                                 Spacer(minLength: 0)
                             }
@@ -7027,6 +7025,7 @@ struct MDBListIntegrationView: View {
                             LabeledContent("API requests left", value: remaining.formatted())
                         }
                     }
+                    .listRowBackground(LineupPresentationStyle.row)
                 }
 
                 Section {
@@ -7053,6 +7052,7 @@ struct MDBListIntegrationView: View {
                     Text("Create or copy a free API key from MDBList Preferences. Lineup stores it securely in this device’s Keychain. Your MDBList lists then appear in Library → Add Shelf.")
                     #endif
                 }
+                .listRowBackground(LineupPresentationStyle.row)
 
                 Section {
                     Link("Open MDBList Preferences", destination: URL(string: "https://mdblist.com/preferences/")!)
@@ -7061,6 +7061,7 @@ struct MDBListIntegrationView: View {
                             .lineupButtonStyle()
                     }
                 }
+                .listRowBackground(LineupPresentationStyle.row)
 
                 #if os(tvOS)
                 Section {
@@ -7073,6 +7074,8 @@ struct MDBListIntegrationView: View {
                     Section { Text(error).foregroundStyle(.red) }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(LineupPresentationStyle.ground)
             .navigationTitle("MDBList")
             #if !os(tvOS)
             .toolbar { LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
@@ -7146,14 +7149,14 @@ struct InitialSourceSetupView: View {
         .padding(setupPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LineupStyle.background)
-        .sheet(isPresented: $addingIPTV) {
+        .lineupSheet(isPresented: $addingIPTV) {
             #if os(iOS)
             ProfileSetupView(addingProvider: true)
             #else
             ProfileSetupView()
             #endif
         }
-        .sheet(isPresented: $addingMedia) { MediaServerSetupView() }
+        .lineupSheet(isPresented: $addingMedia) { MediaServerSetupView() }
     }
 
     private var setupPadding: CGFloat {

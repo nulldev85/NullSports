@@ -61,8 +61,11 @@ enum MobileEngineSelection {
     /// provider's relative order inside each group. A stable partition rather
     /// than a sort: when a provider lists two HLS variants, the first one stays
     /// first, and the transport streams stay available as fallbacks behind them.
-    static func ordered(_ urls: [URL]) -> [URL] {
-        urls.filter { engine(for: $0) == .system } + urls.filter { engine(for: $0) != .system }
+    static func ordered(_ urls: [URL], live: Bool = false) -> [URL] {
+        // Live providers already list HLS first. If a rendered playback
+        // measurement promoted TS, do not silently undo that exact choice.
+        guard !live else { return urls }
+        return urls.filter { engine(for: $0) == .system } + urls.filter { engine(for: $0) != .system }
     }
 
     /// True when any candidate could drive Picture in Picture. Used to decide

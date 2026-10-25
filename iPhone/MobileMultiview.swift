@@ -131,7 +131,7 @@ struct MobileMultiviewView: View {
                 do { try await Task.sleep(for: .seconds(5)) } catch { return }
             }
         }
-        .sheet(item: Binding(get: { choosingFor.map(ChoosingTile.init) }, set: { choosingFor = $0?.index })) { choice in
+        .lineupSheet(item: Binding(get: { choosingFor.map(ChoosingTile.init) }, set: { choosingFor = $0?.index })) { choice in
             if let game = session.tiles[choice.index].game {
                 MobileChannelPicker(library: library, game: game) { stream in
                     library.saveGameSelection(stream, for: game)

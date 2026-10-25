@@ -38,7 +38,7 @@ struct MobileCatchUpSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LineupStyle.background.ignoresSafeArea()
+                LineupPresentationStyle.ground.ignoresSafeArea()
                 VStack(spacing: 0) {
                     header
                     if loading {
@@ -61,7 +61,7 @@ struct MobileCatchUpSheet: View {
             }
         }
         .presentationDetents([.large])
-        .presentationBackground(LineupStyle.background)
+        .presentationBackground(LineupPresentationStyle.ground)
         .task {
             do {
                 programmes = try await library.catchUpProgrammes(for: stream)
@@ -77,23 +77,23 @@ struct MobileCatchUpSheet: View {
             HStack(spacing: 14) {
                 LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 64) { loaded in
                     if let image = loaded { image.resizable().scaledToFit() }
-                    else { Image(systemName: "tv").foregroundStyle(LineupStyle.secondary) }
+                    else { Image(systemName: "tv").foregroundStyle(LineupPresentationStyle.secondary) }
                 }
                 .padding(6)
                 .frame(width: 64, height: 44)
-                .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("CATCH UP")
                         .font(.inter(13, .heavy)).tracking(0.4)
                         .foregroundStyle(LineupPanelStyle.caption)
                     Text(stream.name)
                         .font(.inter(.title3, .bold)).lineLimit(1)
-                        .foregroundStyle(LineupStyle.text)
+                        .foregroundStyle(LineupPresentationStyle.text)
                         .accessibilityAddTraits(.isHeader)
                     if !programmes.isEmpty {
                         Text("\(programmes.count) programs over \(days.count == 1 ? "1 day" : "\(days.count) days")")
                             .font(.inter(.caption, .medium))
-                            .foregroundStyle(LineupStyle.secondary)
+                            .foregroundStyle(LineupPresentationStyle.secondary)
                     }
                 }
             }
@@ -167,18 +167,18 @@ private struct MobileCatchUpDayHeader: View {
                 .modifier(LineupGroupHeading())
             Text(day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
                 .font(.inter(.caption2, .semibold)).tracking(1)
-                .foregroundStyle(LineupStyle.secondary)
+                .foregroundStyle(LineupPresentationStyle.secondary)
             Spacer(minLength: 0)
             Text(count == 1 ? "1 program" : "\(count) programs")
                 .font(.inter(.caption2, .medium))
-                .foregroundStyle(LineupStyle.secondary)
+                .foregroundStyle(LineupPresentationStyle.secondary)
         }
         .padding(.horizontal, 4)
         .padding(.top, 14).padding(.bottom, 8)
         .frame(maxWidth: .infinity)
         // Opaque, so rows scrolling up under a pinned heading do not show
         // through it.
-        .background(LineupStyle.background)
+        .background(LineupPresentationStyle.ground)
     }
 }
 
@@ -193,10 +193,10 @@ struct MobileCatchUpRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(programme.start.formatted(date: .omitted, time: .shortened))
                     .font(.interDigits(.subheadline, .semibold))
-                    .foregroundStyle(LineupStyle.text)
+                    .foregroundStyle(LineupPresentationStyle.text)
                 Text(MobileCatchUpFormat.length(programme.duration))
                     .font(.inter(.caption2, .medium))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(width: 72, alignment: .leading)
 
@@ -212,12 +212,12 @@ struct MobileCatchUpRow: View {
                 }
                 Text(programme.title)
                     .font(.inter(.body, .semibold))
-                    .foregroundStyle(LineupStyle.text)
+                    .foregroundStyle(LineupPresentationStyle.text)
                     .lineLimit(2).multilineTextAlignment(.leading)
                 if !programme.detail.isEmpty {
                     Text(programme.detail)
                         .font(.inter(.caption))
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                         .lineLimit(2).multilineTextAlignment(.leading)
                 }
                 if programme.isOnNow {
@@ -229,10 +229,10 @@ struct MobileCatchUpRow: View {
 
             Image(systemName: "play.fill")
                 .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(LineupStyle.secondary)
+                .foregroundStyle(LineupPresentationStyle.secondary)
         }
         .padding(.horizontal, 16).padding(.vertical, 14)
-        .background(programme.isOnNow ? LineupPanelStyle.well : LineupPanelStyle.fill,
+        .background(programme.isOnNow ? LineupPresentationStyle.row : LineupPresentationStyle.card,
                     in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)

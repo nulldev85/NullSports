@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[1]
 SHARED = (
     "Lineup/Views/LiveQualityProgress.swift",
+    "Lineup/Design/LineupPresentationStyle.swift",
     "Lineup/Services/LiveSourceQuality.swift",
     "Lineup/Services/M3UPlaylist.swift",
     "Lineup/Services/MediaPlaybackRequest.swift",

@@ -381,7 +381,7 @@ struct MobileGuideView: View {
             .onDisappear { cancelQualityCheck() }
             // Played once the list has gone, so the player doesn't open
             // under a sheet that is still closing.
-            .sheet(item: $catchUpChannel, onDismiss: {
+            .lineupSheet(item: $catchUpChannel, onDismiss: {
                 guard let pending = pendingRecording else { return }
                 pendingRecording = nil
                 openRecording(pending.stream, programme: pending.programme)
@@ -394,10 +394,10 @@ struct MobileGuideView: View {
                 .tint(LineupStyle.highlight)
                 .preferredColorScheme(.dark)
             }
-            .fullScreenCover(item: $multiview) { session in
+            .lineupFullScreenCover(item: $multiview) { session in
                 MobileMultiviewView(session: session).environment(library)
             }
-            .sheet(isPresented: $reorderingFavorites) {
+            .lineupSheet(isPresented: $reorderingFavorites) {
                 FavoritesOrderView()
                     .environment(library)
                     .tint(LineupStyle.highlight)
@@ -1130,7 +1130,7 @@ private struct FavoritesOrderView: View {
                                 .frame(width: 44, height: 30)
                                 Text(stream.name).lineLimit(1)
                             }
-                            .listRowBackground(LineupStyle.surface)
+                            .listRowBackground(LineupPresentationStyle.card)
                         }
                         .onMove { source, destination in
                             library.moveFavorites(listed, fromOffsets: source, toOffset: destination)
@@ -1143,7 +1143,7 @@ private struct FavoritesOrderView: View {
                     .scrollContentBackground(.hidden)
                 }
             }
-            .background(LineupStyle.background)
+            .background(LineupPresentationStyle.ground)
             .navigationTitle("Favorites").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 LineupToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.buttonStyle(LineupBarButtonStyle(prominent: true)) }

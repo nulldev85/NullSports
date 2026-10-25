@@ -178,7 +178,7 @@ struct SportsTeamsSettingsView: View {
         .navigationTitle("My Teams")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "Find a team or league")
-        .sheet(item: $teamPage) { MobileTeamPage(target: $0) }
+        .lineupSheet(item: $teamPage) { MobileTeamPage(target: $0) }
     }
 
     /// The row follows and unfollows; the button beside it opens the team's

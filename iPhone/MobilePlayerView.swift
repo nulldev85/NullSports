@@ -294,7 +294,7 @@ struct MobilePlayerView: View {
             }
             return items
         } onCancel: { showControls() }
-        .sheet(isPresented: $showingOnlineSubtitles, onDismiss: { showControls() }) {
+        .lineupSheet(isPresented: $showingOnlineSubtitles, onDismiss: { showControls() }) {
             if let subtitleIdentityLookup {
                 MobileOnlineSubtitlesSheet(name: name, identity: subtitleIdentityLookup,
                     showsPiPLimitation: controller.engine == .aether) { data, subtitle in
@@ -311,7 +311,7 @@ struct MobilePlayerView: View {
             guard !Task.isCancelled else { return }
             seekPreview.configure(source)
         }
-        .sheet(isPresented: $showingSubtitleSettings, onDismiss: { showControls() }) {
+        .lineupSheet(isPresented: $showingSubtitleSettings, onDismiss: { showControls() }) {
             MobileSubtitleSettingsSheet(controller: controller)
         }
         .onAppear {

@@ -60,7 +60,7 @@ struct MobileEventChannelsSheet: View {
                 onPick(entry)
             }, onClose: { dismiss() })
             .presentationDetents([.medium, .large])
-            .presentationBackground(LineupStyle.background)
+            .presentationBackground(LineupPresentationStyle.ground)
             .presentationDragIndicator(.visible)
             .task(id: library.eventChannelsInputs + [AnyHashable(retry)]) { await load() }
     }
@@ -151,18 +151,18 @@ struct MobileEventChannelsContent: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Channels").font(.inter(22, .bold))
                     Text(game.matchupLine).font(.inter(13, .semibold))
-                        .foregroundStyle(LineupPanelStyle.quiet).lineLimit(2)
+                        .foregroundStyle(LineupPresentationStyle.secondary).lineLimit(2)
                 }
                 Spacer(minLength: 8)
                 Button(action: onClose) {
                     Image(systemName: "xmark").font(.system(size: 15, weight: .bold))
                         .frame(width: 44, height: 44)
-                        .background(LineupPanelStyle.well, in: Circle())
+                        .background(LineupPresentationStyle.row, in: Circle())
                 }
                 .buttonStyle(.plain).accessibilityLabel("Close Channels")
             }
             .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 16)
-            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.horizontal, 20)
+            Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1).padding(.horizontal, 20)
             if (loading || waiting) && channels.isEmpty && providerIssues.isEmpty {
                 ProgressView(waiting ? "Matching event channels…" : "Finding channels…")
                     .font(.inter(15)).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -171,13 +171,13 @@ struct MobileEventChannelsContent: View {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if let name = activeProviderName {
                             Label("Playing provider: \(name)", systemImage: "checkmark.circle.fill")
-                                .font(.inter(12, .semibold)).foregroundStyle(LineupStyle.secondary)
+                                .font(.inter(12, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
                         Text("Channels from all enabled providers")
-                            .font(.inter(11)).foregroundStyle(LineupPanelStyle.quiet)
+                            .font(.inter(11)).foregroundStyle(LineupPresentationStyle.secondary)
                         ForEach(providerIssues) { issue in
                             Label(issue.message, systemImage: "exclamationmark.triangle")
-                                .font(.inter(12)).foregroundStyle(LineupStyle.secondary)
+                                .font(.inter(12)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
                         if loading { ProgressView("Checking other providers…").font(.inter(12)) }
                         if channels.isEmpty && !loading {
@@ -189,7 +189,7 @@ struct MobileEventChannelsContent: View {
                             .font(.inter(11, .heavy)).tracking(1).foregroundStyle(LineupPanelStyle.caption)
                             .padding(.bottom, 2)
                         Text("Quality labels supplied by your provider")
-                            .font(.inter(11)).foregroundStyle(LineupPanelStyle.quiet)
+                            .font(.inter(11)).foregroundStyle(LineupPresentationStyle.secondary)
                         ForEach(MobileProviderChannelSection.grouped(channels)) { section in
                             Text(section.title)
                                 .font(.inter(15, .heavy)).foregroundStyle(LineupPanelStyle.caption)
@@ -206,8 +206,8 @@ struct MobileEventChannelsContent: View {
                 .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .foregroundStyle(LineupStyle.text)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .foregroundStyle(LineupPresentationStyle.text)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
     }
 }
 
@@ -225,10 +225,10 @@ private struct MobileEventChannelRow: View {
                 TeamBadge(url: channel.stream.streamIcon ?? "", fallback: "TV", size: 44, tight: true)
                 VStack(alignment: .leading, spacing: 5) {
                     Label(source.profile.name, systemImage: "antenna.radiowaves.left.and.right")
-                        .font(.inter(11, .semibold)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                        .font(.inter(11, .semibold)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                     Text(channel.stream.name).font(.inter(15, .bold)).lineLimit(2)
                     Text(channel.program?.title ?? fallback).font(.inter(12))
-                        .foregroundStyle(LineupPanelStyle.quiet).lineLimit(2)
+                        .foregroundStyle(LineupPresentationStyle.secondary).lineLimit(2)
                     HStack(spacing: 8) {
                         if live {
                             HStack(spacing: 4) {
@@ -237,7 +237,7 @@ private struct MobileEventChannelRow: View {
                             }
                         }
                         if let label = channel.quality.label {
-                            Text(label).foregroundStyle(LineupStyle.secondary)
+                            Text(label).foregroundStyle(LineupPresentationStyle.secondary)
                                 .accessibilityLabel("Provider quality: \(label)")
                         }
                     }.font(.inter(11, .semibold))
@@ -248,7 +248,10 @@ private struct MobileEventChannelRow: View {
                     .frame(width: 40, height: 40).background(LineupStyle.highlight, in: Circle())
             }
             .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+            .background {
+                LineupChannelArtworkTint(url: channel.stream.streamIcon.flatMap(URL.init(string:)), width: 88,
+                    fallback: LineupPresentationStyle.card).clipShape(LineupPanelStyle.shape)
+            }
             .contentShape(LineupPanelStyle.shape)
         }
         .buttonStyle(MobileCardButtonStyle())

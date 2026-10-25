@@ -332,12 +332,12 @@ struct MobileLiveView: View {
                 // comes back upright as the preview, not as full screen.
                 if value { expanded = false }
             }
-            .sheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
-            .sheet(item: $teamPage) { MobileTeamPage(target: $0) }
-            .fullScreenCover(item: $multiview) { session in
+            .lineupSheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .lineupSheet(item: $teamPage) { MobileTeamPage(target: $0) }
+            .lineupFullScreenCover(item: $multiview) { session in
                 MobileMultiviewView(session: session).environment(library)
             }
-            .sheet(item: $multiviewPicking, onDismiss: {
+            .lineupSheet(item: $multiviewPicking, onDismiss: {
                 // Opened once the picker has gone: one full-screen cover
                 // can't come up while a sheet is still leaving.
                 if let first = multiviewFirst, let second = multiviewSecond { launchMultiview([first, second]) }
@@ -349,7 +349,7 @@ struct MobileLiveView: View {
                     multiviewPicking = nil
                 }
             }
-            .sheet(isPresented: $syncingStats) {
+            .lineupSheet(isPresented: $syncingStats) {
                 if let statsGame {
                     MobileStatsSyncSheet(stats: gameStats, game: statsGame,
                                          autoSync: gameStats.autoSyncSport == nil ? nil : autoSync)
@@ -372,10 +372,10 @@ struct MobileLiveView: View {
                 gameStats.follow(previewStream == nil ? nil : previewGame, channelID: previewStream?.id)
                 if previewGame == nil { showsStats = false }
             }
-            .fullScreenCover(item: $selectedGameReplay) { selection in
+            .lineupFullScreenCover(item: $selectedGameReplay) { selection in
                 MobileGameReplayPlayer(selection: selection).environment(library)
             }
-            .sheet(item: $catchUpChannel, onDismiss: finishCatchUpSelection) { channel in
+            .lineupSheet(item: $catchUpChannel, onDismiss: finishCatchUpSelection) { channel in
                 sportsCatchUpSheet(channel)
             }
             .overlay(alignment: .top) {
@@ -394,7 +394,7 @@ struct MobileLiveView: View {
                 }
                 if !Task.isCancelled { combinedLibrary = combined }
             }
-            .sheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
+            .lineupSheet(item: $showingEventChannels, onDismiss: finishChannelSelection) { game in
                 MobileEventChannelsSheet(library: library, game: game,
                     playingID: previewStream.map { library.playbackSource(for: $0).stream.id },
                     playingProfileID: previewStream.flatMap { library.playbackSource(for: $0).library.activeProfile?.id }) { source in
@@ -403,10 +403,9 @@ struct MobileLiveView: View {
                     showingEventChannels = nil
                 }
             }
-            .alert("Channel unavailable", isPresented: Binding(get: { providerSelectionError != nil },
-                set: { if !$0 { providerSelectionError = nil } })) {
-                Button("OK", role: .cancel) { providerSelectionError = nil }
-            } message: { Text(providerSelectionError ?? "") }
+            .lineupMessage("Channel unavailable", symbol: "exclamationmark.triangle",
+                isPresented: Binding(get: { providerSelectionError != nil }, set: { if !$0 { providerSelectionError = nil } }),
+                message: providerSelectionError ?? "")
             .lineupChoices("Game has not started yet", symbol: "clock",
                            isPresented: Binding(get: { upcomingGame != nil },
                                                 set: { if !$0 { upcomingGame = nil } }),
@@ -426,7 +425,7 @@ struct MobileLiveView: View {
                            isPresented: $showsChannelSyncMessage,
                            message: "Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.",
                            cancelTitle: "OK") { [] }
-            .sheet(item: $choosingChannel, onDismiss: finishChannelSelection) { game in
+            .lineupSheet(item: $choosingChannel, onDismiss: finishChannelSelection) { game in
                 MobileChannelPicker(library: library, game: game) { stream in
                     pendingStream = stream
                     pendingGame = game
@@ -702,7 +701,7 @@ struct MobileLiveView: View {
         MobileMatchupRow(game: game, showsDay: showsDay,
                          isWatching: previewStream != nil && previewGame?.id == game.id)
             .accessibilityElement(children: .combine)
-            .lineupHoldMenu(game.matchupLine, symbol: "sportscourt", press: .well,
+            .lineupHoldMenu(game.matchupLine, symbol: "sportscourt", tint: LineupStyle.leagueColor(game.league), press: .well,
                             items: { gameMenuItems(game) },
                             onPresent: { menu in loadCatchUpOption(for: game, menu: menu) }) {
                 guard !game.isUpcoming else {

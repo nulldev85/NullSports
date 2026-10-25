@@ -50,11 +50,11 @@ struct DataRefreshCapsule: View {
         VStack(alignment: .leading, spacing: Metrics.lineGap) {
             Text("Refreshing Data")
                 .font(.inter(Metrics.title, .bold))
-                .foregroundStyle(Color.white)
+                .foregroundStyle(LineupPresentationStyle.text)
                 .fixedSize()
             Text(detail)
                 .font(.interDigits(Metrics.detail, .semibold))
-                .foregroundStyle(Color.white.opacity(0.56))
+                .foregroundStyle(LineupPresentationStyle.secondary)
                 .fixedSize()
             #if os(iOS)
                 LineupProgressBar(value: fraction, height: Metrics.bar)
@@ -72,7 +72,7 @@ struct DataRefreshCapsule: View {
         .padding(.horizontal, Metrics.side)
         .padding(.vertical, Metrics.vertical)
         .background(shape.fill(Metrics.fill))
-        .overlay(shape.strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
+        .overlay(shape.strokeBorder(LineupPresentationStyle.border, lineWidth: 1))
         .shadow(color: .black.opacity(0.45), radius: Metrics.shadow, y: Metrics.shadow / 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Refreshing Data")
@@ -82,7 +82,7 @@ struct DataRefreshCapsule: View {
 }
 
 private enum DataRefreshMetrics {
-    static let fill = LineupPanelStyle.fill
+    static let fill = LineupPresentationStyle.card
     #if os(tvOS)
     static let radius: CGFloat = 30
     static let side: CGFloat = 32

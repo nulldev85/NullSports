@@ -57,7 +57,7 @@ struct MainView: View {
         }
         .statusBarHidden(inlinePlayerFullscreen)
         .persistentSystemOverlays(inlinePlayerFullscreen ? .hidden : .automatic)
-        .fullScreenCover(item: $playing) { stream in
+        .lineupFullScreenCover(item: $playing) { stream in
             MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream), isLive: true)
         }
         .task(id: MobileScheduleRefreshContext(scenePhase: scenePhase, tab: tab)) {
@@ -372,36 +372,50 @@ extension View {
     /// Settings and the pages under it: a dark grey ground, the rows a step
     /// lighter and a little taller than the system's, hairlines between them.
     func lineupSettingsList() -> some View {
-        self.listStyle(.insetGrouped)
-            .environment(\.defaultMinListRowHeight, 58)
-            .listSectionSpacing(24)
-            .scrollContentBackground(.hidden)
-            .background(LineupPanelStyle.listGround)
+        modifier(MobileSettingsListStyle()).lineupPresentation()
     }
 
     func lineupSettingsRows() -> some View {
-        self.listRowBackground(LineupPanelStyle.listCard)
-            .listRowSeparatorTint(LineupPanelStyle.listSeparator)
+        modifier(MobileSettingsRowsStyle())
     }
 
     /// An account card as a row of its own: it brings its own padding, and
     /// its surface is the row's.
     func lineupAccountCardRow() -> some View {
         self.listRowInsets(EdgeInsets())
-            .listRowBackground(LineupPanelStyle.listCard)
+            .modifier(MobileSettingsRowsStyle())
             .listRowSeparator(.hidden)
     }
 
     /// A section title above a group of rows, small and grey.
     func lineupSettingsHeader() -> some View {
         self.font(.inter(13, .semibold))
-            .foregroundStyle(LineupPanelStyle.listValue)
+            .foregroundStyle(LineupPresentationStyle.secondary)
     }
 
     /// The note under a group of rows.
     func lineupSettingsFooter() -> some View {
         self.font(.inter(13))
-            .foregroundStyle(LineupPanelStyle.listValue)
+            .foregroundStyle(LineupPresentationStyle.secondary)
+    }
+}
+
+private struct MobileSettingsListStyle: ViewModifier {
+    @Environment(\.lineupIsPresentation) private var presentation
+    func body(content: Content) -> some View {
+        content.listStyle(.insetGrouped)
+            .environment(\.defaultMinListRowHeight, 58)
+            .listSectionSpacing(24)
+            .scrollContentBackground(.hidden)
+            .background(presentation ? LineupPresentationStyle.ground : LineupPanelStyle.listGround)
+    }
+}
+
+private struct MobileSettingsRowsStyle: ViewModifier {
+    @Environment(\.lineupIsPresentation) private var presentation
+    func body(content: Content) -> some View {
+        content.listRowBackground(presentation ? LineupPresentationStyle.row : LineupPanelStyle.listCard)
+            .listRowSeparatorTint(presentation ? LineupPresentationStyle.divider : LineupPanelStyle.listSeparator)
     }
 }
 
@@ -561,19 +575,16 @@ private struct MobileIPTVSettingsView: View {
         .lineupSettingsList()
         .navigationTitle("IPTV")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Rename Provider", isPresented: Binding(get: { renamingProfile != nil },
-            set: { if !$0 { renamingProfile = nil } })) {
-            TextField("Provider name", text: $providerName)
-            Button("Cancel", role: .cancel) { renamingProfile = nil }
-            Button("Save") {
+        .lineupTextPrompt("Rename Provider", symbol: "antenna.radiowaves.left.and.right",
+            isPresented: Binding(get: { renamingProfile != nil }, set: { if !$0 { renamingProfile = nil } }),
+            text: $providerName, prompt: "Provider name",
+            message: "Choose a name to identify this service in Settings and Sports channel results.",
+            canSave: !providerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && providerName.count <= 80,
+            onSave: {
                 if let profile = renamingProfile { library.renameProfile(id: profile.id, name: providerName) }
                 renamingProfile = nil
-            }
-            .disabled(providerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || providerName.count > 80)
-        } message: {
-            Text("Choose a name to identify this service in Settings and Sports channel results.")
-        }
-        .sheet(isPresented: $addingProvider) {
+            })
+        .lineupSheet(isPresented: $addingProvider) {
             ProfileSetupView(addingProvider: true)
                 .environment(library)
                 .tint(LineupStyle.highlight)
@@ -621,7 +632,7 @@ private struct MobileMediaServerSettingsView: View {
         .lineupSettingsList()
         .navigationTitle("Media Servers")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $addingMediaServer) {
+        .lineupSheet(isPresented: $addingMediaServer) {
             MediaServerSetupView()
                 .environment(media)
                 .tint(LineupStyle.highlight)
@@ -679,7 +690,7 @@ private struct MobileLibrarySettingsView: View {
         .lineupSettingsList()
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $configuringMDBList) {
+        .lineupSheet(isPresented: $configuringMDBList) {
             MDBListIntegrationView()
                 .environment(media)
                 .tint(LineupStyle.highlight)
@@ -838,7 +849,7 @@ private struct MobileAccountView: View {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
             }
-            .sheet(isPresented: $choosingAccent, onDismiss: {
+            .lineupSheet(isPresented: $choosingAccent, onDismiss: {
                 guard let chosen = pendingAccent else { return }
                 pendingAccent = nil
                 guard chosen != accentHex else { return }
