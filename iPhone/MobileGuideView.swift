@@ -142,94 +142,106 @@ struct MobileGuideView: View {
 
     var body: some View {
         NavigationStack {
-            GeometryReader { viewport in
-                let showsMetadata = viewport.size.height > 400
-                let metadataHeight: CGFloat = showsMetadata ? 106 : 0
-                let providerHeight: CGFloat = library.activeProfile == nil ? 0 : providerInfoHeight
-                let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
-                    ? MobilePlayerLayout.inlineTimelineHeight : 0
-                let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight - providerHeight))
-                let fullHeight = MobilePlayerLayout.fullscreenHeight(containerHeight: viewport.size.height,
-                                                                    safeAreaTop: viewport.safeAreaInsets.top,
-                                                                    safeAreaBottom: viewport.safeAreaInsets.bottom)
-                ZStack(alignment: .top) {
-                    VStack(spacing: 0) {
-                        if selectedStream != nil {
-                            Color.clear.frame(height: videoHeight + providerHeight + metadataHeight + timelineHeight)
-                        }
-                        if let game {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("\(game.awayTeam) vs. \(game.homeTeam)").font(.inter(.subheadline, .bold))
-                                Text("Select your preferred channel.")
-                                    .font(.inter(.caption)).foregroundStyle(.secondary)
-                                Text(game.broadcast.isEmpty ? "Network unavailable" : game.broadcast)
-                                    .font(.inter(.caption2)).foregroundStyle(.secondary)
-                            }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-                        }
-                        if library.providerRoot.enabledProfiles.isEmpty {
-                            LineupUnavailableView("No enabled providers", systemImage: "tv",
-                                description: Text("Enable a service in Settings → IPTV."))
-                        } else if channels.isEmpty && filter == .favorites && !searching {
-                            LineupUnavailableView("No favorites", systemImage: "star",
-                                description: Text("Touch and hold a channel to add it to your favorites, or pick All channels from the menu."))
-                        } else if channels.isEmpty {
-                            LineupUnavailableView("No channels", systemImage: "tv",
-                                description: Text("Try another category or search, or refresh your guide."))
-                        } else if isActive {
-                            TimelineView(.periodic(from: .now, by: 5)) { clock in
-                                guide(now: clock.date)
-                                    .onChange(of: clock.date) { _, now in
-                                        // Keep live in view while preserving deliberate future browsing.
-                                        if horizontalOffset < 1 && window.isStale(at: now) {
-                                            window = MobileGuideWindow(now: now)
-                                        }
-                                    }
-                            }
-                        } else {
-                            // TabView keeps the Guide mounted while another tab
-                            // is visible. Preserve its rows and scroll state,
-                            // but do not wake and rebuild the hidden grid every
-                            // five seconds.
-                            guide(now: window.anchor)
-                        }
+            guidePresentations
+        }
+        .mobileTabHome(.guide) { restoreDefaultCategoryOnEntry() }
+    }
+
+    // Keep the view tree unchanged while giving Swift separate, bounded
+    // expressions for layout, chrome, observations and presentations.
+    private var guideViewport: some View {
+        GeometryReader { viewport in
+            let showsMetadata = viewport.size.height > 400
+            let metadataHeight: CGFloat = showsMetadata ? 106 : 0
+            let providerHeight: CGFloat = library.activeProfile == nil ? 0 : providerInfoHeight
+            let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
+                ? MobilePlayerLayout.inlineTimelineHeight : 0
+            let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight - providerHeight))
+            let fullHeight = MobilePlayerLayout.fullscreenHeight(containerHeight: viewport.size.height,
+                                                                safeAreaTop: viewport.safeAreaInsets.top,
+                                                                safeAreaBottom: viewport.safeAreaInsets.bottom)
+            ZStack(alignment: .top) {
+                VStack(spacing: 0) {
+                    if selectedStream != nil {
+                        Color.clear.frame(height: videoHeight + providerHeight + metadataHeight + timelineHeight)
                     }
-                    .allowsHitTesting(!fillsScreen)
-                    .accessibilityHidden(fillsScreen)
-                    if let stream = selectedStream {
+                    if let game {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(game.awayTeam) vs. \(game.homeTeam)").font(.inter(.subheadline, .bold))
+                            Text("Select your preferred channel.")
+                                .font(.inter(.caption)).foregroundStyle(.secondary)
+                            Text(game.broadcast.isEmpty ? "Network unavailable" : game.broadcast)
+                                .font(.inter(.caption2)).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                    }
+                    if library.providerRoot.enabledProfiles.isEmpty {
+                        LineupUnavailableView("No enabled providers", systemImage: "tv",
+                            description: Text("Enable a service in Settings → IPTV."))
+                    } else if channels.isEmpty && filter == .favorites && !searching {
+                        LineupUnavailableView("No favorites", systemImage: "star",
+                            description: Text("Touch and hold a channel to add it to your favorites, or pick All channels from the menu."))
+                    } else if channels.isEmpty {
+                        LineupUnavailableView("No channels", systemImage: "tv",
+                            description: Text("Try another category or search, or refresh your guide."))
+                    } else if isActive {
                         TimelineView(.periodic(from: .now, by: 5)) { clock in
-                            MobileGuidePlayer(controller: playback, stream: stream,
-                                program: library.guidePrograms(for: stream).first { $0.start <= clock.date && clock.date < $0.end },
-                                expanded: fillsScreen, showsMetadata: showsMetadata,
-                                videoHeight: fillsScreen ? fullHeight : videoHeight,
-                                screenInsets: viewport.safeAreaInsets,
-                                providerName: library.providerName(for: stream),
-                                onClose: closePlayer, onExpand: sideways ? nil : { setExpanded(!expanded) },
-                                onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) },
-                                // Up and down the list on screen, whatever it
-                                // is showing: favorites, a category, a search.
-                                onStepChannel: channelStepper(around: stream),
-                                lastChannelName: lastChannel?.name,
-                                onLastChannel: { if let last = lastChannel { tune(last) } },
-                                channelBanner: channelBanner,
-                                watchingGameID: watchingGame?.id,
-                                onWatchGame: { watchGame($0) })
-                                .frame(height: fillsScreen ? fullHeight : videoHeight + providerHeight + metadataHeight + timelineHeight, alignment: .top)
-                                .background(LineupStyle.background)
+                            guide(now: clock.date)
+                                .onChange(of: clock.date) { _, now in
+                                    // Keep live in view while preserving deliberate future browsing.
+                                    if horizontalOffset < 1 && window.isStale(at: now) {
+                                        window = MobileGuideWindow(now: now)
+                                    }
+                                }
                         }
-                        // The player is the one thing that reaches past the
-                        // chrome, so it claims the whole screen itself rather
-                        // than waiting for the guide around it to get out of the
-                        // way first. Its position and size stay identical
-                        // whether or not the bars have finished hiding.
-                        .ignoresSafeArea(fillsScreen ? .all : [], edges: .all)
-                        .id(ObjectIdentifier(playback))
-                        .modifier(MobileDismissGesture(
-                            enabled: fillsScreen,
-                            onBeginExit: { playback.freezePictureForExit() },
-                            onDismiss: closePlayer))
+                    } else {
+                        // TabView keeps the Guide mounted while another tab
+                        // is visible. Preserve its rows and scroll state,
+                        // but do not wake and rebuild the hidden grid every
+                        // five seconds.
+                        guide(now: window.anchor)
                     }
                 }
+                .allowsHitTesting(!fillsScreen)
+                .accessibilityHidden(fillsScreen)
+                if let stream = selectedStream {
+                    TimelineView(.periodic(from: .now, by: 5)) { clock in
+                        MobileGuidePlayer(controller: playback, stream: stream,
+                            program: library.guidePrograms(for: stream).first { $0.start <= clock.date && clock.date < $0.end },
+                            expanded: fillsScreen, showsMetadata: showsMetadata,
+                            videoHeight: fillsScreen ? fullHeight : videoHeight,
+                            screenInsets: viewport.safeAreaInsets,
+                            providerName: library.providerName(for: stream),
+                            onClose: closePlayer, onExpand: sideways ? nil : { setExpanded(!expanded) },
+                            onRetry: { playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id) },
+                            // Up and down the list on screen, whatever it
+                            // is showing: favorites, a category, a search.
+                            onStepChannel: channelStepper(around: stream),
+                            lastChannelName: lastChannel?.name,
+                            onLastChannel: { if let last = lastChannel { tune(last) } },
+                            channelBanner: channelBanner,
+                            watchingGameID: watchingGame?.id,
+                            onWatchGame: { watchGame($0) })
+                            .frame(height: fillsScreen ? fullHeight : videoHeight + providerHeight + metadataHeight + timelineHeight, alignment: .top)
+                            .background(LineupStyle.background)
+                    }
+                    // The player is the one thing that reaches past the
+                    // chrome, so it claims the whole screen itself rather
+                    // than waiting for the guide around it to get out of the
+                    // way first. Its position and size stay identical
+                    // whether or not the bars have finished hiding.
+                    .ignoresSafeArea(fillsScreen ? .all : [], edges: .all)
+                    .id(ObjectIdentifier(playback))
+                    .modifier(MobileDismissGesture(
+                        enabled: fillsScreen,
+                        onBeginExit: { playback.freezePictureForExit() },
+                        onDismiss: closePlayer))
+                }
             }
+        }
+    }
+
+    private var guideNavigation: some View {
+        guideViewport
             .background(Color.black)
             .navigationTitle(game == nil ? "" : title).navigationBarTitleDisplayMode(.inline)
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -312,6 +324,10 @@ struct MobileGuideView: View {
             .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
+    }
+
+    private var guideObservations: some View {
+        guideNavigation
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background, qualityRequest != nil { cancelQualityCheck(); closePlayer() }
                 if phase == .active { returnToNow() }
@@ -337,18 +353,8 @@ struct MobileGuideView: View {
             .onChange(of: query) { _, _ in resetGuideScrollPosition() }
             .onChange(of: library.favoriteStreamOrder) { _, _ in resetGuideScrollPosition() }
             .onChange(of: library.recentStreamOrder) { _, _ in resetGuideScrollPosition() }
-            .onChange(of: library.streamsRevision) { _, _ in
-                if let stream = selectedStream, library.stream(withID: stream.id) == nil { closePlayer() }
-                if let id = chosenFilter?.categoryID, !library.categories.contains(where: { $0.id == id }) { chosenFilter = nil }
-                resetGuideScrollPosition()
-            }
-            .onChange(of: library.providerRoot.enabledProfiles.map(\.id)) { _, _ in
-                if let stream = selectedStream {
-                    let source = library.playbackSource(for: stream)
-                    if library.stream(withID: stream.id) == nil
-                        || source.library.activeProfile.map({ library.providerRoot.isProviderEnabled($0.id) }) != true { closePlayer() }
-                }
-            }
+            .onChange(of: library.streamsRevision) { _, _ in guideStreamsChanged() }
+            .onChange(of: enabledProviderIDs) { _, _ in closeRetiredProvider() }
             .onChange(of: isActive) { _, active in
                 if !active { cancelQualityCheck() }
                 // Leaving the Guide tab still tears the player down — except
@@ -364,10 +370,11 @@ struct MobileGuideView: View {
                     returnToNow()
                 }
             }
-            .onAppear {
-                returnToNow()
-                if let game { recommendedStreamID = library.verifiedStream(for: game)?.id }
-            }
+            .onAppear(perform: guideDidAppear)
+    }
+
+    private var guidePresentations: some View {
+        guideObservations
             .overlay(alignment: .top) {
                 if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck(); closePlayer() } }
             }
@@ -396,8 +403,28 @@ struct MobileGuideView: View {
                     .tint(LineupStyle.highlight)
                     .preferredColorScheme(.dark)
             }
-        }
-        .mobileTabHome(.guide) { restoreDefaultCategoryOnEntry() }
+    }
+
+    private var enabledProviderIDs: [UUID] { library.providerRoot.enabledProfiles.map(\.id) }
+
+    private func guideDidAppear() {
+        returnToNow()
+        guard let game = game else { return }
+        let recommended: XtreamStream? = library.verifiedStream(for: game)
+        recommendedStreamID = recommended?.streamID
+    }
+
+    private func guideStreamsChanged() {
+        if let stream = selectedStream, library.stream(withID: stream.id) == nil { closePlayer() }
+        if let id = chosenFilter?.categoryID, !library.categories.contains(where: { $0.id == id }) { chosenFilter = nil }
+        resetGuideScrollPosition()
+    }
+
+    private func closeRetiredProvider() {
+        guard let stream = selectedStream else { return }
+        let source = library.playbackSource(for: stream)
+        let enabled: Bool = source.library.activeProfile.map { library.providerRoot.isProviderEnabled($0.id) } ?? false
+        if library.stream(withID: stream.id) == nil || !enabled { closePlayer() }
     }
 
     /// One of the Guide's choices, ticked when it is the one shown. Picking

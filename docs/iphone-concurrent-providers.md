@@ -69,3 +69,22 @@ category defaults, tracking, UFC and tester playback/provider fixes. tvOS remain
 build91. No merge or shipping distribution has been performed; Seerr remains
 deferred as requested. Private tester services and device playback have not been
 verified locally.
+
+## Build 143: Guide compiler repair
+
+Reported build142 (`40147323258`, exact head `df5f86c`) stopped during app
+compilation. The simulator compiler reported that it could not type-check the
+large Guide expression at `MobileGuideView.swift:369` in reasonable time. Tests
+did not run. The Release package job also failed; packaging and publish were
+skipped, so142 did not produce an installable IPA.
+
+The Guide now separates its unchanged geometry/player layout, navigation/search
+chrome, observations and presentations into four opaque view properties.
+Appearance, stream-list and enabled-provider callbacks are named methods, and
+the recommendation lookup uses an explicitly typed stream. State ownership,
+modifier order, playback/source routing, navigation and sheet behavior remain
+the same. A local source comparison confirmed the extracted geometry and
+navigation/search sections match their previous content apart from whitespace.
+No test or assertion was removed, no deadline extended and no workflow changed.
+Local metadata/membership12 tests, project/pins/focus and whitespace checks pass;
+replacement Apple SDK compilation and the entire test suite await CI.
