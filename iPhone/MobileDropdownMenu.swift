@@ -134,7 +134,6 @@ struct MobileDropdownPanel: View {
         }
         .mobileMenuSurface(shape)
         .lineupPresentation()
-        .shadow(color: .black.opacity(MobileMenuGlass.shadow), radius: 24, y: 12)
         .onAppear {
             withAnimation(reduceMotion ? .easeOut(duration: 0.15)
                           : .spring(response: 0.32, dampingFraction: 0.88)) { shown = true }
@@ -239,6 +238,8 @@ struct MobileMenuRow: View {
         .background(item.isSelected ? LineupPresentationStyle.selection(presentationTint ?? LineupStyle.highlight)
                     : MobileMenuGlass.well,
                     in: RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2)
+            .strokeBorder(MobileMenuGlass.wellEdge, lineWidth: 1))
         .contentShape(Rectangle())
         .opacity(item.isEnabled ? 1 : 0.4)
         .accessibilityElement(children: .combine)
@@ -422,7 +423,6 @@ private struct MobileChoiceSheet: ViewModifier {
         }
         .fixedSize(horizontal: false, vertical: true)
         .lineupPresentation(tint: tint)
-        .shadow(color: .black.opacity(MobileMenuGlass.shadow), radius: 24, y: 12)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { cancel() }
     }
@@ -453,21 +453,19 @@ private struct MobileChoiceRowsHeight: PreferenceKey {
 // MARK: - The menus' surface
 
 /// What every dropdown, sub-menu, choice sheet and hold menu is drawn on: the
-/// panel's grey let partly through, over a frost of the screen behind it. The
-/// screen shows softly under the menu, and the frost keeps whatever is there
-/// from crossing the rows' words, so they read as plainly as on solid grey.
+/// welcome screen's sign-in card. Black at sixty per cent with a faint white
+/// edge, nothing frosted and no shadow, so the screen shows plainly through
+/// it; rows are drawn as that card's fields are.
 enum MobileMenuGlass {
-    /// How much of the panel's own grey stays over the frost.
-    static let tint = LineupPresentationStyle.card.opacity(0.55)
-    /// A row's well, as see-through as the panel it sits on.
-    static let well = Color.white.opacity(0.055)
+    /// The card's own ground.
+    static let tint = Color.black.opacity(0.6)
+    /// A row's well and its edge, as the card draws a field.
+    static let well = Color.white.opacity(0.14)
+    static let wellEdge = Color.white.opacity(0.12)
     static let pressed = Color.white.opacity(0.09)
     static let edge = Color.white.opacity(0.11)
-    /// Lighter than a solid panel's: a dark smear under the glass would show
-    /// through it.
-    static let shadow = 0.35
     /// The screen steps back a little less than it did behind a solid panel,
-    /// or there would be nothing left to see through the glass.
+    /// or there would be nothing left to see through the menu.
     static let backdrop = 0.32
     static let sheetBackdrop = 0.48
 }
@@ -476,8 +474,6 @@ extension View {
     /// The menus' see-through panel, in the menu's own shape.
     func mobileMenuSurface<S: InsettableShape>(_ shape: S) -> some View {
         background(MobileMenuGlass.tint, in: shape)
-            .background(.ultraThinMaterial, in: shape)
-            .environment(\.colorScheme, .dark)
             .overlay(shape.strokeBorder(MobileMenuGlass.edge, lineWidth: 1))
             .clipShape(shape)
     }

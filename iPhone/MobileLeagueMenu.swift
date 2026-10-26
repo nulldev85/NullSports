@@ -113,7 +113,6 @@ struct MobileLeagueMenu: View {
         }
         .mobileMenuSurface(shape)
         .lineupPresentation()
-        .shadow(color: .black.opacity(MobileMenuGlass.shadow), radius: 24, y: 12)
         .onAppear { shown = true }
         .accessibilityAddTraits(.isModal)
     }

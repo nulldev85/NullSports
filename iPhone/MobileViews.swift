@@ -423,7 +423,7 @@ private struct MobileSettingsRowsStyle: ViewModifier {
 
 /// Behind the Settings lists: the ground, lit by a soft glow of the chosen
 /// accent at the top and a cooler one further down. Flat black would leave
-/// the rows' glass nothing to show.
+/// the see-through rows nothing to show.
 private struct MobileSettingsBackdrop: View {
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
 
@@ -441,16 +441,15 @@ private struct MobileSettingsBackdrop: View {
     }
 }
 
-/// A Settings row's ground: the menus' frosted glass, so the glow behind the
-/// list shows through it as it scrolls.
+/// A Settings row's ground: drawn as the welcome card draws a field, white
+/// let mostly through and nothing frosted, so the glow behind the list shows
+/// plainly as it scrolls.
 private struct MobileSettingsRowGround: View {
     let glass: Bool
 
     var body: some View {
         if glass {
-            Rectangle().fill(MobileMenuGlass.tint)
-                .background(.ultraThinMaterial)
-                .environment(\.colorScheme, .dark)
+            MobileMenuGlass.well
         } else {
             LineupPanelStyle.listCard
         }
