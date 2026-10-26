@@ -63,11 +63,14 @@ struct LineupApp: App {
                 // the whole app, sheets included, reads in the one face.
                 .fontDesign(.rounded)
                 .preferredColorScheme(.dark)
+                // Settings sync as the app comes to the front and after every
+                // change made here. While it stays open, a look every ten
+                // minutes picks up a change made on another device.
                 .task(id: scenePhase) {
                     guard scenePhase == .active else { return }
                     await cloud.sync()
                     while !Task.isCancelled {
-                        do { try await Task.sleep(for: .seconds(90)) } catch { return }
+                        do { try await Task.sleep(for: .seconds(600)) } catch { return }
                         await cloud.sync()
                     }
                 }

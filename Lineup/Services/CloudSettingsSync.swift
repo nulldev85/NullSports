@@ -1,4 +1,5 @@
 import CloudKit
+import CryptoKit
 import Foundation
 
 /// Syncs user-authored Lineup settings through the user's private iCloud database.
@@ -29,11 +30,27 @@ final class CloudSettingsSync: ObservableObject {
         var values: [String: Data]
         var providerPasswords: [String: String]
         var mediaTokens: [String: String]
+        /// When each value last changed on the device that changed it. A
+        /// snapshot from a build before this has none: its values all date
+        /// from `updatedAt`.
+        var changedAt: [String: Date]? = nil
+
+        var side: CloudSettingsMerge.Side {
+            CloudSettingsMerge.Side(values: values, changedAt: values.keys.reduce(into: [String: Date]()) { times, key in
+                times[key] = changedAt?[key] ?? updatedAt
+            })
+        }
     }
+
+    // This device's record of each synced value as last seen, as a digest, and
+    // when it last changed: a value that no longer matches its digest has
+    // changed here since.
+    private let digestsKey = "Lineup.cloudSettingsDigests"
+    private let changedAtKey = "Lineup.cloudSettingsChangedAt"
 
     private init() {}
 
-    /// The app's root watches this, and the sync runs every ninety seconds:
+    /// The app's root watches this, and the sync runs every few minutes:
     /// setting the same words again would redraw every screen that often.
     private func report(_ text: String) {
         if status != text { status = text }
@@ -66,13 +83,29 @@ final class CloudSettingsSync: ObservableObject {
             let local = capture()
             let incoming = remote.flatMap { $0.encryptedValues["payload"] as? Data }
                 .flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) }
-            if let incoming, incoming.updatedAt > local.updatedAt {
-                apply(incoming)
+            guard let incoming else {
+                try await upload(local, existing: remote)
                 report("Synced with iCloud")
                 return
             }
-            if incoming == nil || local.updatedAt > (incoming?.updatedAt ?? .distantPast) {
-                try await upload(local, existing: remote)
+            // Setting by setting: the more recent change wins, and a value
+            // only one device has is kept. A favourite added on the television
+            // is no longer undone by the phone's older copy of everything.
+            let merge = CloudSettingsMerge(local: local.side, remote: incoming.side)
+            let remoteNewer = incoming.updatedAt > local.updatedAt
+            let passwords = CloudSettingsMerge.secrets(local: local.providerPasswords,
+                                                       remote: incoming.providerPasswords, remoteNewer: remoteNewer)
+            let tokens = CloudSettingsMerge.secrets(local: local.mediaTokens,
+                                                    remote: incoming.mediaTokens, remoteNewer: remoteNewer)
+            if !merge.taken.isEmpty || !passwords.taken.isEmpty || !tokens.taken.isEmpty {
+                apply(merge.taken, changedAt: merge.merged.changedAt, passwords: passwords.taken, tokens: tokens.taken)
+            }
+            let merged = Snapshot(updatedAt: max(local.updatedAt, incoming.updatedAt), values: merge.merged.values,
+                                  providerPasswords: passwords.merged, mediaTokens: tokens.merged,
+                                  changedAt: merge.merged.changedAt)
+            if merge.merged != incoming.side || passwords.merged != incoming.providerPasswords
+                || tokens.merged != incoming.mediaTokens {
+                try await upload(merged, existing: remote)
             }
             report("Synced with iCloud")
         } catch {
@@ -106,37 +139,78 @@ final class CloudSettingsSync: ObservableObject {
         }
         let providerIDs = (try? JSONDecoder().decode([XtreamProfile].self, from: defaults.data(forKey: "NullSports.profiles") ?? Data()))?.map(\.id) ?? []
         let mediaIDs = (try? JSONDecoder().decode([MediaServerProfile].self, from: defaults.data(forKey: "NullSports.mediaServers") ?? Data()))?.map(\.id) ?? []
+        let updatedAt = defaults.object(forKey: "Lineup.cloudSettingsUpdatedAt") as? Date ?? .distantPast
         return Snapshot(
-            updatedAt: defaults.object(forKey: "Lineup.cloudSettingsUpdatedAt") as? Date ?? .distantPast,
+            updatedAt: updatedAt,
             values: values,
             providerPasswords: Dictionary(uniqueKeysWithValues: providerIDs.compactMap { id in
                 KeychainStore.password(profileID: id).map { (id.uuidString, $0) }
             }),
             mediaTokens: Dictionary(uniqueKeysWithValues: mediaIDs.compactMap { id in
                 MediaKeychainStore.token(profileID: id).map { (id.uuidString, $0) }
-            })
+            }),
+            changedAt: stampChanges(values, lastChange: updatedAt)
         )
     }
 
-    private func apply(_ snapshot: Snapshot) {
+    /// When each value last changed here. One that no longer matches its
+    /// digest has changed since it was last seen, at the last time the app
+    /// said something changed, or now if that came before the value's own
+    /// last change. The first time, before any digest was kept, every value
+    /// dates from that last change, as the whole snapshot used to.
+    private func stampChanges(_ values: [String: Data], lastChange: Date) -> [String: Date] {
+        let saved = defaults.dictionary(forKey: digestsKey) as? [String: String]
+        var digests = saved ?? [:]
+        var times = defaults.dictionary(forKey: changedAtKey) as? [String: Date] ?? [:]
+        for (key, data) in values {
+            let digest = Self.digest(data)
+            guard digests[key] != digest else { continue }
+            digests[key] = digest
+            let previous = times[key] ?? .distantPast
+            times[key] = saved == nil || lastChange > previous ? lastChange : Date()
+        }
+        defaults.set(digests, forKey: digestsKey)
+        defaults.set(times, forKey: changedAtKey)
+        return times.filter { values[$0.key] != nil }
+    }
+
+    private static func digest(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The values and sign-ins taken from another device. A snapshot is a set
+    /// of values known to another device, not a deletion manifest. Treating an
+    /// absent key as a tombstone erased a local IPTV profile and every
+    /// per-profile favorite while unrelated addon keys survived. Only values
+    /// the snapshot actually carries are written.
+    private func apply(_ values: [String: Data], changedAt: [String: Date],
+                       passwords: [String: String], tokens: [String: String]) {
         isApplying = true
         defer { isApplying = false }
-        // A snapshot is a set of values known to another device, not a deletion
-        // manifest. Treating an absent key as a tombstone erased a local IPTV
-        // profile and every per-profile favorite while unrelated addon keys
-        // survived. Only overwrite values the snapshot actually carries.
         defaults.removeObject(forKey: "Lineup.followedTeams")
-        for (key, data) in snapshot.values where key != "Lineup.followedTeams" {
+        var digests = defaults.dictionary(forKey: digestsKey) as? [String: String] ?? [:]
+        var times = defaults.dictionary(forKey: changedAtKey) as? [String: Date] ?? [:]
+        for (key, data) in values where key != "Lineup.followedTeams" {
             guard let value = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) else { continue }
             defaults.set(value, forKey: key)
+            // Taken, not changed here, so it must not read as a local change.
+            // The digest is of the value as this device writes it out again,
+            // as `capture` will: a dictionary's keys may not come back in the
+            // other device's order.
+            let written = defaults.object(forKey: key).flatMap {
+                try? PropertyListSerialization.data(fromPropertyList: $0, format: .binary, options: 0)
+            }
+            digests[key] = Self.digest(written ?? data)
+            times[key] = changedAt[key]
         }
-        for (key, password) in snapshot.providerPasswords {
+        defaults.set(digests, forKey: digestsKey)
+        defaults.set(times, forKey: changedAtKey)
+        for (key, password) in passwords {
             if let id = UUID(uuidString: key) { try? KeychainStore.save(password: password, profileID: id) }
         }
-        for (key, token) in snapshot.mediaTokens {
+        for (key, token) in tokens {
             if let id = UUID(uuidString: key) { try? MediaKeychainStore.save(token: token, profileID: id) }
         }
-        defaults.set(snapshot.updatedAt, forKey: "Lineup.cloudSettingsUpdatedAt")
         NotificationCenter.default.post(name: Self.imported, object: nil)
     }
 
@@ -145,5 +219,49 @@ final class CloudSettingsSync: ObservableObject {
         let payload = try JSONEncoder().encode(snapshot)
         record.encryptedValues["payload"] = payload as NSData
         _ = try await database.save(record)
+    }
+}
+
+/// How two devices' settings come together: each value on its own, the one
+/// changed more recently winning. A value only one device has is kept, and
+/// nothing is ever deleted by a merge.
+struct CloudSettingsMerge {
+    struct Side: Equatable {
+        var values: [String: Data]
+        var changedAt: [String: Date]
+    }
+
+    /// The values this device takes from the other.
+    let taken: [String: Data]
+    /// What the two devices now share.
+    let merged: Side
+
+    init(local: Side, remote: Side) {
+        var taken: [String: Data] = [:]
+        var merged = local
+        for (key, value) in remote.values {
+            let theirs = remote.changedAt[key] ?? .distantPast
+            if let mine = local.values[key] {
+                let ours = local.changedAt[key] ?? .distantPast
+                if mine == value { merged.changedAt[key] = max(ours, theirs); continue }
+                // Changed at the same moment: both devices settle on the same
+                // one, or each would keep its own and send it on every sync.
+                guard theirs > ours || (theirs == ours && mine.lexicographicallyPrecedes(value)) else { continue }
+            }
+            taken[key] = value
+            merged.values[key] = value
+            merged.changedAt[key] = theirs
+        }
+        self.taken = taken
+        self.merged = merged
+    }
+
+    /// Sign-ins, which carry no time of their own: one only a device has is
+    /// kept, and where both have a different one the device whose settings
+    /// changed last wins.
+    static func secrets(local: [String: String], remote: [String: String],
+                        remoteNewer: Bool) -> (taken: [String: String], merged: [String: String]) {
+        let taken = remote.filter { key, value in local[key].map { $0 != value && remoteNewer } ?? true }
+        return (taken, local.merging(taken) { _, theirs in theirs })
     }
 }
