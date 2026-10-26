@@ -585,7 +585,7 @@ private final class MockTVBackend: TVPlaybackBackend {
     func addSubtitle(file: URL, title: String, language: String) -> Bool { addedSubtitles.append(file); return true }
 }
 
-private final class TVSiloRetryProtocol: URLProtocol, @unchecked Sendable {
+private final class TVSiloRetryProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var starts = 0
     static var startCount: Int { lock.lock(); defer { lock.unlock() }; return starts }

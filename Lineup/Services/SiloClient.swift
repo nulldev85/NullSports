@@ -109,15 +109,18 @@ private struct SiloTitle: Decodable, Sendable {
         guard let position, let duration, position.isFinite, duration.isFinite, duration > 0 else { return nil }
         return min(100, max(0, 100 * position / duration))
     }
+    // Read for every title in a progress list, so they are made once.
+    private static let fractionalTime: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let wholeTime = ISO8601DateFormatter()
     func playback(http: MediaIntegrationHTTP) -> SiloServerPlayback? {
         guard ["movie", "episode"].contains(type ?? ""), let raw = progress_updated_at,
               let duration = duration_seconds ?? runtime.map({ Double($0) * 60 }), duration.isFinite, duration > 0,
               let position = position_seconds ?? user_data?.position_seconds, position.isFinite, position >= 0 else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var updatedAt = formatter.date(from: raw)
-        if updatedAt == nil { formatter.formatOptions = [.withInternetDateTime]; updatedAt = formatter.date(from: raw) }
-        guard let updatedAt else { return nil }
+        guard let updatedAt = Self.fractionalTime.date(from: raw) ?? Self.wholeTime.date(from: raw) else { return nil }
         return SiloServerPlayback(item: media(http: http), position: min(position, duration), duration: duration,
             updatedAt: updatedAt, completed: user_state?.played ?? user_data?.played ?? false)
     }

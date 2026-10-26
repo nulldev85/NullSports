@@ -401,7 +401,7 @@ final class MediaIntegrationTests: XCTestCase {
     }
 }
 
-private final class MediaIntegrationProtocol: URLProtocol, @unchecked Sendable {
+private final class MediaIntegrationProtocol: URLProtocol {
     struct Reply {
         let status: Int
         let json: String

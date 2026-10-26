@@ -111,12 +111,17 @@ struct MDBListTrackingClient: Sendable {
             if let value = value as? String { return value }; return (value as? NSNumber)?.stringValue
         })
     }
+    // Read once for every entry of a history refresh, so they are made once.
+    private static let fractionalTime: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let wholeTime = ISO8601DateFormatter()
     static func date(_ value: Any?) -> Date? {
         if let value = value as? NSNumber { return Date(timeIntervalSince1970: value.doubleValue) }
         guard let value = value as? String else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        return fractionalTime.date(from: value) ?? wholeTime.date(from: value)
     }
     static func target(movie: [String: Any]?, episode: [String: Any]?, show: [String: Any]?) -> MDBListTrackingTarget? {
         if let movie {

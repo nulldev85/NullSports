@@ -7,10 +7,10 @@ import XCTest
 
 final class LiveSourceQualityTests: XCTestCase {
     func testColdPlaybackSelectionUsesVerifiedFallbackWithoutOpeningAnyProbe() async {
-        let verifier = LiveQualityVerifier(defaults: nil) { _, _ in
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { _, _ in
             XCTFail("Live startup must not open speculative provider connections")
             throw URLError(.cannotConnectToHost)
-        }
+        })
         let candidates = [LiveQualityVerifier.Candidate(id: 7,
             urls: [URL(string: "https://example.test/live/a.m3u8")!, URL(string: "https://example.test/live/a.ts")!], context: "event")]
         let value = await verifier.preferredPlayback(candidates, fallback: 7)
@@ -18,10 +18,10 @@ final class LiveSourceQualityTests: XCTestCase {
     }
 
     func testFailedConfirmedURLIsRetiredWithoutDiscardingAnotherProvidersWorkingQuality() async {
-        let verifier = LiveQualityVerifier(defaults: nil) { _, _ in
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { _, _ in
             XCTFail("Retiring a measurement cannot start a video connection")
             throw URLError(.timedOut)
-        }
+        })
         let first = LiveQualityVerifier.Candidate(id: 1, urls: [URL(string: "https://first.test/channel.ts")!], context: "event")
         let second = LiveQualityVerifier.Candidate(id: 2, urls: [URL(string: "https://second.test/channel.ts")!], context: "event")
         await verifier.rememberPlayback(url: first.urls[0], quality: .init(width: 3840, height: 2160, frameRate: 60))
@@ -33,7 +33,7 @@ final class LiveSourceQualityTests: XCTestCase {
     }
 
     func testConfirmedPlaybackChoosesExactURLWithoutTrustingDemuxOnlyResults() async {
-        let verifier = LiveQualityVerifier(defaults: nil) { _, _ in .init(width: 3840, height: 2160, frameRate: 60) }
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { _, _ in .init(width: 3840, height: 2160, frameRate: 60) })
         let first = LiveQualityVerifier.Candidate(id: 1, urls: [URL(string: "https://example.test/claim-4k.m3u8")!], context: "event")
         let second = LiveQualityVerifier.Candidate(id: 2, urls: [URL(string: "https://example.test/b.m3u8")!,
             URL(string: "https://example.test/b.ts")!], context: "event")
@@ -97,7 +97,7 @@ final class LiveSourceQualityTests: XCTestCase {
 
     func testSelectsExactMeasuredURLAndKeepsExistingLanguagePriority() async {
         let recorder = Recorder()
-        let verifier = LiveQualityVerifier(defaults: nil) { url, _ in await recorder.measure(url) }
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { url, _ in await recorder.measure(url) })
         let first = LiveQualityVerifier.Candidate(id: 1,
             urls: [URL(string: "https://example.test/hd")!, URL(string: "https://example.test/fhd")!], context: "event")
         let second = LiveQualityVerifier.Candidate(id: 2,
@@ -122,16 +122,16 @@ final class LiveSourceQualityTests: XCTestCase {
         let recorder = Recorder()
         let candidates = [LiveQualityVerifier.Candidate(id: 1,
             urls: [URL(string: "https://example.test/fhd")!], context: "provider|event")]
-        let first = LiveQualityVerifier(defaults: defaults) { url, _ in await recorder.measure(url) }
+        let first = LiveQualityVerifier(defaults: defaults, probe: { url, _ in await recorder.measure(url) })
         _ = await first.best(candidates, fallback: 1)
-        let reopened = LiveQualityVerifier(defaults: defaults) { url, _ in await recorder.measure(url) }
+        let reopened = LiveQualityVerifier(defaults: defaults, probe: { url, _ in await recorder.measure(url) })
         _ = await reopened.best(candidates, fallback: 1)
         let beforeExpiry = await recorder.paths
         XCTAssertEqual(beforeExpiry.count, 1)
         let expired = [LiveQualityVerifier.key(candidates[0]): LiveQualityVerifier.Entry(
             quality: LiveSourceQuality(width: 1280, height: 720, frameRate: 30), expires: Date(timeIntervalSinceNow: -1))]
         defaults.set(try JSONEncoder().encode(expired), forKey: "lineup.live-source-quality.v1")
-        let stale = LiveQualityVerifier(defaults: defaults) { url, _ in await recorder.measure(url) }
+        let stale = LiveQualityVerifier(defaults: defaults, probe: { url, _ in await recorder.measure(url) })
         _ = await stale.best(candidates, fallback: 1)
         let afterExpiry = await recorder.paths
         XCTAssertEqual(afterExpiry.count, 2)
@@ -148,7 +148,7 @@ final class LiveSourceQualityTests: XCTestCase {
 
     func testMeasuresRatherThanTrustingProviderOrderAndReusesCache() async throws {
         let recorder = Recorder()
-        let verifier = LiveQualityVerifier(defaults: nil) { url, _ in await recorder.measure(url) }
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { url, _ in await recorder.measure(url) })
         let candidates = [
             LiveQualityVerifier.Candidate(id: 1, urls: [URL(string: "https://example.test/hd")!], context: "event-1"),
             LiveQualityVerifier.Candidate(id: 2, urls: [URL(string: "https://example.test/fhd")!], context: "event-1")
@@ -166,10 +166,10 @@ final class LiveSourceQualityTests: XCTestCase {
     }
 
     func testFailureIsUnknownAndNeverBeatsMeasuredQuality() async {
-        let verifier = LiveQualityVerifier(defaults: nil) { url, _ in
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { url, _ in
             if url.path == "/fail" { throw URLError(.timedOut) }
             return LiveSourceQuality(width: 1280, height: 720, frameRate: 60)
-        }
+        })
         let candidates = [
             LiveQualityVerifier.Candidate(id: 1, urls: [URL(string: "https://example.test/fail")!], context: "event"),
             LiveQualityVerifier.Candidate(id: 2, urls: [URL(string: "https://example.test/works")!], context: "event")
@@ -215,7 +215,7 @@ final class LiveSourceQualityTests: XCTestCase {
 
     func testReadsLaterCachedQualityEvenWhenTheFirstCandidateHasNoTimeLeft() async {
         let recorder = Recorder()
-        let verifier = LiveQualityVerifier(defaults: nil) { url, _ in await recorder.measure(url) }
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { url, _ in await recorder.measure(url) })
         let cached = LiveQualityVerifier.Candidate(id: 2, urls: [URL(string: "https://example.test/fhd")!], context: "event")
         _ = await verifier.best([cached], fallback: 2)
         let cold = LiveQualityVerifier.Candidate(id: 1, urls: [URL(string: "https://example.test/cold")!], context: "event")
@@ -248,7 +248,7 @@ final class LiveSourceQualityTests: XCTestCase {
 
     func testDirectTSIsCheckedFirstButHigherQualityHLSIsStillMeasuredAndSelectable() async {
         let recorder = Recorder()
-        let verifier = LiveQualityVerifier(defaults: nil) { url, _ in await recorder.measure(url) }
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { url, _ in await recorder.measure(url) })
         let candidate = LiveQualityVerifier.Candidate(id: 1, urls: [
             URL(string: "https://example.test/fhd.m3u8")!, URL(string: "https://example.test/hd.ts")!
         ], context: "event")
@@ -324,9 +324,9 @@ final class LiveSourceQualityTests: XCTestCase {
     }
 
     func testAdvertisedFHDStillReportsOnly720pWhenBothTransportsActuallyMeasure720p() async {
-        let verifier = LiveQualityVerifier(defaults: nil) { _, _ in
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { _, _ in
             .init(width: 1280, height: 720, frameRate: 60)
-        }
+        })
         let channel = LiveQualityVerifier.Candidate(id: 1, urls: [
             URL(string: "https://example.test/source.m3u8")!, URL(string: "https://example.test/source.ts")!
         ], context: "event", advertisedHeight: 1080)
@@ -341,7 +341,7 @@ final class LiveSourceQualityTests: XCTestCase {
 
     func testForeignProbesDoNotDelayAnAlreadyMeasuredPreferredLanguage() async {
         let recorder = Recorder()
-        let verifier = LiveQualityVerifier(defaults: nil) { url, _ in await recorder.measure(url) }
+        let verifier = LiveQualityVerifier(defaults: nil, probe: { url, _ in await recorder.measure(url) })
         let english = LiveQualityVerifier.Candidate(id: 1,
             urls: [URL(string: "https://example.test/hd")!], context: "event")
         let foreign = LiveQualityVerifier.Candidate(id: 2,

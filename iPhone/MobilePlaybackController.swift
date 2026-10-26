@@ -1905,18 +1905,7 @@ final class MobilePlaybackController: ObservableObject {
         guard sessionID == subtitleSessionID, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
         let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
         let preparation = Task.detached(priority: .userInitiated) {
-            try Task.checkCancellation()
-            guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
-            let prepared = try SubtitleSourceTimeline.rebase(data, offset: offset)
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
-            do {
-                try Task.checkCancellation()
-                try prepared.write(to: file, options: .atomic)
-                try Task.checkCancellation()
-                return file
-            } catch { try? FileManager.default.removeItem(at: file); throw error }
+            try OnlineSubtitleFiles.write(data, offset: offset)
         }
         let file = try await withTaskCancellationHandler(operation: { try await preparation.value }, onCancel: { preparation.cancel() })
         do {

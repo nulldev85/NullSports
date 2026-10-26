@@ -52,6 +52,42 @@ enum MobileSubtitleFailure: LocalizedError {
     }
 }
 
+/// Subtitles found online, as files a player adds beside the title. Each
+/// lives in the temporary folder for one playback and the player removes it
+/// when the title closes; a run that ended mid-title leaves its files behind,
+/// so they are cleared when the app next opens.
+enum OnlineSubtitleFiles {
+    private static var directory: URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
+    }
+
+    /// The download checked, moved onto the title's own clock and written to
+    /// a new file. Nothing is left on disk if it fails or is cancelled.
+    static func write(_ data: Data, offset: Double) throws -> URL {
+        try Task.checkCancellation()
+        guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
+        let prepared = try SubtitleSourceTimeline.rebase(data, offset: offset)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
+        do {
+            try Task.checkCancellation()
+            try prepared.write(to: file, options: .atomic)
+            try Task.checkCancellation()
+            return file
+        } catch { try? FileManager.default.removeItem(at: file); throw error }
+    }
+
+    /// Removes the files an earlier run left, keeping any written since
+    /// `launch` by a title already playing.
+    static func removeLeftovers(before launch: Date) {
+        let manager = FileManager.default
+        guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.creationDateKey]) else { return }
+        for file in files where ((try? file.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast) < launch {
+            try? manager.removeItem(at: file)
+        }
+    }
+}
+
 actor MobileOpenSubtitles {
     static let shared = MobileOpenSubtitles()
     static let bundledKey: String = {

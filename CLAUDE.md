@@ -1,45 +1,31 @@
 # Notes for Claude
 
-## Tester notes site
+## Releases, notes and the site
 
-The release notes for testers live at https://nulldev85.github.io/, served by
-GitHub Pages from the `main` branch of `nulldev85/nulldev85.github.io`. That
-repo holds one self-contained page, `index.html`, and `.nojekyll`. A push there
-is live a minute or two later; nothing in this repo deploys it, and it stays up
-while this repo is private.
+Testers install Lineup from the AppSource feed, `apps.json` in
+`nulldev85/AppSource`. The same feed drives the hub at
+https://nulldev85.github.io/ (`nulldev85/nulldev85.github.io`, one
+`index.html`).
 
-The page has its own look, not the app's. It is dark only and monochrome,
-warm white on near-black, with no accent colour. Archivo at full width is for
-the loud words, Geist for reading, and Geist Mono for versions, SHAs and
-dates. Motion is quiet and eased. Behind the headline is a dot field lit by
-slow light and the pointer, and the hero stats count from the page itself.
-Downloads are two cards filled from the site repo's releases, with each device
-drawn in hairlines around the app's own icon. The app icon is also the top
-bar logo and the tab icon. All of them are small PNGs inside the page, cut
-from `iPhone/Assets.xcassets/LineupAppIcon.appiconset` and the flattened
-Apple TV brand assets, so a new icon means new copies there. Feature cards keep one markup,
-`.meta` (`.plats`, `.rels`, `.shas`) then `.copy` (`h3`, `p.lede`, `dl.how`
-or `ol.steps`, `p.stack`), so anything added copies an existing card and uses
-those classes.
-
-Every merge round into `main` ends with updating that page:
-
-- Add each new feature as an `<article class="entry">` in its section (Sports,
-  Library, Player, Under the hood), written for testers: what it does, then
-  "how it works" in plain words, then the tech line. Copy an existing entry.
-- Set `data-platform` (`iphone`, `tv`, or both) and `data-release` to the PR
-  number, and list the commits in `.shas`. A feature that reached each app in
-  a different release also gets `data-release-iphone` and `data-release-tv`.
-- On a card for both apps, mark any line true of one app only with
-  `data-only="iphone"` or `data-only="tv"`, so each filter shows only its own.
-- Add the release to the ledger at the top of the Releases list, newest first.
-- Update the footer's date by hand. The filter, ledger and hero counts
-  recount themselves on load.
-- Push to `main` of that repo and give the user the link with the build links.
-
-The page's Download panel offers the newest official IPA of each app, from the
-site repo's releases. Once the official builds on `main` pass, run that repo's
-"Publish official builds" workflow (`publish-builds.yml`, workflow_dispatch) so
-the new IPAs go up straight away; it also runs hourly. It reads this repo's
-builds with the `NULLSPORTS_ACTIONS_TOKEN` secret in the site repo, a
-read-only Actions token the owner made.
+- A push to `main` here builds the official IPAs. Each build's
+  `source-release` job publishes a `source-*` release whose `Source-*` lines
+  name the app, bundle id, version, build and commit.
+- AppSource's "Update app source feed" workflow (every 30 minutes, on its own
+  pushes, or by hand) copies those IPAs into AppSource's releases and writes
+  `apps.json`. It lists a build only once it has written notes.
+- Every merge round into `main` ends with notes in AppSource's
+  `release-notes.json`: an entry per app with its bundle id, version, build and
+  the full merge-commit SHA, since build numbers get reused. Keep iPhone and
+  Apple TV apart. Write for testers: what they can do now, or what stops going
+  wrong, in plain sentences; no commit titles or internals. Raise the catalog
+  count in `tests/test_release_notes.py` and run
+  `python -m unittest discover -s tests -b` there before pushing.
+- The site reads builds, download links and notes from the feed as it loads.
+  Only the app descriptions and feature cards are written by hand, so keep
+  them true to the apps. The page's built-in builds and notes are what shows
+  if the feed can't be reached; refresh them to the newest release.
+- Build numbers are set by hand in `project.yml` (`CURRENT_PROJECT_VERSION`,
+  Apple TV and iPhone). A release that keeps the last one's numbers may not be
+  offered to testers as an update by their signer.
+- The site repo's `publish-builds.yml` belongs to the old single-page site;
+  the download buttons no longer use its releases.

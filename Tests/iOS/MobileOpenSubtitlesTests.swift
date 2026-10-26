@@ -126,6 +126,21 @@ final class MobileOpenSubtitlesTests: XCTestCase {
         XCTAssertNotNil(MobileOpenSubtitles.allowedRedirect(api, original: api))
     }
 
+    func testSubtitleFilesAreWrittenOnTheTitlesClockAndAnEarlierRunsAreCleared() throws {
+        XCTAssertThrowsError(try OnlineSubtitleFiles.write(Data("<html>Unavailable</html>".utf8), offset: 0))
+        let kept = try OnlineSubtitleFiles.write(Data(cue.utf8), offset: 0)
+        defer { try? FileManager.default.removeItem(at: kept) }
+        XCTAssertEqual(try String(contentsOf: kept, encoding: .utf8), cue)
+        let shifted = try OnlineSubtitleFiles.write(Data(cue.utf8), offset: 0.5)
+        defer { try? FileManager.default.removeItem(at: shifted) }
+        XCTAssertTrue(try String(contentsOf: shifted, encoding: .utf8).contains("00:00:00,500 --> 00:00:07,500"))
+        OnlineSubtitleFiles.removeLeftovers(before: Date().addingTimeInterval(-60))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: kept.path), "A file written since launch belongs to a title playing now")
+        OnlineSubtitleFiles.removeLeftovers(before: Date().addingTimeInterval(60))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: kept.path), "An earlier run's files go")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: shifted.path))
+    }
+
     @MainActor
     func testNativeEditingStaysInTheSameFieldWhileActualFilteredResultsPublish() async throws {
         let model = MobileSubtitleResults()
@@ -168,7 +183,7 @@ private struct SubtitleEditorHarness: View {
     var body: some View { VStack { MobileSubtitleSearchInput(results: model).frame(height: 44); Text("\(model.visible.count) releases") } }
 }
 
-private final class SubtitleProtocol: URLProtocol, @unchecked Sendable {
+private final class SubtitleProtocol: URLProtocol {
     typealias Handler = (URLRequest) -> (Int, [String: String], String)
     private static let lock = NSLock()
     private static var handler: Handler?

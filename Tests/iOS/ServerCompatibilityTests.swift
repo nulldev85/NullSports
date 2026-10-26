@@ -186,7 +186,7 @@ final class ServerCompatibilityTests: XCTestCase {
     }
 }
 
-private final class CompatibilityProtocol: URLProtocol, @unchecked Sendable {
+private final class CompatibilityProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var handler: ((URLRequest) throws -> String)?
     static func install(_ value: ((URLRequest) throws -> String)?) {

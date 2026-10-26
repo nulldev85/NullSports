@@ -2009,7 +2009,7 @@ final class MediaLibrary {
         if !localTrackingEnabled {
             if let data = defaults.data(forKey: localPlaybackKey),
                let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data),
-               let remaining = try? JSONEncoder().encode(saved.filter { !recordSources.contains($0.profileID) }) {
+               let remaining = Self.encodedPlayback(saved.filter { !recordSources.contains($0.profileID) }) {
                 defaults.set(remaining, forKey: localPlaybackKey)
             }
             return
@@ -2630,11 +2630,18 @@ final class MediaLibrary {
         return marked
     }
 
+    /// Watch history as it is written to the device. Every watched title is
+    /// kept, and Apple TV allows an app only about 500 KB of settings, so each
+    /// record holds only what resume, watched state and a card need.
+    nonisolated private static func encodedPlayback(_ records: [LocalMediaPlayback]) -> Data? {
+        try? JSONEncoder().encode(records.map(\.kept))
+    }
+
     private func persistLocalPlayback() {
         guard let key = activeTrackingCacheKey else { return }
         if localPlayback.isEmpty {
             defaults.removeObject(forKey: key)
-        } else if let data = try? JSONEncoder().encode(localPlayback) {
+        } else if let data = Self.encodedPlayback(localPlayback) {
             defaults.set(data, forKey: key)
         }
     }
@@ -2642,7 +2649,11 @@ final class MediaLibrary {
     private func persistLocalFavorites() {
         if localFavorites.isEmpty {
             defaults.removeObject(forKey: localFavoritesKey)
-        } else if let data = try? JSONEncoder().encode(localFavorites) {
+        } else if let data = try? JSONEncoder().encode(localFavorites.map { favorite in
+            var kept = favorite
+            kept.item = favorite.item.historyCopy
+            return kept
+        }) {
             defaults.set(data, forKey: localFavoritesKey)
         }
     }
@@ -5086,7 +5097,7 @@ extension MediaLibrary {
             duration: duration, updatedAt: event.occurredAt, completed: watched,
             explicitlyUnwatched: event.action == .unwatched ? true : nil, nativeDuration: nativeDuration,
             mdbMovieIDs: event.target.kind == .movie ? event.target.ids : nil))
-        if let data = try? JSONEncoder().encode(records) { defaults.set(data, forKey: key) }
+        if let data = Self.encodedPlayback(records) { defaults.set(data, forKey: key) }
         if !localTrackingEnabled {
             if heldPlayback.map({ Self.samePlaybackItem($0.item, item) && $0.profileID == profile }) == true { heldPlayback = nil }
             localPlayback = records
@@ -5223,7 +5234,7 @@ extension MediaLibrary {
                 // into the account overlay resurrects cleared device history.
                 self.remoteMDBPlayback = Array(imported.values)
                 self.remoteMDBAccount = account
-                if let account, let data = try? JSONEncoder().encode(self.remoteMDBPlayback) {
+                if let account, let data = Self.encodedPlayback(self.remoteMDBPlayback) {
                     self.defaults.set(data, forKey: LibraryTrackingPreferences.cacheKey(account))
                 }
             } else {
