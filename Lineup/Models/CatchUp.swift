@@ -152,16 +152,6 @@ struct CatchUpTimeline: Equatable, Sendable {
         return min(1, max(0, position.timeIntervalSince(programmeStart) / length))
     }
 
-    /// How far into the programme the live edge has reached, from 0 to 1:
-    /// for a programme still on, the part of the bar that can be played.
-    func liveFraction(now: Date = Date()) -> Double {
-        fraction(at: now)
-    }
-
-    /// Whether a programme still being shown has been caught up with.
-    func isAtLive(_ position: Date, now: Date = Date()) -> Bool {
-        programmeEnd > now && now.timeIntervalSince(position) < CatchUpPolicy.liveTolerance
-    }
 }
 
 /// The numbers catch-up runs on, in one place.

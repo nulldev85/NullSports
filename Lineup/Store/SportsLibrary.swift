@@ -3283,12 +3283,6 @@ final class SportsLibrary {
         return password
     }
 
-    private func isExcluded(_ stream: XtreamStream, categoryName: String) -> Bool {
-        let value = "\(stream.name) \(categoryName)".lowercased()
-        let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaa", "ncaaf", "ncaab", "college", "university", "wnba", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
-        return blocked.contains { value.contains($0) }
-    }
-
     private func restoreFavorites() {
         restoreFollowedTeams()
         guard let profile = activeProfile else {

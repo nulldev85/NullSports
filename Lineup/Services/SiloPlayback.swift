@@ -278,6 +278,12 @@ final class SiloPlaybackSession {
         guard ["stopped", "replayed"].contains(reply.outcome) else { throw MediaIntegrationError.invalidResponse }
     }
 
+    /// Only what the system player opens when it is the only player; every
+    /// container the other engines read otherwise.
+    private static func containers(systemOnly: Bool) -> [String] {
+        systemOnly ? ["mp4", "mov", "m4v"] : ["mp4", "mov", "m4v", "mkv", "matroska", "mpegts", "webm"]
+    }
+
     private static func playerCapabilities(defaults: UserDefaults) -> (capabilities: [String: Any], context: [String: Any]) {
         #if os(tvOS)
         let systemOnly = false
@@ -290,7 +296,7 @@ final class SiloPlaybackSession {
         let hevc = VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)
         let video = hevc ? ["h264", "hevc"] : ["h264"]
         let audio = ["aac", "mp3", "ac3", "eac3"]
-        let containers = systemOnly ? ["mp4", "mov", "m4v"] : ["mp4", "mov", "m4v", "mkv", "matroska", "mpegts", "webm"]
+        let containers = Self.containers(systemOnly: systemOnly)
         // Declared family support, with no invented level/profile, HDR or
         // passthrough claim. The planner may adapt material beyond this set.
         let capabilities: [String: Any] = ["video_evidence": "declared", "audio_evidence": "declared",

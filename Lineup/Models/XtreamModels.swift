@@ -333,6 +333,14 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 
+    /// The venue and the city and state together, "Rogers Arena · Vancouver,
+    /// BC", for a card wide enough for both: the television's matchup rows.
+    /// Either alone when the schedule has only one.
+    var fullPlaceLine: String? {
+        let parts = [Self.cleaned(venue), Self.cleaned(location)].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
     private static func cleaned(_ value: String?) -> String? {
         let text = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return text.isEmpty ? nil : text

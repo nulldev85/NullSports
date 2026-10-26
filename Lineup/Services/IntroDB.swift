@@ -90,15 +90,6 @@ actor MobileIntroDB {
 }
 
 extension MediaLibrary {
-    func introSegment(for episode: MediaItem) async -> MobileIntroSegment? {
-        guard introDBEnabled, episode.type == "Episode",
-              let parent = await metadataParent(for: episode) else { return nil }
-        // Resolve external IDs independently of the viewer's display choice.
-        // Provider mode still keeps its original titles and artwork.
-        let series = await libraryExternalIdentity(parent)
-        guard !Task.isCancelled, let identity = MobileIntroIdentity(series: series, episode: episode) else { return nil }
-        return await MobileIntroDB.shared.intro(for: identity)
-    }
 
     func playbackSegments(for item: MediaItem) async -> MobilePlaybackSegments? {
         guard introDBEnabled || recapSkippingEnabled || creditsPromptEnabled || postCreditsNoticeEnabled else { return nil }

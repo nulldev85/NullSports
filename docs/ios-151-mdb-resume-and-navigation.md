@@ -30,8 +30,9 @@ guards remain. Both-on mode still keeps saved device history separate.
 
 For iPhone, selected non-glass tab labels now use the selected icon's accent
 color. Glass and compact behavior remain. The official Seerr mark appears in
-the Library menu, and TV Guide's menu has a matching entry opening the existing
-Seerr screen. Login methods, playback and other Guide actions are unchanged.
+the Library menu. TV Guide's menu briefly had a matching entry; it was later
+removed, since Seerr belongs to the Library. Login methods, playback and other
+Guide actions are unchanged.
 
 ## Validation
 

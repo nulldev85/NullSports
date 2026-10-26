@@ -194,7 +194,7 @@ jobs:
         # Screenshots are supplementary. A storage/upload outage must not stop
         # the launch smoke test or IPA packaging; tests and IPA upload still fail.
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Lineup-tvOS-playback-previews
           path: playback-previews
@@ -239,7 +239,7 @@ jobs:
           zip -qry ../Lineup-unsigned.ipa Payload
 
       - name: Upload IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Lineup-tvOS-unsigned-IPA
           path: Lineup-unsigned.ipa
@@ -255,7 +255,7 @@ jobs:
       contents: write
     steps:
       - name: Download verified IPA
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: Lineup-tvOS-unsigned-IPA
           path: release

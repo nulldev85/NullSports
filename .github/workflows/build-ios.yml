@@ -14,9 +14,11 @@ permissions:
   contents: write
 
 # A newer push supersedes an unfinished check on the same branch. Never cancel
-# a run on main or iphone: those produce the shipping IPAs.
+# a run on main or iphone: those produce the shipping IPAs. Pushes and builds
+# asked for by hand queue apart, so a push's check never cancels an IPA build
+# someone is waiting on.
 concurrency:
-  group: build-ios-${{ github.ref }}
+  group: build-ios-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/iphone' }}
 
 jobs:
@@ -148,7 +150,7 @@ jobs:
         # Supplementary previews must not prevent the release build/package.
         # Simulator tests and the installable IPA upload remain mandatory.
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Lineup-iPhone-navigation-previews
           path: navigation-previews
@@ -307,7 +309,7 @@ jobs:
           cd package
           zip -qry ../Lineup-iPhone-unsigned.ipa Payload
       - name: Upload IPA for the tests to clear
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Lineup-iPhone-unsigned-IPA-candidate
           path: Lineup-iPhone-unsigned.ipa
@@ -323,7 +325,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Publish IPA
-        uses: actions/upload-artifact/merge@v4
+        uses: actions/upload-artifact/merge@v6
         with:
           name: Lineup-iPhone-unsigned-IPA
           pattern: Lineup-iPhone-unsigned-IPA-candidate
@@ -337,7 +339,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Download verified IPA
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: Lineup-iPhone-unsigned-IPA
           path: release

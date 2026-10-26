@@ -407,15 +407,52 @@ private struct MobileSettingsListStyle: ViewModifier {
             .environment(\.defaultMinListRowHeight, 58)
             .listSectionSpacing(24)
             .scrollContentBackground(.hidden)
-            .background(presentation ? LineupPresentationStyle.ground : LineupPanelStyle.listGround)
+            .background {
+                if presentation { MobileSettingsBackdrop() } else { LineupPanelStyle.listGround }
+            }
     }
 }
 
 private struct MobileSettingsRowsStyle: ViewModifier {
     @Environment(\.lineupIsPresentation) private var presentation
     func body(content: Content) -> some View {
-        content.listRowBackground(presentation ? LineupPresentationStyle.row : LineupPanelStyle.listCard)
+        content.listRowBackground(MobileSettingsRowGround(glass: presentation))
             .listRowSeparatorTint(presentation ? LineupPresentationStyle.divider : LineupPanelStyle.listSeparator)
+    }
+}
+
+/// Behind the Settings lists: the ground, lit by a soft glow of the chosen
+/// accent at the top and a cooler one further down. Flat black would leave
+/// the see-through rows nothing to show.
+private struct MobileSettingsBackdrop: View {
+    @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
+
+    var body: some View {
+        let accent = LineupAccent.accent(forHex: accentHex).color
+        ZStack {
+            LineupPresentationStyle.ground
+            RadialGradient(colors: [accent.opacity(0.26), .clear], center: UnitPoint(x: 0.1, y: 0.02),
+                           startRadius: 0, endRadius: 460)
+            RadialGradient(colors: [LineupIconTile.indigo.opacity(0.16), .clear], center: UnitPoint(x: 0.95, y: 0.62),
+                           startRadius: 0, endRadius: 420)
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+/// A Settings row's ground: drawn as the welcome card draws a field, white
+/// let mostly through and nothing frosted, so the glow behind the list shows
+/// plainly as it scrolls.
+private struct MobileSettingsRowGround: View {
+    let glass: Bool
+
+    var body: some View {
+        if glass {
+            MobileMenuGlass.well
+        } else {
+            LineupPanelStyle.listCard
+        }
     }
 }
 

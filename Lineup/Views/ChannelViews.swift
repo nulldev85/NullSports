@@ -53,8 +53,6 @@ struct LiveView: View {
         }
     }
     private var tickerEvents: [SportsGame] { library.scoreTickerGames() }
-    private var liveEvents: [SportsGame] { events.filter { $0.isLive } }
-    private var upcomingEvents: [SportsGame] { events.filter { $0.isUpcoming } }
 
     var body: some View {
         GeometryReader { container in
@@ -1010,93 +1008,6 @@ private enum TVCatchUpFormat {
     }
 }
 
-private enum LiveBoardStyle {
-    static var accent: Color { LineupStyle.lightPurple }
-    static var leagueFocus: Color { LineupStyle.focused }
-    static var canvas: Color { LineupPresentationStyle.ground }
-    static var panel: Color { LineupPresentationStyle.card }
-    static var muted: Color { LineupStyle.lightPurple }
-}
-
-private struct LiveBoardRail: View {
-    @Binding var selectedLeague: SportsLeague?
-    let onChoose: () -> Void
-    let onEnterGames: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("EXPLORE").font(.inter(16, .heavy)).tracking(LineupPanelStyle.headerTracking)
-                .foregroundStyle(LineupPanelStyle.caption).padding(.bottom, 8)
-            LiveBoardLeagueButton(title: "All sports", league: nil, selected: selectedLeague == nil,
-                onEnterGames: onEnterGames) { selectedLeague = nil; onChoose() }
-            ForEach(SportsLeague.allCases) { league in
-                LiveBoardLeagueButton(title: league == .ncaaf ? "College" : league.shortName,
-                    league: league, selected: selectedLeague == league, onEnterGames: onEnterGames) {
-                    selectedLeague = league
-                    onChoose()
-                }
-            }
-            Spacer(minLength: 12)
-        }
-        .frame(width: 156, alignment: .leading)
-        .padding(.trailing, 24)
-        .overlay(alignment: .trailing) { Rectangle().fill(LineupStyle.lightPurple.opacity(0.08)).frame(width: 1) }
-        .focusSection()
-    }
-}
-
-private struct LiveBoardLeagueButton: View {
-    @FocusState private var focused: Bool
-    let title: String
-    let league: SportsLeague?
-    let selected: Bool
-    let onEnterGames: () -> Void
-    let action: () -> Void
-
-    var body: some View {
-        Group {
-            HStack(spacing: 12) {
-                if let league {
-                    LeagueLogo(league: league, size: 26)
-                } else {
-                    Image(systemName: "square.grid.2x2.fill").frame(width: 26)
-                }
-                Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(17, .semibold)).lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .foregroundStyle(selected || focused ? LineupStyle.text : LineupStyle.secondary)
-            .padding(.horizontal, 12).frame(height: 49)
-            .background(focused ? LiveBoardStyle.leagueFocus : (selected ? LineupStyle.lightPurple.opacity(0.07) : .clear))
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay(alignment: .leading) {
-                if selected && !focused { Rectangle().fill(LiveBoardStyle.accent).frame(width: 3, height: 22) }
-            }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .focusable().focused($focused).focusEffectDisabled()
-        .tvSelectAction(action)
-        .accessibilityAddTraits(.isButton)
-        .onMoveCommand { if $0 == .right { onEnterGames() } }
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
-    }
-}
-
-/// The date, and nothing else. Refreshing used to sit out at the right of it,
-/// which is the far corner of a television from where anyone is looking.
-private struct LiveBoardHeading: View {
-    var body: some View {
-        HStack(alignment: .center) {
-            Text(Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
-                .font(.inter(16, .medium))
-                .foregroundStyle(LiveBoardStyle.muted)
-            Spacer()
-        }
-        .foregroundStyle(LineupStyle.lightPurple)
-        .frame(height: 28)
-    }
-}
-
 /// A band of the theme's colour crossing the dark screen, over and over.
 ///
 /// The app's own mark is a line travelling across a guide, and so is the line
@@ -1125,40 +1036,6 @@ private struct LiveTVSignalSweep: View {
     }
 }
 
-private struct LiveEmptySlateDashboard: View {
-    @Binding var selectedLeague: SportsLeague?
-    @Binding var focusedGame: SportsGame?
-    let isLoading: Bool
-    let isAvailable: Bool
-    let errorMessage: String?
-
-    var body: some View {
-        VStack(spacing: 20) {
-            LiveBoardHeading()
-            HStack(spacing: 30) {
-                LiveBoardRail(selectedLeague: $selectedLeague, onChoose: { focusedGame = nil }, onEnterGames: {})
-                VStack(alignment: .leading, spacing: 22) {
-                    Image(systemName: isLoading ? "antenna.radiowaves.left.and.right" : "sportscourt")
-                        .font(.inter(56, .ultraLight)).foregroundStyle(LiveBoardStyle.muted)
-                    Text(isLoading ? "Setting the board." : (isAvailable ? "A moment between games." : "The schedule is unavailable.")).foregroundColor(LineupStyle.lightPurple)
-                        .font(.inter(38, .bold))
-                    Text(isLoading ? "Your games will appear here shortly." :
-                        (isAvailable ? "Explore another sport, or come back for the next matchup." :
-                            (errorMessage ?? "We’ll try again shortly. Your saved channels are still available in Guide."))).foregroundColor(LineupStyle.lightPurple)
-                        .font(.inter(20)).foregroundStyle(LiveBoardStyle.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .padding(44)
-                .background(LiveBoardStyle.panel, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            }
-            .frame(maxHeight: .infinity)
-        }
-        .padding(.horizontal, 38).padding(.bottom, 26)
-        .background(LiveBoardStyle.canvas)
-    }
-}
-
 // MARK: - Live
 
 /// The Live tab's reading of the theme.
@@ -1184,8 +1061,6 @@ private enum LiveMetrics {
     static let margin: CGFloat = 80
     static let railWidth: CGFloat = 380
     static let gutter: CGFloat = 30
-    static let columns = 4
-    static let cardSpacing: CGFloat = 22
     static let cardHeight: CGFloat = 214
     /// Clear space around anything focusable inside a scroller, which clips:
     /// a focused card's lift and shadow grow into it.
@@ -2399,76 +2274,6 @@ private struct LiveChipLabel: View {
     }
 }
 
-/// The board itself: rows of four, one row tall, scrolled a whole row at a
-/// time so the focused card is never cut off at either edge.
-private struct LiveMatchupGrid: View {
-    let events: [SportsGame]
-    let spotlight: LiveSpotlight
-    let previewGameID: String?
-    let multiviewPrimaryID: Int?
-    let onPlay: (SportsGame) -> Void
-    let onStartMultiview: (SportsGame) -> Void
-
-    private var rowStarts: [Int] {
-        Array(stride(from: 0, to: events.count, by: LiveMetrics.columns))
-    }
-
-    var body: some View {
-        GeometryReader { shelf in
-            let columns = LiveMetrics.columns
-            let room = LiveMetrics.liftRoom
-            let cardWidth = max(1, (shelf.size.width - room * 2
-                                    - LiveMetrics.cardSpacing * CGFloat(columns - 1)) / CGFloat(columns))
-            ScrollViewReader { proxy in
-                ScrollView(.vertical) {
-                    VStack(spacing: 0) {
-                        ForEach(rowStarts, id: \.self) { rowStart in
-                            HStack(spacing: LiveMetrics.cardSpacing) {
-                                ForEach(0..<columns, id: \.self) { column in
-                                    let index = rowStart + column
-                                    if events.indices.contains(index) {
-                                        let game = events[index]
-                                        LiveMatchupCard(game: game, isOnScreen: game.id == previewGameID,
-                                                        multiviewPrimaryID: multiviewPrimaryID,
-                                                        onFocus: {
-                                                            spotlight.rest(on: game, row: rowStart / columns)
-                                                            proxy.scrollTo(rowStart, anchor: .top)
-                                                        },
-                                                        onPlay: { onPlay(game) },
-                                                        onStartMultiview: { onStartMultiview(game) })
-                                            .frame(width: cardWidth, height: LiveMetrics.cardHeight)
-                                            .id(game.id)
-                                    } else {
-                                        Color.clear
-                                            .frame(width: cardWidth, height: LiveMetrics.cardHeight)
-                                            .accessibilityHidden(true)
-                                    }
-                                }
-                            }
-                            .padding(.horizontal, room)
-                            .padding(.vertical, room)
-                            .frame(height: LiveMetrics.cardHeight + room * 2)
-                            .id(rowStart)
-                        }
-                    }
-                }
-                .scrollIndicators(.hidden)
-                .focusSection()
-            }
-        }
-        .frame(height: LiveMetrics.cardHeight + LiveMetrics.liftRoom * 2)
-        // A television's scroll view does not clip, so the next row would show
-        // beneath this one. The mask stops just past the row's own lift room:
-        // a focused card's shadow fits inside it, the next row's edge does not.
-        .mask(alignment: .top) {
-            Rectangle()
-                .frame(height: LiveMetrics.cardHeight + LiveMetrics.liftRoom * 2 + 14)
-                .padding(.horizontal, -60)
-        }
-        .padding(.horizontal, -LiveMetrics.liftRoom)
-    }
-}
-
 /// A full-width, remote-focusable matchup list. Each event keeps its existing
 /// selection and hold-menu actions; focusing a row still drives the unchanged
 /// Live preview stage above it.
@@ -2480,7 +2285,9 @@ private struct LiveMatchupList: View {
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
 
-    private let rowHeight: CGFloat = 116
+    /// Room for a crest as tall as a team's name and record together, with
+    /// the arena under it, all large enough to read across a room.
+    private let rowHeight: CGFloat = 144
     private let viewportHeight: CGFloat = 360
 
     var body: some View {
@@ -2513,6 +2320,11 @@ private struct LiveMatchupList: View {
 
 /// The channel-list look adapted for a television: muted team-color wash,
 /// prominent crests and score lines, and the same quiet status column.
+///
+/// A game reads across the card as a broadcast's score line does: each
+/// team's crest, name and record at its end of the card, the score between
+/// them either side of VS, and the arena and its city under it all. An event
+/// -- a tournament, a fight card, a race -- keeps its mark and its name.
 private struct LiveMatchupListRow: View {
     @Environment(SportsLibrary.self) private var library
     @FocusState private var focused: Bool
@@ -2539,39 +2351,15 @@ private struct LiveMatchupListRow: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 17, style: .continuous)
         HStack(spacing: 22) {
-            SportsMark(league: game.league, competition: game.competition, size: 48)
-                .frame(width: 74)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(game.competition?.name.uppercased() ?? game.league.shortName.uppercased())
-                    .font(.inter(13, .heavy)).tracking(0.6)
-                    .foregroundStyle(LivePalette.secondary.opacity(0.82)).lineLimit(1)
-                if game.isEvent {
-                    Text(game.eventName ?? game.league.shortName)
-                        .font(.inter(24, .semibold)).foregroundStyle(LivePalette.text)
-                        .lineLimit(1).minimumScaleFactor(0.78)
-                    if let session = game.race?.title {
-                        Text(session).font(.inter(16, .semibold))
-                            .foregroundStyle(LineupStyle.highlight.opacity(0.8)).lineLimit(1)
-                    }
-                } else {
-                    matchupTeam(game.awayTeam, abbreviation: game.awayAbbreviation,
-                                logo: game.awayLogo, record: game.awayRecord,
-                                score: game.awayScore, dim: liveLeader(game) == .home, isAway: true)
-                    matchupTeam(game.homeTeam, abbreviation: game.homeAbbreviation,
-                                logo: game.homeLogo, record: game.homeRecord,
-                                score: game.homeScore, dim: liveLeader(game) == .away, isAway: false)
-                }
-                if let place = game.placeLine, !place.isEmpty {
-                    Text(place).font(.inter(14, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
-                        .lineLimit(1)
-                }
-                if let detail = game.soccer?.detail {
-                    Text(detail).font(.inter(13, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
-                        .lineLimit(1)
-                }
+            if game.isEvent {
+                eventContent
+            } else {
+                matchupContent
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            // The home team ends where the status begins; a hairline keeps
+            // its name from reading into the clock.
+            Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1, height: 88)
+                .padding(.leading, 6)
 
             VStack(alignment: .leading, spacing: 8) {
                 if game.isLive {
@@ -2585,9 +2373,16 @@ private struct LiveMatchupListRow: View {
                     Text(game.startLabel).font(.interDigits(20, .semibold))
                         .foregroundStyle(LivePalette.text).lineLimit(1)
                 }
-                if let network = nonempty(game.broadcast) {
-                    Text(network.uppercased()).font(.inter(13, .heavy)).tracking(0.5)
-                        .foregroundStyle(LivePalette.secondary.opacity(0.78)).lineLimit(1)
+                // A game's row has no league column, so its mark rides
+                // with the network; an event's stands at its start.
+                HStack(spacing: 8) {
+                    if !game.isEvent {
+                        SportsMark(league: game.league, competition: game.competition, size: 22)
+                    }
+                    if let network = nonempty(game.broadcast) {
+                        Text(network.uppercased()).font(.inter(13, .heavy)).tracking(0.5)
+                            .foregroundStyle(LivePalette.secondary.opacity(0.78)).lineLimit(1)
+                    }
                 }
                 HStack(spacing: 8) {
                     Image(systemName: isPrimary ? "rectangle.split.2x1.fill" :
@@ -2598,9 +2393,9 @@ private struct LiveMatchupListRow: View {
                 }
                 .foregroundStyle(LivePalette.secondary.opacity(0.82))
             }
-            .frame(width: 310, alignment: .leading)
+            .frame(width: 280, alignment: .leading)
         }
-        .padding(.horizontal, 22).padding(.vertical, 10)
+        .padding(.horizontal, 26).padding(.vertical, 10)
         .frame(maxWidth: .infinity).frame(height: rowHeight)
         .background {
             LinearGradient(colors: [awayColor.opacity(0.19), homeColor.opacity(0.19)],
@@ -2624,197 +2419,104 @@ private struct LiveMatchupListRow: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    private func matchupTeam(_ name: String, abbreviation: String, logo: String, record: String?,
-                             score: String, dim: Bool, isAway: Bool) -> some View {
-        HStack(spacing: 10) {
-            TeamBadge(url: logo,
-                      fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
-                      size: 31, tight: true)
-            Text(name).font(.inter(19, .semibold))
-                .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
-                .lineLimit(1).minimumScaleFactor(0.75)
-            if let record = nonempty(record) {
-                Text(record).font(.interDigits(13, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            if game.isLive, let sets = game.tennis {
-                TennisSetColumns(score: sets, isAway: isAway, size: 22,
-                                 primary: LivePalette.text, secondary: LivePalette.secondary)
-            } else if !game.isUpcoming, !score.isEmpty {
-                Text(score).font(.interDigits(25, .bold))
-                    .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
-                    .contentTransition(.numericText())
-            }
-        }
-    }
-}
-
-/// One matchup on the board.
-private struct LiveMatchupCard: View {
-    @Environment(SportsLibrary.self) private var library
-    @FocusState private var focused: Bool
-    let game: SportsGame
-    let isOnScreen: Bool
-    let multiviewPrimaryID: Int?
-    let onFocus: () -> Void
-    let onPlay: () -> Void
-    let onStartMultiview: () -> Void
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
-        let isPrimary = multiviewPrimaryID != nil && multiviewPrimaryID == library.stream(for: game)?.id
-        VStack(alignment: .leading, spacing: 0) {
-            topLine
-            Spacer(minLength: 8)
-            if game.isEvent {
-                HStack(spacing: 16) {
-                    LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 56)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(game.eventName ?? game.league.shortName)
-                            .font(.inter(22, .semibold)).foregroundStyle(LivePalette.text)
-                            .lineLimit(2).minimumScaleFactor(0.75)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if let session = game.race?.title {
-                            Text(session).font(.inter(16, .bold)).foregroundStyle(LineupStyle.highlight).lineLimit(1)
-                        }
-                    }
+    /// A tournament, a fight card or a race: its mark, then its name.
+    private var eventContent: some View {
+        HStack(spacing: 22) {
+            SportsMark(league: game.league, competition: game.competition, size: 48)
+                .frame(width: 74)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(game.competition?.name.uppercased() ?? game.league.shortName.uppercased())
+                    .font(.inter(13, .heavy)).tracking(0.6)
+                    .foregroundStyle(LivePalette.secondary.opacity(0.82)).lineLimit(1)
+                Text(game.eventName ?? game.league.shortName)
+                    .font(.inter(24, .semibold)).foregroundStyle(LivePalette.text)
+                    .lineLimit(1).minimumScaleFactor(0.78)
+                if let session = game.race?.title {
+                    Text(session).font(.inter(16, .semibold))
+                        .foregroundStyle(LineupStyle.highlight.opacity(0.8)).lineLimit(1)
                 }
-            } else {
-                let lead = liveLeader(game)
-                VStack(spacing: 10) {
-                    team(game.awayTeam, game.awayAbbreviation, game.awayLogo, game.awayRecord, game.awayScore,
-                         dim: lead == .home, isAway: true)
-                    team(game.homeTeam, game.homeAbbreviation, game.homeLogo, game.homeRecord, game.homeScore,
-                         dim: lead == .away, isAway: false)
-                }
-                if let detail = game.soccer?.detail {
-                    Text(detail).font(.inter(13, .semibold)).foregroundStyle(LivePalette.secondary)
+                if let place = game.placeLine, !place.isEmpty {
+                    Text(place).font(.inter(14, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
                         .lineLimit(1)
                 }
             }
-            Spacer(minLength: 8)
-            footer(isPrimary: isPrimary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 22).padding(.top, 16).padding(.bottom, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background { LiveCardSurface(shape: shape, isLive: game.isLive) }
-        // Only multiview's first game is edged; the rest are plain panels.
-        .overlay {
-            if isPrimary { shape.strokeBorder(LivePalette.rim, lineWidth: 2) }
-        }
-        .lineupFocusLayer(focused, in: shape)
-        .contentShape(shape)
-        .focusable().focused($focused).focusEffectDisabled()
-        .tvSelectAction(onPlay)
-        .onChange(of: focused) { _, value in if value { onFocus() } }
-        .modifier(LiveGameMenu(game: game, isPrimary: isPrimary, onStartMultiview: onStartMultiview))
-        .scaleEffect(focused ? LineupStyle.cardLift : 1)
-        .lineupShadow(.lifted, on: focused)
-        .zIndex(focused ? 1 : 0)
-        .animation(.spring(response: 0.26, dampingFraction: 0.82), value: focused)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(liveAccessibilityLabel(game))
-        .accessibilityAddTraits(.isButton)
     }
 
-    private var topLine: some View {
-        HStack(spacing: 10) {
-            if game.competition != nil || game.league.isRacing {
-                SportsMark(league: game.league, competition: game.competition, size: 26)
-            } else {
-                LeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 26)
+    /// Crest, name and record at each end, the score either side of VS in
+    /// the middle, and where it is under the score.
+    private var matchupContent: some View {
+        let lead = liveLeader(game)
+        return VStack(spacing: 6) {
+            HStack(spacing: 0) {
+                teamSide(game.awayTeam, abbreviation: game.awayAbbreviation, logo: game.awayLogo,
+                         record: game.awayRecord, dim: lead == .home)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                scoreLine(lead: lead)
+                    .padding(.horizontal, 24)
+                    .layoutPriority(1)
+                teamSide(game.homeTeam, abbreviation: game.homeAbbreviation, logo: game.homeLogo,
+                         record: game.homeRecord, dim: lead == .away)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            Text(game.competition?.shortName ?? game.league.shortName).font(.inter(15, .heavy)).tracking(0.6)
-                .foregroundStyle(LivePalette.secondary)
-            Spacer(minLength: 0)
+            if let place = matchupPlace {
+                Text(place).font(.inter(21, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.82))
+                    .lineLimit(1).minimumScaleFactor(0.8).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
         }
-        .frame(height: 26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The game clock, or the start, in the bottom corner where a scoreboard
-    /// keeps it.
-    @ViewBuilder private var clock: some View {
-        if game.isLive {
-            HStack(spacing: 8) {
-                PulsingLiveDot(size: 7)
-                Text(game.status.isEmpty ? "LIVE" : game.status.uppercased())
-                    .font(.inter(15, .bold)).tracking(1.2)
-                    .foregroundStyle(LineupStyle.liveStatus)
+    /// The arena and its city and state, and a soccer match's own note
+    /// after them.
+    private var matchupPlace: String? {
+        let parts = [game.fullPlaceLine, game.soccer?.detail].compactMap(nonempty)
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// One team: its crest large, its name, and its record under the name.
+    private func teamSide(_ name: String, abbreviation: String, logo: String, record: String?,
+                          dim: Bool) -> some View {
+        HStack(spacing: 20) {
+            TeamBadge(url: logo,
+                      fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
+                      size: 88, tight: true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(name).font(.inter(36, .semibold))
+                    .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
                     .lineLimit(1).minimumScaleFactor(0.7)
-            }
-        } else {
-            Text(game.startLabel).font(.interDigits(17, .semibold)).tracking(0)
-                .foregroundStyle(LivePalette.text).lineLimit(1)
-        }
-    }
-
-    private func team(_ name: String, _ abbreviation: String, _ logo: String, _ record: String?,
-                      _ score: String, dim: Bool, isAway: Bool) -> some View {
-        HStack(spacing: 14) {
-            TeamBadge(url: logo, fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
-                      size: 40)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name).font(.inter(22, .semibold))
-                    .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
-                    .lineLimit(1).minimumScaleFactor(0.72)
                 if let record = nonempty(record) {
-                    Text(record).font(.interDigits(16, .medium)).foregroundStyle(LivePalette.secondary)
+                    Text(record).font(.interDigits(22, .medium))
+                        .foregroundStyle(LivePalette.secondary.opacity(0.82)).lineLimit(1)
                 }
-            }
-            Spacer(minLength: 8)
-            if game.isLive, let sets = game.tennis {
-                TennisSetColumns(score: sets, isAway: isAway, size: 28,
-                                 primary: LivePalette.text, secondary: LivePalette.secondary)
-            } else if game.isLive, !score.isEmpty {
-                Text(score).font(.interDigits(34, .bold))
-                    .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
-                    .contentTransition(.numericText())
             }
         }
     }
 
-    /// What Select will do here, said only while the card has focus. Nothing
-    /// for multiview's first game: choosing it again as the second does not
-    /// start anything.
-    private func actionHint(isPrimary: Bool) -> (symbol: String, title: String)? {
-        guard focused else { return nil }
-        if multiviewPrimaryID != nil {
-            return isPrimary ? nil : ("rectangle.split.2x1.fill", "SIDE BY SIDE")
+    /// "3  VS  0": the away score, VS, the home score. Before the start, or
+    /// with no score to give, VS alone; a tennis match, its sets either side.
+    private func scoreLine(lead: LiveLead) -> some View {
+        HStack(spacing: 20) {
+            score(game.awayScore, isAway: true, dim: lead == .home)
+            Text("VS").font(.inter(21, .heavy)).tracking(1.4)
+                .foregroundStyle(LivePalette.secondary.opacity(0.8))
+            score(game.homeScore, isAway: false, dim: lead == .away)
         }
-        return isOnScreen ? ("arrow.up.left.and.arrow.down.right", "FULL SCREEN") : ("play.fill", "PREVIEW")
     }
 
-    /// Where to watch and what Select will do on the left, the clock on the
-    /// right. When room runs short the network gives way first; the clock
-    /// never does.
-    private func footer(isPrimary: Bool) -> some View {
-        let hint = actionHint(isPrimary: isPrimary)
-        return HStack(spacing: 14) {
-            if isPrimary {
-                LiveTag(symbol: "rectangle.split.2x1.fill", title: "FIRST GAME")
-            } else if isOnScreen {
-                // Focused, the tag keeps its colour and gives its words to the
-                // hint beside it.
-                LiveTag(symbol: "tv.fill", title: "ON SCREEN", compact: hint != nil)
-            } else if let network = nonempty(game.broadcast) {
-                Text(network.uppercased()).foregroundStyle(LivePalette.secondary).lineLimit(1)
-            } else if hint == nil {
-                Text("NO LISTED NETWORK").foregroundStyle(LivePalette.secondary).lineLimit(1)
-            }
-            if let hint {
-                HStack(spacing: 7) {
-                    Image(systemName: hint.symbol).font(.system(size: 12, weight: .bold, design: .rounded))
-                    Text(hint.title).lineLimit(1)
-                }
-                .layoutPriority(1)
-            }
-            Spacer(minLength: 8)
-            clock.layoutPriority(2)
+    @ViewBuilder
+    private func score(_ value: String, isAway: Bool, dim: Bool) -> some View {
+        if game.isLive, let sets = game.tennis {
+            TennisSetColumns(score: sets, isAway: isAway, size: 30,
+                             primary: LivePalette.text, secondary: LivePalette.secondary)
+        } else if !game.isUpcoming, !value.isEmpty {
+            Text(value).font(.interDigits(52, .bold))
+                .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
+                .contentTransition(.numericText())
+                .lineLimit(1).fixedSize()
         }
-        .font(.inter(13, .heavy)).tracking(0.6)
-        .foregroundStyle(LivePalette.text)
-        .frame(height: 24)
     }
 }
 
@@ -3096,13 +2798,6 @@ private struct LiveTicker: View {
     }
 }
 
-private func sportsTeamColor(_ value: String?) -> Color? {
-    guard var value = nonempty(value) else { return nil }
-    value = value.replacingOccurrences(of: "#", with: "")
-    guard value.count == 6, let hex = UInt64(value, radix: 16) else { return nil }
-    return Color(red: Double((hex >> 16) & 0xff) / 255, green: Double((hex >> 8) & 0xff) / 255, blue: Double(hex & 0xff) / 255)
-}
-
 private func sportsReadableTeamColor(_ value: String?) -> Color? {
     guard var value = nonempty(value) else { return nil }
     value = value.replacingOccurrences(of: "#", with: "")
@@ -3181,52 +2876,6 @@ private struct LeagueLogo: View {
     }
 }
 
-private struct LiveFilterButton: View {
-    @FocusState private var isFocused: Bool
-    let title: String
-    let selected: Bool
-    let action: () -> Void
-    var body: some View {
-        Text(title).foregroundColor(LineupStyle.lightPurple).font(.inter(.callout, .semibold)).padding(.horizontal, 20).frame(height: 42)
-            .foregroundStyle(selected || isFocused ? LineupStyle.text : LineupStyle.secondary)
-            .background(selected ? LineupStyle.lightPurple.opacity(0.10) : Color.clear)
-            .clipShape(Capsule()).nullGlass(cornerRadius: 22)
-            .overlay(alignment: .bottom) { if selected { Capsule().fill(LineupStyle.field).frame(width: 28, height: 3).offset(y: -4) } }
-            .contentShape(Capsule()).focusable().focused($isFocused).focusEffectDisabled().tvSelectAction(action)
-            .focusLift(isFocused, scale: LineupStyle.controlLift)
-    }
-}
-
-private struct ScheduleSection: View {
-    let title: String
-    let events: [SportsGame]
-    let multiviewPrimaryID: Int?
-    let onPlay: (SportsGame) -> Void
-    let onStartMultiview: (SportsGame) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                if title == "Live now" { Circle().fill(LineupStyle.text).frame(width: 9, height: 9) }
-                Text(title.uppercased()).foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .heavy)).tracking(0.6)
-                    .foregroundStyle(title == "Live now" ? LineupStyle.text : LineupStyle.secondary)
-                Text("(\(events.count))").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
-                Rectangle().fill(LineupStyle.line).frame(height: 1)
-            }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 18), GridItem(.flexible(), spacing: 18)], spacing: 18) {
-                ForEach(events) { event in
-                    GameEventCard(
-                        event: event,
-                        multiviewPrimaryID: multiviewPrimaryID,
-                        onPlay: { onPlay(event) },
-                        onStartMultiview: { onStartMultiview(event) }
-                    )
-                }
-            }
-        }
-    }
-}
-
 private struct ScreenHeading: View {
     let title: String
     let detail: String
@@ -3235,193 +2884,6 @@ private struct ScreenHeading: View {
             Rectangle().fill(LineupStyle.highlight).frame(width: 42, height: 4)
             Text(title).font(.inter(44, .bold)).tracking(-1).foregroundStyle(LineupStyle.text)
             Text(detail).font(.inter(.callout, .medium)).foregroundStyle(LineupStyle.secondary)
-        }
-    }
-}
-
-private struct EmptySchedule: View {
-    let isLoading: Bool
-    let isAvailable: Bool
-    let errorMessage: String?
-    var body: some View {
-        HStack(spacing: 16) {
-            if isLoading { ProgressView() } else { Image(systemName: isAvailable ? "calendar" : "wifi.exclamationmark") }
-            Text(isLoading ? "Checking official schedules…" : (isAvailable ? "No games scheduled today or tomorrow" : (errorMessage ?? "Schedule unavailable — try Refresh"))).foregroundColor(LineupStyle.lightPurple)
-        }
-        .font(.inter(.title3)).foregroundStyle(LineupStyle.secondary)
-        .padding(.vertical, 46)
-    }
-}
-
-private struct GameEventCard: View {
-    @Environment(SportsLibrary.self) private var library
-    @EnvironmentObject private var reminders: GameReminders
-    @Environment(\.liveChooseChannel) private var chooseChannel
-    @FocusState private var isFocused: Bool
-    let event: SportsGame
-    let multiviewPrimaryID: Int?
-    let onPlay: () -> Void
-    let onStartMultiview: () -> Void
-    private var stream: XtreamStream? { library.stream(for: event) }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 18) {
-                MatchupArtwork(event: event)
-                VStack(alignment: .leading, spacing: 8) {
-                    if event.isEvent {
-                        Text(event.matchupLine)
-                            .font(.inter(20, .semibold)).foregroundStyle(LineupStyle.text)
-                            .lineLimit(2).minimumScaleFactor(0.75)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        GameTeamLine(logo: event.awayLogo, name: event.awayTeam, score: event.isLive ? event.awayScore : nil)
-                        Text("@").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.secondary).padding(.leading, 20)
-                        GameTeamLine(logo: event.homeLogo, name: event.homeTeam, score: event.isLive ? event.homeScore : nil)
-                    }
-                    if let place = event.placeLine {
-                        Text(place).font(.inter(.caption))
-                            .foregroundStyle(LineupStyle.secondary)
-                            .lineLimit(1).truncationMode(.tail)
-                    }
-                    HStack(spacing: 12) {
-                        Text(event.league.shortName).foregroundColor(LineupStyle.lightPurple)
-                            .font(.inter(.caption, .bold)).padding(.horizontal, 10).frame(height: 28)
-                            .background(LineupStyle.selected).clipShape(Capsule())
-                        Text(event.start.formatted(date: .abbreviated, time: .shortened)).foregroundColor(LineupStyle.lightPurple)
-                            .font(.interDigits(.caption)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
-                        Spacer(minLength: 118)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, 18).padding(.vertical, 16)
-            .overlay(alignment: .bottomTrailing) {
-                GameStatusBadge(event: event)
-                    .padding(.trailing, 18).padding(.bottom, 16)
-            }
-                Rectangle().fill(LineupStyle.line).frame(height: 1)
-                HStack(spacing: 12) {
-                    Image(systemName: stream == nil ? "tv.slash" : "checkmark.circle.fill")
-                        .foregroundStyle(stream == nil ? LineupStyle.warning : LineupStyle.positive)
-                    Text(stream?.name ?? (event.broadcast.isEmpty ? "No matching channel" : event.broadcast)).foregroundColor(LineupStyle.lightPurple)
-                        .font(.inter(.callout, .medium)).foregroundStyle(LineupStyle.lightPurple).lineLimit(1)
-                    Spacer()
-                    if isFocused, stream != nil {
-                        Label("Watch", systemImage: "play.fill")
-                            .font(.inter(.caption, .bold)).foregroundStyle(LineupStyle.text)
-                            .transition(.opacity.combined(with: .move(edge: .trailing)))
-                    }
-                    if stream == nil {
-                        Label("No channel", systemImage: "display").font(.inter(.caption, .semibold)).foregroundStyle(LineupStyle.secondary)
-                    }
-                }
-                .padding(.horizontal, 18).frame(height: 46)
-                .nullGlass(clear: event.isLive, cornerRadius: 0)
-        }
-        .background(isFocused ? LineupStyle.focused : (event.isLive ? LineupStyle.selected : LineupStyle.surface))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).inset(by: 1).stroke(event.isLive ? LineupStyle.text.opacity(0.28) : LineupStyle.line, lineWidth: 1))
-        .overlay {
-            if multiviewPrimaryID == stream?.id {
-                RoundedRectangle(cornerRadius: 14, style: .continuous).inset(by: 2).stroke(LineupStyle.liveSelectionBorder.opacity(0.8), lineWidth: 3)
-            }
-        }
-        .contentShape(Rectangle()).focusable().focused($isFocused).focusEffectDisabled().tvSelectAction(onPlay)
-        .tvHoldMenu(event.matchupLine, symbol: "sportscourt") {
-            var items: [TVChoice] = []
-            if event.isUpcoming {
-                let on = reminders.reminds(event)
-                items.append(TVChoice(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
-                    reminders.toggleGame(event)
-                })
-            }
-            if let chooseChannel {
-                items.append(TVChoice("Choose Another Channel", symbol: "list.bullet.rectangle") { chooseChannel(event) })
-            }
-            // Following is offered wherever a game is, not only in the rail.
-            // The rail is empty until somebody is followed, so a follow action
-            // that lived only there could never be reached from a fresh install.
-            for team in library.followableSides(of: event) {
-                let following = library.isFollowing(team.key)
-                items.append(TVChoice(following ? "Remove \(team.name) from My Teams" : "Add \(team.name) to My Teams",
-                                      symbol: following ? "star.slash" : "star", id: "follow-\(team.id)") {
-                    library.toggleFollow(team)
-                })
-            }
-            if stream != nil {
-                let first = multiviewPrimaryID == stream?.id
-                items.append(TVChoice(first ? "First Multiview Game" : "Start Multiview", symbol: "rectangle.split.2x1",
-                                      isEnabled: !first) { onStartMultiview() })
-            }
-            return items
-        }
-        .focusLift(isFocused)
-        .animation(.easeOut(duration: 0.18), value: isFocused)
-    }
-}
-
-private struct GameStatusBadge: View {
-    let event: SportsGame
-
-    private var title: String {
-        if event.isLive { return "LIVE" }
-        return Calendar.current.isDateInToday(event.start) ? "TODAY" : "TOMORROW"
-    }
-
-    var body: some View {
-        HStack(spacing: 7) {
-            if event.isLive { PulsingLiveDot(size: 7) }
-            Text(title).font(.inter(.caption, .bold)).tracking(1.1)
-        }
-        .foregroundStyle(event.isLive ? LineupStyle.liveStatus : LineupStyle.text)
-        .padding(.horizontal, 13).frame(height: 34)
-        .background(event.isLive ? LineupStyle.liveDot.opacity(0.12) : LineupStyle.lightPurple.opacity(0.06))
-        .clipShape(Capsule())
-        .nullGlass(clear: event.isLive, cornerRadius: 17)
-    }
-}
-
-private struct MatchupArtwork: View {
-    let event: SportsGame
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 10, style: .continuous).fill(LineupStyle.raised)
-            // An event is one card, not two sides. Two crests either side of a
-            // "VS" is a promise the fixture does not make, so it gets the
-            // league's own mark instead.
-            if event.isEvent {
-                LeagueLogo(league: event.league, size: 76)
-            } else {
-                HStack(spacing: 16) {
-                    TeamBadge(url: event.awayLogo, fallback: event.awayAbbreviation, size: 58)
-                    Text("VS").foregroundColor(LineupStyle.lightPurple).font(.inter(.caption2, .bold)).foregroundStyle(LineupStyle.secondary)
-                        .frame(width: 32, height: 32).background(LineupStyle.background).clipShape(Circle())
-                    TeamBadge(url: event.homeLogo, fallback: event.homeAbbreviation, size: 58)
-                }
-            }
-        }.frame(width: 190, height: 126)
-    }
-}
-
-private struct GameTeamLine: View {
-    let logo: String
-    let name: String
-    let score: String?
-    var body: some View {
-        HStack(spacing: 12) {
-            TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 34)
-            Text(name).foregroundColor(LineupStyle.lightPurple)
-                .font(.inter(18, .semibold))
-                .foregroundStyle(LineupStyle.text)
-                .lineLimit(1)
-                .allowsTightening(true)
-                .minimumScaleFactor(0.68)
-                .layoutPriority(1)
-            Spacer(minLength: 12)
-            if let score, !score.isEmpty {
-                Text(score).foregroundColor(LineupStyle.lightPurple).font(.interDigits(.title2, .bold)).foregroundStyle(LineupStyle.text)
-            }
         }
     }
 }
@@ -5341,7 +4803,7 @@ private struct GuideProgramCell: View {
         .onMoveCommand(perform: onMove)
         .accessibilityValue(isOnNow ? "On now" : "")
         // Keep the focused block in timeline coordinates so its fill stays aligned.
-        .onChange(of: isFocused) { focused in if focused { onFocus() } }
+        .onChange(of: isFocused) { _, focused in if focused { onFocus() } }
     }
 }
 

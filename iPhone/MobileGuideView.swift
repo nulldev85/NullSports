@@ -28,7 +28,6 @@ private struct PendingRecording {
 
 struct MobileGuideView: View {
     @Environment(SportsLibrary.self) private var library
-    @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
@@ -62,7 +61,6 @@ struct MobileGuideView: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var reorderingFavorites = false
     @State private var managingCategories = false
-    @State private var showingSeerr = false
     /// The channel before the one in the player, for Last Channel.
     @State private var previousChannel: XtreamStream?
     /// The channel just tuned to, named over the picture for a moment.
@@ -372,8 +370,11 @@ struct MobileGuideView: View {
             .onChange(of: guideViewModeValue) { _, _ in resetGuideScrollPosition() }
             .onChange(of: filter) { _, _ in resetGuideScrollPosition() }
             .onChange(of: query) { _, _ in resetGuideScrollPosition() }
-            .onChange(of: library.favoriteStreamOrder) { _, _ in resetGuideScrollPosition() }
-            .onChange(of: library.recentStreamOrder) { _, _ in resetGuideScrollPosition() }
+            // Adding, removing or moving a favorite keeps the list where it is.
+            // Only the Recents list reorders itself under a new play.
+            .onChange(of: library.recentStreamOrder) { _, _ in
+                if filter == .recents { resetGuideScrollPosition() }
+            }
             .onChange(of: library.streamsRevision) { _, _ in guideStreamsChanged() }
             .onChange(of: enabledProviderIDs) { _, _ in closeRetiredProvider() }
             .onChange(of: isActive) { _, active in
@@ -431,9 +432,6 @@ struct MobileGuideView: View {
             .lineupSheet(isPresented: $managingCategories) {
                 MobileGuideCategoryVisibilityView().environment(library).preferredColorScheme(.dark)
             }
-            .lineupSheet(isPresented: $showingSeerr) {
-                NavigationStack { SeerrSettingsView().environment(media) }
-            }
     }
 
     private var enabledProviderIDs: [UUID] { library.providerRoot.enabledProfiles.map(\.id) }
@@ -483,7 +481,10 @@ struct MobileGuideView: View {
                 library.removeFavorite(stream)
             })
         } else {
-            items.append(MobileMenuItem("Add Favorite", symbol: "star") { library.addFavorite(stream) })
+            items.append(MobileMenuItem("Add Favorite", symbol: "star") {
+                if chosenFilter == nil { chosenFilter = filter }
+                library.addFavorite(stream)
+            })
         }
         if game == nil {
             if let category = stream.categoryID {
@@ -657,9 +658,6 @@ struct MobileGuideView: View {
         else {
             sections.append(MobileMenuSection(id: "categories", items: [
                 MobileMenuItem("Manage Categories", symbol: "eye.slash", isEnabled: !library.categories.isEmpty) { managingCategories = true }
-            ]))
-            sections.append(MobileMenuSection(id: "integrations", items: [
-                MobileMenuItem("Seerr · Discover & Requests", imageName: "SeerrLogo") { showingSeerr = true }
             ]))
         }
         sections.append(MobileMenuSection(id: "refresh", items: [
@@ -1167,13 +1165,18 @@ private struct GuideHorizontalPosition: PreferenceKey {
 }
 
 /// Favorites order drives the guide's channel order, so this list edits it directly:
-/// drag a row to move a channel, swipe or tap the minus to drop it.
+/// drag a row to move a channel, swipe or tap the minus to drop it. Every move is
+/// saved as it lands; closing the sheet confirms nothing.
+///
+/// The rows are this view's own copy of the order. The library's cached Guide
+/// list is not observed, so reading it here left `onMove` working from the order
+/// before the first drag, and later drags undid earlier ones.
 private struct FavoritesOrderView: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
+    @State private var listed: [XtreamStream] = []
 
     var body: some View {
-        let listed = library.guideStreams(categoryID: nil, favoritesOnly: true, query: "")
         NavigationStack {
             Group {
                 if listed.isEmpty {
@@ -1193,10 +1196,14 @@ private struct FavoritesOrderView: View {
                             .listRowBackground(LineupPresentationStyle.card)
                         }
                         .onMove { source, destination in
-                            library.moveFavorites(listed, fromOffsets: source, toOffset: destination)
+                            let before = listed
+                            listed.move(fromOffsets: source, toOffset: destination)
+                            library.moveFavorites(before, fromOffsets: source, toOffset: destination)
                         }
                         .onDelete { offsets in
-                            for stream in offsets.map({ listed[$0] }) { library.removeFavorite(stream) }
+                            let removed = offsets.map { listed[$0] }
+                            listed.remove(atOffsets: offsets)
+                            for stream in removed { library.removeFavorite(stream) }
                         }
                     }
                     .environment(\.editMode, .constant(.active))
@@ -1206,9 +1213,21 @@ private struct FavoritesOrderView: View {
             .background(LineupPresentationStyle.ground)
             .navigationTitle("Favorites").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                LineupToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.buttonStyle(LineupBarButtonStyle(prominent: true)) }
+                LineupToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .buttonStyle(LineupBarButtonStyle())
+                        .accessibilityLabel("Close")
+                }
             }
         }
+        .onAppear(perform: refresh)
+        // A provider refresh can add or drop favorites while this is open.
+        .onChange(of: library.favoriteStreamOrder) { _, _ in refresh() }
+    }
+
+    private func refresh() {
+        let current = library.guideStreams(categoryID: nil, favoritesOnly: true, query: "")
+        if current.map(\.id) != listed.map(\.id) { listed = current }
     }
 }
 

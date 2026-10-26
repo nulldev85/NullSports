@@ -10,3 +10,5 @@ Tests/tvOS/Fixtures/playback.srt
 Tests/tvOS/Fixtures/playback-native.mp4
 Tests/tvOS/Fixtures/playback-software.mkv
 Tests/tvOS/Fixtures/playback-live.ts
+__pycache__/
+*.pyc

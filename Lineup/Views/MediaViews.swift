@@ -85,7 +85,10 @@ struct MediaServersView: View {
             TVMediaServersHome(addingServer: $addingServer, searchingLibrary: $searchingLibrary)
             #else
             Group {
-                if !media.hasAnySource {
+                // The built-in rows come from public charts and need no server:
+                // they show first, and a server's own shelves join them as it
+                // loads. This waits only while there is nothing at all to show.
+                if !media.hasAnySource && media.builtInShelves.isEmpty {
                     LineupUnavailableView(title: "Add a Media Server", symbol: "play.square.stack",
                                           description: Text("Connect a Jellyfin, Emby, Plex or Silo server to watch your own library here.")) {
                         VStack(spacing: 18) {
@@ -94,9 +97,9 @@ struct MediaServersView: View {
                                 .lineupProminentButton()
                         }
                     }
-                } else if media.roots.isEmpty && media.isLoading {
+                } else if media.hasAnySource && media.roots.isEmpty && media.isLoading && media.builtInShelves.isEmpty {
                     ProgressView("Loading libraries…")
-                } else if media.shelves.isEmpty && media.loadFailed {
+                } else if media.hasAnySource && media.shelves.isEmpty && media.loadFailed {
                     // Not "Choose Your Shelves". An attempt that failed and a
                     // server with nothing selected look identical from here,
                     // and telling a viewer to pick shelves that could not be
@@ -111,7 +114,8 @@ struct MediaServersView: View {
                             .lineupProminentButton()
                     }
                 } else {
-                    MediaCatalogsScreen(catalogs: media.mobileShelfCatalogs, searchPresented: $searchingLibrary)
+                    MediaCatalogsScreen(catalogs: media.mobileShelfCatalogs, searchPresented: $searchingLibrary,
+                                        onAddServer: media.hasAnySource ? nil : { addingServer = true })
                 }
             }
             .background(LineupStyle.background.ignoresSafeArea())
@@ -150,6 +154,7 @@ struct MediaServersView: View {
             // stuck on its spinner. The store owns the load and decides whether
             // one is needed; appearing only asks.
             .onAppear {
+                media.refreshCatalogRowsIfNeeded()
                 media.loadShelvesIfNeeded()
                 // The IPTV provider's list is read ahead, for its shelves and
                 // so the first title played does not wait on all of it.
@@ -639,27 +644,6 @@ private struct TVMediaEmptyState: View {
     }
 }
 
-private struct TVMediaHeaderButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HeaderLabel(configuration: configuration)
-    }
-    private struct HeaderLabel: View {
-        @Environment(\.isFocused) private var focused
-        let configuration: ButtonStyle.Configuration
-        var body: some View {
-            configuration.label
-                .font(.inter(16, .semibold))
-                .foregroundStyle(LineupStyle.lightPurple)
-                .padding(.horizontal, 14).frame(minHeight: 42)
-                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .stroke(LineupStyle.line, lineWidth: 1))
-                .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .scaleEffect(focused ? LineupStyle.controlLift : 1)
-                .animation(.spring(response: 0.22, dampingFraction: 0.78), value: focused)
-        }
-    }
-}
 #endif
 
 private enum LibraryHeroRotation {
@@ -686,6 +670,9 @@ private struct MediaCatalogsScreen: View {
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let catalogs: [MediaCatalog]
     @Binding var searchPresented: Bool
+    /// Given while no media server is connected: the rows are only to look at
+    /// until one is, and this is where adding one starts.
+    var onAddServer: (() -> Void)? = nil
     @State private var query = ""
     // On tvOS the sheet edits a draft. Search only the submitted value: remote
     // typing otherwise launches and cancels a network search for every letter.
@@ -799,6 +786,11 @@ private struct MediaCatalogsScreen: View {
                                 // hero, as each starts a gap below the last.
                                 MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem,
                                                  scrollActivity: phoneScrollActivity)
+                            }
+                            if let onAddServer {
+                                MobileAddServerPrompt(action: onAddServer)
+                                    .padding(.horizontal, horizontalPadding)
+                                    .padding(.top, media.heroCatalog == nil ? 110 : 0)
                             }
                             libraryShelves
                         }
@@ -1845,7 +1837,6 @@ struct MediaGridScreen: View {
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
     @State private var choosingShelf = false
-    @State private var editingQuery = false
 
     init(title: String, items: [MediaItem]) {
         self.title = title
@@ -2487,7 +2478,6 @@ private struct MediaDetailScreen: View {
     // The native phone row and TV cards hand navigation to the screen so a
     // recycled/offscreen card never owns the destination's lifetime.
     @State private var pushed: MediaItem?
-    @FocusState private var seasonFocused: Bool
     #if os(tvOS)
     @FocusState private var backFocused: Bool
     @Environment(\.tvTabBar) private var tabBar
@@ -2509,9 +2499,12 @@ private struct MediaDetailScreen: View {
     @State private var similarRequest: SeerrTitleRoute?
     @State private var similarUnavailable = false
     @State private var similarTitle = ""
+    @State private var addingServer = false
     #endif
 
     private var subject: MediaItem { media.displayItem(detail ?? item) }
+    /// A title from the Library's charts that no source has yet.
+    private var isCatalogOnly: Bool { media.isCatalogOnly(item) }
 
     var body: some View {
         Group {
@@ -2581,8 +2574,11 @@ private struct MediaDetailScreen: View {
             NavigationStack { SeerrTitleView(id: route.id, kind: route.kind, initialTitle: route.title).environment(media) }
         }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .lineupSheet(isPresented: $addingServer) {
+            MediaServerSetupView().environment(media).preferredColorScheme(.dark)
+        }
         .toolbar {
-            if ["Movie", "Series"].contains(subject.type) {
+            if ["Movie", "Series"].contains(subject.type), !isCatalogOnly {
                 LineupToolbarItem(placement: .primaryAction) {
                     Button("Collections", systemImage: "folder.badge.plus") { media.collectionSelectionItem = subject }
                         .buttonStyle(LineupBarButtonStyle())
@@ -2625,7 +2621,7 @@ private struct MediaDetailScreen: View {
                         MediaRatingChips(ratings: ratings, centered: true).frame(maxWidth: .infinity, alignment: .center)
                     }
                     metaLine.frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
-                    actions
+                    if isCatalogOnly { catalogActions } else { actions }
                     overview
                     LibraryMetadataCredit(item: subject).frame(maxWidth: .infinity, alignment: .center)
                 }
@@ -2634,7 +2630,7 @@ private struct MediaDetailScreen: View {
                 // title sitting on the last of it is one picture; the title
                 // waiting below a finished band of artwork is two.
                 .padding(.top, contentRise)
-                episodesSection
+                if !isCatalogOnly { episodesSection }
                 trailersSection
                 castSection
                 relatedSection
@@ -2899,6 +2895,41 @@ private struct MediaDetailScreen: View {
         #endif
         .lineupFocusRegion()
     }
+
+    #if !os(tvOS)
+    /// A chart title's page: Play stays in its place, greyed, with what it
+    /// takes to play it. With a source connected, the title is looked for there.
+    private var catalogActions: some View {
+        VStack(spacing: 12) {
+            Button {} label: { playLabel }
+                .buttonStyle(MobileLibraryDetailButtonStyle())
+                .disabled(true)
+            if media.canPlayAnything {
+                Button { openSimilar(subject) } label: {
+                    Label("Find in My Sources", systemImage: "magnifyingglass").padding(.horizontal, 14)
+                }
+                .buttonStyle(MobileLibraryDetailButtonStyle())
+                .disabled(openingSimilar != nil)
+            } else {
+                Text("Set up a media server to play this.")
+                    .font(.inter(.subheadline)).foregroundStyle(LineupPresentationStyle.secondary)
+                    .multilineTextAlignment(.center)
+                Button("Add Media Server") { addingServer = true }.lineupProminentButton()
+            }
+            if media.seerr.isConnected {
+                NavigationLink { SeerrLibraryRequestView(item: subject).environment(media) } label: {
+                    HStack(spacing: 8) {
+                        Image("SeerrLogo").renderingMode(.original).resizable().scaledToFit()
+                            .frame(width: 22, height: 22).accessibilityHidden(true)
+                        Text("Seerr")
+                    }.padding(.horizontal, 14)
+                }
+                .buttonStyle(MobileLibraryDetailButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+    #endif
 
     private var detailActionAlignment: HorizontalAlignment {
         #if os(tvOS)
@@ -3301,7 +3332,8 @@ private struct MediaDetailScreen: View {
         related = []
         preparedHero = nil
         #endif
-        let loaded = try? await media.details(of: item)
+        // A chart title has no server to ask: its page is TMDB's details.
+        let loaded = media.isCatalogOnly(item) ? nil : try? await media.details(of: item)
         guard !Task.isCancelled else { return }
         detail = loaded ?? item
         favorite = (loaded ?? item).isFavorite || media.isLocalFavorite(loaded ?? item)
@@ -3323,7 +3355,7 @@ private struct MediaDetailScreen: View {
         // episode/resume selection or the detail header.
         #endif
         // A film is the whole of itself: nothing underneath to go and get.
-        guard subject.isSeries else { loading = false; pageReady = true; return }
+        guard subject.isSeries, !media.isCatalogOnly(item) else { loading = false; pageReady = true; return }
         do {
             let children = try await media.numberedChildren(of: item)
             let seasonList = children.filter { $0.type == "Season" }
@@ -3390,7 +3422,7 @@ private struct MediaDetailScreen: View {
             }
         })]
         return ZStack(alignment: .topLeading) {
-            Color.black.opacity(0.45)
+            Color.black.opacity(MobileMenuGlass.backdrop)
                 .contentShape(Rectangle())
                 .onTapGesture { setSeasonMenu(false) }
                 .accessibilityHidden(true)
@@ -3541,13 +3573,6 @@ private struct MediaDetailScreen: View {
         .inter(24, .heavy)
         #else
         .inter(.title3, .heavy)
-        #endif
-    }
-    private var episodeColumns: [GridItem] {
-        #if os(tvOS)
-        [GridItem(.adaptive(minimum: 360, maximum: 460), spacing: 24)]
-        #else
-        [GridItem(.adaptive(minimum: 150, maximum: 260), spacing: 14)]
         #endif
     }
 }
@@ -3746,6 +3771,7 @@ extension MediaLibrary {
     /// What a touch held on a Library card offers: leaving Continue
     /// Watching, and for an episode, watched and favorite.
     func cardMenuItems(for item: MediaItem) -> [MobileMenuItem] {
+        guard !isCatalogOnly(item) else { return [] }
         var items: [MobileMenuItem] = []
         if isInContinueWatching(item) {
             items.append(MobileMenuItem("Remove from Continue Watching", symbol: "rectangle.stack.badge.minus",
@@ -3823,8 +3849,6 @@ private final class TVMediaPreviewState: ObservableObject {
     private var details: [String: MediaItem] = [:]
     private var focusedPosterIDs: Set<String> = []
     private var detailLoad: Task<Void, Never>?
-
-    var isNavigating: Bool { !focusedPosterIDs.isEmpty }
 
     func setInitial(_ initial: MediaItem?) {
         guard item == nil else { return }
@@ -6989,11 +7013,11 @@ private struct MediaServerSignInPanel: View {
         #else
         VStack(spacing: 0) {
             MediaServerField(label: "Address", prompt: "192.168.1.50:8096", text: $form.server, kind: .address)
-            Divider().overlay(LineupStyle.line).padding(.leading, 14)
+            MediaServerFieldDivider()
             MediaServerField(label: "Name", prompt: "Optional", text: $form.name)
-            Divider().overlay(LineupStyle.line).padding(.leading, 14)
+            MediaServerFieldDivider()
             MediaServerField(label: "Username", prompt: "Required", text: $form.username, kind: .username)
-            Divider().overlay(LineupStyle.line).padding(.leading, 14)
+            MediaServerFieldDivider()
             MediaServerField(label: "Password", prompt: "Optional", text: $form.password, kind: .password)
         }
         .background(brand.loginTint.opacity(0.09), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -7011,14 +7035,16 @@ private struct MediaServerSignInPanel: View {
     #endif
 }
 
-/// One labelled field of a sign-in.
-private struct MediaServerField: View {
+/// One labelled field of a sign-in. Silo's sign-in shares it.
+struct MediaServerField: View {
     let label: String
     let prompt: String
     @Binding var text: String
     var kind: Kind = .plain
 
-    enum Kind { case plain, address, username, password }
+    /// A secret is hidden like a password, but it is not one, so the
+    /// device does not offer saved passwords for it.
+    enum Kind { case plain, address, username, password, secret }
 
     var body: some View {
         #if os(tvOS)
@@ -7047,6 +7073,8 @@ private struct MediaServerField: View {
                 #if !os(tvOS)
                 .textContentType(.password)
                 #endif
+        case .secret:
+            SecureField(label, text: $text, prompt: Text(prompt))
         case .address:
             TextField(label, text: $text, prompt: Text(prompt))
                 #if !os(tvOS)
@@ -7062,6 +7090,47 @@ private struct MediaServerField: View {
             TextField(label, text: $text, prompt: Text(prompt))
         }
     }
+}
+
+/// A hairline between two fields of an iPhone sign-in.
+struct MediaServerFieldDivider: View {
+    var body: some View {
+        Divider().overlay(LineupStyle.line).padding(.leading, 14)
+    }
+}
+
+/// One of a sign-in's choices, such as how to sign in or which profile,
+/// marked when it is the one in use.
+struct MediaServerChoice: View {
+    let title: String
+    let symbol: String
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol).accessibilityHidden(true)
+                Text(title).fixedSize(horizontal: true, vertical: false)
+                Image(systemName: "checkmark").font(.system(size: checkSize, weight: .heavy))
+                    .opacity(selected ? 1 : 0).accessibilityHidden(true)
+            }
+            .foregroundStyle(LineupPresentationStyle.text)
+        }
+        #if os(tvOS)
+        .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
+        #else
+        .buttonStyle(MobileIntegrationButtonStyle(selected: selected))
+        #endif
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
+    }
+
+    #if os(tvOS)
+    private var checkSize: CGFloat { 18 }
+    #else
+    private var checkSize: CGFloat { 10 }
+    #endif
 }
 
 /// Linking a Plex account, Plex's own way: a short code entered at
@@ -7456,6 +7525,29 @@ private struct MediaSeasonMenuAnchor: PreferenceKey {
     static var defaultValue: Anchor<CGRect>?
     static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
         value = value ?? nextValue()
+    }
+}
+#endif
+
+#if !os(tvOS)
+/// Under the hero while no media server is connected: the built-in rows are
+/// there to browse, and this is where playing them starts.
+private struct MobileAddServerPrompt: View {
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            MediaServerLogoRow(size: 24)
+            Text("Add a media server to play these")
+                .font(.inter(.headline, .semibold)).foregroundStyle(LineupStyle.text)
+            Text("Connect Jellyfin, Emby, Plex or Silo. Until then, every title shows its details but can't play.")
+                .font(.inter(.subheadline)).foregroundStyle(LineupPresentationStyle.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Add Media Server", action: action).lineupProminentButton()
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .lineupPresentationSurface(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 #endif

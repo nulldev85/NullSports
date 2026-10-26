@@ -56,7 +56,8 @@ struct MobileMenuSection: Identifiable {
 /// The app's dropdown, in place of the system's menu: a panel like every
 /// other one -- its header and hairline inside it, then rows with coloured
 /// tiles, the chosen one ticked in the accent on the panel's grey well. The
-/// Sports tab's league list is drawn the same way.
+/// Sports tab's league list is drawn the same way, and both on the menus'
+/// see-through surface.
 struct MobileDropdownPanel: View {
     let title: String
     let symbol: String
@@ -131,9 +132,8 @@ struct MobileDropdownPanel: View {
             .scrollIndicators(.hidden)
             .frame(height: min(content, max(Self.rowHeight * 2, maxHeight - Self.headerHeight)))
         }
-        .lineupPresentationSurface(shape)
+        .mobileMenuSurface(shape)
         .lineupPresentation()
-        .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
         .onAppear {
             withAnimation(reduceMotion ? .easeOut(duration: 0.15)
                           : .spring(response: 0.32, dampingFraction: 0.88)) { shown = true }
@@ -220,7 +220,7 @@ struct MobileMenuRow: View {
                     .font(.inter(11, .semibold))
                     .foregroundStyle(presentationTint ?? LineupStyle.highlight)
                     .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(LineupPresentationStyle.row, in: Capsule())
+                    .background(MobileMenuGlass.well, in: Capsule())
             }
             if item.isSelected {
                 Image(systemName: "checkmark")
@@ -236,8 +236,10 @@ struct MobileMenuRow: View {
         .padding(.horizontal, 10).padding(.vertical, 6)
         .frame(minHeight: MobileDropdownPanel.rowHeight)
         .background(item.isSelected ? LineupPresentationStyle.selection(presentationTint ?? LineupStyle.highlight)
-                    : LineupPresentationStyle.row,
+                    : MobileMenuGlass.well,
                     in: RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2)
+            .strokeBorder(MobileMenuGlass.wellEdge, lineWidth: 1))
         .contentShape(Rectangle())
         .opacity(item.isEnabled ? 1 : 0.4)
         .accessibilityElement(children: .combine)
@@ -254,7 +256,7 @@ struct MobileDropdownLayer: View {
     let sections: [MobileMenuSection]
     var alignment: Alignment = .topTrailing
     var horizontalInset: CGFloat = 16
-    var backdropOpacity: Double = 0.45
+    var backdropOpacity: Double = MobileMenuGlass.backdrop
     var transitionAnchor: UnitPoint = .topTrailing
     let close: () -> Void
 
@@ -275,8 +277,9 @@ struct MobileDropdownLayer: View {
                         .padding(.horizontal, horizontalInset)
                         .padding(.top, 6)
                         // Opens with a little growth from the button; closes
-                        // as one flat layer fading out at once.
-                        .compositingGroup()
+                        // fading out. Not a compositing group: drawn apart
+                        // from the screen, the frost would have nothing
+                        // behind it to see.
                         .transition(.asymmetric(
                             insertion: reduceMotion ? AnyTransition.opacity
                                 : AnyTransition.scale(scale: 0.94, anchor: transitionAnchor).combined(with: .opacity),
@@ -312,11 +315,11 @@ struct MobileDropdownButton: View {
     }
 }
 
-/// A row pressed in: the grey of a chosen row, and a little give.
+/// A row pressed in: a well a step lighter, and a little give.
 private struct MobileDropdownRowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? LineupPresentationStyle.row.opacity(0.8) : .clear,
+            .background(configuration.isPressed ? MobileMenuGlass.pressed : .clear,
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)
@@ -356,7 +359,7 @@ private struct MobileChoiceSheet: ViewModifier {
         content.overlay {
             ZStack(alignment: .bottom) {
                 if isPresented {
-                    Color.black.opacity(0.62)
+                    Color.black.opacity(MobileMenuGlass.sheetBackdrop)
                         .ignoresSafeArea()
                         .contentShape(Rectangle())
                         .onTapGesture { cancel() }
@@ -407,20 +410,19 @@ private struct MobileChoiceSheet: ViewModifier {
                     .onPreferenceChange(MobileChoiceRowsHeight.self) { rowsHeight = $0 }
                 }
             }
-            .lineupPresentationSurface(shape)
+            .mobileMenuSurface(shape)
             Button { cancel() } label: {
                 Text(cancelTitle)
                     .font(.inter(17, .bold))
                     .foregroundStyle(LineupPresentationStyle.text)
                     .frame(maxWidth: .infinity, minHeight: 54)
-                    .lineupPresentationSurface(shape)
+                    .mobileMenuSurface(shape)
                     .contentShape(shape)
             }
             .buttonStyle(MobileDropdownRowStyle())
         }
         .fixedSize(horizontal: false, vertical: true)
         .lineupPresentation(tint: tint)
-        .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { cancel() }
     }
@@ -446,6 +448,36 @@ private struct MobileChoiceSheet: ViewModifier {
 private struct MobileChoiceRowsHeight: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+// MARK: - The menus' surface
+
+/// What every dropdown, sub-menu, choice sheet and hold menu is drawn on: the
+/// welcome screen's sign-in card, a little darker. Black at seventy-two per
+/// cent with a faint white edge, nothing frosted and no shadow, so the screen
+/// shows through it; rows are drawn as that card's fields are.
+enum MobileMenuGlass {
+    /// The card's ground, darkened from its 0.6 so text stays easy to read
+    /// over a busy screen.
+    static let tint = Color.black.opacity(0.72)
+    /// A row's well and its edge, as the card draws a field.
+    static let well = Color.white.opacity(0.14)
+    static let wellEdge = Color.white.opacity(0.12)
+    static let pressed = Color.white.opacity(0.09)
+    static let edge = Color.white.opacity(0.11)
+    /// The screen steps back a little less than it did behind a solid panel,
+    /// or there would be nothing left to see through the menu.
+    static let backdrop = 0.32
+    static let sheetBackdrop = 0.48
+}
+
+extension View {
+    /// The menus' see-through panel, in the menu's own shape.
+    func mobileMenuSurface<S: InsettableShape>(_ shape: S) -> some View {
+        background(MobileMenuGlass.tint, in: shape)
+            .overlay(shape.strokeBorder(MobileMenuGlass.edge, lineWidth: 1))
+            .clipShape(shape)
+    }
 }
 
 // MARK: - Touch and hold

@@ -169,6 +169,17 @@ final class GamePlaceLineTests: XCTestCase {
         XCTAssertEqual(fixture.placeLine, "Lambeau Field")
     }
 
+    // The television's matchup rows are wide enough for the arena and where
+    // it is, so they get both.
+    func testTheFullPlaceLineNamesTheVenueAndTheCity() throws {
+        let fixture = try game(league: "nhl", venue: "Rogers Arena", location: "Vancouver, BC")
+        XCTAssertEqual(fixture.fullPlaceLine, "Rogers Arena \u{00B7} Vancouver, BC")
+        XCTAssertEqual(fixture.placeLine, "Rogers Arena", "The phone's cards keep the venue alone")
+        XCTAssertEqual(try game(league: "nba", venue: " ", location: "New York, NY").fullPlaceLine, "New York, NY")
+        XCTAssertEqual(try game(league: "nfl", venue: "Lambeau Field").fullPlaceLine, "Lambeau Field")
+        XCTAssertNil(try game(league: "nhl", venue: "", location: "").fullPlaceLine)
+    }
+
     // An empty or blank event name is not an event: a fixture keeps its two
     // teams and its venue line.
     func testABlankEventNameLeavesAFixtureAlone() throws {
