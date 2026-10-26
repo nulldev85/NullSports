@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import Observation
 
 struct RootView: View {
     @Environment(SportsLibrary.self) private var library
@@ -79,10 +80,10 @@ struct RootView: View {
 /// app was relaunched. Tracking each page and stating the answer on
 /// every tab means a page closing is a change of state the bar follows,
 /// and the Library's own screen puts it back whenever it shows.
-@MainActor
-final class TVTabBarState: ObservableObject {
-    @Published private(set) var hidden = false
-    private var pagesOpen: Set<UUID> = []
+@MainActor @Observable
+final class TVTabBarState {
+    private(set) var hidden = false
+    @ObservationIgnored private var pagesOpen: Set<UUID> = []
 
     func pageAppeared(_ id: UUID) { pagesOpen.insert(id); sync() }
     func pageDisappeared(_ id: UUID) { pagesOpen.remove(id); sync() }
@@ -114,7 +115,7 @@ private extension View {
 
 struct MainView: View {
     @State private var selectedTab = 0
-    @StateObject private var tabBar = TVTabBarState()
+    @State private var tabBar = TVTabBarState()
     /// The accent chosen on the phone, which iCloud brings here: the tabs
     /// are drawn again in it when it changes, as the phone's are.
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex

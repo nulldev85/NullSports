@@ -1,4 +1,5 @@
 import SwiftUI
+import Observation
 #if os(tvOS)
 import UIKit
 #endif
@@ -4153,7 +4154,7 @@ private struct MediaLibraryHero: View {
     let catalog: MediaCatalog
     let onOpen: (MediaItem) -> Void
     #if !os(tvOS)
-    @ObservedObject var scrollActivity: MobileLibraryScrollActivity
+    let scrollActivity: MobileLibraryScrollActivity
     #endif
     @State private var index = 0
     @State private var isDragging = false
@@ -6789,8 +6790,9 @@ private struct MediaServerPanelStack: Layout {
 
 #if !os(tvOS)
 /// How far across the sign-ins the phone's pager sits, in pages.
-final class MediaServerSwipe: ObservableObject {
-    @Published var progress: CGFloat = 0
+@Observable
+final class MediaServerSwipe {
+    var progress: CGFloat = 0
 }
 
 /// Keeps the marker under the logos where the pager is, frame by frame, as a
@@ -6821,7 +6823,7 @@ private struct MediaServerPicker: View {
     #if os(tvOS)
     @FocusState private var focused: MediaServerBrand?
     #else
-    @ObservedObject var swipe: MediaServerSwipe
+    let swipe: MediaServerSwipe
     #endif
 
     var body: some View {
