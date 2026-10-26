@@ -288,7 +288,7 @@ struct MobileLiveView: View {
                     if leagueMenuOpen && !fillsScreen {
                         // Everything under the header steps back. The pill
                         // stays in reach: it is how the list closes, too.
-                        Color.black.opacity(0.45)
+                        Color.black.opacity(MobileMenuGlass.backdrop)
                             .padding(.top, Self.headerHeight)
                             .onTapGesture { setLeagueMenu(false) }
                             .transition(.opacity)
@@ -304,10 +304,10 @@ struct MobileLiveView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 16)
                         .padding(.top, Self.headerHeight - 4)
-                        // Opens with a little growth from the pill; closes as
-                        // one flat layer fading out at once, so nothing in it
-                        // trails behind the panel.
-                        .compositingGroup()
+                        // Opens with a little growth from the pill; closes
+                        // fading out. Not a compositing group: drawn apart
+                        // from the screen, the frost would have nothing behind
+                        // it to see.
                         .transition(.asymmetric(
                             insertion: reduceMotion ? AnyTransition.opacity
                                 : AnyTransition.scale(scale: 0.94, anchor: .topLeading).combined(with: .opacity),

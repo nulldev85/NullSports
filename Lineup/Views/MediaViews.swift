@@ -3445,7 +3445,7 @@ private struct MediaDetailScreen: View {
             }
         })]
         return ZStack(alignment: .topLeading) {
-            Color.black.opacity(0.45)
+            Color.black.opacity(MobileMenuGlass.backdrop)
                 .contentShape(Rectangle())
                 .onTapGesture { setSeasonMenu(false) }
                 .accessibilityHidden(true)

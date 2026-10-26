@@ -111,9 +111,9 @@ struct MobileLeagueMenu: View {
             .scrollIndicators(.hidden)
             .frame(height: min(content, max(0, maxHeight - Self.headerHeight)))
         }
-        .lineupPresentationSurface(shape)
+        .mobileMenuSurface(shape)
         .lineupPresentation()
-        .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
+        .shadow(color: .black.opacity(MobileMenuGlass.shadow), radius: 24, y: 12)
         .onAppear { shown = true }
         .accessibilityAddTraits(.isModal)
     }
