@@ -453,12 +453,13 @@ private struct MobileChoiceRowsHeight: PreferenceKey {
 // MARK: - The menus' surface
 
 /// What every dropdown, sub-menu, choice sheet and hold menu is drawn on: the
-/// welcome screen's sign-in card. Black at sixty per cent with a faint white
-/// edge, nothing frosted and no shadow, so the screen shows plainly through
-/// it; rows are drawn as that card's fields are.
+/// welcome screen's sign-in card, a little darker. Black at seventy-two per
+/// cent with a faint white edge, nothing frosted and no shadow, so the screen
+/// shows through it; rows are drawn as that card's fields are.
 enum MobileMenuGlass {
-    /// The card's own ground.
-    static let tint = Color.black.opacity(0.6)
+    /// The card's ground, darkened from its 0.6 so text stays easy to read
+    /// over a busy screen.
+    static let tint = Color.black.opacity(0.72)
     /// A row's well and its edge, as the card draws a field.
     static let well = Color.white.opacity(0.14)
     static let wellEdge = Color.white.opacity(0.12)
