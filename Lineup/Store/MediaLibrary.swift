@@ -71,6 +71,15 @@ final class MediaLibrary {
     private(set) var trendingTitles: [String: [MediaItem]] = [:] {
         didSet { streamingVersion &+= 1 }
     }
+    /// What the built-in rows hold before anything can play from them: each
+    /// chart's titles as TMDB cards, by service and by row. Phone only; see
+    /// `showsCatalogRows`.
+    private(set) var catalogServices: [String: StreamingServiceTitles] = [:] {
+        didSet { streamingVersion &+= 1 }
+    }
+    private(set) var catalogTrending: [String: [MediaItem]] = [:] {
+        didSet { streamingVersion &+= 1 }
+    }
     /// Trending rows the viewer has taken away.
     private(set) var hiddenTrendingRows: Set<String> = []
     /// The Library's rows in the order the viewer arranged them, by row id;
@@ -295,6 +304,9 @@ final class MediaLibrary {
     @ObservationIgnored private var streamingRestore: Task<StreamingServicesSnapshot?, Never>?
     /// Counts changes to `streamingServices`, for the memos below.
     @ObservationIgnored private var streamingVersion = 0
+    /// The charts' own build for the built-in rows, when one is running.
+    @ObservationIgnored private var catalogLoad: Task<Void, Never>?
+    @ObservationIgnored private var catalogBuiltAt: Date?
     /// The row and each service's titles as last worked out, so a redraw --
     /// and on the television every move of the remote redraws the shelves --
     /// costs a comparison rather than a pass over every title.
@@ -413,6 +425,7 @@ final class MediaLibrary {
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
         shelfNames = defaults.dictionary(forKey: shelfNamesKey) as? [String: String] ?? [:]
         restoreStreamingSnapshot()
+        restoreCatalogSnapshot()
         let listsRestored = restoreMDBListSnapshot()
         let formerActive = formerActiveServer()
         for profile in profiles {
@@ -1041,14 +1054,21 @@ final class MediaLibrary {
         return servers.groups.lazy.flatMap(\.items).first { MediaTitleMatch.isSame(item, $0) }
     }
 
+    /// A chart title has no server to describe it, so it is always TMDB's,
+    /// whatever source the Library's own titles use.
+    private func metadataSourceUsed(for item: MediaItem) -> LibraryMetadataSource {
+        if isCatalogOnly(item) { return .tmdb }
+        return item.type == "Episode" ? episodeDataSource : metadataSource
+    }
+
     func metadataRequestKey(for item: MediaItem) -> String {
-        let source = item.type == "Episode" ? episodeDataSource : metadataSource
+        let source = metadataSourceUsed(for: item)
         if source == .provider { return "provider|" + item.libraryKey }
         return LibraryMetadataIdentity.requestKey(item, source: source)
     }
 
     func displayItem(_ item: MediaItem) -> MediaItem {
-        let source = item.type == "Episode" ? episodeDataSource : metadataSource
+        let source = metadataSourceUsed(for: item)
         guard source != .provider else { return item.withMetadata(nil) }
         return item.withMetadata(metadataResults[metadataRequestKey(for: item)])
     }
@@ -1056,7 +1076,7 @@ final class MediaLibrary {
     /// Called by visible cards and pages, never from a SwiftUI body. Library
     /// rendering stays synchronous and fetching cannot block focus or scrolling.
     func resolveMetadata(for item: MediaItem) async {
-        let source = item.type == "Episode" ? episodeDataSource : metadataSource
+        let source = metadataSourceUsed(for: item)
         guard source != .provider, metadataAvailable(source),
               ["Movie", "Series", "Episode"].contains(item.type) else { return }
         let key = metadataRequestKey(for: item)
@@ -4197,9 +4217,11 @@ extension MediaLibrary {
         let key = streamingMemoKey + "|" + hiddenTrendingRows.sorted().joined(separator: ",")
         if let memo = trendingShelvesMemo, memo.key == key { return memo.shelves }
         let sources = recordSources
+        let charts = showsCatalogRows
         let shelves = LibraryTrendingRow.all.compactMap { row -> MediaCatalog? in
             guard !hiddenTrendingRows.contains(row.id) else { return nil }
-            let items = (trendingTitles[row.id] ?? []).filter { item in item.serverID.map { sources.contains($0) } ?? false }
+            var items = (trendingTitles[row.id] ?? []).filter { item in item.serverID.map { sources.contains($0) } ?? false }
+            if items.isEmpty, charts { items = catalogTrending[row.id] ?? [] }
             return items.isEmpty ? nil : MediaCatalog(root: row.root, items: items)
         }
         trendingShelvesMemo = (key, shelves)
@@ -4245,7 +4267,8 @@ extension MediaLibrary {
         let key = streamingMemoKey
         if streamingTitlesMemo.key != key { streamingTitlesMemo = (key, [:]) }
         if let held = streamingTitlesMemo.titles[service.id] { return held }
-        let held = streamingServices[service.id]?.held(by: recordSources) ?? StreamingServiceTitles()
+        var held = streamingServices[service.id]?.held(by: recordSources) ?? StreamingServiceTitles()
+        if held.isEmpty, showsCatalogRows, let charts = catalogServices[service.id] { held = charts }
         streamingTitlesMemo.titles[service.id] = held
         return held
     }
@@ -4253,7 +4276,7 @@ extension MediaLibrary {
     /// What the row's memos depend on: the titles, and the sources connected.
     /// Also what a service's screen keys its own ordering by.
     var streamingMemoKey: String {
-        "\(streamingVersion)|" + recordSources.map(\.uuidString).sorted().joined(separator: ",")
+        "\(streamingVersion)|\(showsCatalogRows)|" + recordSources.map(\.uuidString).sorted().joined(separator: ",")
     }
 
     /// When the row was last built, for the line that says how fresh it is.
@@ -4277,6 +4300,7 @@ extension MediaLibrary {
     /// shelves have loaded, waits a moment more so their posters are fetched
     /// first, and does its matching off the main thread.
     func refreshStreamingServicesIfNeeded(force: Bool = false) {
+        refreshCatalogRowsIfNeeded()
         let wanted = showsStreamingServices || LibraryTrendingRow.all.contains { !hiddenTrendingRows.contains($0.id) }
         guard wanted, streamingLoad == nil else { return }
         let sources = recordSources.map(\.uuidString).sorted()
@@ -4521,6 +4545,123 @@ extension MediaLibrary {
         trendingTitles = snapshot.trending ?? [:]
         streamingBuiltAt = snapshot.builtAt
         streamingSources = snapshot.sources
+    }
+}
+
+// MARK: - The built-in rows before anything plays
+
+extension MediaLibrary {
+    /// A chart title no source has yet: its TMDB identity and nothing else.
+    /// The card finds its poster through TMDB like any other title.
+    static let catalogItemPrefix = "catalog|"
+
+    static func catalogItem(_ entry: MDBListCatalogItem) -> MediaItem? {
+        guard let tmdb = entry.tmdbID else { return nil }
+        let series = entry.mediaType == "show"
+        var ids = ["tmdb": tmdb]
+        if let imdb = entry.imdbID { ids["imdb"] = imdb }
+        if let tvdb = entry.tvdbID { ids["tvdb"] = tvdb }
+        return MediaItem(id: catalogItemPrefix + (series ? "series|" : "movie|") + tmdb, name: entry.title,
+                         type: series ? "Series" : "Movie", overview: nil, productionYear: entry.releaseYear,
+                         primaryImageAspectRatio: nil, childCount: nil, providerIDs: ids)
+    }
+
+    /// A card from the charts rather than from anything that can play it.
+    func isCatalogOnly(_ item: MediaItem) -> Bool { item.id.hasPrefix(Self.catalogItemPrefix) }
+
+    /// Whether any media server or the IPTV provider's films and shows are
+    /// connected, so a chart title can be looked for somewhere.
+    var canPlayAnything: Bool { !recordSources.isEmpty }
+
+    /// The built-in rows stand on the charts alone until the sources can play
+    /// from them: with nothing connected, and with a source just added whose
+    /// own build has not finished. The television keeps its playable rows only.
+    var showsCatalogRows: Bool {
+        #if os(iOS)
+        let sources = recordSources.map(\.uuidString).sorted()
+        return sources.isEmpty || streamingBuiltAt == nil || streamingSources != sources
+        #else
+        false
+        #endif
+    }
+
+    /// Reads the charts for the built-in rows when they will be shown and the
+    /// last read is more than a few hours old. Needs no source at all.
+    func refreshCatalogRowsIfNeeded() {
+        guard showsCatalogRows, catalogLoad == nil else { return }
+        let wanted = showsStreamingServices || LibraryTrendingRow.all.contains { !hiddenTrendingRows.contains($0.id) }
+        guard wanted else { return }
+        if let built = catalogBuiltAt, Date().timeIntervalSince(built) < 6 * 3600,
+           !catalogTrending.isEmpty || !catalogServices.isEmpty { return }
+        catalogLoad = Task(priority: .userInitiated) { [weak self] in
+            await self?.buildCatalogRows()
+            self?.catalogLoad = nil
+        }
+    }
+
+    private func buildCatalogRows() async {
+        let paths = Array(Set(StreamingService.all.flatMap { $0.lists.map(\.path) }
+                              + LibraryTrendingRow.all.flatMap(\.lists))).sorted()
+        let lists = await Self.fetchStreamingLists(paths)
+        guard !Task.isCancelled, !lists.isEmpty else { return }
+        let resolve = { (entry: MDBListCatalogItem) in Self.catalogItem(entry) }
+        func entries(_ service: StreamingService, _ kind: StreamingTitle.Kind,
+                     _ chart: StreamingTitle.Chart) -> [MDBListCatalogItem] {
+            guard let list = service.lists.first(where: { $0.kind == kind && $0.chart == chart }),
+                  let found = lists[list.path] else { return [] }
+            return StreamingCatalogBuilder.entries(of: found, chart: chart, kind: kind)
+        }
+        var services = catalogServices
+        for service in StreamingService.all where service.lists.contains(where: { lists[$0.path] != nil }) {
+            services[service.id] = StreamingServiceTitles(
+                movies: StreamingCatalogBuilder.titles(popular: entries(service, .movie, .popular),
+                                                       latest: entries(service, .movie, .latest), resolve: resolve),
+                shows: StreamingCatalogBuilder.titles(popular: entries(service, .show, .popular),
+                                                      latest: entries(service, .show, .latest), resolve: resolve))
+        }
+        var trending = catalogTrending
+        for row in LibraryTrendingRow.all {
+            guard let chart = row.lists.lazy.compactMap({ lists[$0] }).first else { continue }
+            trending[row.id] = LibraryTrendingRow.titles(from: chart, kind: row.kind, resolve: resolve)
+        }
+        catalogServices = services
+        catalogTrending = trending
+        catalogBuiltAt = Date()
+        let snapshot = CatalogRowsSnapshot(builtAt: Date(), services: services, trending: trending)
+        let url = Self.catalogSnapshotURL
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(snapshot) else { return }
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    private struct CatalogRowsSnapshot: Codable {
+        let builtAt: Date
+        let services: [String: StreamingServiceTitles]
+        let trending: [String: [MediaItem]]
+    }
+
+    nonisolated private static var catalogSnapshotURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Lineup-library-charts.json")
+    }
+
+    /// The charts as last read, so a Library opened with nothing connected
+    /// has its rows on its first frame after the first launch.
+    func restoreCatalogSnapshot() {
+        #if os(iOS)
+        let url = Self.catalogSnapshotURL
+        let restore = Task.detached(priority: .userInitiated) { () -> CatalogRowsSnapshot? in
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return try? JSONDecoder().decode(CatalogRowsSnapshot.self, from: data)
+        }
+        Task { [weak self] in
+            guard let snapshot = await restore.value, let self, self.catalogBuiltAt == nil else { return }
+            self.catalogServices = snapshot.services
+            self.catalogTrending = snapshot.trending
+            self.catalogBuiltAt = snapshot.builtAt
+        }
+        #endif
     }
 }
 
