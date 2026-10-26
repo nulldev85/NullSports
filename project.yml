@@ -231,6 +231,13 @@ targets:
       - Lineup/LineupApp.swift
       - Lineup/Views/RootView.swift
       - Lineup/Views/MediaViews.swift
+      - Lineup/Views/MediaBrowseViews.swift
+      - Lineup/Views/MediaDetailScreen.swift
+      - Lineup/Views/MediaLibraryHero.swift
+      - Lineup/Views/MediaSourcePicker.swift
+      - Lineup/Views/MediaStreamList.swift
+      - Lineup/Views/MediaItemCard.swift
+      - Lineup/Views/MediaServerSetupView.swift
       - Lineup/Views/SearchViews.swift
       - Lineup/Views/LiveQualityProgress.swift
       - Lineup/Views/StreamingServiceViews.swift
