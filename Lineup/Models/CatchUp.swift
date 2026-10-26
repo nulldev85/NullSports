@@ -97,12 +97,8 @@ struct XtreamArchiveTable: Decodable, Sendable {
     /// The server's time zone, from the first listing that gives its start
     /// both ways, to the nearest quarter hour.
     var serverTimeZone: TimeZone? {
-        let reader = DateFormatter()
-        reader.locale = Locale(identifier: "en_US_POSIX")
-        reader.timeZone = TimeZone(secondsFromGMT: 0)
-        reader.dateFormat = "yyyy-MM-dd HH:mm:ss"
         for listing in listings {
-            guard let local = listing.localStart, let wall = reader.date(from: local) else { continue }
+            guard let local = listing.localStart, let wall = CatchUpPolicy.wallClock.date(from: local) else { continue }
             let quarters = (wall.timeIntervalSince(listing.start) / 900).rounded()
             guard abs(quarters) <= 14 * 4 else { continue }
             return TimeZone(secondsFromGMT: Int(quarters) * 900)
@@ -156,6 +152,15 @@ struct CatchUpTimeline: Equatable, Sendable {
 
 /// The numbers catch-up runs on, in one place.
 enum CatchUpPolicy {
+    /// A provider's clock as it writes it, "2024-03-09 19:30:00", read as if
+    /// it were UTC: its difference from the true time is the server's zone.
+    static let wallClock: DateFormatter = {
+        let reader = DateFormatter()
+        reader.locale = Locale(identifier: "en_US_POSIX")
+        reader.timeZone = TimeZone(secondsFromGMT: 0)
+        reader.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return reader
+    }()
     /// Within this of the live edge counts as live: a channel itself plays a
     /// few seconds behind the broadcast, and a catch-up stream can never
     /// quite reach the present.

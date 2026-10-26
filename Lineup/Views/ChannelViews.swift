@@ -9792,14 +9792,8 @@ private struct PlaybackClockReader<Content: View>: View {
     func addOnlineSubtitle(_ data: Data, title: String, language: String, session: UUID) async throws {
         guard session == subtitleSession, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
         let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
-        let preparation = Task.detached(priority: .userInitiated) { () throws -> URL in
-            guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
-            let prepared = try SubtitleSourceTimeline.rebase(data, offset: offset)
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
-            try prepared.write(to: file, options: .atomic)
-            return file
+        let preparation = Task.detached(priority: .userInitiated) {
+            try OnlineSubtitleFiles.write(data, offset: offset)
         }
         let file = try await withTaskCancellationHandler(operation: { try await preparation.value },
                                                          onCancel: { preparation.cancel() })

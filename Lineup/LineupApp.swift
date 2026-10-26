@@ -14,6 +14,9 @@ struct LineupApp: App {
         // face the process does not have yet and get the system font instead.
         LineupFonts.register()
         forgetThemeChoice()
+        // Subtitle files a run that ended mid-title left behind.
+        let launched = Date()
+        Task.detached(priority: .utility) { OnlineSubtitleFiles.removeLeftovers(before: launched) }
         #if os(tvOS)
         applyLineupTabBarTheme()
         PlaybackJournal.shared.note("Lineup opened")

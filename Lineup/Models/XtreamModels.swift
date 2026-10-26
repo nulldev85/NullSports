@@ -422,12 +422,7 @@ struct XtreamServerInfo: Codable, Sendable {
     /// nearest quarter hour.
     var timeZone: TimeZone? {
         if let timezone, let zone = TimeZone(identifier: timezone) { return zone }
-        guard let timeNow, let timestampNow else { return nil }
-        let reader = DateFormatter()
-        reader.locale = Locale(identifier: "en_US_POSIX")
-        reader.timeZone = TimeZone(secondsFromGMT: 0)
-        reader.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        guard let wall = reader.date(from: timeNow) else { return nil }
+        guard let timeNow, let timestampNow, let wall = CatchUpPolicy.wallClock.date(from: timeNow) else { return nil }
         let offset = wall.timeIntervalSince1970 - TimeInterval(timestampNow)
         let quarters = (offset / 900).rounded()
         guard abs(quarters) <= 14 * 4 else { return nil }
