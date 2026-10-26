@@ -127,6 +127,34 @@ final class MobileConcurrentProviderTests: XCTestCase {
         XCTAssertEqual(f.defaults.string(forKey: "NullSports.activeProfile"), f.first.id.uuidString)
     }
 
+    func testEachFavoritesReorderMoveInTheCombinedGuideIsSavedAsItLands() async throws {
+        let f = try fixture()
+        defer { f.defaults.removePersistentDomain(forName: f.suite) }
+        let guide = await f.root.combinedGuide(catalog: f.catalog)
+        let first = try XCTUnwrap(guide.streams.first { guide.playbackSource(for: $0).library.activeProfile?.id == f.first.id })
+        let second = try XCTUnwrap(guide.streams.first { guide.playbackSource(for: $0).library.activeProfile?.id == f.second.id })
+        guide.addFavorite(first)
+        guide.addFavorite(second)
+        // The reorder sheet keeps its own copy of the rows and moves them as
+        // each drag lands, then hands the order before that drag to the guide.
+        let listed = guide.guideStreams(categoryID: nil, favoritesOnly: true, query: "")
+        XCTAssertEqual(listed.map(\.id), [first.id, second.id])
+        guide.moveFavorites(listed, fromOffsets: IndexSet(integer: 1), toOffset: 0)
+        XCTAssertEqual(guide.favoriteStreamOrder, [second.id, first.id])
+        // The next drag starts from where the first left the rows.
+        guide.moveFavorites([second, first], fromOffsets: IndexSet(integer: 0), toOffset: 2)
+        XCTAssertEqual(guide.favoriteStreamOrder, [first.id, second.id])
+        guide.moveFavorites([first, second], fromOffsets: IndexSet(integer: 0), toOffset: 2)
+        XCTAssertEqual(guide.favoriteStreamOrder, [second.id, first.id])
+        XCTAssertEqual(guide.guideStreams(categoryID: nil, favoritesOnly: true, query: "").map(\.id), [second.id, first.id])
+
+        let restored = SportsLibrary(profileDefaults: f.defaults, credentials: f.vault.store)
+        let again = await restored.combinedGuide(catalog: f.catalog)
+        XCTAssertEqual(again.favoriteStreamOrder, [second.id, first.id], "Every move was saved; closing confirms nothing")
+        XCTAssertEqual(f.defaults.array(forKey: "NullSports.favoriteStreams.\(f.first.id)") as? [Int], [7])
+        XCTAssertEqual(f.defaults.array(forKey: "NullSports.favoriteStreams.\(f.second.id)") as? [Int], [7])
+    }
+
     func testDisablingProviderRetiresOnlyItsURLsAndPreservesOtherProviderAndSavedAccount() async throws {
         let f = try fixture()
         defer { f.defaults.removePersistentDomain(forName: f.suite) }

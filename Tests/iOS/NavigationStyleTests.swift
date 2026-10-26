@@ -141,7 +141,7 @@ final class NavigationStyleTests: XCTestCase {
     func testGlassRestoresOriginalNativeAppearance() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass requires iOS 26") }
         let bar = UITabBar(frame: CGRect(x: 0, y: 0, width: 390, height: 83))
-        let original = bar.standardAppearance.copy() as! UITabBarAppearance
+        let original = bar.standardAppearance.copy()
         let originalEdge = bar.scrollEdgeAppearance?.copy() as? UITabBarAppearance
         let style = MobileTabBarStyle()
         style.apply(to: bar, liquidGlass: false)

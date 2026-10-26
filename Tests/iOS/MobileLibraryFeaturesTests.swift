@@ -182,7 +182,7 @@ final class MobileLibraryFeaturesTests: XCTestCase {
     override func tearDown() { IntroTestProtocol.install { _ in (500, [:], "{}") }; super.tearDown() }
 }
 
-private final class IntroTestProtocol: URLProtocol, @unchecked Sendable {
+private final class IntroTestProtocol: URLProtocol {
     typealias Handler = (URLRequest) -> (Int, [String: String], String)
     private static let lock = NSLock()
     private static var handler: Handler?

@@ -145,7 +145,7 @@ final class TitleArtworkTests: XCTestCase {
     }
 }
 
-private final class LogoProtocol: URLProtocol, @unchecked Sendable {
+private final class LogoProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var handler: ((URLRequest) throws -> String)?
     private static var requests = 0

@@ -403,7 +403,7 @@ final class LocalMediaTrackingTests: XCTestCase {
     func testNaturalEndMarksTwoEpisodesInANewSeasonAndSurvivesRelaunch() throws {
         let (library, defaults, suite) = try makeLibrary()
         defer { defaults.removePersistentDomain(forName: suite) }
-        let episodes = (1...2).map { number in
+        let episodes = (1...2).map { (number: Int) in
             MediaItem(id: "s2e\(number)", name: "Episode \(number)", type: "Episode", overview: nil,
                 productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
                 indexNumber: number, parentIndexNumber: 2, seriesName: "Show", seriesID: "show")

@@ -183,7 +183,7 @@ private struct SubtitleEditorHarness: View {
     var body: some View { VStack { MobileSubtitleSearchInput(results: model).frame(height: 44); Text("\(model.visible.count) releases") } }
 }
 
-private final class SubtitleProtocol: URLProtocol, @unchecked Sendable {
+private final class SubtitleProtocol: URLProtocol {
     typealias Handler = (URLRequest) -> (Int, [String: String], String)
     private static let lock = NSLock()
     private static var handler: Handler?

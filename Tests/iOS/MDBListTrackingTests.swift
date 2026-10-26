@@ -64,7 +64,7 @@ final class MDBListTrackingTests: XCTestCase {
                 accessToken: "fixture", deviceID: "fixture", session: transport) })
         return (library, movie)
     }
-    nonisolated private static func emptyResponse(_ request: URLRequest) -> (Int, [String: String], String) {
+    nonisolated private static let emptyResponse: TrackingTestProtocol.Handler = { request in
         switch request.url!.path {
         case "/sync/watched": return (200, [:], #"{"movies":[],"episodes":[],"pagination":{"next_cursor":null}}"#)
         case "/sync/playback", "/sync/now-playing": return (200, [:], "[]")
