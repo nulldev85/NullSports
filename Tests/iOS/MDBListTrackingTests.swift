@@ -386,6 +386,11 @@ final class MDBListTrackingTests: XCTestCase {
         let defaults = try defaults()
         let (library, movie) = try makeLibrary(defaults, mdb: true)
         defer { library.setMDBListTrackingEnabled(false) }
+        // The account's first read has to land before playback starts. Still
+        // in flight, it makes the service read again once the stop is sent,
+        // and this fixture's account, which never records a watch, would then
+        // replace the finished film in the account cache with nothing.
+        try await eventually("initial account snapshot") { library.mdbListTracking.hasSnapshot }
         let id = UUID()
         library.beginPlaybackSession(for: movie, id: id)
         library.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 600, duration: 3600), for: movie, sessionID: id)
