@@ -15,20 +15,38 @@ final class SeerrStore {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var api: SeerrClient?
     @ObservationIgnored private var generation = UUID()
-    private static let key = "Lineup.seerr.connection.v1"
-    private static let credentialID = UUID(uuidString: "5F82A083-E2DF-48CF-BF68-E4A128E7D921")!
+    nonisolated static let key = "Lineup.seerr.connection.v1"
+    /// The Keychain entry its sign-in is kept under, beside the media servers'.
+    nonisolated static let credentialID = UUID(uuidString: "5F82A083-E2DF-48CF-BF68-E4A128E7D921")!
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.key),
-           let saved = try? JSONDecoder().decode(Connection.self, from: data),
-           let secret = MediaKeychainStore.token(profileID: Self.credentialID),
-           let bytes = secret.data(using: .utf8),
-           let credential = try? JSONDecoder().decode(SeerrCredential.self, from: bytes),
-           let client = try? SeerrClient(address: saved.address, credential: credential) {
+        if case let (saved, client)? = Self.saved(in: defaults) {
             connection = saved
             api = client
         }
+    }
+
+    private static func saved(in defaults: UserDefaults) -> (Connection, SeerrClient)? {
+        guard let data = defaults.data(forKey: key),
+              let saved = try? JSONDecoder().decode(Connection.self, from: data),
+              let secret = MediaKeychainStore.token(profileID: credentialID),
+              let bytes = secret.data(using: .utf8),
+              let credential = try? JSONDecoder().decode(SeerrCredential.self, from: bytes),
+              let client = try? SeerrClient(address: saved.address, credential: credential) else { return nil }
+        return (saved, client)
+    }
+
+    /// Reads the connection again, as at launch: another device has just
+    /// written one here. Nothing changes if there is none.
+    func restore() {
+        guard case let (saved, client)? = Self.saved(in: defaults) else { return }
+        generation = UUID()
+        connection = saved
+        api = client
+        user = nil
+        error = nil
+        connectionID = UUID()
     }
 
     var isConnected: Bool { connection != nil && api != nil }

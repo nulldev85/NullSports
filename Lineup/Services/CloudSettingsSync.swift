@@ -14,12 +14,19 @@ final class CloudSettingsSync: ObservableObject {
     private let defaults = UserDefaults.standard
     private var database: CKDatabase { CKContainer(identifier: "iCloud.com.nulldev85.Lineup").privateCloudDatabase }
     private let recordID = CKRecord.ID(recordName: "lineup-settings-v1")
-    private let syncedKeys = [
+    /// What follows the person from device to device. Setting up an Apple TV
+    /// from the phone sends the same, with a little more (`DeviceSetup`).
+    nonisolated static let syncedKeys = [
         "NullSports.profiles", "NullSports.activeProfile", "NullSports.mediaServers",
         "NullSports.activeMediaServer", "NullSports.mediaShelves", "Lineup.mediaHeroCatalog.v1", "NullSports.favoriteStreams",
         "Lineup.libraryShelfOrder.v1", "Lineup.mediaHeroSource.v1", "Lineup.trendingRows.hidden", "Lineup.libraryShelfNames.v1",
         "lineup.appearance.accent", "lineup.appearance.savedAccents", "Lineup.manualGameReminders",
         "Lineup.reminderLeadMinutes", "Lineup.morningDigest"
+    ]
+    /// Keys kept one per provider: its favorites, teams and channel choices.
+    nonisolated static let syncedPrefixes = [
+        "NullSports.favoriteStreams.", "NullSports.followedTeams.",
+        "NullSports.teamChannelPreferences.", "NullSports.gameChannelSelections."
     ]
     private var isApplying = false
     private var syncInFlight = false
@@ -122,17 +129,14 @@ final class CloudSettingsSync: ObservableObject {
 
     private func capture() -> Snapshot {
         var values: [String: Data] = [:]
-        for key in syncedKeys {
+        for key in Self.syncedKeys {
             if let value = defaults.object(forKey: key),
                let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0) {
                 values[key] = data
             }
         }
         for (key, value) in defaults.dictionaryRepresentation()
-        where key.hasPrefix("NullSports.favoriteStreams.")
-            || key.hasPrefix("NullSports.followedTeams.")
-            || key.hasPrefix("NullSports.teamChannelPreferences.")
-            || key.hasPrefix("NullSports.gameChannelSelections.") {
+        where Self.syncedPrefixes.contains(where: key.hasPrefix) {
             if let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0) {
                 values[key] = data
             }
