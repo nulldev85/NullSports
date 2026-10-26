@@ -180,9 +180,17 @@ private final class MPVMetalSurface: UIView {
         metalLayer.device = MTLCreateSystemDefaultDevice()
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.framebufferOnly = true
-        metalLayer.contentsScale = UIScreen.main.nativeScale
+        // The display it is about to be drawn for, until it is on a screen.
+        metalLayer.contentsScale = max(1, UITraitCollection.current.displayScale)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    /// Drawn at the full pixel density of the screen it is on.
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard let screen = window?.windowScene?.screen else { return }
+        metalLayer.contentsScale = screen.nativeScale
+        setNeedsLayout()
+    }
     override func layoutSubviews() {
         super.layoutSubviews()
         metalLayer.drawableSize = CGSize(width: bounds.width * contentScaleFactor,

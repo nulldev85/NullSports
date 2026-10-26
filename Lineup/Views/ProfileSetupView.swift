@@ -15,14 +15,14 @@ struct ProfileSetupView: View {
     var body: some View {
         HStack(spacing: 80) {
             VStack(alignment: .leading, spacing: 26) {
-                Text("LINEUP").foregroundColor(LineupPresentationStyle.text)
+                Text("LINEUP").foregroundStyle(LineupPresentationStyle.text)
                     .font(.inter(.caption, .black))
                     .tracking(3)
                     .foregroundStyle(LineupStyle.field)
-                Text(playlistConnection ? "Your playlist.\nYour TV guide." : "Your games.\nYour provider.").foregroundColor(LineupPresentationStyle.text)
+                Text(playlistConnection ? "Your playlist.\nYour TV guide." : "Your games.\nYour provider.").foregroundStyle(LineupPresentationStyle.text)
                     .font(.inter(58, .bold))
                     .foregroundStyle(LineupPresentationStyle.text)
-                Text("A quiet, fast home for live American sports.").foregroundColor(LineupPresentationStyle.text)
+                Text("A quiet, fast home for live American sports.").foregroundStyle(LineupPresentationStyle.text)
                     .font(.inter(.title3))
                     .foregroundStyle(LineupPresentationStyle.secondary)
             }
@@ -50,7 +50,7 @@ struct ProfileSetupView: View {
                     connect()
                 } label: {
                     HStack {
-                        Text(isConnecting ? "Connecting…" : "Connect").foregroundColor(LineupPresentationStyle.text)
+                        Text(isConnecting ? "Connecting…" : "Connect").foregroundStyle(LineupPresentationStyle.text)
                         Spacer()
                         Image(systemName: "arrow.right")
                     }
@@ -60,7 +60,7 @@ struct ProfileSetupView: View {
                 if let connectionError { Text(connectionError).font(.inter(.caption)).foregroundStyle(.red) }
             }
             .textFieldStyle(.plain)
-            .foregroundColor(LineupPresentationStyle.text)
+            .foregroundStyle(LineupPresentationStyle.text)
             .focusEffectDisabled()
             .lineupButtonStyle()
             .padding(34)

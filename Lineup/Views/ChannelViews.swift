@@ -1365,9 +1365,9 @@ private struct LiveSlate: View {
             VStack(spacing: 4) {
                 Text(liveStartWord(game.league)).font(.inter(15, .heavy)).tracking(0.6)
                     .foregroundStyle(LivePalette.secondary)
-                (Text(parts.time).font(.interDigits(84, .semibold)).foregroundColor(LivePalette.text)
+                (Text(parts.time).font(.interDigits(84, .semibold)).foregroundStyle(LivePalette.text)
                  + Text(parts.period.map { " " + $0 } ?? "").font(.inter(32, .semibold))
-                    .foregroundColor(LivePalette.secondary))
+                    .foregroundStyle(LivePalette.secondary))
                     .lineLimit(1).minimumScaleFactor(0.6)
             }
         }
@@ -6058,7 +6058,7 @@ private struct MatchDiagnosticsView: View {
                 Spacer()
             }
             if games.isEmpty {
-                Text("No live or upcoming games to match.").foregroundColor(LineupPresentationStyle.text)
+                Text("No live or upcoming games to match.").foregroundStyle(LineupPresentationStyle.text)
                     .font(.inter(.title3)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             ScrollView {
@@ -6084,23 +6084,23 @@ private struct MatchDiagnosticsRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(game.matchupLine).foregroundColor(LineupPresentationStyle.text)
+            Text(game.matchupLine).foregroundStyle(LineupPresentationStyle.text)
                 .font(.inter(24, .semibold))
             Text("\(game.league.shortName)  ·  \(game.broadcast.isEmpty ? "No network listed" : game.broadcast)")
-                .foregroundColor(LineupPresentationStyle.text)
+                .foregroundStyle(LineupPresentationStyle.text)
                 .font(.inter(16)).foregroundStyle(LineupPresentationStyle.secondary)
             if let stream {
-                Text(stream.name).foregroundColor(LineupPresentationStyle.text)
+                Text(stream.name).foregroundStyle(LineupPresentationStyle.text)
                     .font(.inter(17, .medium)).lineLimit(1)
                 if let rejection = library.playbackRejection(for: game) {
-                    Text(rejection.rawValue).foregroundColor(LineupStyle.warning).font(.inter(15))
+                    Text(rejection.rawValue).foregroundStyle(LineupStyle.warning).font(.inter(15))
                 } else {
                     Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
-                        .foregroundColor(evidence == .dedicatedFeed ? LineupPresentationStyle.text : LineupStyle.warning)
+                        .foregroundStyle(evidence == .dedicatedFeed ? LineupPresentationStyle.text : LineupStyle.warning)
                         .font(.inter(15))
                 }
             } else {
-                Text("No match — opens the channel picker").foregroundColor(LineupPresentationStyle.text)
+                Text("No match — opens the channel picker").foregroundStyle(LineupPresentationStyle.text)
                     .font(.inter(15)).foregroundStyle(LineupPresentationStyle.secondary)
             }
         }
