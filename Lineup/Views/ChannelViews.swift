@@ -2480,9 +2480,9 @@ private struct LiveMatchupList: View {
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
 
-    /// Room for a crest as large as a team's name and record, with the
-    /// arena under it.
-    private let rowHeight: CGFloat = 124
+    /// Room for a crest as tall as a team's name and record together, with
+    /// the arena under it, all large enough to read across a room.
+    private let rowHeight: CGFloat = 144
     private let viewportHeight: CGFloat = 360
 
     var body: some View {
@@ -2553,7 +2553,7 @@ private struct LiveMatchupListRow: View {
             }
             // The home team ends where the status begins; a hairline keeps
             // its name from reading into the clock.
-            Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1, height: 72)
+            Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1, height: 88)
                 .padding(.leading, 6)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -2656,8 +2656,8 @@ private struct LiveMatchupListRow: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             if let place = matchupPlace {
-                Text(place).font(.inter(15, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
-                    .lineLimit(1).truncationMode(.tail)
+                Text(place).font(.inter(21, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.82))
+                    .lineLimit(1).minimumScaleFactor(0.8).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .center)
             }
         }
@@ -2674,17 +2674,17 @@ private struct LiveMatchupListRow: View {
     /// One team: its crest large, its name, and its record under the name.
     private func teamSide(_ name: String, abbreviation: String, logo: String, record: String?,
                           dim: Bool) -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 20) {
             TeamBadge(url: logo,
                       fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
-                      size: 62, tight: true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(name).font(.inter(26, .semibold))
+                      size: 88, tight: true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(name).font(.inter(36, .semibold))
                     .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 if let record = nonempty(record) {
-                    Text(record).font(.interDigits(16, .medium))
-                        .foregroundStyle(LivePalette.secondary.opacity(0.78)).lineLimit(1)
+                    Text(record).font(.interDigits(22, .medium))
+                        .foregroundStyle(LivePalette.secondary.opacity(0.82)).lineLimit(1)
                 }
             }
         }
@@ -2693,9 +2693,9 @@ private struct LiveMatchupListRow: View {
     /// "3  VS  0": the away score, VS, the home score. Before the start, or
     /// with no score to give, VS alone; a tennis match, its sets either side.
     private func scoreLine(lead: LiveLead) -> some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 20) {
             score(game.awayScore, isAway: true, dim: lead == .home)
-            Text("VS").font(.inter(17, .heavy)).tracking(1.2)
+            Text("VS").font(.inter(21, .heavy)).tracking(1.4)
                 .foregroundStyle(LivePalette.secondary.opacity(0.8))
             score(game.homeScore, isAway: false, dim: lead == .away)
         }
@@ -2704,10 +2704,10 @@ private struct LiveMatchupListRow: View {
     @ViewBuilder
     private func score(_ value: String, isAway: Bool, dim: Bool) -> some View {
         if game.isLive, let sets = game.tennis {
-            TennisSetColumns(score: sets, isAway: isAway, size: 24,
+            TennisSetColumns(score: sets, isAway: isAway, size: 30,
                              primary: LivePalette.text, secondary: LivePalette.secondary)
         } else if !game.isUpcoming, !value.isEmpty {
-            Text(value).font(.interDigits(40, .bold))
+            Text(value).font(.interDigits(52, .bold))
                 .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
                 .contentTransition(.numericText())
                 .lineLimit(1).fixedSize()
