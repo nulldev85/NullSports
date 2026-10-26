@@ -27,6 +27,13 @@ import sys
 # What the tvOS target compiles. The iPhone tree is not its problem.
 TARGET_FILES = [
     "Lineup/Views/ChannelViews.swift",
+    "Lineup/Views/TVCatchUpScreen.swift",
+    "Lineup/Views/TVLiveScreen.swift",
+    "Lineup/Views/TVGuideView.swift",
+    "Lineup/Views/TVSettingsView.swift",
+    "Lineup/Views/TVMultiview.swift",
+    "Lineup/Views/TVPlayerView.swift",
+    "Lineup/Views/TVPlaybackController.swift",
     "Lineup/Views/MediaViews.swift",
     "Lineup/Views/SeerrViews.swift",
     "Lineup/Views/SiloViews.swift",
