@@ -2480,7 +2480,9 @@ private struct LiveMatchupList: View {
     let onPlay: (SportsGame) -> Void
     let onStartMultiview: (SportsGame) -> Void
 
-    private let rowHeight: CGFloat = 116
+    /// Room for a crest as large as a team's name and record, with the
+    /// arena under it.
+    private let rowHeight: CGFloat = 124
     private let viewportHeight: CGFloat = 360
 
     var body: some View {
@@ -2513,6 +2515,11 @@ private struct LiveMatchupList: View {
 
 /// The channel-list look adapted for a television: muted team-color wash,
 /// prominent crests and score lines, and the same quiet status column.
+///
+/// A game reads across the card as a broadcast's score line does: each
+/// team's crest, name and record at its end of the card, the score between
+/// them either side of VS, and the arena and its city under it all. An event
+/// -- a tournament, a fight card, a race -- keeps its mark and its name.
 private struct LiveMatchupListRow: View {
     @Environment(SportsLibrary.self) private var library
     @FocusState private var focused: Bool
@@ -2539,39 +2546,15 @@ private struct LiveMatchupListRow: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 17, style: .continuous)
         HStack(spacing: 22) {
-            SportsMark(league: game.league, competition: game.competition, size: 48)
-                .frame(width: 74)
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(game.competition?.name.uppercased() ?? game.league.shortName.uppercased())
-                    .font(.inter(13, .heavy)).tracking(0.6)
-                    .foregroundStyle(LivePalette.secondary.opacity(0.82)).lineLimit(1)
-                if game.isEvent {
-                    Text(game.eventName ?? game.league.shortName)
-                        .font(.inter(24, .semibold)).foregroundStyle(LivePalette.text)
-                        .lineLimit(1).minimumScaleFactor(0.78)
-                    if let session = game.race?.title {
-                        Text(session).font(.inter(16, .semibold))
-                            .foregroundStyle(LineupStyle.highlight.opacity(0.8)).lineLimit(1)
-                    }
-                } else {
-                    matchupTeam(game.awayTeam, abbreviation: game.awayAbbreviation,
-                                logo: game.awayLogo, record: game.awayRecord,
-                                score: game.awayScore, dim: liveLeader(game) == .home, isAway: true)
-                    matchupTeam(game.homeTeam, abbreviation: game.homeAbbreviation,
-                                logo: game.homeLogo, record: game.homeRecord,
-                                score: game.homeScore, dim: liveLeader(game) == .away, isAway: false)
-                }
-                if let place = game.placeLine, !place.isEmpty {
-                    Text(place).font(.inter(14, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
-                        .lineLimit(1)
-                }
-                if let detail = game.soccer?.detail {
-                    Text(detail).font(.inter(13, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
-                        .lineLimit(1)
-                }
+            if game.isEvent {
+                eventContent
+            } else {
+                matchupContent
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            // The home team ends where the status begins; a hairline keeps
+            // its name from reading into the clock.
+            Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1, height: 72)
+                .padding(.leading, 6)
 
             VStack(alignment: .leading, spacing: 8) {
                 if game.isLive {
@@ -2585,9 +2568,16 @@ private struct LiveMatchupListRow: View {
                     Text(game.startLabel).font(.interDigits(20, .semibold))
                         .foregroundStyle(LivePalette.text).lineLimit(1)
                 }
-                if let network = nonempty(game.broadcast) {
-                    Text(network.uppercased()).font(.inter(13, .heavy)).tracking(0.5)
-                        .foregroundStyle(LivePalette.secondary.opacity(0.78)).lineLimit(1)
+                // A game's row has no league column, so its mark rides
+                // with the network; an event's stands at its start.
+                HStack(spacing: 8) {
+                    if !game.isEvent {
+                        SportsMark(league: game.league, competition: game.competition, size: 22)
+                    }
+                    if let network = nonempty(game.broadcast) {
+                        Text(network.uppercased()).font(.inter(13, .heavy)).tracking(0.5)
+                            .foregroundStyle(LivePalette.secondary.opacity(0.78)).lineLimit(1)
+                    }
                 }
                 HStack(spacing: 8) {
                     Image(systemName: isPrimary ? "rectangle.split.2x1.fill" :
@@ -2598,9 +2588,9 @@ private struct LiveMatchupListRow: View {
                 }
                 .foregroundStyle(LivePalette.secondary.opacity(0.82))
             }
-            .frame(width: 310, alignment: .leading)
+            .frame(width: 280, alignment: .leading)
         }
-        .padding(.horizontal, 22).padding(.vertical, 10)
+        .padding(.horizontal, 26).padding(.vertical, 10)
         .frame(maxWidth: .infinity).frame(height: rowHeight)
         .background {
             LinearGradient(colors: [awayColor.opacity(0.19), homeColor.opacity(0.19)],
@@ -2624,28 +2614,103 @@ private struct LiveMatchupListRow: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    private func matchupTeam(_ name: String, abbreviation: String, logo: String, record: String?,
-                             score: String, dim: Bool, isAway: Bool) -> some View {
-        HStack(spacing: 10) {
+    /// A tournament, a fight card or a race: its mark, then its name.
+    private var eventContent: some View {
+        HStack(spacing: 22) {
+            SportsMark(league: game.league, competition: game.competition, size: 48)
+                .frame(width: 74)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(game.competition?.name.uppercased() ?? game.league.shortName.uppercased())
+                    .font(.inter(13, .heavy)).tracking(0.6)
+                    .foregroundStyle(LivePalette.secondary.opacity(0.82)).lineLimit(1)
+                Text(game.eventName ?? game.league.shortName)
+                    .font(.inter(24, .semibold)).foregroundStyle(LivePalette.text)
+                    .lineLimit(1).minimumScaleFactor(0.78)
+                if let session = game.race?.title {
+                    Text(session).font(.inter(16, .semibold))
+                        .foregroundStyle(LineupStyle.highlight.opacity(0.8)).lineLimit(1)
+                }
+                if let place = game.placeLine, !place.isEmpty {
+                    Text(place).font(.inter(14, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Crest, name and record at each end, the score either side of VS in
+    /// the middle, and where it is under the score.
+    private var matchupContent: some View {
+        let lead = liveLeader(game)
+        return VStack(spacing: 6) {
+            HStack(spacing: 0) {
+                teamSide(game.awayTeam, abbreviation: game.awayAbbreviation, logo: game.awayLogo,
+                         record: game.awayRecord, dim: lead == .home)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                scoreLine(lead: lead)
+                    .padding(.horizontal, 24)
+                    .layoutPriority(1)
+                teamSide(game.homeTeam, abbreviation: game.homeAbbreviation, logo: game.homeLogo,
+                         record: game.homeRecord, dim: lead == .away)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            if let place = matchupPlace {
+                Text(place).font(.inter(15, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The arena and its city and state, and a soccer match's own note
+    /// after them.
+    private var matchupPlace: String? {
+        let parts = [game.fullPlaceLine, game.soccer?.detail].compactMap(nonempty)
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
+    }
+
+    /// One team: its crest large, its name, and its record under the name.
+    private func teamSide(_ name: String, abbreviation: String, logo: String, record: String?,
+                          dim: Bool) -> some View {
+        HStack(spacing: 16) {
             TeamBadge(url: logo,
                       fallback: abbreviation.isEmpty ? String(name.prefix(3)).uppercased() : abbreviation,
-                      size: 31, tight: true)
-            Text(name).font(.inter(19, .semibold))
-                .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
-                .lineLimit(1).minimumScaleFactor(0.75)
-            if let record = nonempty(record) {
-                Text(record).font(.interDigits(13, .medium)).foregroundStyle(LivePalette.secondary.opacity(0.78))
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            if game.isLive, let sets = game.tennis {
-                TennisSetColumns(score: sets, isAway: isAway, size: 22,
-                                 primary: LivePalette.text, secondary: LivePalette.secondary)
-            } else if !game.isUpcoming, !score.isEmpty {
-                Text(score).font(.interDigits(25, .bold))
+                      size: 62, tight: true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name).font(.inter(26, .semibold))
                     .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
-                    .contentTransition(.numericText())
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                if let record = nonempty(record) {
+                    Text(record).font(.interDigits(16, .medium))
+                        .foregroundStyle(LivePalette.secondary.opacity(0.78)).lineLimit(1)
+                }
             }
+        }
+    }
+
+    /// "3  VS  0": the away score, VS, the home score. Before the start, or
+    /// with no score to give, VS alone; a tennis match, its sets either side.
+    private func scoreLine(lead: LiveLead) -> some View {
+        HStack(spacing: 18) {
+            score(game.awayScore, isAway: true, dim: lead == .home)
+            Text("VS").font(.inter(17, .heavy)).tracking(1.2)
+                .foregroundStyle(LivePalette.secondary.opacity(0.8))
+            score(game.homeScore, isAway: false, dim: lead == .away)
+        }
+    }
+
+    @ViewBuilder
+    private func score(_ value: String, isAway: Bool, dim: Bool) -> some View {
+        if game.isLive, let sets = game.tennis {
+            TennisSetColumns(score: sets, isAway: isAway, size: 24,
+                             primary: LivePalette.text, secondary: LivePalette.secondary)
+        } else if !game.isUpcoming, !value.isEmpty {
+            Text(value).font(.interDigits(40, .bold))
+                .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
+                .contentTransition(.numericText())
+                .lineLimit(1).fixedSize()
         }
     }
 }
