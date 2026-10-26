@@ -9,8 +9,7 @@ struct MobileSubtitleSearchInput: UIViewRepresentable {
         let field = UITextField()
         field.placeholder = "Filter releases"
         field.textColor = .white
-        field.font = UIFontMetrics(forTextStyle: .body).scaledFont(for:
-            UIFont(name: LineupFonts.face(for: .regular), size: 17) ?? .systemFont(ofSize: 17))
+        field.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: roundedUIFont(17, .regular))
         field.adjustsFontForContentSizeCategory = true
         field.autocorrectionType = .no; field.autocapitalizationType = .none
         field.spellCheckingType = .no; field.clearButtonMode = .whileEditing

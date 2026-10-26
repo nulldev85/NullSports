@@ -176,24 +176,12 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
 
-      - name: Check Inter is bundled
+      - name: Check metadata is bundled
         run: |
           set -euo pipefail
-          # The font is registered at launch from the bundle, and a missing
-          # file is silent: Font.custom falls back to the system font and the
-          # app looks the way it did before Inter. So the bundle is the thing
-          # to check, not the code.
           app="build/Build/Products/Release-appletvos/Lineup.app"
-          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart --require-tmdb
           test -d "$app"
-          missing=0
-          for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
-            if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then
-              echo "Inter-$face.ttf is not in the app bundle"
-              missing=1
-            fi
-          done
-          test "$missing" -eq 0
+          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart --require-tmdb
 
       - name: Check App Transport Security is in the bundle
         run: |

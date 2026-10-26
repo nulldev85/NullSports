@@ -33,7 +33,7 @@ private struct TVPlaybackLicenseText: UIViewRepresentable {
     func updateUIView(_ uiView: UITextView, context: Context) {
         guard uiView.text != text else { return }
         uiView.attributedText = NSAttributedString(string: text, attributes: [
-            .font: UIFont(name: LineupFonts.face(for: .regular), size: 22) ?? .systemFont(ofSize: 22),
+            .font: roundedUIFont(22, .regular),
             .foregroundColor: UIColor(LineupPresentationStyle.text)
         ])
         uiView.setContentOffset(.zero, animated: false)
