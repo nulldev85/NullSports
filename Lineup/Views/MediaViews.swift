@@ -644,27 +644,6 @@ private struct TVMediaEmptyState: View {
     }
 }
 
-private struct TVMediaHeaderButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HeaderLabel(configuration: configuration)
-    }
-    private struct HeaderLabel: View {
-        @Environment(\.isFocused) private var focused
-        let configuration: ButtonStyle.Configuration
-        var body: some View {
-            configuration.label
-                .font(.inter(16, .semibold))
-                .foregroundStyle(LineupStyle.lightPurple)
-                .padding(.horizontal, 14).frame(minHeight: 42)
-                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .stroke(LineupStyle.line, lineWidth: 1))
-                .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                .scaleEffect(focused ? LineupStyle.controlLift : 1)
-                .animation(.spring(response: 0.22, dampingFraction: 0.78), value: focused)
-        }
-    }
-}
 #endif
 
 private enum LibraryHeroRotation {
@@ -1858,7 +1837,6 @@ struct MediaGridScreen: View {
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
     @State private var choosingShelf = false
-    @State private var editingQuery = false
 
     init(title: String, items: [MediaItem]) {
         self.title = title
@@ -2500,7 +2478,6 @@ private struct MediaDetailScreen: View {
     // The native phone row and TV cards hand navigation to the screen so a
     // recycled/offscreen card never owns the destination's lifetime.
     @State private var pushed: MediaItem?
-    @FocusState private var seasonFocused: Bool
     #if os(tvOS)
     @FocusState private var backFocused: Bool
     @Environment(\.tvTabBar) private var tabBar
@@ -3598,13 +3575,6 @@ private struct MediaDetailScreen: View {
         .inter(.title3, .heavy)
         #endif
     }
-    private var episodeColumns: [GridItem] {
-        #if os(tvOS)
-        [GridItem(.adaptive(minimum: 360, maximum: 460), spacing: 24)]
-        #else
-        [GridItem(.adaptive(minimum: 150, maximum: 260), spacing: 14)]
-        #endif
-    }
 }
 
 #if os(tvOS)
@@ -3879,8 +3849,6 @@ private final class TVMediaPreviewState: ObservableObject {
     private var details: [String: MediaItem] = [:]
     private var focusedPosterIDs: Set<String> = []
     private var detailLoad: Task<Void, Never>?
-
-    var isNavigating: Bool { !focusedPosterIDs.isEmpty }
 
     func setInitial(_ initial: MediaItem?) {
         guard item == nil else { return }

@@ -42,12 +42,15 @@ final class CloudSettingsSync: ObservableObject {
     func sync() async {
         #if LINEUP_UNSIGNED_BUILD
         report("iCloud sync requires a signed build with CloudKit enabled")
-        return
-        #endif
-        #if targetEnvironment(simulator)
+        #elseif targetEnvironment(simulator)
         report("iCloud sync requires a signed device build")
-        return
+        #else
+        await syncWithCloud()
         #endif
+    }
+
+    /// The sync itself, which only a signed device build can make.
+    private func syncWithCloud() async {
         guard !isApplying else { return }
         if syncInFlight { needsSync = true; return }
         syncInFlight = true

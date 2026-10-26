@@ -96,27 +96,16 @@ struct MobileLiveView: View {
         let calendar = Calendar.current
         var byDay: [Date: [SportsGame]] = [:]
         var live: [SportsGame] = []
-        var mine: [SportsGame] = []
         // Followed teams' games sit in the list where their time puts them;
-        // My Teams narrows the list to them rather than lifting them out.
-        let separatesMine = false
+        // My Teams narrows the list to them rather than lifting them out, so
+        // there is no separate list of them.
         for game in all {
-            if separatesMine, library.isFollowing(game) {
-                if game.isLive || game.isUpcoming { mine.append(game) }
-                continue
-            }
             if game.isLive { live.append(game) }
             if game.isUpcoming {
                 byDay[calendar.startOfDay(for: game.start), default: []].append(game)
             }
         }
-        // On now first, then by kick-off. Whatever a viewer can watch this
-        // second outranks whatever they are waiting for.
-        mine.sort { left, right in
-            if left.isLive != right.isLive { return left.isLive }
-            return left.start < right.start
-        }
-        return Slate(all: all, mine: mine, live: live,
+        return Slate(all: all, mine: [], live: live,
                      days: byDay.keys.sorted().map { ($0, byDay[$0] ?? []) })
     }
 
@@ -762,8 +751,8 @@ struct MobileLiveView: View {
         catchUpLookup?.cancel()
         guard game.isLive, let profile = library.activeProfile,
               let requestID = menu.request?.id else { return }
-        catchUpLookup = Task { @MainActor in
-            guard menu.request?.id == requestID else { return }
+        catchUpLookup = Task { @MainActor [weak menu] in
+            guard let menu, menu.request?.id == requestID else { return }
             let matched = await library.eventChannels(for: game)
             guard !Task.isCancelled, isActive, library.activeProfile?.id == profile.id,
                   menu.request?.id == requestID else { return }

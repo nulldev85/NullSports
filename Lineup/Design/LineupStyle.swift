@@ -43,7 +43,6 @@ fileprivate struct LineupPalette {
     let leagues: LeagueColors
 }
 
-
 fileprivate extension LineupPalette {
     /// The phone's only look. It was one of four themes, Signal, and the one
     /// the app opened in; the others are gone, and with them the setting.
@@ -475,7 +474,6 @@ enum LineupStyle {
     static var selected: Color { palette.selected }
     static var focused: Color { palette.focused }
     #endif
-    static var liveSurface: Color { selected }
     /// The accent the viewer chose, on the phone and the television alike.
     static var highlight: Color {
         return LineupAccent.current.color
@@ -487,7 +485,6 @@ enum LineupStyle {
     static var onHighlight: Color {
         return LineupAccent.current.onAccent
     }
-    static var liveBorder: Color { highlight.opacity(0.72) }
     #if os(iOS)
     static var line: Color { LineupPresentationStyle.border }
     static var text: Color { LineupPresentationStyle.text }
@@ -500,7 +497,6 @@ enum LineupStyle {
     /// Playback chrome stays legible against video.
     static var mediaText: Color { .white }
     static var mediaSecondary: Color { Color.white.opacity(0.66) }
-    static var mediaAccent: Color { text }
     static var field: Color { lightPurple }
     /// An error is red whatever the accent.
     static var live: Color {
@@ -924,12 +920,6 @@ extension LineupPanel where Accessory == EmptyView {
 }
 
 extension View {
-    /// A card with no header: the panel's fill and corners alone.
-    func lineupPanelCard(padding: CGFloat = LineupPanelStyle.inset) -> some View {
-        self.padding(padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
-    }
 
     /// A filter or choice as a capsule: filled with the accent when chosen,
     /// drawn in its outline otherwise.
@@ -944,62 +934,6 @@ extension View {
     }
 }
 
-/// The background behind a Form row: the Guide's flat grey. These rows were
-/// Liquid Glass, which put a sheen under every setting; the settings now sit
-/// on the same quiet ground as the Guide and the Live tab. Passed to
-/// `listRowBackground`, which wants a view rather than a modifier.
-struct LineupRowBackground: View {
-    var body: some View {
-        LineupPanelStyle.fill
-    }
-}
-
-/// A row drawn as the Guide draws a programme: flat grey, squared off at four
-/// points, a hairline round it and a gap to the next. `listRowBackground`
-/// fills the whole row, so the gap is padding around the cell.
-struct LineupCellBackground: View {
-    static let shape = RoundedRectangle(cornerRadius: 4, style: .continuous)
-
-    var body: some View {
-        Self.shape.fill(LineupStyle.raised)
-            .overlay(Self.shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
-            .padding(.horizontal, 12).padding(.vertical, 3)
-    }
-}
-
-extension View {
-    /// A section of an inset-grouped list drawn as one panel: the panel's
-    /// fill, its hairline between rows, and its side insets.
-    func lineupPanelRows() -> some View {
-        self.listRowBackground(LineupPanelStyle.fill)
-            .listRowSeparatorTint(LineupPanelStyle.divider)
-            .listRowInsets(EdgeInsets(top: 12, leading: LineupPanelStyle.inset,
-                                      bottom: 12, trailing: LineupPanelStyle.inset))
-    }
-
-    /// List rows as separate Guide cells, the content inside each cell's own
-    /// margins.
-    func lineupCellRows() -> some View {
-        self.listRowBackground(LineupCellBackground())
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 13, leading: 26, bottom: 13, trailing: 26))
-    }
-}
-
-extension View {
-    // iOS 26 draws the tab bar in Liquid Glass itself. Forcing an opaque
-    // toolbar background paints over that, so the theme colour is applied
-    // only below iOS 26, where there is no glass to preserve.
-    @ViewBuilder
-    func lineupTabBarBackground(_ color: Color) -> some View {
-        if #available(iOS 26.0, *) {
-            self
-        } else {
-            self.toolbarBackground(color, for: .tabBar)
-                .toolbarBackground(.visible, for: .tabBar)
-        }
-    }
-}
 #endif
 
 #if os(tvOS)
@@ -1171,19 +1105,5 @@ struct LineupGroupHeading: ViewModifier {
             .textCase(.uppercase)
             .foregroundStyle(LineupPanelStyle.caption)
         #endif
-    }
-}
-
-struct LeagueMark: View {
-    let league: SportsLeague
-
-    var body: some View {
-        Text(league.shortName).foregroundColor(LineupStyle.lightPurple)
-            .font(.inter(16, .bold))
-            .tracking(0.6)
-            .foregroundStyle(LineupStyle.text)
-            .frame(width: 72, height: 44)
-            .background(LineupStyle.raised)
-            .overlay(Rectangle().frame(height: 3).foregroundStyle(league.color), alignment: .bottom)
     }
 }

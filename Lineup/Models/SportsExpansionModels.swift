@@ -51,11 +51,6 @@ struct RacingSession: Codable, Hashable, Sendable {
 }
 
 extension SportsGame {
-    var competitionLabel: String { competition?.name ?? league.shortName }
-    var detailLine: String? {
-        if let detail = soccer?.detail { return detail }
-        return race?.title
-    }
     var racingFollow: FollowedTeam? {
         guard league.isRacing else { return nil }
         return league.seriesFollow

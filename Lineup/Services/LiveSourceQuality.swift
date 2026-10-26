@@ -133,7 +133,7 @@ actor LiveQualityVerifier {
         previous?.cancel()
         let id = UUID()
         let work = Task { [weak self] () -> Selection in
-            await previous?.value
+            _ = await previous?.value
             guard !Task.isCancelled else { return Selection(streamID: fallbackID, wasCancelled: true) }
             guard let self else { return fallback }
             return await self.measure(candidates, fallback: fallback, deadline: deadline)

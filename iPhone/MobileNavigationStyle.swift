@@ -628,8 +628,8 @@ final class MobileTabBarStyle {
             // Preserve UIKit's untouched appearance before applying the solid
             // option. Restore it for On so Apple owns all glass and selection
             // rendering, including the floating geometry and native animation.
-            nativeAppearance = bar.standardAppearance.copy() as? UITabBarAppearance
-            nativeScrollEdgeAppearance = bar.scrollEdgeAppearance?.copy() as? UITabBarAppearance
+            nativeAppearance = bar.standardAppearance.copy()
+            nativeScrollEdgeAppearance = bar.scrollEdgeAppearance?.copy()
         }
         self.bar = bar
         appliedGlass = enabled

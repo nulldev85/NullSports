@@ -292,24 +292,6 @@ enum MobileChannelSwipe: Equatable {
     var step: Int { self == .next ? 1 : -1 }
 }
 
-/// Stepping through a screen's lineup of channels, round from the end to the
-/// start, as a remote's channel buttons do.
-enum MobileChannelLineup {
-    /// - Parameters:
-    ///   - current: where the channel on screen sits in the lineup, or nil
-    ///     when it is not in it -- a game's channel opened from an alert, say.
-    ///   - count: how many channels the lineup has.
-    ///   - step: +1 for the next channel, -1 for the previous one.
-    /// - Returns: the place to tune to, or nil for an empty lineup. A channel
-    ///   that is not in the lineup steps onto it from its top going forward
-    ///   and from its bottom going back.
-    static func index(from current: Int?, count: Int, step: Int) -> Int? {
-        guard count > 0 else { return nil }
-        guard let current, current >= 0, current < count else { return step >= 0 ? 0 : count - 1 }
-        return ((current + step) % count + count) % count
-    }
-}
-
 /// How the player speaks of a recording: how far behind live it is, in the
 /// status badge and under the timeline.
 enum MobileCatchUpLabel {

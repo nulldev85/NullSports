@@ -116,8 +116,8 @@ final class TVVLCBackend: TVPlaybackBackend {
     var mediaInfo: PlaybackMediaInfo { VLCPlaybackMediaInfo.read(player) }
     var duration: TimeInterval { Double(player.media?.length.intValue ?? 0) / 1000 }
     var time: TimeInterval { Double(player.time.intValue) / 1000 }
-    var frames: Int? { player.media?.numberOfDisplayedPictures }
-    var bytes: Int? { player.media?.numberOfReadBytesOnInput }
+    var frames: Int? { player.media.map { Int($0.statistics.displayedPictures) } }
+    var bytes: Int? { player.media.map { Int($0.statistics.readBytes) } }
     var isSeekable: Bool { player.isSeekable }
     var isOpen: Bool { player.media != nil }
     var volume: Int32 {

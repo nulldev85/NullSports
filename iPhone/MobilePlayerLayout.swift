@@ -29,14 +29,6 @@ enum MobilePlayerLayout {
     /// a 48-point play button full screen, a 42-point one inline.
     static func channelTransportSpacing(expanded: Bool) -> CGFloat { expanded ? 24 : 16 }
 
-    /// The same cluster's width, either size: 36 + 24 + 48 + 24 + 36 full
-    /// screen, 36 + 16 + 42 + 16 + 36 inline. The channel buttons at the
-    /// trailing edge sit clear of half of it either side of centre on the
-    /// narrowest iPhone, upright or on its side.
-    static func channelTransportClusterWidth(expanded: Bool) -> CGFloat {
-        36 + channelTransportSpacing(expanded: expanded) * 2 + (expanded ? 48 : 42) + 36
-    }
-
     /// The widest the synopsis panel may be, given the room it has.
     ///
     /// Portrait has height to spare -- the controls sit at the centre of a tall

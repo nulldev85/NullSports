@@ -33,7 +33,7 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connect to IPTV providers, Jellyfin, and Nullfin media servers on your local network.</string>
+	<string>Connect to IPTV providers and Jellyfin, Emby, Plex or Silo media servers on your local network.</string>
 	<!-- Keeps audio decoding when Lineup is backgrounded, and is what lets
 	     AVPictureInPictureController carry a stream into the system window. -->
 	<key>UIBackgroundModes</key>

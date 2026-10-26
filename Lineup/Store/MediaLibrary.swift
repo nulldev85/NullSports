@@ -2873,8 +2873,6 @@ final class MediaLibrary {
         }
     }
 
-    var availableShelves: [MediaItem] { availableLibraries + availableCatalogs }
-
     /// The servers' own libraries that are not already a shelf.
     var availableLibraries: [MediaItem] { profiles.flatMap { availableLibraries(on: $0) } }
 

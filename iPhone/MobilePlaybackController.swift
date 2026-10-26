@@ -861,7 +861,7 @@ final class MobilePlaybackController: ObservableObject {
             if player.hasVideoOut {
                 // Shown once its shape has settled, so a first frame drawn
                 // before VLC knows it never shows stretched.
-                let pictures = player.media?.numberOfDisplayedPictures ?? 0
+                let pictures = Int(player.media?.statistics.displayedPictures ?? 0)
                 if vlcPictureUpAt == nil {
                     vlcPictureUpAt = now
                     vlcPicturesAtUp = pictures
@@ -924,7 +924,7 @@ final class MobilePlaybackController: ObservableObject {
         guard startGateOpen else { return }
         let ready: Bool
         switch engine {
-        case .vlc: ready = player.hasVideoOut && (player.media?.numberOfDisplayedPictures ?? 0) > 0
+        case .vlc: ready = player.hasVideoOut && (player.media?.statistics.displayedPictures ?? 0) > 0
         case .aether: ready = aetherSession?.hasPicture == true
         case .system: ready = systemPictureSeen
         case .mpv: ready = mpvSession?.hasVideoOut == true
@@ -1173,8 +1173,8 @@ final class MobilePlaybackController: ObservableObject {
                 // What has been read from the server tells a feed VLC is catching
                 // up on from one that has stopped coming.
                 let recover = self.health.observe(now: now, playing: self.player.isPlaying, video: self.player.hasVideoOut,
-                    time: self.player.time.intValue, frames: self.player.media?.numberOfDisplayedPictures,
-                    bytes: self.player.media?.numberOfReadBytesOnInput, failed: stopped)
+                    time: self.player.time.intValue, frames: self.player.media.map { Int($0.statistics.displayedPictures) },
+                    bytes: self.player.media.map { Int($0.statistics.readBytes) }, failed: stopped)
                 if self.health.isStable(now: now) {
                     self.retries.reset()
                     self.confirmWorkingChannel()
