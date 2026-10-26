@@ -10,6 +10,11 @@ final class MDBListTrackingTests: XCTestCase {
     private let key = "test-personal-tracking-key"
     private let movieTarget = MDBListTrackingTarget(kind: .movie, ids: ["imdb": "tt0133093"])
 
+    nonisolated override func setUp() {
+        super.setUp()
+        TrackingTestProtocol.beginTest()
+    }
+
     nonisolated override func tearDown() {
         TrackingTestProtocol.install { _ in (500, [:], "{}") }
         super.tearDown()
@@ -17,7 +22,7 @@ final class MDBListTrackingTests: XCTestCase {
 
     private func session() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [TrackingTestProtocol.self]
+        config.protocolClasses = [TrackingTestProtocol.loader]
         return URLSession(configuration: config)
     }
     private func defaults() throws -> UserDefaults {
@@ -145,6 +150,10 @@ final class MDBListTrackingTests: XCTestCase {
         library.setLocalTrackingEnabled(false)
         library.setMDBListTrackingEnabled(true)
         defer { library.setMDBListTrackingEnabled(false) }
+        // As in testRemoteFinalStopCannotRestoreClearedDeviceHistory: a first
+        // read still in flight makes the service read again after the stop,
+        // and this fixture's empty account would then unmark the film.
+        try await eventually("initial account snapshot") { library.mdbListTracking.hasSnapshot }
         let id = UUID()
         library.beginPlaybackSession(for: movie, id: id)
         library.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 600, duration: 3600), for: movie, sessionID: id)
@@ -768,10 +777,25 @@ private final class TrackingTestProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var handler: Handler?
     private static var saved: [URLRequest] = []
+    private static var current: AnyClass = TrackingTestProtocol.self
+    private static var made = 0
     static var requests: [URLRequest] { lock.lock(); defer { lock.unlock() }; return saved }
     static var posts: [URLRequest] { requests.filter { $0.httpMethod == "POST" } }
+    /// What this test's sessions load through.
+    static var loader: AnyClass { lock.lock(); defer { lock.unlock() }; return current }
     static func install(_ handler: @escaping Handler) {
         lock.lock(); defer { lock.unlock() }; self.handler = handler; saved = []
+    }
+    /// Gives the test about to run its own subclass to load through. A request
+    /// an earlier test left running still loads through that test's class, so
+    /// it is answered with an error and never reaches this test's handler or
+    /// its request log, however late it starts.
+    static func beginTest() {
+        lock.lock(); defer { lock.unlock() }
+        made += 1
+        guard let subclass = objc_allocateClassPair(TrackingTestProtocol.self, "LineupTrackingTestProtocol\(made)", 0) else { return }
+        objc_registerClassPair(subclass)
+        current = subclass
     }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -779,7 +803,11 @@ private final class TrackingTestProtocol: URLProtocol {
         // Capture URLSession's body stream once, before it can be consumed.
         var captured = request
         captured.httpBody = try? request.trackingData()
-        Self.lock.lock(); Self.saved.append(captured); let handler = Self.handler; Self.lock.unlock()
+        Self.lock.lock()
+        let ours = object_getClass(self) == Self.current
+        if ours { Self.saved.append(captured) }
+        let handler = ours ? Self.handler : nil
+        Self.lock.unlock()
         do {
             let (status, headers, body) = try handler?(captured) ?? (500, [:], "{}")
             client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status,
