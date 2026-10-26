@@ -1076,15 +1076,15 @@ struct PageTitle: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(eyebrow.uppercased()).foregroundColor(LineupStyle.lightPurple)
+            Text(eyebrow.uppercased()).foregroundStyle(LineupStyle.lightPurple)
                 .font(.inter(.caption, .bold))
                 .tracking(1.8)
                 .foregroundStyle(LineupStyle.field)
-            Text(title).foregroundColor(LineupStyle.lightPurple)
+            Text(title).foregroundStyle(LineupStyle.lightPurple)
                 .font(.inter(50, .heavy))
                 .foregroundStyle(LineupStyle.text)
             if let detail {
-                Text(detail).foregroundColor(LineupStyle.lightPurple)
+                Text(detail).foregroundStyle(LineupStyle.lightPurple)
                     .font(.inter(.title3))
                     .foregroundStyle(LineupStyle.secondary)
             }

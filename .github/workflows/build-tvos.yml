@@ -165,6 +165,11 @@ jobs:
           python3 -B Tools/check-aether-bundle.py --project Lineup.xcodeproj/project.pbxproj
 
       - name: Build unsigned app
+        env:
+          # Every build gets a number of its own, so a release is never offered
+          # under the number of the one before it. project.yml's number is for
+          # builds made outside CI.
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
           xcodebuild \
@@ -174,26 +179,16 @@ jobs:
             -destination 'generic/platform=tvOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
-            SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/Build/Products/Release-appletvos/Lineup.app/Info.plist)" = "$BUILD_NUMBER"
 
-      - name: Check Inter is bundled
+      - name: Check metadata is bundled
         run: |
           set -euo pipefail
-          # The font is registered at launch from the bundle, and a missing
-          # file is silent: Font.custom falls back to the system font and the
-          # app looks the way it did before Inter. So the bundle is the thing
-          # to check, not the code.
           app="build/Build/Products/Release-appletvos/Lineup.app"
-          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart --require-tmdb
           test -d "$app"
-          missing=0
-          for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
-            if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then
-              echo "Inter-$face.ttf is not in the app bundle"
-              missing=1
-            fi
-          done
-          test "$missing" -eq 0
+          python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart --require-tmdb
 
       - name: Check App Transport Security is in the bundle
         run: |

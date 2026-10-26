@@ -1,4 +1,5 @@
 import SwiftUI
+import Observation
 import UIKit
 
 /// The server needs a pixel width; ImageIO needs the longest edge. A portrait
@@ -69,6 +70,7 @@ struct MobileLibraryArtView<Content: View>: View {
 
 /// Held by the screen, observed only by the carousel. A change in scroll phase
 /// must pause rotation without rebuilding every shelf and its tracking state.
-final class MobileLibraryScrollActivity: ObservableObject {
-    @Published var isActive = false
+@Observable
+final class MobileLibraryScrollActivity {
+    var isActive = false
 }

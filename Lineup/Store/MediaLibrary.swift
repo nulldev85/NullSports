@@ -3946,7 +3946,7 @@ final class MediaLibrary {
             }
             made = try SiloClient(address: profile.serverURL, credential: credential, profileID: profile.siloProfileID,
                 deviceID: deviceID, persist: { [weak self] value in
-                    await MainActor.run {
+                    await MainActor.run { [weak self] in
                         guard let self, self.contains(profile), let data = try? JSONEncoder().encode(value),
                               let secret = String(data: data, encoding: .utf8) else { return }
                         do { try MediaKeychainStore.save(token: secret, profileID: profile.id) }

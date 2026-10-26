@@ -156,13 +156,9 @@ jobs:
           path: navigation-previews
           if-no-files-found: ignore
           retention-days: 3
-      - name: Check Inter is bundled
+      - name: Check metadata is bundled
         run: |
           set -euo pipefail
-          # The font is registered at launch from the bundle, and a missing
-          # file is silent: Font.custom falls back to the system font and the
-          # app looks the way it did before Inter. So the bundle is the thing
-          # to check, not the code.
           # Run on the simulator bundle here and on the release bundle in the
           # package job: a branch that stops after the tests still gets this
           # check, and it is the check that has already caught a capability
@@ -170,14 +166,6 @@ jobs:
           app="build-tests/Build/Products/Debug-iphonesimulator/Lineup.app"
           test -d "$app"
           python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart --require-tmdb
-          missing=0
-          for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
-            if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then
-              echo "Inter-$face.ttf is not in the app bundle"
-              missing=1
-            fi
-          done
-          test "$missing" -eq 0
 
       - name: Check background audio capability is in the bundle
         run: |
@@ -245,30 +233,25 @@ jobs:
           xcodegen generate
           python3 -B Tools/check-aether-bundle.py --project Lineup.xcodeproj/project.pbxproj
       - name: Build unsigned iPhone app
+        env:
+          # Every build gets a number of its own, so a release is never offered
+          # under the number of the one before it. project.yml's number is for
+          # builds made outside CI.
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
           xcodebuild -project Lineup.xcodeproj -scheme LineupiOS \
             -configuration Release -destination 'generic/platform=iOS' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
-      - name: Check Inter is bundled
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/Build/Products/Release-iphoneos/Lineup.app/Info.plist)" = "$BUILD_NUMBER"
+      - name: Check metadata is bundled
         run: |
           set -euo pipefail
-          # The font is registered at launch from the bundle, and a missing
-          # file is silent: Font.custom falls back to the system font and the
-          # app looks the way it did before Inter. So the bundle is the thing
-          # to check, not the code.
           # The bundle that ships, checked as it is packaged.
           app="build/Build/Products/Release-iphoneos/Lineup.app"
           test -d "$app"
           python3 -B Tools/check-metadata-bundle.py "$app" --require-online-subtitles --require-fanart --require-tmdb
-          missing=0
-          for face in Light Regular Medium SemiBold Bold ExtraBold Black; do
-            if ! find "$app" -name "Inter-$face.ttf" | grep -q .; then
-              echo "Inter-$face.ttf is not in the app bundle"
-              missing=1
-            fi
-          done
-          test "$missing" -eq 0
 
       - name: Check background audio capability is in the bundle
         run: |

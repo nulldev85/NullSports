@@ -115,7 +115,7 @@ private struct TVSummaryText: UIViewRepresentable {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 8
         return NSAttributedString(string: text, attributes: [
-            .font: UIFont(name: LineupFonts.face(for: .regular), size: 24) ?? .systemFont(ofSize: 24),
+            .font: roundedUIFont(24, .regular),
             .foregroundColor: UIColor(LineupPresentationStyle.text).withAlphaComponent(0.86),
             .paragraphStyle: paragraph
         ])

@@ -12,6 +12,8 @@ struct MobileDismissGesture: ViewModifier {
     @GestureState private var drag: CGFloat = 0
     @State private var completing = false
     @State private var exitOffset: CGFloat = 0
+    /// How tall the dismissed content is, which is how far it travels to leave.
+    @State private var height: CGFloat = 0
     let enabled: Bool
     /// Called the moment the exit is committed, before anything moves, so a
     /// live picture can be stilled first.
@@ -20,6 +22,7 @@ struct MobileDismissGesture: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height = $0 }
             .offset(y: reduceMotion ? 0 : (completing ? exitOffset : drag))
             .scaleEffect(reduceMotion ? 1 : 1 - min((completing ? exitOffset : drag) / 1800, 0.08))
             .opacity(reduceMotion ? 1 : 1 - min((completing ? exitOffset : drag) / 1200, 0.25))
@@ -44,7 +47,7 @@ struct MobileDismissGesture: ViewModifier {
                         completing = true
                         DispatchQueue.main.async {
                             withAnimation(.easeOut(duration: 0.22)) {
-                                exitOffset = UIScreen.main.bounds.height
+                                exitOffset = height > 0 ? height : 1000
                             } completion: {
                                 var transaction = Transaction()
                                 transaction.disablesAnimations = true

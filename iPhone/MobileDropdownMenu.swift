@@ -1,4 +1,5 @@
 import SwiftUI
+import Observation
 
 /// One thing a dropdown offers: a tile, its name, and either what it does or
 /// a list of its own to go into.
@@ -484,7 +485,8 @@ extension View {
 
 /// What a touch held on a card or a row has asked to show, for the screen
 /// that hosts it to raise over everything.
-final class MobileHoldMenu: ObservableObject {
+@Observable
+final class MobileHoldMenu {
     struct Request {
         let id = UUID()
         let title: String
@@ -494,7 +496,7 @@ final class MobileHoldMenu: ObservableObject {
         var items: [MobileMenuItem]
     }
 
-    @Published var request: Request?
+    var request: Request?
 
     func present(_ title: String, symbol: String, message: String?, tint: Color? = nil, items: [MobileMenuItem]) {
         guard !items.isEmpty else { return }
@@ -553,7 +555,7 @@ extension View {
 }
 
 private struct MobileHoldMenuHost: ViewModifier {
-    @StateObject private var menu = MobileHoldMenu()
+    @State private var menu = MobileHoldMenu()
 
     func body(content: Content) -> some View {
         content

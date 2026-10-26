@@ -1,4 +1,5 @@
 import SwiftUI
+import Observation
 
 // MARK: - The poster
 
@@ -83,8 +84,9 @@ struct StreamingServicePoster: View {
 
 /// A presentation owned by the service page, independent of the Library's
 /// value path and of the movie/show grids that refresh underneath it.
-final class StreamingServiceNavigation: ObservableObject {
-    @Published var item: MediaItem?
+@Observable
+final class StreamingServiceNavigation {
+    var item: MediaItem?
     func select(_ item: MediaItem) { self.item = item }
 }
 
@@ -103,12 +105,12 @@ struct StreamingServiceScreen: View {
     // The service owns only its selected title. Registering another value
     // destination for MediaItem here shadows the Library's service route and
     // can rebuild the current destination instead of pushing the title.
-    @StateObject private var navigation: StreamingServiceNavigation
+    @State private var navigation: StreamingServiceNavigation
     private let catalog: StreamingServiceTitles?
 
     init(service: StreamingService, navigation: StreamingServiceNavigation? = nil, catalog: StreamingServiceTitles? = nil) {
         self.service = service; self.catalog = catalog
-        _navigation = StateObject(wrappedValue: navigation ?? StreamingServiceNavigation())
+        _navigation = State(initialValue: navigation ?? StreamingServiceNavigation())
     }
 
     private var titles: StreamingServiceTitles { catalog ?? media.streamingTitles(for: service) }

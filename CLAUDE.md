@@ -24,8 +24,10 @@ https://nulldev85.github.io/ (`nulldev85/nulldev85.github.io`, one
   Only the app descriptions and feature cards are written by hand, so keep
   them true to the apps. The page's built-in builds and notes are what shows
   if the feed can't be reached; refresh them to the newest release.
-- Build numbers are set by hand in `project.yml` (`CURRENT_PROJECT_VERSION`,
-  Apple TV and iPhone). A release that keeps the last one's numbers may not be
-  offered to testers as an update by their signer.
+- Each workflow's IPA takes its build number from the run number
+  (`github.run_number`), so every build has its own and a release is always
+  offered as an update. Read a release's number from its `source-*` release
+  before writing its notes. `project.yml`'s number is only for builds made
+  outside CI.
 - The site repo's `publish-builds.yml` belongs to the old single-page site;
   the download buttons no longer use its releases.

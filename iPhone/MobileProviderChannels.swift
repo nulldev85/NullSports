@@ -54,7 +54,9 @@ actor MobileProviderCatalog {
 
     func invalidate() { cached.removeAll() }
 
-    init(loader: @escaping Loader = MobileProviderCatalog.download) { self.loader = loader }
+    init(loader: @escaping Loader = { profile, secret in try await MobileProviderCatalog.download(profile, secret: secret) }) {
+        self.loader = loader
+    }
 
     private static func key(_ profile: XtreamProfile, secret: String) -> String {
         // Renaming is harmless; changing any connection input retires its cache.

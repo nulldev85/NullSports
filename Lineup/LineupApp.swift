@@ -10,9 +10,6 @@ struct LineupApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
-        // Before anything is drawn: a view built ahead of this would ask for a
-        // face the process does not have yet and get the system font instead.
-        LineupFonts.register()
         forgetThemeChoice()
         // Subtitle files a run that ended mid-title left behind.
         let launched = Date()
@@ -53,7 +50,7 @@ struct LineupApp: App {
                 .environmentObject(reminders)
                 .environmentObject(cloud)
                 .environmentObject(library.refreshProgress)
-                // Inter for everything that never asked for a font of its own
+                // The app's face for everything that never asked for a font of its own
                 // -- form rows, field text, a progress view's label. Without
                 // this they keep the system font and the app reads in two
                 // typefaces depending on how carefully each line was written.
