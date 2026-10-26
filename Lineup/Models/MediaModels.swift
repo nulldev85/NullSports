@@ -291,6 +291,26 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
         self.serverID = serverID
     }
 
+    /// The title as watch history keeps it: everything resume, watched state
+    /// and a card need, without the cast, trailers, studios, places and tags a
+    /// server's full record carries. A title's page asks its server for those
+    /// when it opens. The server's own fields are kept as it gave them, so a
+    /// metadata choice still lays over them and switching back restores them.
+    var historyCopy: MediaItem {
+        var copy = MediaItem(id: id, name: providerName, type: type, overview: providerOverview,
+            productionYear: providerYear, primaryImageAspectRatio: primaryImageAspectRatio, childCount: childCount,
+            genres: providerGenres, officialRating: officialRating, communityRating: communityRating,
+            criticRating: criticRating, runTimeTicks: runTimeTicks, premiereDate: providerPremiereDate,
+            indexNumber: indexNumber, parentIndexNumber: parentIndexNumber,
+            seriesName: seriesName, seriesID: seriesID, userData: userData,
+            imageTags: imageTags, backdropImageTags: backdropImageTags, status: status, endDate: endDate,
+            providerIDs: originalProviderIDs, posterURL: providerPosterURL, backdropURL: providerBackdropURL,
+            logoArtworkURL: logoArtworkURL, serverID: serverID)
+        copy.metadata = metadata
+        copy.serverExtensions = serverExtensions
+        return copy
+    }
+
     /// The same item, marked as coming from `server`.
     func servedBy(_ server: UUID) -> MediaItem {
         var copy = self
@@ -587,6 +607,13 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     var mdbMovieIDs: [String: String]? = nil
 
     var id: String { profileID.uuidString + "|" + item.id }
+
+    /// The record as the device keeps it, its title cut to `historyCopy`.
+    var kept: LocalMediaPlayback {
+        var copy = self
+        copy.item = item.historyCopy
+        return copy
+    }
 
     var fraction: Double {
         guard duration > 0 else { return 0 }

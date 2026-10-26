@@ -222,6 +222,46 @@ final class LocalMediaTrackingTests: XCTestCase {
         XCTAssertFalse(restored.isWatched(episode))
     }
 
+    func testSavedHistoryAndFavoritesKeepWhatResumeNeedsWithoutTheServersFullRecord() throws {
+        let (library, defaults, suite) = try makeLibrary()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let cast = (0..<40).map { MediaPerson(personID: "p\($0)", name: "Actor \($0)", role: "Role \($0)",
+                                               type: "Actor", primaryImageTag: "portrait-\($0)") }
+        let episode = MediaItem(id: "e4", name: "Episode 4", type: "Episode", overview: "What happens.",
+            productionYear: 2008, primaryImageAspectRatio: 16 / 9, childCount: nil, genres: ["Drama"],
+            runTimeTicks: 36_000_000_000, premiereDate: "2008-02-10T00:00:00Z", indexNumber: 4, parentIndexNumber: 2,
+            seriesName: "Show", seriesID: "show", tags: ["Tag"], studios: [MediaNamedInfo(name: "Studio")],
+            productionLocations: ["Somewhere"], people: cast,
+            remoteTrailers: [MediaTrailer(name: "Trailer", url: "https://trailer.invalid/e4")],
+            providerIDs: ["Tvdb": "123"], posterURL: "https://art.invalid/e4.jpg")
+        library.trackPlayback(of: episode, position: 900, duration: 3_600)
+        library.flushLocalPlayback()
+        library.setLocalFavorite(true, for: episode)
+
+        let history = try XCTUnwrap(defaults.data(forKey: "Lineup.localMediaPlayback.v1"))
+        XCTAssertLessThan(history.count, try JSONEncoder().encode(episode).count,
+                          "A record is smaller than the server's record of its title alone")
+        for field in ["People", "RemoteTrailers", "Studios", "ProductionLocations", "Tags"] {
+            XCTAssertFalse(String(decoding: history, as: UTF8.self).contains("\"\(field)\""), field)
+        }
+
+        let restored = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(restored.resumePosition(for: episode), 900)
+        let kept = try XCTUnwrap(restored.localPlaybackRecord(for: episode)?.item)
+        XCTAssertEqual(kept.name, "Episode 4")
+        XCTAssertEqual(kept.parentIndexNumber, 2)
+        XCTAssertEqual(kept.indexNumber, 4)
+        XCTAssertEqual(kept.seriesID, "show")
+        XCTAssertEqual(kept.runTimeTicks, 36_000_000_000)
+        XCTAssertEqual(kept.providerIDs, ["Tvdb": "123"])
+        XCTAssertEqual(kept.posterURL, "https://art.invalid/e4.jpg")
+        XCTAssertEqual(kept.overview, "What happens.")
+        XCTAssertNil(kept.people)
+        XCTAssertNil(kept.remoteTrailers)
+        XCTAssertEqual(restored.favoriteMedia.map(\.id), [episode.id])
+        XCTAssertNil(restored.favoriteMedia.first?.people)
+    }
+
     func testRemoveFromContinueWatchingPreservesTheLatestResumePointAcrossRelaunch() throws {
         let (library, defaults, suite) = try makeLibrary()
         defer { defaults.removePersistentDomain(forName: suite) }
