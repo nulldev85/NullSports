@@ -14,19 +14,21 @@ struct MobileLeagueMenuButton: View {
                 // A league's mark when one is chosen. Every league needs no
                 // icon: the words say it, and the pill stays small.
                 if let league { MobileLeagueLogo(league: league, size: 22) }
+                else { LineupIconTile(symbol: "sportscourt.fill", size: 22) }
                 Text(MobileLeagueMenu.title(league))
                     .font(.inter(15, .bold))
-                    .foregroundStyle(LineupStyle.text.opacity(0.76))
+                    .foregroundStyle(LineupPresentationStyle.text)
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
-                    .foregroundStyle(LineupPanelStyle.quiet)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
                     .rotationEffect(.degrees(isOpen ? -180 : 0))
             }
-            .padding(.leading, league == nil ? 14 : 10).padding(.trailing, 12)
+            .padding(.leading, 10).padding(.trailing, 12)
             .frame(height: 36)
             // A panel's own fill, a step lighter while its list is open.
-            .background(isOpen ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Capsule())
+            .background(isOpen ? LineupPresentationStyle.card : LineupPresentationStyle.row, in: Capsule())
+            .overlay(Capsule().strokeBorder(isOpen ? LineupStyle.highlight.opacity(0.4) : LineupPresentationStyle.divider, lineWidth: 0.7))
             .contentShape(Capsule())
         }
         .buttonStyle(MobileCardButtonStyle())
@@ -78,10 +80,10 @@ struct MobileLeagueMenu: View {
         // A panel like every other: its header and hairline inside it, then
         // the leagues.
         VStack(spacing: 0) {
-            LineupPanelHeader("Sports", systemImage: "sportscourt")
+            LineupPresentationHeading(title: "Sports", symbol: "sportscourt", compact: true)
                 .padding(.horizontal, LineupPanelStyle.inset)
                 .frame(height: Self.headerHeight - 1)
-            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+            Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                 .padding(.horizontal, LineupPanelStyle.inset)
             ScrollView {
                 VStack(spacing: 0) {
@@ -94,7 +96,7 @@ struct MobileLeagueMenu: View {
                                        : nil, value: shown)
                         // Every league, then each of them.
                         if index == 0 {
-                            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                            Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                                 .padding(.horizontal, 12).padding(.vertical, 4)
                         }
                     }
@@ -105,11 +107,8 @@ struct MobileLeagueMenu: View {
             .scrollIndicators(.hidden)
             .frame(height: min(content, max(0, maxHeight - Self.headerHeight)))
         }
-        .background(LineupPanelStyle.fill, in: shape)
-        // It floats over panels of its own colour, so it takes a hairline
-        // of light round its edge and a deep shadow under it.
-        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .clipShape(shape)
+        .lineupPresentationSurface(shape)
+        .lineupPresentation()
         .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
         .onAppear { shown = true }
         .accessibilityAddTraits(.isModal)
@@ -130,9 +129,9 @@ struct MobileLeagueMenu: View {
                 .frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(Self.title(entry.league))
-                        .font(.inter(16, .bold)).foregroundStyle(LineupStyle.text)
+                        .font(.inter(16, .bold)).foregroundStyle(LineupPresentationStyle.text)
                     Text(Self.subtitle(entry.league))
-                        .font(.inter(12, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+                        .font(.inter(12, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
@@ -150,8 +149,9 @@ struct MobileLeagueMenu: View {
             }
             .padding(.horizontal, 10)
             .frame(height: Self.rowHeight)
-            .background(isSelected ? LineupPanelStyle.well : .clear,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(isSelected ? LineupPresentationStyle.selection(entry.league.map(LineupStyle.leagueColor) ?? LineupStyle.highlight)
+                        : LineupPresentationStyle.row,
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2))
             .contentShape(Rectangle())
             .opacity(quiet ? 0.45 : 1)
         }
@@ -173,7 +173,7 @@ struct MobileLeagueMenu: View {
         } else {
             Text(entry.games == 0 ? "NONE" : "\(entry.games) \(noun(entry, entry.games))")
                 .font(.inter(11, .heavy)).tracking(0.4)
-                .foregroundStyle(LineupPanelStyle.quiet)
+                .foregroundStyle(LineupPresentationStyle.secondary)
         }
     }
 
@@ -195,7 +195,7 @@ struct MobileLeagueMenu: View {
 private struct MobileLeagueRowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? LineupPanelStyle.well.opacity(0.8) : .clear,
+            .background(configuration.isPressed ? LineupPresentationStyle.row.opacity(0.8) : .clear,
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)

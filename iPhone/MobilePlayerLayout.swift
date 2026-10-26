@@ -4,6 +4,9 @@ enum MobilePlayerLayout {
     /// The compact replay timeline sits below the picture, clear of both
     /// the centered transport and its bottom metadata badges.
     static let inlineTimelineHeight: CGFloat = 64
+    /// The Guide reserves this row below its preview, including when the
+    /// programme metadata is hidden on a short screen.
+    static let inlineProviderHeight: CGFloat = 32
     /// Height of the full-screen player, measured so it doesn't depend on how
     /// much of the screen chrome currently claims.
     ///

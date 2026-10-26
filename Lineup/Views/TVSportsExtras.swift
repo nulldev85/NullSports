@@ -72,19 +72,19 @@ struct TVEventChannelsScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 LineupIconTile(symbol: "tv", size: 72)
                 Text("Channels").font(.inter(44, .bold)).padding(.top, 26)
-                Text(current.matchupLine).font(.inter(23, .semibold)).foregroundStyle(LineupStyle.secondary)
+                Text(current.matchupLine).font(.inter(23, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                     .lineLimit(3).padding(.top, 8)
                 Text("Every channel here is one Lineup checked against the guide for this game. To search the provider yourself, hold Select on the game and choose Choose Another Channel.")
-                    .font(.inter(19)).foregroundStyle(LineupPanelStyle.quiet)
+                    .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 22)
             }
             .frame(width: 520, alignment: .leading)
             list.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 90).padding(.top, 70)
-        .foregroundStyle(LineupStyle.text)
+        .foregroundStyle(LineupPresentationStyle.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .onAppear {
             openedProfileID = library.activeProfile?.id
             reload()
@@ -97,17 +97,17 @@ struct TVEventChannelsScreen: View {
     private var list: some View {
         if loading || waiting {
             VStack(spacing: 18) {
-                ProgressView().tint(LineupStyle.text)
+                ProgressView().tint(LineupPresentationStyle.text)
                 Text(waiting ? "Matching event channels…" : "Finding channels…")
-                    .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                    .font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if channels.isEmpty {
             VStack(spacing: 16) {
-                Image(systemName: "tv.slash").font(.system(size: 44)).foregroundStyle(LineupPanelStyle.quiet)
+                Image(systemName: "tv.slash").font(.system(size: 44)).foregroundStyle(LineupPresentationStyle.secondary)
                 Text("No matching channels").font(.inter(26, .semibold))
                 Text("No channel could be verified for this event. Choose Another Channel, in the game's menu, searches your provider.")
-                    .font(.inter(19)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 620)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -171,7 +171,7 @@ private struct TVEventChannelRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(channel.stream.name).font(.inter(23, .bold)).lineLimit(2)
                 Text(channel.program?.title ?? fallback).font(.inter(18))
-                    .foregroundStyle(LineupPanelStyle.quiet).lineLimit(2)
+                    .foregroundStyle(LineupPresentationStyle.secondary).lineLimit(2)
                 HStack(spacing: 12) {
                     if live {
                         HStack(spacing: 6) {
@@ -180,7 +180,7 @@ private struct TVEventChannelRow: View {
                         }
                     }
                     if let label = channel.quality.label {
-                        Text("Provider \(label)").foregroundStyle(LineupStyle.secondary)
+                        Text("Provider \(label)").foregroundStyle(LineupPresentationStyle.secondary)
                             .accessibilityLabel("Provider quality: \(label)")
                     }
                 }
@@ -192,7 +192,7 @@ private struct TVEventChannelRow: View {
                 .frame(width: 58, height: 58).background(LineupStyle.highlight, in: Circle())
         }
         .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
         .accessibilityElement(children: .combine)
         .accessibilityHint(isPlaying ? "Playing now" : "Play this event on this channel")
     }
@@ -229,7 +229,7 @@ struct TVGameReplaysScreen: View {
                 LineupIconTile(symbol: "clock.arrow.circlepath", size: 72)
                 Text("Game Replays").font(.inter(44, .bold)).padding(.top, 26)
                 Text("Your NFL teams' games your provider recorded, from kickoff.")
-                    .font(.inter(21)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 10)
                 TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
                     store.clearCache()
@@ -247,9 +247,9 @@ struct TVGameReplaysScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 90).padding(.top, 70)
-        .foregroundStyle(LineupStyle.text)
+        .foregroundStyle(LineupPresentationStyle.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .task(id: request) {
             await store.load(request, streams: library.streams, categories: library.categories, teams: Self.teams) { stream in
                 guard let profileID = request.profileID else { throw CancellationError() }
@@ -294,8 +294,8 @@ struct TVGameReplaysScreen: View {
                     }
                     if store.loading {
                         HStack(spacing: 14) {
-                            ProgressView().tint(LineupStyle.text)
-                            Text("Checking more channels…").font(.inter(19)).foregroundStyle(LineupPanelStyle.quiet)
+                            ProgressView().tint(LineupPresentationStyle.text)
+                            Text("Checking more channels…").font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
                         .padding(.vertical, 18)
                     }
@@ -309,8 +309,8 @@ struct TVGameReplaysScreen: View {
             message("Game replays need a provider connection with Xtream catch-up.", symbol: "tv.slash")
         } else if store.request != request || store.loading {
             VStack(spacing: 18) {
-                ProgressView().tint(LineupStyle.text)
-                Text("Checking recorded games…").font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                ProgressView().tint(LineupPresentationStyle.text)
+                Text("Checking recorded games…").font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if store.failedChannels > 0 {
@@ -331,8 +331,8 @@ struct TVGameReplaysScreen: View {
 
     private func message(_ text: String, symbol: String) -> some View {
         VStack(spacing: 16) {
-            Image(systemName: symbol).font(.system(size: 44)).foregroundStyle(LineupPanelStyle.quiet)
-            Text(text).font(.inter(22)).foregroundStyle(LineupStyle.secondary)
+            Image(systemName: symbol).font(.system(size: 44)).foregroundStyle(LineupPresentationStyle.secondary)
+            Text(text).font(.inter(22)).foregroundStyle(LineupPresentationStyle.secondary)
                 .multilineTextAlignment(.center).frame(maxWidth: 640)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -353,7 +353,7 @@ private struct TVReplayRow: View {
                     }
                 }
                 Text(replay.start, format: .dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute())
-                    .font(.inter(17, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+                    .font(.inter(17, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             VStack(spacing: 8) {
@@ -362,12 +362,12 @@ private struct TVReplayRow: View {
                     .frame(width: 58, height: 58).background(LineupStyle.highlight, in: Circle())
                 if replay.recordings.count > 1 {
                     Text("\(replay.recordings.count) channels").font(.inter(16, .medium))
-                        .foregroundStyle(LineupPanelStyle.quiet)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                 }
             }
         }
         .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
     }
 }
 
@@ -382,7 +382,7 @@ private struct TVReplayRefreshLabel: View {
             Text(loading ? "Checking…" : "Refresh").font(.inter(21, .semibold))
         }
         .padding(.horizontal, 24).frame(height: 58)
-        .background(LineupPanelStyle.well, in: shape)
+        .background(LineupPresentationStyle.row, in: shape)
         .lineupFocusLayer(focused, in: shape)
         .animation(.easeOut(duration: 0.16), value: focused)
     }
@@ -409,15 +409,15 @@ private struct TVGameReplaysEntryLabel: View {
             LineupIconTile(symbol: "clock.arrow.circlepath", size: 36)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Game Replays").font(.inter(19, .semibold))
-                Text("Your NFL teams' recorded games").font(.inter(15)).foregroundStyle(LineupPanelStyle.quiet)
+                Text("Your NFL teams' recorded games").font(.inter(15)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             Spacer(minLength: 6)
             Image(systemName: "chevron.right").font(.system(size: 16, weight: .bold))
-                .foregroundStyle(LineupPanelStyle.quiet)
+                .foregroundStyle(LineupPresentationStyle.secondary)
         }
         .padding(.horizontal, 18).padding(.vertical, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupStyle.raised, in: shape)
+        .background(LineupPresentationStyle.row, in: shape)
         .lineupFocusLayer(focused, in: shape)
         .animation(.easeOut(duration: 0.16), value: focused)
     }

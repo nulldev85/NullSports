@@ -24,7 +24,8 @@ struct MDBListClient: Sendable {
             name: Self.string(object["name"]),
             plan: Self.string(object["plan"]),
             dailyLimit: Self.integer(object["api_requests"]),
-            requestsUsed: Self.integer(object["api_requests_count"])
+            requestsUsed: Self.integer(object["api_requests_count"]),
+            userID: Self.integer(object["user_id"])
         )
     }
 

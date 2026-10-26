@@ -163,6 +163,16 @@ struct SportsTeamsSettingsView: View {
                 } header: { Text("Teams").lineupSettingsHeader() }
                 .lineupSettingsRows()
             }
+            let tennis = [SportsLeague.atp, .wta].compactMap(\.seriesFollow).filter {
+                query.isEmpty || $0.name.localizedStandardContains(query) || $0.league.localizedStandardContains(query)
+            }
+            if !tennis.isEmpty {
+                Section {
+                    ForEach(tennis) { tour in SportsTeamFollowButton(team: tour) }
+                } header: { Text("Tennis Tours").lineupSettingsHeader() }
+                  footer: { Text("Follow ATP, WTA, or both to include their tournaments in My Teams.").lineupSettingsFooter() }
+                .lineupSettingsRows()
+            }
             let racing = [SportsLeague.f1, .nascar].compactMap(\.seriesFollow).filter {
                 query.isEmpty || $0.name.localizedStandardContains(query) || $0.league.localizedStandardContains(query)
             }
@@ -178,7 +188,7 @@ struct SportsTeamsSettingsView: View {
         .navigationTitle("My Teams")
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $query, prompt: "Find a team or league")
-        .sheet(item: $teamPage) { MobileTeamPage(target: $0) }
+        .lineupSheet(item: $teamPage) { MobileTeamPage(target: $0) }
     }
 
     /// The row follows and unfollows; the button beside it opens the team's
@@ -263,6 +273,7 @@ private struct SportsTeamFollowButton: View {
     var showsLeague = false
     private var following: Bool { library.isFollowing(team.key) }
     private var caption: String {
+        if team.abbreviation == "TOUR" { return "Tennis tour" }
         if team.abbreviation == "SERIES" { return "Racing series" }
         if team.league == "SOCCER", let entry = SportsTeamDirectory.soccerByIdentity[team.team] {
             let names = (entry.competitions ?? []).compactMap { SportsTeamDirectory.soccerCompetitionNames[$0] }
@@ -305,7 +316,7 @@ private struct SportsTeamFollowButton: View {
         let detailSize: CGFloat = 13
         #endif
         return HStack(spacing: 14) {
-            if let league = SportsLeague(rawValue: team.league.lowercased()), league.isRacing {
+            if let league = SportsLeague(rawValue: team.league.lowercased()), league.isRacing || team.abbreviation == "TOUR" {
                 SportsMark(league: league, size: badgeSize)
             } else {
                 TeamBadge(url: team.logo, fallback: team.abbreviation, size: badgeSize, tight: true)

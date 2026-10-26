@@ -27,13 +27,14 @@ struct MobileLibraryShelf: View {
     let items: [MediaItem]
     let shape: MediaArtShape
     var width: CGFloat? = nil
+    var discoversSources = false
     let onSelect: (MediaItem) -> Void
 
     var body: some View {
         let metrics = MobileLibraryShelfMetrics(width: width ?? (shape.isPoster ? 150 : 232),
             ratio: shape.ratio, titleHeight: titleHeight, metadataHeight: metadataHeight)
         MobileLibraryShelfView(items: items, shape: shape, metrics: metrics, media: media,
-            position: position, holdMenu: holdMenu, onSelect: onSelect)
+            position: position, holdMenu: holdMenu, discoversSources: discoversSources, onSelect: onSelect)
             .frame(height: metrics.height)
     }
 }
@@ -47,6 +48,7 @@ struct MobileLibraryShelfView: UIViewRepresentable {
     let media: MediaLibrary
     let position: MobileLibraryShelfPosition
     let holdMenu: MobileHoldMenu?
+    var discoversSources = false
     let onSelect: (MediaItem) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -199,7 +201,10 @@ struct MobileLibraryShelfView: UIViewRepresentable {
 
         @discardableResult private func showMenu(key: String) -> Bool {
             guard let item = items.first(where: { $0.libraryKey == key }), let menu = owner.holdMenu else { return false }
-            let choices = owner.media.cardMenuItems(for: item)
+            let choose = owner.onSelect
+            let choices = owner.discoversSources
+                ? [MobileMenuItem("Find in My Sources", symbol: "magnifyingglass") { choose(item) }]
+                : owner.media.cardMenuItems(for: item)
             guard !choices.isEmpty else { return false }
             menu.present(owner.media.displayItem(item).name, symbol: item.type == "Episode" ? "tv" : "film",
                          message: nil, items: choices)

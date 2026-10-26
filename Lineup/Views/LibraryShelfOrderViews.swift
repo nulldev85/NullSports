@@ -60,7 +60,7 @@ struct LibraryShelfOrderSheet: View {
                             LibraryShelfOrderRow(row: row)
                         }
                         .buttonStyle(.plain)
-                        .listRowBackground(LineupStyle.raised)
+                        .listRowBackground(LineupPresentationStyle.row)
                     }
                     .onMove { from, to in
                         rows.move(fromOffsets: from, toOffset: to)
@@ -69,12 +69,12 @@ struct LibraryShelfOrderSheet: View {
                 } footer: {
                     Text("Tap a row to rename it, or drag it to move it. Your iPhone and Apple TV share these.")
                         .font(.inter(12))
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                 }
             }
             .environment(\.editMode, .constant(.active))
             .scrollContentBackground(.hidden)
-            .background(LineupStyle.background.ignoresSafeArea())
+            .background(LineupPresentationStyle.ground.ignoresSafeArea())
             .navigationTitle("Edit Shelves")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -88,13 +88,13 @@ struct LibraryShelfOrderSheet: View {
         }
         .tint(LineupStyle.highlight)
         .onAppear { rows = media.libraryRows }
-        .sheet(item: $renaming) { row in
+        .lineupSheet(item: $renaming) { row in
             MobileShelfRenameSheet(row: row, name: $newName,
                                    onSave: { rename(row, to: newName) },
                                    onRestore: { rename(row, to: "") },
                                    onCancel: { renaming = nil })
                 .presentationDetents([.height(320)])
-                .presentationBackground(LineupPanelStyle.fill)
+                .presentationBackground(LineupPresentationStyle.card)
                 .preferredColorScheme(.dark)
         }
     }
@@ -139,8 +139,8 @@ struct LibraryShelfOrderSheet: View {
         }
         .frame(maxWidth: 1180, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
+        .foregroundStyle(LineupPresentationStyle.text)
         // Back sets a carried row down where it is; with none carried it
         // closes the screen.
         .onExitCommand {
@@ -150,7 +150,7 @@ struct LibraryShelfOrderSheet: View {
             rows = media.libraryRows
             focused = rows.first?.id
         }
-        .sheet(item: $renaming) { row in
+        .lineupSheet(item: $renaming) { row in
             TVShelfRenameSheet(row: row, name: $newName,
                                onSave: { rename(row, to: newName) },
                                onRestore: { rename(row, to: "") },
@@ -165,7 +165,7 @@ struct LibraryShelfOrderSheet: View {
         return LibraryShelfOrderRow(row: row, position: index + 1, carried: isCarried)
             .padding(.horizontal, 22)
             .frame(height: 78)
-            .background(isCarried ? LineupStyle.focused : LineupStyle.surface, in: shape)
+            .background(isCarried ? LineupStyle.focused : LineupPresentationStyle.card, in: shape)
             .overlay(shape.strokeBorder(isCarried ? LineupStyle.focusEdge : LineupStyle.line,
                                         lineWidth: isCarried ? 2 : 1))
             .lineupFocusLayer(isFocused && !isCarried, in: shape)
@@ -231,19 +231,19 @@ private struct LibraryShelfOrderRow: View {
                 } else {
                     Image(systemName: row.symbol)
                         .font(.system(size: Metrics.symbolSize, weight: .semibold, design: .rounded))
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                 }
             }
             .frame(width: Metrics.iconSize, height: Metrics.iconSize)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
                     .font(.inter(Metrics.titleSize, .semibold))
-                    .foregroundStyle(LineupStyle.text)
+                    .foregroundStyle(LineupPresentationStyle.text)
                     .lineLimit(1)
                 if let detail = row.detail {
                     Text(detail)
                         .font(.inter(Metrics.detailSize, .medium))
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                         .lineLimit(1)
                 }
             }
@@ -255,11 +255,11 @@ private struct LibraryShelfOrderRow: View {
                     Image(systemName: "chevron.down")
                 }
                 .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundStyle(LineupStyle.text)
+                .foregroundStyle(LineupPresentationStyle.text)
             } else if let position {
                 Text("\(position)")
                     .font(.interDigits(18, .semibold))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
             }
             #endif
         }
@@ -299,9 +299,9 @@ private struct MobileShelfRenameSheet: View {
             HStack(alignment: .top, spacing: 12) {
                 LineupIconTile(symbol: "pencil", size: 30)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Rename Shelf").font(.inter(17, .bold)).foregroundStyle(LineupStyle.text)
+                    Text("Rename Shelf").font(.inter(17, .bold)).foregroundStyle(LineupPresentationStyle.text)
                     Text("Originally “\(row.originalTitle ?? row.title)”.")
-                        .font(.inter(14)).foregroundStyle(LineupPanelStyle.quiet)
+                        .font(.inter(14)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
                 .padding(.top, 5)
             }
@@ -312,7 +312,7 @@ private struct MobileShelfRenameSheet: View {
                 .focused($typing)
                 .onSubmit(onSave)
                 .padding(.horizontal, 14).frame(height: 48)
-                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             VStack(spacing: 0) {
                 MobileMenuRow(item: MobileMenuItem("Save", symbol: "checkmark", action: onSave)) { onSave() }
                 if row.title != (row.originalTitle ?? row.title) {
@@ -344,7 +344,7 @@ private struct TVShelfRenameSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("RENAME SHELF").modifier(LineupGroupHeading())
                 Text("Originally “\(row.originalTitle ?? row.title)”")
-                    .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(20)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             TextField(row.originalTitle ?? row.title, text: $name)
                 .font(.inter(26, .semibold))
@@ -367,8 +367,8 @@ private struct TVShelfRenameSheet: View {
         .padding(60)
         .frame(maxWidth: 900, alignment: .leading)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
+        .foregroundStyle(LineupPresentationStyle.text)
         .onExitCommand(perform: onCancel)
     }
 }
@@ -382,10 +382,10 @@ private struct LibraryShelfOrderChip: View {
     var body: some View {
         Label(title, systemImage: symbol)
             .font(.inter(20, .semibold))
-            .foregroundStyle(LineupStyle.text)
+            .foregroundStyle(LineupPresentationStyle.text)
             .padding(.horizontal, 22)
             .frame(height: 50)
-            .background(Capsule().fill(LineupStyle.surface))
+            .background(Capsule().fill(LineupPresentationStyle.card))
             .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 1))
             .lineupFocusLayer(focused, in: Capsule())
     }

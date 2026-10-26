@@ -9,14 +9,14 @@ struct TVPlaybackLicensesView: View {
         VStack(alignment: .leading, spacing: 24) {
             Text("Playback acknowledgements").font(.inter(36, .bold))
             PlaybackEngineText("AetherEngine \(PlaybackEngineVersions.aether), MPVKit (LGPL), and their decoder libraries", size: 21)
-                .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                .font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
             TVPlaybackLicenseText(text: AetherPlaybackSession.openSourceNotices() + "\n\n" + MPVPlaybackSession.openSourceNotices())
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(40)
-        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 28))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 28))
         .padding(.horizontal, 100).padding(.vertical, 50)
-        .background(LineupStyle.background)
+        .background(LineupPresentationStyle.ground)
         .focusSection()
     }
 }
@@ -34,7 +34,7 @@ private struct TVPlaybackLicenseText: UIViewRepresentable {
         guard uiView.text != text else { return }
         uiView.attributedText = NSAttributedString(string: text, attributes: [
             .font: UIFont(name: LineupFonts.face(for: .regular), size: 22) ?? .systemFont(ofSize: 22),
-            .foregroundColor: UIColor(LineupStyle.text)
+            .foregroundColor: UIColor(LineupPresentationStyle.text)
         ])
         uiView.setContentOffset(.zero, animated: false)
     }

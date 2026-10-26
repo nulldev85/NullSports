@@ -52,6 +52,7 @@ struct TMDBCatalogTitle: Decodable, Identifiable, Hashable, Sendable {
     let first_air_date: String?
     let poster_path: String?
     let backdrop_path: String?
+    var adult: Bool? = nil
 
     var productionYear: Int? {
         (release_date ?? first_air_date).flatMap { Int($0.prefix(4)) }
@@ -97,6 +98,8 @@ actor LibraryMetadataResolver {
     private let credentials: LibraryMetadataCredentials
     private let session: URLSession
     private let cacheURL: URL?
+    private let titleLogoCache: TitleLogoURLCache
+    private var titleLogoLoads: [String: Task<URL?, Never>] = [:]
     private var restored = false
     private var cache: [String: Entry] = [:]
     private var inFlight: [String: Task<LibraryMetadata?, Never>] = [:]
@@ -117,6 +120,7 @@ actor LibraryMetadataResolver {
         self.credentials = credentials
         self.session = session
         self.cacheURL = cacheURL
+        self.titleLogoCache = TitleLogoURLCache(cacheURL: cacheURL?.appendingPathExtension("title-logos"))
     }
 
     func resolve(_ item: MediaItem, source: LibraryMetadataSource, parent: MediaItem? = nil) async -> LibraryMetadata? {
@@ -207,14 +211,51 @@ actor LibraryMetadataResolver {
     /// shares the resolver's coalescing, response cache, and request limits.
     func titleLogo(for item: MediaItem) async -> URL? {
         guard ["Movie", "Series"].contains(item.type), credentials.contains(.tmdb) else { return nil }
+        let logoKey = "tmdb|" + LibraryMetadataIdentity.requestKey(item, source: .tmdb)
+        if let task = titleLogoLoads[logoKey] { return await task.value }
+        let task = Task { await self.resolveTitleLogo(for: item, key: logoKey) }
+        titleLogoLoads[logoKey] = task
+        let result = await task.value
+        titleLogoLoads[logoKey] = nil
+        return result
+    }
+
+    private func resolveTitleLogo(for item: MediaItem, key logoKey: String) async -> URL? {
+        if let remembered = await titleLogoCache.logo(for: logoKey) { return remembered }
         let resolvedID: String?
-        do { resolvedID = try await tmdbID(item.withMetadata(nil)) }
+        do { resolvedID = try await tmdbID(item) }
         catch { return nil }
         guard let resolvedID, let numericID = Int(resolvedID), numericID > 0 else { return nil }
         let kind = item.isSeries ? "tv" : "movie"
         guard let data = try? await tmdbCatalogData("\(kind)/\(numericID)/images",
             query: ["include_image_language": "en-US,null"], lifetime: 86_400) else { return nil }
-        return TMDBTitleLogoPolicy.logo(data, expectedID: numericID)
+        guard let logo = TMDBTitleLogoPolicy.logo(data, expectedID: numericID) else { return nil }
+        await titleLogoCache.remember(logo, for: logoKey)
+        return logo
+    }
+
+    /// On-demand display data. Credits are tied to a verified external title ID
+    /// and share the existing bounded, coalesced request/cache implementation.
+    func cast(for item: MediaItem) async -> [LibraryCastMember] {
+        guard ["Movie", "Series"].contains(item.type), credentials.contains(.tmdb),
+              !LibraryMetadataIdentity.ids(item).isEmpty,
+              let raw = try? await tmdbID(item), let id = Int(raw), id > 0 else { return [] }
+        let path = item.isSeries ? "tv/\(id)/aggregate_credits" : "movie/\(id)/credits"
+        guard let data = try? await tmdbCatalogData(path, query: [:], lifetime: 86_400) else { return [] }
+        return LibraryCastMember.credits(data, expectedID: id)
+    }
+
+    /// Suggestions come exclusively from TMDB, never from local genre overlap
+    /// or a media server's recommendation algorithm.
+    func similar(for item: MediaItem) async -> [MediaItem] {
+        guard ["Movie", "Series"].contains(item.type), credentials.contains(.tmdb),
+              let raw = try? await tmdbID(item), let id = Int(raw), id > 0 else { return [] }
+        let kind: TMDBCatalogMediaKind = item.isSeries ? .series : .movie
+        guard let data = try? await tmdbCatalogData("\(kind.rawValue)/\(id)/similar", query: ["page": "1"], lifetime: 86_400),
+              let page = try? JSONDecoder().decode(TMDBCatalogPage.self, from: data) else { return [] }
+        var seen: Set<Int> = [id]
+        return page.results.filter { $0.adult != true && $0.id > 0 && seen.insert($0.id).inserted }
+            .compactMap { $0.mediaItem(kind: kind) }.prefix(20).map { $0 }
     }
 
     private func tmdbCatalogData(_ path: String, query: [String: String], lifetime: TimeInterval) async throws -> Data {
@@ -229,7 +270,8 @@ actor LibraryMetadataResolver {
             catalogInFlight[cacheKey] = nil
             catalogCache[cacheKey] = CatalogEntry(data: data, expires: Date().addingTimeInterval(lifetime))
             if catalogCache.count > 80 {
-                catalogCache = catalogCache.filter { $0.value.expires > Date() }
+                catalogCache = Dictionary(uniqueKeysWithValues: catalogCache.filter { $0.value.expires > Date() }
+                    .sorted { $0.value.expires > $1.value.expires }.prefix(80).map { ($0.key, $0.value) })
             }
             return data
         } catch {
@@ -561,4 +603,45 @@ private extension String {
 }
 private extension Array {
     var nonempty: Self? { isEmpty ? nil : self }
+}
+
+private struct MDBEpisodeFind: Decodable {
+    struct Episode: Decodable {
+        let id: Int
+        let show_id: Int
+        let season_number: Int
+        let episode_number: Int
+    }
+    let tv_episode_results: [Episode]
+}
+
+extension LibraryMetadataResolver {
+    /// Convert an identified TVDB episode to TMDb's actual episode numbering.
+    /// Never scrobble a guessed show or reuse TVDB numbers as TMDb numbers.
+    func mdbTrackingEpisode(_ item: MediaItem, parent: MediaItem,
+                            source: LibraryMetadataSource) async -> MDBListTrackingTarget? {
+        guard item.type == "Episode", let parentID = try? await tmdbID(parent),
+              let season = item.parentIndexNumber, season >= 0, let number = item.indexNumber, number > 0 else { return nil }
+        let direct = MDBListTrackingTarget.normalizedIDs(LibraryMetadataIdentity.ids(item))
+        if let episodeID = direct["tmdb"], let record: TMDBRecord = try? await tmdb("tv/\(parentID)/season/\(season)/episode/\(number)"),
+           String(record.id) == episodeID, record.season_number == season, record.episode_number == number {
+            return MDBListTrackingTarget(kind: .episode, ids: ["tmdb": parentID], season: season,
+                                         episode: number, episodeIDs: ["tmdb": episodeID])
+        }
+        let identified = direct["tvdb"] == nil && source == .tvdb ? await resolve(item, source: .tvdb, parent: parent) : nil
+        if let tvdb = direct["tvdb"] ?? identified?.externalIDs["tvdb"],
+           let found: MDBEpisodeFind = try? await tmdb("find/\(tvdb)", query: ["external_source": "tvdb_id"]),
+           found.tv_episode_results.count == 1, let episode = found.tv_episode_results.first,
+           String(episode.show_id) == parentID {
+            return MDBListTrackingTarget(kind: .episode, ids: ["tmdb": parentID], season: episode.season_number,
+                episode: episode.episode_number, episodeIDs: ["tmdb": String(episode.id), "tvdb": tvdb])
+        }
+        if source == .tmdb, direct["tmdb"] == nil,
+           let record: TMDBRecord = try? await tmdb("tv/\(parentID)/season/\(season)/episode/\(number)"),
+           record.season_number == season, record.episode_number == number {
+            return MDBListTrackingTarget(kind: .episode, ids: ["tmdb": parentID], season: season,
+                                         episode: number, episodeIDs: ["tmdb": String(record.id)])
+        }
+        return nil
+    }
 }

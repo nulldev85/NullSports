@@ -46,7 +46,15 @@ private struct MobileTabNavigationKey: EnvironmentKey {
     static let defaultValue: MobileTabNavigation? = nil
 }
 
+private struct MobileNavigationCompactKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
+    fileprivate var mobileNavigationIsCompact: Bool {
+        get { self[MobileNavigationCompactKey.self] }
+        set { self[MobileNavigationCompactKey.self] = newValue }
+    }
     fileprivate var mobileTabNavigation: MobileTabNavigation? {
         get { self[MobileTabNavigationKey.self] }
         set { self[MobileTabNavigationKey.self] = newValue }
@@ -69,34 +77,45 @@ enum MobileLineupNavigationLayout {
     }
 }
 
-/// An opaque floating capsule around the icons and labels. It shares the
+/// A floating capsule around the icons and labels. It shares the
 /// native bar's destinations and selection; button actions remain immediate.
 struct MobileLineupNavigationBar: View {
     @Binding var selection: Int
     var navigation: MobileTabNavigation? = nil
+    var compact = false
+    var liquidGlass = false
     let activate: (MobileNavigationTab) -> Void
     @AppStorage(MobileNavigationOrder.storageKey) private var savedOrder = MobileNavigationOrder.defaultValue
     @ScaledMetric(relativeTo: .caption2) private var labelSize: CGFloat = 10
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(MobileNavigationOrder.tabs(in: savedOrder)) { tab in
+            ForEach(compact ? [.sports] : MobileNavigationOrder.tabs(in: savedOrder)) { tab in
                 let selected = selection == tab.rawValue
                 Button {
                     UISelectionFeedbackGenerator().selectionChanged()
                     activate(tab)
                 } label: {
                     VStack(spacing: 3) {
-                        tab.icon(selected: selected)
-                            .resizable().scaledToFit()
-                            .frame(width: 25, height: 24)
-                        Text(tab.title)
-                            .font(.inter(labelSize, .semibold))
-                            .lineLimit(1).minimumScaleFactor(0.75)
+                        tab.icon(selected: compact || selected)
+                            .renderingMode(.template).resizable().scaledToFit()
+                            .frame(width: compact ? 28 : 25, height: compact ? 28 : 24)
+                            .foregroundStyle(!liquidGlass && (compact || selected) ? LineupStyle.highlight : (selected ? Color.white : LineupPresentationStyle.secondary))
+                        if !compact {
+                            Text(tab.title)
+                                .font(.inter(labelSize, .semibold))
+                                .lineLimit(1).minimumScaleFactor(0.75)
+                                .foregroundStyle(!liquidGlass && selected ? LineupStyle.highlight
+                                    : (selected ? LineupPresentationStyle.text : LineupPresentationStyle.secondary))
+                        }
                     }
-                    .foregroundStyle(selected ? Color.white : LineupPanelStyle.caption)
+                    .foregroundStyle(compact || selected ? LineupPresentationStyle.text : LineupPresentationStyle.secondary)
                     .frame(maxWidth: .infinity, minHeight: MobileLineupNavigationLayout.itemHeight)
-                    .background(selected ? LineupPanelStyle.well : .clear, in: Capsule())
+                    .background {
+                        if selected && !compact && liquidGlass {
+                            Capsule().fill(LineupPanelStyle.well)
+                        }
+                    }
                     .contentShape(Capsule())
                 }
                 .buttonStyle(MobileNavigationButtonStyle())
@@ -105,18 +124,33 @@ struct MobileLineupNavigationBar: View {
                 .accessibilityIdentifier("lineup.navigation.tab.\(tab.rawValue)")
             }
         }
+        .frame(width: compact ? MobileLineupNavigationLayout.itemHeight : nil)
         .padding(MobileLineupNavigationLayout.padding)
-        .background(LineupPanelStyle.fill, in: Capsule())
-        .overlay {
-            Capsule()
-                .strokeBorder(LineupPanelStyle.divider, lineWidth: 1)
-                .allowsHitTesting(false)
-        }
+        .modifier(MobileNavigationSurface(liquidGlass: liquidGlass))
         .background(MobileLineupNavigationBoundary(navigation: navigation).allowsHitTesting(false))
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, MobileLineupNavigationLayout.sideMargin)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Main navigation")
         .accessibilityIdentifier("lineup.navigation.custom")
+        .accessibilityAction(named: "Show all tabs") { navigation?.expand() }
+    }
+}
+
+private struct MobileNavigationSurface: ViewModifier {
+    let liquidGlass: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *), liquidGlass {
+            content.glassEffect(.regular, in: Capsule())
+        } else {
+            content
+                .background(LineupPresentationStyle.card, in: Capsule())
+                .overlay {
+                    Capsule().strokeBorder(LinearGradient(colors: [.white.opacity(0.16), LineupPresentationStyle.divider, .white.opacity(0.035)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.8).allowsHitTesting(false)
+                }
+                .shadow(color: .black.opacity(0.28), radius: 16, x: 0, y: 8)
+        }
     }
 }
 
@@ -136,6 +170,7 @@ private struct MobileNavigationButtonStyle: ButtonStyle {
 final class MobileTabNavigation: ObservableObject {
     weak var tabs: UITabBarController?
     @Published private(set) var windowBottomInset: CGFloat = 0
+    @Published private(set) var isCompact = false
     var order = MobileNavigationTab.allCases
     fileprivate weak var bottomBoundary: UIView?
     fileprivate var showsCustomNavigation = false
@@ -143,11 +178,34 @@ final class MobileTabNavigation: ObservableObject {
     private let contentInsets = MobileNavigationContentInsets()
     private var insetsUpdateScheduled = false
     private var windowMetricsUpdateScheduled = false
+    private var scrollUpdateScheduled = false
+    private var scrollInteractionEnabled = true
+    let scrollObservation = MobileNavigationScrollObserver()
     private struct Home {
         weak var probe: MobileTabHomeRegistration.Probe?
     }
     private var homes: [Int: Home] = [:]
     private var pendingHomes: Set<Int> = []
+
+    init() {
+        scrollObservation.onChange = { [weak self] compact in self?.isCompact = compact }
+    }
+
+    func expand() { scrollObservation.expand() }
+
+    fileprivate func requestScrollObservationUpdate(enabled: Bool) {
+        scrollInteractionEnabled = enabled
+        guard !scrollUpdateScheduled else { return }
+        scrollUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.scrollUpdateScheduled = false
+            self.scrollObservation.update(tabs: self.tabs, selection: self.currentSelection,
+                                          enabled: self.scrollInteractionEnabled)
+        }
+    }
+
+    fileprivate func detachScrollObservation() { scrollObservation.detach() }
 
     fileprivate func requestWindowMetrics(from view: UIView) {
         guard let window = view.window, !windowMetricsUpdateScheduled else { return }
@@ -197,6 +255,7 @@ final class MobileTabNavigation: ObservableObject {
 
     func activate(_ tab: MobileNavigationTab, selection: () -> Void) {
         guard let index = order.firstIndex(of: tab) else { return }
+        expand()
         let reselection = tabs?.selectedIndex == index
         let home = homes[tab.rawValue]?.probe
         if home == nil { pendingHomes.insert(tab.rawValue) }
@@ -373,27 +432,33 @@ private struct MobileNavigationChrome: ViewModifier {
     let liquidGlass: Bool
     let fullscreen: Bool
     @StateObject private var navigation = MobileTabNavigation()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(MobileNavigationOrder.storageKey) private var savedOrder = MobileNavigationOrder.defaultValue
 
     func body(content: Content) -> some View {
         let glass = liquidGlass && MobileNavigationStyle.supportsGlass
         content
-            .environment(\.mobileUsesLineupNavigation, !glass)
+            .environment(\.mobileUsesLineupNavigation, !glass || navigation.isCompact)
             .environment(\.mobileTabNavigation, navigation)
-            .toolbar(glass && !fullscreen ? .visible : .hidden, for: .tabBar)
+            .environment(\.mobileNavigationIsCompact, navigation.isCompact)
+            .toolbar(glass && !fullscreen && !navigation.isCompact ? .visible : .hidden, for: .tabBar)
             .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation,
                                               order: MobileNavigationOrder.tabs(in: savedOrder),
-                                              selection: selection, fullscreen: fullscreen)
+                                              selection: selection, fullscreen: fullscreen,
+                                              active: scenePhase == .active, compact: navigation.isCompact)
                 .frame(width: 0, height: 0).allowsHitTesting(false))
             // UIKit's navigation container owns the measured reservation.
             // A second outer SwiftUI inset would count the same panel twice.
             // Extend only the floating overlay into the bottom container area.
             // Page clearance still comes from the actual capsule boundary.
             .overlay(alignment: .bottom) {
-                if !glass && !fullscreen {
-                    MobileLineupNavigationBar(selection: $selection, navigation: navigation) { tab in
+                if (!glass || navigation.isCompact) && !fullscreen {
+                    MobileLineupNavigationBar(selection: $selection, navigation: navigation,
+                                              compact: navigation.isCompact, liquidGlass: glass) { tab in
                         navigation.activate(tab) { selection = tab.rawValue }
                     }
+                    .animation(reduceMotion ? nil : .smooth(duration: 0.28), value: navigation.isCompact)
                     .padding(.bottom, MobileLineupNavigationLayout.bottomGap(safeAreaBottom: navigation.windowBottomInset))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .ignoresSafeArea(.container, edges: .bottom)
@@ -402,7 +467,26 @@ private struct MobileNavigationChrome: ViewModifier {
     }
 }
 
+private struct MobileNativeTabBarVisibility: ViewModifier {
+    let liquidGlass: Bool
+    let fullscreen: Bool
+    @Environment(\.mobileNavigationIsCompact) private var compact
+    func body(content: Content) -> some View {
+        content.toolbar(liquidGlass && MobileNavigationStyle.supportsGlass && !fullscreen && !compact
+                        ? .visible : .hidden, for: .tabBar)
+    }
+}
+
+private struct MobileExpandedNavigation: ViewModifier {
+    @Environment(\.mobileTabNavigation) private var navigation
+    func body(content: Content) -> some View {
+        content.onAppear { navigation?.expand() }
+    }
+}
+
 extension View {
+    func mobileExpandNavigationOnAppear() -> some View { modifier(MobileExpandedNavigation()) }
+
     func mobileTabHome(_ tab: MobileNavigationTab, reset: @escaping () -> Void) -> some View {
         background(MobileTabHomeRegistration(tab: tab, reset: reset)
             .frame(width: 0, height: 0).allowsHitTesting(false))
@@ -410,8 +494,7 @@ extension View {
     /// State the visibility on each destination too: its NavigationStack owns
     /// the toolbar preference, including after a push or return from a player.
     func mobileNativeTabBar(liquidGlass: Bool, fullscreen: Bool = false) -> some View {
-        toolbar(liquidGlass && MobileNavigationStyle.supportsGlass && !fullscreen ? .visible : .hidden,
-                for: .tabBar)
+        modifier(MobileNativeTabBarVisibility(liquidGlass: liquidGlass, fullscreen: fullscreen))
     }
 
     func mobileNavigationChrome(selection: Binding<Int>, liquidGlass: Bool,
@@ -428,23 +511,36 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     var order = MobileNavigationTab.allCases
     var selection = 0
     var fullscreen = false
+    var active = true
+    // Keep this a value input: changing a property on the same navigation
+    // object does not invalidate a UIViewRepresentable's unchanged inputs.
+    var compact = false
 
     func makeUIView(context: Context) -> Probe { Probe() }
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.liquidGlass = liquidGlass
+        probe.nativeBarShouldBeHidden = !liquidGlass || fullscreen || compact
+        probe.scrollInteractionEnabled = active && !fullscreen
         probe.navigation = navigation
         navigation?.order = order
         navigation?.currentSelection = selection
-        navigation?.showsCustomNavigation = !liquidGlass && !fullscreen
+        navigation?.showsCustomNavigation = (!liquidGlass || compact) && !fullscreen
         probe.refresh()
+    }
+
+    static func dismantleUIView(_ probe: Probe, coordinator: ()) {
+        probe.navigation?.detachScrollObservation()
     }
 
     final class Probe: UIView {
         var liquidGlass = false
+        var nativeBarShouldBeHidden = true
+        var scrollInteractionEnabled = true
         weak var navigation: MobileTabNavigation?
         private weak var bar: UITabBar?
         private let style = MobileTabBarStyle()
+        private var visibilityUpdateScheduled = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -459,12 +555,14 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             // Only discover the controller once. Layout and tab switches do
             // not walk the view hierarchy or recreate the glass material.
             if bar == nil { refresh() }
+            requestNativeVisibilityUpdate()
             navigation?.requestWindowMetrics(from: self)
             navigation?.requestContentInsetsUpdate()
         }
 
         override func safeAreaInsetsDidChange() {
             super.safeAreaInsetsDidChange()
+            requestNativeVisibilityUpdate()
             navigation?.requestWindowMetrics(from: self)
             navigation?.requestContentInsetsUpdate()
         }
@@ -477,9 +575,32 @@ struct MobileTabBarAppearance: UIViewRepresentable {
                 navigation?.tabs = tabs
                 bar = tabs?.tabBar
             }
+            // UIKit can replace its floating tab bar during a visibility
+            // transition. Keep styling and visibility on the live instance.
+            if let current = navigation?.tabs?.tabBar { bar = current }
             guard let bar else { return }
             style.apply(to: bar, liquidGlass: liquidGlass)
+            requestNativeVisibilityUpdate()
+            navigation?.requestScrollObservationUpdate(enabled: scrollInteractionEnabled)
             navigation?.requestContentInsetsUpdate()
+        }
+
+        private func requestNativeVisibilityUpdate() {
+            guard !visibilityUpdateScheduled else { return }
+            visibilityUpdateScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.visibilityUpdateScheduled = false
+                guard self.window != nil, let tabs = self.navigation?.tabs else { return }
+                // Reconcile after SwiftUI's toolbar/layout pass. In particular,
+                // a glass appearance change following the compact animation
+                // must not leave the expanded native bar hidden.
+                if #available(iOS 26.0, *),
+                   tabs.isTabBarHidden != self.nativeBarShouldBeHidden {
+                    tabs.setTabBarHidden(self.nativeBarShouldBeHidden, animated: false)
+                }
+                self.navigation?.requestContentInsetsUpdate()
+            }
         }
 
         private static func findTabController(in controller: UIViewController?) -> UITabBarController? {

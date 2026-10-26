@@ -10,6 +10,7 @@ final class PlaybackFixtureServer: @unchecked Sendable {
     private let contentType: String
     private let live: Bool
     private let stallsBeforeHeaders: Bool
+    private let headerDelay: TimeInterval
     private let onStalledRequest: (@Sendable () -> Void)?
     private var reportedStall = false
     private var connections: [NWConnection] = []
@@ -19,11 +20,12 @@ final class PlaybackFixtureServer: @unchecked Sendable {
 
     init(file: URL, contentType: String, live: Bool = false,
          stallsBeforeHeaders: Bool = false, onReady: (@Sendable () -> Void)? = nil,
-         onStalledRequest: (@Sendable () -> Void)? = nil) throws {
+         onStalledRequest: (@Sendable () -> Void)? = nil, headerDelay: TimeInterval = 0) throws {
         media = try Data(contentsOf: file)
         self.contentType = contentType
         self.live = live
         self.stallsBeforeHeaders = stallsBeforeHeaders
+        self.headerDelay = headerDelay
         self.onStalledRequest = onStalledRequest
         listener = try NWListener(using: .tcp, on: .any)
         listener.stateUpdateHandler = { [weak self] state in
@@ -68,9 +70,16 @@ final class PlaybackFixtureServer: @unchecked Sendable {
         }
     }
 
-    private func respond(_ connection: NWConnection, request: String) {
+    private func respond(_ connection: NWConnection, request: String, delayApplied: Bool = false) {
         if stallsBeforeHeaders {
             if !reportedStall { reportedStall = true; onStalledRequest?() }
+            return
+        }
+        if headerDelay > 0, !delayApplied {
+            queue.asyncAfter(deadline: .now() + headerDelay) { [weak self] in
+                guard case .ready = connection.state else { return }
+                self?.respond(connection, request: request, delayApplied: true)
+            }
             return
         }
         if live {

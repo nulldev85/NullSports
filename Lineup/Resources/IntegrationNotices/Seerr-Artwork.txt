@@ -1,0 +1,10 @@
+Seerr integration artwork
+
+The original Seerr app icon identifies its local account sign-in option.
+Lineup is an independent client. The PNG is bundled unchanged in the iPhone
+asset catalog; Plex, Jellyfin and Emby reuse the existing server marks.
+
+Official upstream: https://github.com/seerr-team/seerr
+Artwork: public/android-chrome-192x192.png (develop, retrieved October 25, 2026)
+Git blob SHA-1: d14b10cbbd2eaa543b693bb007ce4167cd6a6fff
+License: MIT; upstream copyright and license are included in Seerr-MIT.txt.

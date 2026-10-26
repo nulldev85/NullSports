@@ -71,6 +71,9 @@ final class MobilePlaybackController: ObservableObject {
     private let defaults: UserDefaults
     private var preference = MobilePlaybackPreference.automatic
     private var failedEngines: [URL: Set<MobileStreamEngine>] = [:]
+    private var nativeCompatibilityFailures: Set<URL> = []
+    private var nativeFallbackAllowed = true
+    @Published private(set) var nativeCompatibilityActive = false
     private var sourceIsRecording = false
     private(set) var aetherSession: AetherPlaybackSession?
     private(set) var mpvSession: MPVPlaybackSession?
@@ -81,24 +84,41 @@ final class MobilePlaybackController: ObservableObject {
     /// background. One instance per controller, reused across channel changes.
     let systemPlayer = AVPlayer()
 
-    @Published var isPlaying = false
+    @Published var isPlaying = false { didSet { reportLibraryTracking() } }
+    var libraryTrackingEvent: ((LibraryPlaybackSample) -> Void)?
+    private var lastLibraryTrackingSample: LibraryPlaybackSample?
+    private func reportLibraryTracking() {
+        guard let libraryTrackingEvent, !isScrubbing else { return }
+        let sample = LibraryPlaybackSample(playing: isPlaying, pictureInPicture: pictureInPictureActive,
+            position: progress?.position ?? 0, duration: progress?.duration ?? 0)
+        guard sample.differs(from: lastLibraryTrackingSample) else { return }
+        lastLibraryTrackingSample = sample
+        libraryTrackingEvent(sample)
+    }
     @Published var loading = true
+    @Published private(set) var presentation = MobilePlaybackPresentation()
+    var loadingMessage: String { presentation.loadingMessage(waitingForPicture: isPlaying && !startGateOpen) }
     @Published var error: String?
     @Published private(set) var videoWidth: Int?
     @Published private(set) var videoHeight: Int?
     @Published private(set) var mediaInfo = PlaybackMediaInfo()
     private let nativeMediaInfo = NativePlaybackMediaInfoReader()
+    private let liveQualityReporter = LivePlaybackQualityReporter()
     /// Which engine is currently rendering. Views use it only to decide whether
     /// a Picture in Picture button can do anything.
     @Published private(set) var engine: MobileStreamEngine = .vlc
-    var engineTitle: String { engine.title }
+    var engineTitle: String {
+        if nativeCompatibilityActive { return "Native player · Compatibility" }
+        if preference == .native, engine != .system { return engine.title + " · Fallback" }
+        return engine.title
+    }
     @Published private(set) var pictureInPicturePossible = false
-    @Published private(set) var pictureInPictureActive = false
+    @Published private(set) var pictureInPictureActive = false { didSet { reportLibraryTracking() } }
     /// A short, self-clearing line shown when Lineup moves to a different feed.
     @Published private(set) var failoverNotice: String?
     /// Where playback is in a title that has an end. Nil for a live stream,
     /// which has no length to report and nothing to scrub through.
-    @Published private(set) var progress: MobilePlaybackProgress?
+    @Published private(set) var progress: MobilePlaybackProgress? { didSet { reportLibraryTracking() } }
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
     @Published private(set) var selectedSubtitleID = PlaybackSubtitleTrack.off.id
     @Published private(set) var subtitleSessionID = UUID()
@@ -156,6 +176,32 @@ final class MobilePlaybackController: ObservableObject {
     /// at the live edge. A title that stops is reopened where it was, and one
     /// that reaches its end has finished, not failed.
     var isLive = true
+    private var nativeSiloPlayback: SiloPlaybackSession?
+    private var pendingSiloSidecars: [SiloPlaybackSession.Sidecar] = []
+    private var siloSidecarRestore: Task<Void, Never>?
+    private var siloSubtitleWasOff = false
+    private var siloSubtitleTitle: String?
+
+    func configureSiloPlayback(_ session: SiloPlaybackSession?) {
+        nativeSiloPlayback = session
+        session?.assetChanged = { [weak self] asset in
+            guard let self else { return }
+            let paused = self.pausedByUser
+            let delay = self.subtitleDelaySeconds
+            let off = self.selectedSubtitleID == PlaybackSubtitleTrack.off.id
+            let selected = self.subtitleTracks.first { $0.id == self.selectedSubtitleID }?.title
+            let sidecars = self.nativeSiloPlayback?.sidecars ?? []
+            self.siloSidecarRestore?.cancel(); self.siloSidecarRestore = nil
+            self.scrubSeeks.cancel()
+            self.start(urls: [asset.url], initialPosition: asset.lease.playerStart)
+            self.subtitleDelaySeconds = delay
+            self.pendingSiloSidecars = sidecars; self.siloSubtitleWasOff = off; self.siloSubtitleTitle = selected
+            if paused { self.toggle() }
+        }
+        session?.failed = { [weak self] message in self?.show(notice: message) }
+        session?.preparing = { [weak self] in self?.error = nil; self?.loading = true }
+        session?.retryFailed = { [weak self] message in self?.loading = false; self?.error = message }
+    }
     /// Where to put a title back once its stream has reopened.
     private var reopenPosition: TimeInterval?
     /// A title played to its end. The player closes on it. So does a
@@ -423,6 +469,29 @@ final class MobilePlaybackController: ObservableObject {
     /// publish and the player shows live chrome instead of a scrubber.
     private func sampleProgress() {
         guard !isScrubbing else { return }
+        if let native = nativeSiloPlayback, let asset = native.asset {
+            restoreSiloSidecarsIfNeeded()
+            let raw: Double?
+            switch engine {
+            case .aether: raw = aetherSession?.position
+            case .system: raw = systemPlayer.currentTime().seconds
+            case .vlc: raw = vlcPlaybackSeconds
+            case .mpv: raw = mpvSession?.position
+            }
+            guard let raw, let sourcePosition = native.sourcePosition(playerTime: raw), let duration = asset.duration else { return }
+            if !appliedInitialPosition, asset.lease.playerStart > 0 {
+                if engine == .system {
+                    guard systemPlayer.currentItem?.status == .readyToPlay else { return }
+                    systemPlayer.seek(to: CMTime(seconds: asset.lease.playerStart, preferredTimescale: 600))
+                    appliedInitialPosition = true
+                    return
+                }
+                guard activeEngineIsPlaying, raw > 0 else { return }
+            }
+            appliedInitialPosition = true
+            progress = MobilePlaybackProgress(position: sourcePosition, duration: duration)
+            return
+        }
         let sampled: MobilePlaybackProgress?
         switch engine {
         case .aether:
@@ -490,6 +559,9 @@ final class MobilePlaybackController: ObservableObject {
     /// where it was left off. VLC starts there itself; AVPlayer is moved
     /// there once it is ready.
     private var openingPlace: TimeInterval? {
+        if let native = nativeSiloPlayback, let asset = native.asset {
+            return reopenPosition.map { max(0, $0 - asset.lease.timelineOffset) } ?? asset.lease.playerStart
+        }
         if let reopenPosition { return reopenPosition }
         guard !appliedInitialPosition, let requestedInitialPosition, requestedInitialPosition >= 10 else {
             return nil
@@ -570,6 +642,12 @@ final class MobilePlaybackController: ObservableObject {
         guard let current = progress, current.duration > 0 else { return }
         guard seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: current.duration)
+        if let native = nativeSiloPlayback, native.asset?.requiresServerSeek == true {
+            scrubSeeks.cancel()
+            native.seek(to: target)
+            progress = MobilePlaybackProgress(position: target, duration: current.duration)
+            return
+        }
         appliedInitialPosition = true
         reopenPosition = nil
         seekLanding.expect(target, now: ProcessInfo.processInfo.systemUptime)
@@ -579,6 +657,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func performSeek(to target: Double) {
+        guard nativeSiloPlayback?.asset?.requiresServerSeek != true else { return }
         guard let current = progress, current.duration > 0 else { return }
         switch engine {
         case .aether:
@@ -795,13 +874,25 @@ final class MobilePlaybackController: ObservableObject {
                 let steady = size.width > 0 && size.height > 0
                     && now - (vlcGateSizeSince ?? now) >= StartTogether.vlcSettle
                     && pictures - vlcPicturesAtUp >= StartTogether.vlcFramesToSettle
-                if steady {
-                    openStartGate("picture up, \(Int(size.width))x\(Int(size.height))")
-                } else if let upAt = vlcPictureUpAt, now - upAt > StartTogether.vlcSettleDeadline {
-                    openStartGate("picture up, shape not settled")
+                if StartTogether.canRevealVLC(displayedPictures: pictures, settled: steady,
+                                             outputAge: now - (vlcPictureUpAt ?? now)) {
+                    if steady {
+                        openStartGate("picture up, \(Int(size.width))x\(Int(size.height))")
+                    } else {
+                        openStartGate("picture rendered, shape not settled")
+                    }
                 }
             } else if let since = heldSoundSince, now - since > StartTogether.soundAloneAfter {
-                openStartGate("no picture after \(Int(StartTogether.soundAloneAfter))s, sound alone")
+                let tracks = player.media?.tracksInformation as? [[String: Any]] ?? []
+                let hasVideo = player.videoSize.width > 0 || tracks.contains {
+                    ($0[VLCMediaTracksInformationType] as? String) == VLCMediaTracksInformationTypeVideo
+                }
+                let hasAudio = tracks.contains {
+                    ($0[VLCMediaTracksInformationType] as? String) == VLCMediaTracksInformationTypeAudio
+                }
+                if StartTogether.canReleaseAudioOnly(heldFor: now - since, hasAudio: hasAudio, hasVideo: hasVideo) {
+                    openStartGate("audio-only stream")
+                }
             }
         }
     }
@@ -826,6 +917,19 @@ final class MobilePlaybackController: ObservableObject {
             player.audio?.isMuted = audioMuted
         }
         videoView?.holdPicture(false)
+        notePresentedVideo()
+    }
+
+    private func notePresentedVideo() {
+        guard startGateOpen else { return }
+        let ready: Bool
+        switch engine {
+        case .vlc: ready = player.hasVideoOut && (player.media?.numberOfDisplayedPictures ?? 0) > 0
+        case .aether: ready = aetherSession?.hasPicture == true
+        case .system: ready = systemPictureSeen
+        case .mpv: ready = mpvSession?.hasVideoOut == true
+        }
+        if ready, !presentation.hasPresentedVideo || presentation.recovering { presentation.presentedVideo() }
     }
 
     /// The sound as the viewer has it, once the start gate has let it out.
@@ -908,14 +1012,17 @@ final class MobilePlaybackController: ObservableObject {
     func start(urls: [URL], channelID: Int? = nil, resetFailover: Bool = true,
                initialPosition: TimeInterval? = nil, recording: Bool = false) {
         diag.beginSession("start channel=\(channelID.map(String.init) ?? "—") urls=\(urls.count) resetFailover=\(resetFailover)")
-        for url in MobileEngineSelection.ordered(urls) {
+        for url in MobileEngineSelection.ordered(urls, live: isLive) {
             diag.record("  candidate \(url.lastPathComponent) -> \(MobileEngineSelection.engine(for: url)?.title ?? "unavailable")")
         }
         // Also ends any recording: whatever opens next is live unless the
         // recording itself is what is being opened, which says so afterwards.
         stop()
+        presentation = MobilePlaybackPresentation()
         preference = MobilePlaybackPreference.selected(in: defaults)
         failedEngines.removeAll()
+        nativeCompatibilityFailures = []
+        nativeFallbackAllowed = MobilePlaybackPreference.allowsNativeFallback(in: defaults)
         sourceIsRecording = recording
         // A recording belongs to its channel. Another channel -- the viewer's
         // choice or failover's -- leaves the last one's behind.
@@ -934,9 +1041,9 @@ final class MobilePlaybackController: ObservableObject {
             pendingWorkingChannelID = nil
         }
         retries.reset()
-        // HLS first on the phone so Picture in Picture is reachable; the
-        // transport stream stays queued behind it. Apple TV keeps its own order.
-        candidates = MobileEngineSelection.ordered(urls)
+        // Keep a playback-confirmed live transport first. Fresh provider lists
+        // still start HLS first, and Library ordering/PiP behavior is unchanged.
+        candidates = MobileEngineSelection.ordered(urls, live: isLive)
         do {
             try MobileAudioSession.activate(for: self)
         } catch {
@@ -956,6 +1063,7 @@ final class MobilePlaybackController: ObservableObject {
                 // reads tracks from both engines and formats every value.
                 if self.diag.isEnabled { self.diag.update(snapshot: self.diagnosticsSnapshot) }
                 self.refreshMediaInfo()
+                self.notePresentedVideo()
                 if self.isScrubbing { continue }
                 self.sampleProgress()
                 // A recording's place is kept while it is paused too, so the
@@ -1054,7 +1162,8 @@ final class MobilePlaybackController: ObservableObject {
                 let state = self.player.state
                 let stopped = state == .error
                     || ((state == .ended || state == .stopped)
-                        && (!self.isLive || self.health.hasShownPicture || self.health.age(now: now) >= 8))
+                        && MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: self.isLive,
+                            hasShownPicture: self.health.hasShownPicture, age: self.health.age(now: now)))
                 // A title that stops at its end has finished. The same stop
                 // anywhere earlier is a dropped stream, reopened in place.
                 if stopped, self.reachedEnd(vlcPosition: self.player.position) {
@@ -1079,6 +1188,12 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func openNext() {
+        let siloCaptions = nativeSiloPlayback?.sidecars ?? []
+        let siloWasOff = selectedSubtitleID == PlaybackSubtitleTrack.off.id
+        let siloSelectedTitle = subtitleTracks.first { $0.id == selectedSubtitleID }?.title
+        let siloDelay = subtitleDelaySeconds
+        if !siloCaptions.isEmpty { siloSidecarRestore?.cancel(); siloSidecarRestore = nil }
+        liveQualityReporter.reset()
         systemPictureSeen = false
         resetStartGate()
         teardownSystemEngine()
@@ -1088,6 +1203,11 @@ final class MobilePlaybackController: ObservableObject {
         pictureInPicturePossible = false
         player.stop()
         resetSubtitles()
+        if !siloCaptions.isEmpty {
+            pendingSiloSidecars = siloCaptions
+            siloSubtitleWasOff = siloWasOff; siloSubtitleTitle = siloSelectedTitle
+            subtitleDelaySeconds = siloDelay
+        }
         waitingForVideo = false
         waitingSince = nil
         isPlaying = false
@@ -1104,11 +1224,12 @@ final class MobilePlaybackController: ObservableObject {
         let url = candidates.removeFirst()
         currentURL = url
         guard let selected = MobileEngineSelection.engine(for: url, preference: preference,
-                                                          failed: failedEngines[url] ?? []) else {
+                                                          failed: failedEngines[url] ?? [], nativeFallback: nativeFallbackAllowed) else {
             openNext()
             return
         }
         engine = selected
+        nativeCompatibilityActive = preference == .native && selected == .aether && !nativeCompatibilityFailures.contains(url)
         health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
         diag.record("openNext \(url.lastPathComponent) engine=\(engine.rawValue) remaining=\(candidates.count)")
         started = Date()
@@ -1151,7 +1272,8 @@ final class MobilePlaybackController: ObservableObject {
                          isLive: isLive && !sourceIsRecording, expectedDuration: nil,
                          primary: isPrimaryOutput, matchContent: false,
                          preferredSubtitleLanguages: preferredSubtitleLanguages,
-                         preferredAudioLanguages: preferredAudioLanguages)
+                         preferredAudioLanguages: preferredAudioLanguages, requireNativeVideo: nativeCompatibilityActive)
+            if pausedByUser { session.pause() }
             applySubtitleAppearance()
             closeStartGate()
             UIApplication.shared.isIdleTimerDisabled = true
@@ -1184,7 +1306,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func checkAetherPlayback() {
-        guard engine == .aether, let session = aetherSession, retryAt == nil else { return }
+        guard engine == .aether, let session = aetherSession, retryAt == nil, error == nil else { return }
         if !inBackground { session.restoreForegroundVideo() }
         session.refreshPictureInPicture()
         let possible = session.pictureInPicturePossible
@@ -1282,14 +1404,25 @@ final class MobilePlaybackController: ObservableObject {
 
     private func advanceAfterEngineFailure() {
         guard let url = currentURL else { return }
+        if nativeCompatibilityActive, engine == .aether, nativeFallbackAllowed {
+            nativeCompatibilityFailures.insert(url)
+            if !isLive, reopenPosition == nil, let position = progress?.position, position > 0 { reopenPosition = position }
+            show(notice: "Using AetherEngine compatibility fallback for this source.")
+            candidates.insert(url, at: 0)
+            openNext()
+            return
+        }
+        if isLive && !health.hasShownPicture {
+            Task { await LiveQualityVerifier.shared.forgetPlayback(url: url) }
+        }
         failedEngines[url, default: []].insert(engine)
-        if let next = MobileEngineSelection.engine(for: url, preference: preference, failed: failedEngines[url] ?? []) {
+        if let next = MobileEngineSelection.engine(for: url, preference: preference, failed: failedEngines[url] ?? [], nativeFallback: nativeFallbackAllowed) {
             // Try the provider's other PiP-capable endpoint before settling
             // for VLC, or retrying a broken HLS address through another engine.
             if (engine == .system || next == .vlc),
                let index = candidates.firstIndex(where: {
                    MobileEngineSelection.engine(for: $0, preference: preference,
-                       failed: failedEngines[$0] ?? [])?.supportsPictureInPicture == true
+                       failed: failedEngines[$0] ?? [], nativeFallback: nativeFallbackAllowed)?.supportsPictureInPicture == true
                }) {
                 let alternative = candidates.remove(at: index)
                 candidates.append(url)
@@ -1302,6 +1435,12 @@ final class MobilePlaybackController: ObservableObject {
             candidates.insert(url, at: 0)
             openNext()
         } else if !candidates.isEmpty { openNext() }
+        else if preference == .native, !nativeFallbackAllowed {
+            loading = false
+            isPlaying = false
+            aetherSession?.pause()
+            error = aetherSession?.errorMessage ?? "Apple’s native player could not open this source. Choose another feed or enable compatibility fallback in Settings."
+        }
         else {
             // A genuinely failed playback session gets a fresh bounded retry.
             // Keep the final engine so an unsupported Aether source does not
@@ -1537,6 +1676,14 @@ final class MobilePlaybackController: ObservableObject {
     /// From a recording, or a pause that would otherwise resume through one,
     /// it is the channel's live addresses that are opened, not the recording's.
     func goLive() {
+        if let nativeSiloPlayback {
+            if pausedByUser { toggle() }
+            if nativeSiloPlayback.asset?.requiresServerSeek == true {
+                nativeSiloPlayback.seek(to: 0)
+                if let current = progress { progress = MobilePlaybackProgress(position: 0, duration: current.duration) }
+            } else { seek(to: 0) }
+            return
+        }
         if catchUp != nil || pausedAt != nil, let source = catchUpSource {
             diag.record("catch-up: back to live")
             start(urls: source.liveURLs, channelID: source.stream.id, resetFailover: false)
@@ -1547,6 +1694,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func scheduleRecovery(now: TimeInterval) {
+        presentation.beganRecovery()
         // A channel the server closed while it played is opened again at once
         // on the same address, as other players do; waiting, then trying the
         // other address, turned a moment's drop into a long wait.
@@ -1578,7 +1726,7 @@ final class MobilePlaybackController: ObservableObject {
             return
         }
         if droppedWhilePlaying { delay = 0 }
-        let ordered = MobileEngineSelection.ordered(originalURLs)
+        let ordered = MobileEngineSelection.ordered(originalURLs, live: isLive)
         let index = currentURL.flatMap { ordered.firstIndex(of: $0) } ?? 0
         // First attempt retries the same endpoint; later ones rotate, so a dead
         // HLS endpoint ends up on the transport stream instead of looping. An
@@ -1755,15 +1903,17 @@ final class MobilePlaybackController: ObservableObject {
 
     func addOnlineSubtitle(_ data: Data, title: String, language: String, sessionID: UUID) async throws {
         guard sessionID == subtitleSessionID, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
         let preparation = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
             guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
+            let prepared = try SubtitleSourceTimeline.rebase(data, offset: offset)
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
             do {
                 try Task.checkCancellation()
-                try data.write(to: file, options: .atomic)
+                try prepared.write(to: file, options: .atomic)
                 try Task.checkCancellation()
                 return file
             } catch { try? FileManager.default.removeItem(at: file); throw error }
@@ -1786,9 +1936,31 @@ final class MobilePlaybackController: ObservableObject {
             case .system: throw MobileSubtitleFailure.unsupported
             }
             onlineSubtitleFiles.append(file)
+            nativeSiloPlayback?.rememberSubtitle(data, title: title, language: language)
         } catch {
             try? FileManager.default.removeItem(at: file)
             throw error
+        }
+    }
+
+    private func restoreSiloSidecarsIfNeeded() {
+        guard !loading, canAttachOnlineSubtitles, !pendingSiloSidecars.isEmpty, siloSidecarRestore == nil else { return }
+        let saved = pendingSiloSidecars, session = subtitleSessionID
+        pendingSiloSidecars = []
+        siloSidecarRestore = Task { [weak self] in
+            guard let self else { return }
+            defer { self.siloSidecarRestore = nil }
+            do {
+                for subtitle in saved {
+                    try await self.addOnlineSubtitle(subtitle.data, title: subtitle.title, language: subtitle.language, sessionID: session)
+                }
+                guard self.subtitleSessionID == session else { return }
+                if self.siloSubtitleWasOff { self.selectSubtitle(.off, byViewer: false) }
+                else if let title = self.siloSubtitleTitle, let selected = self.subtitleTracks.first(where: { $0.title == title }) {
+                    self.selectSubtitle(selected, byViewer: false)
+                }
+                self.applySubtitleAppearance()
+            } catch { if !Task.isCancelled { self.show(notice: "Subtitles could not be restored after seeking. " + error.localizedDescription) } }
         }
     }
 
@@ -2042,6 +2214,9 @@ final class MobilePlaybackController: ObservableObject {
                 audioLayout: mpvSession?.audioLayout)
         }
         if mediaInfo != next { mediaInfo = next }
+        liveQualityReporter.observe(url: currentURL, width: videoWidth ?? 0, height: videoHeight ?? 0,
+            frameRate: next.frameRate, live: isLive && !sourceIsRecording, playing: isPlaying,
+            picture: startGateOpen && !loading)
     }
 
     // MARK: - Scene phase
@@ -2497,6 +2672,7 @@ final class MobilePlaybackController: ObservableObject {
     // MARK: - Teardown
 
     func stop() {
+        siloSidecarRestore?.cancel(); siloSidecarRestore = nil; pendingSiloSidecars = []
         nativeMediaInfo.reset()
         mediaInfo = PlaybackMediaInfo()
         isScrubbing = false
@@ -2688,33 +2864,64 @@ final class MobileVideoHost: UIView {
         }
         let created = retained ?? AVPlayerLayer(player: player)
         created.videoGravity = .resizeAspect
-        created.opacity = pictureHeld ? 0 : 1
+        created.opacity = 1
         created.frame = bounds
         layer.addSublayer(created)
         playerLayer = created
+        updateStartupCover()
         return created
     }
 
-    /// Kept back while sound and picture wait to start together, so a held
-    /// first frame never shows. Opacity rather than `isHidden`, which the
-    /// dismissal's still picture already uses.
+    /// Cover the picture while it decodes. Hiding the decoder itself can
+    /// prevent the first displayed frame that the startup gate waits for.
     private(set) var pictureHeld = false
+    private var startupCover: UIView?
 
     func holdPicture(_ held: Bool) {
         pictureHeld = held
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        playerLayer?.opacity = held ? 0 : 1
-        // VLC draws into a view of its own inside this one.
-        for renderer in subviews where renderer !== stillPicture { renderer.alpha = held ? 0 : 1 }
+        playerLayer?.opacity = 1
+        for renderer in subviews where renderer !== stillPicture && renderer !== startupCover { renderer.alpha = 1 }
+        updateStartupCover()
         CATransaction.commit()
     }
 
+    private func updateStartupCover() {
+        guard pictureHeld else { startupCover?.removeFromSuperview(); return }
+        if startupCover == nil {
+            let cover = UIView(frame: bounds)
+            cover.backgroundColor = .black
+            cover.isOpaque = true
+            cover.isUserInteractionEnabled = false
+            cover.isAccessibilityElement = false
+            cover.layer.zPosition = 1
+            cover.accessibilityIdentifier = "PlaybackStartupCover"
+            cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            startupCover = cover
+        }
+        guard let cover = startupCover else { return }
+        cover.frame = bounds
+        cover.isHidden = false
+        if cover.superview !== self { addSubview(cover) }
+        bringSubviewToFront(cover)
+    }
+
     /// VLC adds its renderer once the stream's picture starts, which can be
-    /// after the picture was held: held from the moment it arrives.
+    /// after the picture was held: covered from the moment it arrives.
     override func didAddSubview(_ subview: UIView) {
         super.didAddSubview(subview)
-        if subview !== stillPicture { subview.alpha = pictureHeld ? 0 : 1 }
+        guard subview !== stillPicture, subview !== startupCover else { return }
+        subview.alpha = 1
+        subview.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        if bounds.width > 0, bounds.height > 0 {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            subview.frame = bounds
+            subview.layoutIfNeeded()
+            CATransaction.commit()
+        }
+        updateStartupCover()
     }
 
     private var stillPicture: UIView?
@@ -2772,12 +2979,19 @@ final class MobileVideoHost: UIView {
 
     private weak var engineSurface: UIView?
     func installEngineSurface(_ surface: UIView) {
-        guard engineSurface !== surface || surface.superview !== self else { return }
+        if engineSurface === surface, surface.superview === self {
+            if surface.frame != bounds { surface.frame = bounds }
+            surface.layoutIfNeeded()
+            return
+        }
         removeEngineSurface()
         surface.frame = bounds
         surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         addSubview(surface)
         engineSurface = surface
+        // Give the decoder its real viewport before loading, including a
+        // canvas created at a large placeholder size. Keep aspect fit intact.
+        surface.layoutIfNeeded()
     }
     func removeEngineSurface() {
         if engineSurface?.superview === self { engineSurface?.removeFromSuperview() }

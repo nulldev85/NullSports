@@ -126,17 +126,15 @@ struct MobilePersonalCollectionView: View {
                 MobileDropdownButton(isOpen: options, label: "Collection options") { options = true }
             }
         }
-        .alert("Rename Collection", isPresented: $renaming) {
-            TextField("Name", text: $name)
-            Button("Save") {
+        .lineupTextPrompt("Rename Collection", symbol: "folder", isPresented: $renaming,
+            text: $name, prompt: "Name", canSave: !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && name.count <= 80,
+            onSave: {
                 let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty, trimmed.count <= 80,
                    let index = media.personalCollections.firstIndex(where: { $0.id == id }) {
                     media.personalCollections[index].name = trimmed
                 }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
+            })
         .lineupChoices("Delete collection?", symbol: "trash", isPresented: $deleting) {
             [MobileMenuItem("Delete Collection", isDestructive: true) {
                 media.personalCollections.removeAll { $0.id == id }; dismiss()

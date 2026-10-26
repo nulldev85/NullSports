@@ -32,7 +32,7 @@ struct TVOnlineSubtitlesScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 LineupIconTile(symbol: "captions.bubble", size: 72)
                 Text("Find Subtitles Online").font(.inter(40, .bold)).padding(.top, 26)
-                Text(name).font(.inter(23, .semibold)).foregroundStyle(LineupStyle.secondary)
+                Text(name).font(.inter(23, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                     .lineLimit(3).padding(.top, 8)
                 TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
                     if downloading == nil { choosingLanguage = true }
@@ -41,7 +41,7 @@ struct TVOnlineSubtitlesScreen: View {
                 }
                 .padding(.top, 30)
                 if let error {
-                    Text(error).font(.inter(19)).foregroundStyle(LineupPanelStyle.quiet)
+                    Text(error).font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true).padding(.top, 24)
                     TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
                         if downloading == nil { retry += 1 }
@@ -52,7 +52,7 @@ struct TVOnlineSubtitlesScreen: View {
                 }
                 Spacer(minLength: 20)
                 Text("Subtitles provided by OpenSubtitles.com. Choose the release that matches your video.")
-                    .font(.inter(17)).foregroundStyle(LineupPanelStyle.quiet)
+                    .font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(width: 520, alignment: .leading)
@@ -60,9 +60,9 @@ struct TVOnlineSubtitlesScreen: View {
             list.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 90).padding(.vertical, 70)
-        .foregroundStyle(LineupStyle.text)
+        .foregroundStyle(LineupPresentationStyle.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .tvChoices("Subtitle Language", symbol: "globe", isPresented: $choosingLanguage) {
             Self.languages.map { code, name in
                 TVChoice(name, id: code, isSelected: code == language) { language = code }
@@ -76,16 +76,16 @@ struct TVOnlineSubtitlesScreen: View {
     private var list: some View {
         if loading {
             VStack(spacing: 18) {
-                ProgressView().tint(LineupStyle.text)
-                Text("Finding subtitles…").font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                ProgressView().tint(LineupPresentationStyle.text)
+                Text("Finding subtitles…").font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if results.visible.isEmpty {
             VStack(spacing: 16) {
-                Image(systemName: "captions.bubble").font(.system(size: 44)).foregroundStyle(LineupPanelStyle.quiet)
+                Image(systemName: "captions.bubble").font(.system(size: 44)).foregroundStyle(LineupPresentationStyle.secondary)
                 Text(error == nil ? "No releases in \(languageName)" : "Nothing to show")
                     .font(.inter(26, .semibold))
-                Text("Try another language.").font(.inter(19)).foregroundStyle(LineupStyle.secondary)
+                Text("Try another language.").font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -112,18 +112,18 @@ struct TVOnlineSubtitlesScreen: View {
                 Text(subtitle.title).font(.inter(22, .semibold)).multilineTextAlignment(.leading).lineLimit(3)
                 Text([subtitle.language.uppercased(), subtitle.hearingImpaired ? "Hearing impaired" : nil,
                       subtitle.foreignOnly ? "Foreign parts only" : nil].compactMap { $0 }.joined(separator: " · "))
-                    .font(.inter(17)).foregroundStyle(LineupPanelStyle.quiet)
+                    .font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if downloading == subtitle.id {
-                ProgressView().tint(LineupStyle.text)
+                ProgressView().tint(LineupPresentationStyle.text)
             } else {
                 Image(systemName: "arrow.down.circle.fill").font(.system(size: 36))
                     .foregroundStyle(LineupStyle.highlight)
             }
         }
         .padding(22)
-        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func search() async {
@@ -182,7 +182,7 @@ struct TVSubtitleSettingsScreen: View {
                 Text(controller.subtitleLooksApplyNextTitle
                      ? "VLC sets the size and background as a video opens: they apply from the next one. Timing changes at once."
                      : "Size and background change at once. Picture-based subtitles keep their own look.")
-                    .font(.inter(19)).foregroundStyle(LineupPanelStyle.quiet)
+                    .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 12)
             }
             .frame(width: 520, alignment: .leading)
@@ -233,7 +233,7 @@ struct TVSubtitleSettingsScreen: View {
                         }
                     }
                     Text("Earlier or later by a quarter of a second. It resets for each video.")
-                        .font(.inter(18)).foregroundStyle(LineupPanelStyle.quiet)
+                        .font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
                 .padding(.horizontal, 14).padding(.vertical, 10).padding(.bottom, 70)
             }
@@ -241,9 +241,9 @@ struct TVSubtitleSettingsScreen: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 90).padding(.top, 70)
-        .foregroundStyle(LineupStyle.text)
+        .foregroundStyle(LineupPresentationStyle.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .animation(.easeInOut(duration: 0.2), value: controller.subtitleDelaySeconds)
         .tvChoices("Subtitle Language", symbol: "globe", isPresented: $choosingLanguage) {
             MobileSubtitlePreferences.languages.map { code, name in
@@ -267,10 +267,10 @@ struct TVSubtitleSettingsScreen: View {
                 Text(title).font(.inter(23, .semibold))
                 Spacer()
                 Text(isOn ? "On" : "Off").font(.inter(22))
-                    .foregroundStyle(isOn ? LineupStyle.highlight : LineupPanelStyle.quiet)
+                    .foregroundStyle(isOn ? LineupStyle.highlight : LineupPresentationStyle.secondary)
             }
             .padding(22)
-            .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .accessibilityValue(isOn ? "On" : "Off")
     }
@@ -280,14 +280,14 @@ struct TVSubtitleSettingsScreen: View {
             LineupIconTile(symbol: symbol, size: 42)
             VStack(alignment: .leading, spacing: 4) {
                 Text(value).font(.inter(23, .semibold))
-                Text(detail).font(.inter(17)).foregroundStyle(LineupPanelStyle.quiet)
+                Text(detail).font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             Spacer()
             Image(systemName: "chevron.up.chevron.down").font(.system(size: 16, weight: .bold))
-                .foregroundStyle(LineupPanelStyle.quiet)
+                .foregroundStyle(LineupPresentationStyle.secondary)
         }
         .padding(22)
-        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 
@@ -303,9 +303,9 @@ private struct TVSubtitleButtonLabel: View {
             if let symbol { Image(systemName: symbol).font(.system(size: 20, weight: .bold)) }
             Text(title).font(.inter(21, .semibold)).lineLimit(1)
         }
-        .foregroundStyle(prominent ? LineupStyle.onHighlight : LineupStyle.text)
+        .foregroundStyle(prominent ? LineupStyle.onHighlight : LineupPresentationStyle.text)
         .padding(.horizontal, 22).frame(height: 58)
-        .background(prominent ? LineupStyle.highlight : LineupPanelStyle.well, in: shape)
+        .background(prominent ? LineupStyle.highlight : LineupPresentationStyle.row, in: shape)
         .lineupFocusLayer(focused, in: shape)
         .animation(.easeOut(duration: 0.16), value: focused)
     }

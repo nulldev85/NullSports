@@ -30,6 +30,10 @@ struct AppSearchView: View {
     @State private var qualityRequest: UUID?
     #if !os(tvOS)
     @State private var homeRevision = 0
+    @State private var combinedProviders: SportsLibrary?
+    @State private var providerResultsTask: Task<Void, Never>?
+    @State private var providerSearchID = UUID()
+    @State private var mobilePlayback: MobileSearchProviderPlayback?
     #endif
     @State private var selectedGenre: AppSearchGenre?
     #if os(tvOS)
@@ -72,10 +76,25 @@ struct AppSearchView: View {
         .id(homeRevision)
         .mobileTabHome(.search) {
             pushed = nil
+            selectedGenre = nil
+            query = ""
+            searchedTerm = ""
+            category = nil
+            results = AppSearchResults()
+            serverProblem = nil
+            searchingServers = false
+            choice = nil
+            cancelQualityCheck()
+            providerResultsTask?.cancel()
+            providerSearchID = UUID()
             homeRevision &+= 1
         }
         #endif
+        #if os(tvOS)
         .task(id: query) { await search(query) }
+        #else
+        .task(id: [AnyHashable(query)] + library.eventChannelsInputs) { await search(query) }
+        #endif
         #if os(tvOS)
         .tvChoices(choice.map(choiceTitle) ?? "", symbol: "calendar",
                    isPresented: Binding(get: { choice != nil }, set: { if !$0 { choice = nil } }),
@@ -96,9 +115,12 @@ struct AppSearchView: View {
                 tune(station, game: nil)
             }]
         }
+        .lineupFullScreenCover(item: $mobilePlayback) { selection in
+            MobileSearchProviderPlayer(selection: selection).environment(library.providerRoot)
+        }
         #endif
         #if os(tvOS)
-        .fullScreenCover(item: $playback) { playback in
+        .lineupFullScreenCover(item: $playback) { playback in
             PlayerView(urls: library.playbackURLs(for: playback.channel),
                        title: playback.channel.name,
                        program: library.guidePrograms(for: playback.channel).normalizedEPG().first { $0.isLive },
@@ -111,7 +133,15 @@ struct AppSearchView: View {
         .overlay(alignment: .top) {
             if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
         }
-        .onDisappear { cancelQualityCheck() }
+        #if !os(tvOS)
+        .safeAreaInset(edge: .top, spacing: 0) { MobileProviderAvailabilityNotice(root: library.providerRoot) }
+        #endif
+        .onDisappear {
+            cancelQualityCheck()
+            #if !os(tvOS)
+            providerResultsTask?.cancel()
+            #endif
+        }
         .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
     }
 
@@ -121,6 +151,11 @@ struct AppSearchView: View {
     /// device, so they are listed at once; the media servers are asked over
     /// the network, and their films and shows join when they answer.
     private func search(_ text: String) async {
+        #if !os(tvOS)
+        let request = UUID()
+        providerSearchID = request
+        providerResultsTask?.cancel()
+        #endif
         let term = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else {
             searchedTerm = ""
@@ -135,7 +170,9 @@ struct AppSearchView: View {
         let live = await Task.detached(priority: .userInitiated) { AppSearch.live(term, in: snapshot) }.value
         guard !Task.isCancelled else { return }
         let vod = await media.searchProviderVOD(term).map { found in
-            AppSearchHit(id: "vod|" + found.item.id, kind: .vod(found.item, group: found.group))
+            let provider = library.profiles.first { $0.id == found.item.serverID }
+            return AppSearchHit(id: "vod|" + found.item.id, kind: .vod(found.item, group: found.group),
+                providerID: provider?.id, providerName: provider?.name)
         }
         guard !Task.isCancelled else { return }
         var next = AppSearchResults()
@@ -150,7 +187,10 @@ struct AppSearchView: View {
         searchedTerm = term
         searchingServers = !media.profiles.isEmpty
         serverProblem = nil
-        guard searchingServers else { return }
+        #if !os(tvOS)
+        async let providers: Void = searchEnabledProviders(term, request: request)
+        #endif
+        if searchingServers {
         let servers = await media.searchServers(term)
         guard !Task.isCancelled else { return }
         let titles = AppSearch.titles(from: servers.groups)
@@ -160,19 +200,66 @@ struct AppSearchView: View {
         if titles.isEmpty, let error = servers.error, !MediaLibrary.isCancellation(error) {
             serverProblem = error.localizedDescription
         }
+        }
+        #if !os(tvOS)
+        await providers
+        #endif
     }
 
+    #if !os(tvOS)
+    private func searchEnabledProviders(_ term: String, request: UUID) async {
+        _ = await library.providerRoot.combinedGuide { guide in
+            guard !Task.isCancelled, providerSearchID == request else { return }
+            combinedProviders = guide
+            providerResultsTask?.cancel()
+            let snapshot = liveSnapshot()
+            providerResultsTask = Task { @MainActor in
+                let work = Task.detached(priority: .userInitiated) { AppSearch.live(term, in: snapshot) }
+                let found = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
+                guard !Task.isCancelled, providerSearchID == request else { return }
+                results.live = found
+            }
+        }
+        await providerResultsTask?.value
+    }
+    #endif
+
     private func liveSnapshot() -> AppSearch.LiveSnapshot {
-        let groups = Dictionary(library.categories.map { ($0.categoryID, $0.categoryName) },
+        #if !os(tvOS)
+        let source = combinedProviders ?? library
+        #else
+        let source = library
+        #endif
+        let groups = Dictionary(source.categories.map { ($0.categoryID, $0.categoryName) },
                                 uniquingKeysWith: { first, _ in first })
-        let games = library.games(for: nil).map { (game: $0, channel: library.stream(for: $0)) }
-        return AppSearch.LiveSnapshot(channels: library.streams, groups: groups,
-                                      programs: library.programsByChannel, games: games)
+        #if !os(tvOS)
+        let providers = source.searchProviderInfo
+        let enabled = Set(library.providerRoot.enabledProfiles.map(\.id))
+        let channels = source.streams.filter { providers[$0.id].map { enabled.contains($0.id) } == true }
+        let valid = Set(channels.map(\.id))
+        let games = source.searchGamesSnapshot.map { entry in
+            (game: entry.game, channel: entry.channel.flatMap { valid.contains($0.id) ? $0 : nil })
+        }
+        #else
+        let channels = source.streams
+        let games = source.games(for: nil).map { (game: $0, channel: source.stream(for: $0)) }
+        #endif
+        var snapshot = AppSearch.LiveSnapshot(channels: channels, groups: groups,
+                                      programs: source.programsByChannel, games: games)
+        #if !os(tvOS)
+        snapshot.providers = providers
+        #endif
+        return snapshot
     }
 
     // MARK: Choosing
 
     private func open(_ hit: AppSearchHit) {
+        #if !os(tvOS)
+        let owner = combinedProviders ?? library
+        #else
+        let owner = library
+        #endif
         cancelQualityCheck()
         switch hit.kind {
         case .title(let item, _), .vod(let item, _):
@@ -184,15 +271,15 @@ struct AppSearchView: View {
         case .game(let game, let channel):
             // The channel the Live tab would play: one chosen for this game
             // before, or the match it has checked; else the one the row names.
-            if game.isLive, let station = library.resolvedStream(for: game) ?? channel {
-                if case .play(_, .verified) = library.preferredChannel(for: game) {
+            if game.isLive, let station = channel ?? owner.resolvedStream(for: game) {
+                if case .play(_, .verified) = owner.preferredChannel(for: game) {
                     #if os(tvOS)
                     TVPreviewHandoff.stopPreviews()
                     #endif
                     let request = UUID()
                     qualityRequest = request
                     qualityTask = Task { @MainActor in
-                        let chosen = await library.bestQualityStream(for: game, fallback: station)
+                        let chosen = await owner.bestQualityStream(for: game, fallback: station)
                         guard !Task.isCancelled, qualityRequest == request else { return }
                         qualityRequest = nil
                         qualityTask = nil
@@ -212,7 +299,9 @@ struct AppSearchView: View {
         #if os(tvOS)
         playback = AppSearchPlayback(channel: channel, game: game)
         #else
-        play(channel)
+        let owner = combinedProviders ?? library
+        guard owner.stream(withID: channel.id) == channel else { return }
+        mobilePlayback = MobileSearchProviderPlayback(library: owner, stream: channel)
         #endif
     }
 
@@ -268,6 +357,11 @@ struct AppSearchView: View {
         } else {
             VStack(alignment: .leading, spacing: Metrics.sectionGap) {
                 chips
+                if media.seerr.isConnected {
+                    NavigationLink { SeerrBrowserView(query: searchedTerm).environment(media) } label: {
+                        Label("Search Seerr for \"\(searchedTerm)\"", systemImage: "tray.and.arrow.down")
+                    }.lineupButtonStyle().padding(.horizontal, Metrics.inset)
+                }
                 if let category {
                     categoryBody(category)
                 } else {
@@ -538,6 +632,10 @@ struct AppSearchGenre: Identifiable, Hashable {
         .init(title: "War", assetName: "SearchGenreWar", movieGenre: "War", seriesGenre: "War & Politics"),
         .init(title: "Western", assetName: "SearchGenreWestern", movieGenre: "Western", seriesGenre: "Western")
     ]
+
+    static let alphabetical = all.sorted {
+        $0.title.localizedStandardCompare($1.title) == .orderedAscending
+    }
 }
 
 private struct AppSearchGenreGrid: View {
@@ -545,14 +643,16 @@ private struct AppSearchGenreGrid: View {
     #if os(tvOS)
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 24), count: 4)
     private let spacing: CGFloat = 24
+    private let genres = AppSearchGenre.all
     #else
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
     private let spacing: CGFloat = 12
+    private let genres = AppSearchGenre.alphabetical
     #endif
 
     var body: some View {
         LazyVGrid(columns: columns, alignment: .center, spacing: spacing) {
-            ForEach(AppSearchGenre.all) { genre in
+            ForEach(genres) { genre in
                 #if os(tvOS)
                 TVSelectable(drawsFocusChrome: false, action: { select(genre) }) {
                     AppSearchGenreCard(genre: genre)
@@ -633,6 +733,7 @@ private struct AppSearchGenreBrowseView: View {
     @State private var openingID: String?
     @State private var unavailableTitle: String?
     @State private var showUnavailable = false
+    @State private var requestingSeerr: SeerrTitleRoute?
     @State private var openTask: Task<Void, Never>?
 
     #if os(tvOS)
@@ -658,10 +759,11 @@ private struct AppSearchGenreBrowseView: View {
         #endif
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .task(id: selectedKind) { await loadFirstPage() }
-        .alert("Not found in your sources", isPresented: $showUnavailable) {
-            Button("OK", role: .cancel) { unavailableTitle = nil }
-        } message: {
-            Text("\(unavailableTitle ?? "That title") is in TMDB’s catalog, but it was not found on your connected media servers or IPTV VOD.")
+        .lineupMessage("Not found in your sources", symbol: "magnifyingglass", isPresented: $showUnavailable,
+            message: "\(unavailableTitle ?? "That title") is in TMDB’s catalog, but it was not found on your connected media servers or IPTV VOD.",
+            onDismiss: { unavailableTitle = nil })
+        .lineupSheet(item: $requestingSeerr) { route in
+            NavigationStack { SeerrTitleView(id: route.id, kind: route.kind, initialTitle: route.title).environment(media) }
         }
         .onDisappear { openTask?.cancel() }
     }
@@ -861,7 +963,9 @@ private struct AppSearchGenreBrowseView: View {
                 return
             }
             unavailableTitle = item.name
-            showUnavailable = true
+            if media.seerr.isConnected {
+                requestingSeerr = SeerrTitleRoute(id: title.id, kind: item.isSeries ? .tv : .movie, title: item.name)
+            } else { showUnavailable = true }
         }
     }
 }
@@ -1003,6 +1107,14 @@ private struct AppSearchLiveRow: View {
                         .lineLimit(1)
                 }
                 AppSearchPlace(place: AppSearchFormat.place(of: hit))
+                if let providerName = hit.providerName {
+                    Label("Provider: \(providerName)", systemImage: "antenna.radiowaves.left.and.right")
+                        .font(.inter(Metrics.rowDetailSize, .semibold))
+                        .foregroundStyle(LineupStyle.secondary).lineLimit(1).truncationMode(.middle)
+                } else if case .game = hit.kind {
+                    Text("No matched provider feed yet").font(.inter(Metrics.rowDetailSize, .medium))
+                        .foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if case .airing(_, _, let more, _) = hit.kind, more > 0 {
@@ -1260,7 +1372,8 @@ enum AppSearchFormat {
         case .title(_, let servers):
             return Place(symbol: "play.square.stack", path: ["Library", servers.joined(separator: " · ")])
         case .vod(_, let group):
-            return Place(symbol: "play.square.stack", path: ["Library", "VOD"] + (group.map { [$0] } ?? []))
+            return Place(symbol: "play.square.stack", path: ["Library", "VOD"] + (group.map { [$0] } ?? [])
+                + (hit.providerName.map { [$0] } ?? []))
         case .game(let game, _):
             return Place(symbol: "play.rectangle", path: ["Sports", game.league.shortName])
         case .channel(_, _, let group):

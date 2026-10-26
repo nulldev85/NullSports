@@ -57,7 +57,7 @@ struct MainView: View {
         }
         .statusBarHidden(inlinePlayerFullscreen)
         .persistentSystemOverlays(inlinePlayerFullscreen ? .hidden : .automatic)
-        .fullScreenCover(item: $playing) { stream in
+        .lineupFullScreenCover(item: $playing) { stream in
             MobilePlayerView(name: stream.name, urls: library.playbackURLs(for: stream), isLive: true)
         }
         .task(id: MobileScheduleRefreshContext(scenePhase: scenePhase, tab: tab)) {
@@ -77,8 +77,7 @@ struct MainView: View {
         case .sports:
             MobileLiveView(isActive: tab == 0, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
         case .guide:
-            MobileGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
-                .id(library.activeProfile?.id)
+            MobileCombinedGuideView(isActive: tab == 1, onFullscreenChange: { setInlinePlayerFullscreen($0) }) { playing = $0 }
         case .library: MediaServersView()
         case .search: AppSearchView { playing = $0 }
         case .settings: MobileAccountView(selectedTab: $tab)
@@ -373,36 +372,50 @@ extension View {
     /// Settings and the pages under it: a dark grey ground, the rows a step
     /// lighter and a little taller than the system's, hairlines between them.
     func lineupSettingsList() -> some View {
-        self.listStyle(.insetGrouped)
-            .environment(\.defaultMinListRowHeight, 58)
-            .listSectionSpacing(24)
-            .scrollContentBackground(.hidden)
-            .background(LineupPanelStyle.listGround)
+        modifier(MobileSettingsListStyle()).lineupPresentation()
     }
 
     func lineupSettingsRows() -> some View {
-        self.listRowBackground(LineupPanelStyle.listCard)
-            .listRowSeparatorTint(LineupPanelStyle.listSeparator)
+        modifier(MobileSettingsRowsStyle())
     }
 
     /// An account card as a row of its own: it brings its own padding, and
     /// its surface is the row's.
     func lineupAccountCardRow() -> some View {
         self.listRowInsets(EdgeInsets())
-            .listRowBackground(LineupPanelStyle.listCard)
+            .modifier(MobileSettingsRowsStyle())
             .listRowSeparator(.hidden)
     }
 
     /// A section title above a group of rows, small and grey.
     func lineupSettingsHeader() -> some View {
         self.font(.inter(13, .semibold))
-            .foregroundStyle(LineupPanelStyle.listValue)
+            .foregroundStyle(LineupPresentationStyle.secondary)
     }
 
     /// The note under a group of rows.
     func lineupSettingsFooter() -> some View {
         self.font(.inter(13))
-            .foregroundStyle(LineupPanelStyle.listValue)
+            .foregroundStyle(LineupPresentationStyle.secondary)
+    }
+}
+
+private struct MobileSettingsListStyle: ViewModifier {
+    @Environment(\.lineupIsPresentation) private var presentation
+    func body(content: Content) -> some View {
+        content.listStyle(.insetGrouped)
+            .environment(\.defaultMinListRowHeight, 58)
+            .listSectionSpacing(24)
+            .scrollContentBackground(.hidden)
+            .background(presentation ? LineupPresentationStyle.ground : LineupPanelStyle.listGround)
+    }
+}
+
+private struct MobileSettingsRowsStyle: ViewModifier {
+    @Environment(\.lineupIsPresentation) private var presentation
+    func body(content: Content) -> some View {
+        content.listRowBackground(presentation ? LineupPresentationStyle.row : LineupPanelStyle.listCard)
+            .listRowSeparatorTint(presentation ? LineupPresentationStyle.divider : LineupPanelStyle.listSeparator)
     }
 }
 
@@ -446,6 +459,7 @@ private struct AccountSourceRow: View {
     let selectionDisabled: Bool
     let removalDisabled: Bool
     let select: () -> Void
+    let rename: () -> Void
     let remove: () -> Void
 
     var body: some View {
@@ -470,7 +484,13 @@ private struct AccountSourceRow: View {
             }
             .buttonStyle(.plain)
             .disabled(selectionDisabled)
-            .accessibilityLabel("\(name), \(isActive ? "active provider" : "switch provider")")
+            .accessibilityLabel("\(name), \(isActive ? "preferred provider" : "make preferred provider")")
+            Button(action: rename) {
+                Image(systemName: "pencil").frame(minWidth: 44, minHeight: 44)
+                    .foregroundStyle(LineupPanelStyle.listValue)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Rename \(name)")
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
                     .foregroundStyle(LineupPanelStyle.listValue)
@@ -508,6 +528,8 @@ private struct MobileIPTVSettingsView: View {
     @Environment(SportsLibrary.self) private var library
     @State private var addingProvider = false
     @State private var removingProfile: XtreamProfile?
+    @State private var renamingProfile: XtreamProfile?
+    @State private var providerName = ""
 
     var body: some View {
         List {
@@ -519,15 +541,23 @@ private struct MobileIPTVSettingsView: View {
             }
             Section {
                 ForEach(library.profiles) { profile in
+                    VStack(alignment: .leading, spacing: 8) {
                     AccountSourceRow(
                         name: profile.name,
                         detail: profile.username,
                         isActive: library.activeProfile?.id == profile.id,
-                        selectionDisabled: library.isSwitchingProfile || library.channelsAreSyncing,
+                        selectionDisabled: library.isSwitchingProfile || library.channelsAreSyncing || !library.isProviderEnabled(profile.id),
                         removalDisabled: library.isSwitchingProfile,
                         select: { Task { await library.selectProfile(profile) } },
+                        rename: { providerName = profile.name; renamingProfile = profile },
                         remove: { removingProfile = profile }
                     )
+                    Toggle("Enabled for Sports, TV Guide & Search", isOn: Binding(
+                        get: { library.isProviderEnabled(profile.id) },
+                        set: { library.setProviderEnabled(profile.id, enabled: $0) }))
+                        .font(.inter(.caption)).tint(LineupStyle.highlight)
+                        .accessibilityLabel("Enable \(profile.name)")
+                    }
                 }
                 Button { addingProvider = true } label: {
                     SettingsRow("Add Provider", symbol: "plus")
@@ -537,7 +567,7 @@ private struct MobileIPTVSettingsView: View {
             } header: {
                 Text("Providers").lineupSettingsHeader()
             } footer: {
-                Text("Each provider keeps its own favorites, preferred channels and recents.")
+                Text("Enable multiple providers together. Sports, TV Guide and Search combine their live channels. Each keeps its own login, favorites, preferred channels and recents. The checkmark selects the preferred provider for provider VOD and legacy defaults; selecting a feed does not change it. Use the pencil to rename a provider.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -545,7 +575,16 @@ private struct MobileIPTVSettingsView: View {
         .lineupSettingsList()
         .navigationTitle("IPTV")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $addingProvider) {
+        .lineupTextPrompt("Rename Provider", symbol: "antenna.radiowaves.left.and.right",
+            isPresented: Binding(get: { renamingProfile != nil }, set: { if !$0 { renamingProfile = nil } }),
+            text: $providerName, prompt: "Provider name",
+            message: "Choose a name to identify this service in Settings and Sports channel results.",
+            canSave: !providerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && providerName.count <= 80,
+            onSave: {
+                if let profile = renamingProfile { library.renameProfile(id: profile.id, name: providerName) }
+                renamingProfile = nil
+            })
+        .lineupSheet(isPresented: $addingProvider) {
             ProfileSetupView(addingProvider: true)
                 .environment(library)
                 .tint(LineupStyle.highlight)
@@ -585,7 +624,7 @@ private struct MobileMediaServerSettingsView: View {
             } header: {
                 Text("Servers").lineupSettingsHeader()
             } footer: {
-                Text("Lineup uses every media server here together, Jellyfin, Emby and Plex alike: their shelves, search and streams all appear in one Library.")
+                Text("Lineup uses every media server here together, Jellyfin, Emby, Plex and Silo alike: their shelves, search and streams all appear in one Library.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -593,7 +632,7 @@ private struct MobileMediaServerSettingsView: View {
         .lineupSettingsList()
         .navigationTitle("Media Servers")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $addingMediaServer) {
+        .lineupSheet(isPresented: $addingMediaServer) {
             MediaServerSetupView()
                 .environment(media)
                 .tint(LineupStyle.highlight)
@@ -613,6 +652,14 @@ private struct MobileLibrarySettingsView: View {
 
     var body: some View {
         List {
+            Section {
+                NavigationLink { SeerrSettingsView().environment(media) } label: {
+                    SettingsRow("Seerr", symbol: "tray.and.arrow.down", value: media.seerr.isConnected ? "Connected" : "Connect")
+                }
+            } footer: {
+                Text("Request movies and series and manage their availability through your Seerr server.").lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
             Section {
                 NavigationLink {
                     LibraryHeroSettingsView().environment(media)
@@ -651,7 +698,7 @@ private struct MobileLibrarySettingsView: View {
         .lineupSettingsList()
         .navigationTitle("Library")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $configuringMDBList) {
+        .lineupSheet(isPresented: $configuringMDBList) {
             MDBListIntegrationView()
                 .environment(media)
                 .tint(LineupStyle.highlight)
@@ -725,6 +772,11 @@ private struct MobileAccountView: View {
                         LibraryMetadataSettingsView().environment(media)
                     } label: {
                         SettingsRow("Metadata", symbol: "text.book.closed", value: media.metadataSource.title)
+                    }
+                    NavigationLink {
+                        LibraryTrackingSettingsView().environment(media)
+                    } label: {
+                        SettingsRow("Tracking", symbol: "checkmark.circle", value: media.trackingSummary)
                     }
                     NavigationLink {
                         MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
@@ -805,7 +857,7 @@ private struct MobileAccountView: View {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
             }
-            .sheet(isPresented: $choosingAccent, onDismiss: {
+            .lineupSheet(isPresented: $choosingAccent, onDismiss: {
                 guard let chosen = pendingAccent else { return }
                 pendingAccent = nil
                 guard chosen != accentHex else { return }
@@ -821,7 +873,12 @@ private struct MobileAccountView: View {
 }
 
 private struct MobilePlaybackSettingsView: View {
-    @AppStorage(MobilePlaybackPreference.storageKey) private var preference = MobilePlaybackPreference.automatic.rawValue
+    @AppStorage(MobilePlaybackPreference.storageKey) private var preference = MobilePlaybackPreference.native.rawValue
+    @AppStorage(MobilePlaybackPreference.nativeFallbackKey) private var nativeFallback = true
+    private var selected: MobilePlaybackPreference {
+        let value = MobilePlaybackPreference(rawValue: preference) ?? .native
+        return value == .automatic ? .native : value
+    }
     var body: some View {
         List {
             Section {
@@ -829,6 +886,10 @@ private struct MobilePlaybackSettingsView: View {
                     Button { preference = choice.rawValue } label: {
                         HStack {
                             HStack(spacing: 8) {
+                                if choice == .native {
+                                    Image(systemName: "apple.logo").font(.system(size: 21)).frame(width: 24)
+                                        .foregroundStyle(LineupPresentationStyle.text).accessibilityHidden(true)
+                                }
                                 PlaybackEngineText(choice.title, style: .body).foregroundStyle(LineupStyle.text)
                                 if let version = choice.version {
                                     Text(version)
@@ -838,7 +899,7 @@ private struct MobilePlaybackSettingsView: View {
                                 }
                             }
                             Spacer()
-                            if choice == (MobilePlaybackPreference(rawValue: preference) ?? .automatic) {
+                            if choice == selected {
                                 Image(systemName: "checkmark").foregroundStyle(LineupStyle.highlight)
                             }
                         }
@@ -847,10 +908,17 @@ private struct MobilePlaybackSettingsView: View {
                     .accessibilityIdentifier("lineup.playback.preference.\(choice.rawValue)")
                 }
             } footer: {
-                PlaybackEngineText("Used for the next video you open. Automatic uses Apple’s player for HLS and AetherEngine for other videos. AetherEngine supports native and sample-buffer Picture in Picture; VLC and MPVKit do not. MPVKit is a trial and falls back to AetherEngine, then VLC, if needed. Choosing VLC always uses VLC.", size: 13)
+                PlaybackEngineText("Native player uses Apple’s AVPlayer for HLS and a compatibility layer around Apple’s native video pipeline for files and other containers. It retains Lineup’s track, subtitle and seeking controls. Sources that need another decoder can use the optional, clearly labeled AetherEngine/VLC fallback. AetherEngine, VLC and MPVKit remain separate choices. VLC and MPVKit do not support Picture in Picture.", size: 13)
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
+            if selected == .native {
+                Section {
+                    Toggle("Compatibility Fallback", isOn: $nativeFallback).tint(LineupStyle.highlight)
+                } footer: {
+                    Text("Keeps unsupported sources playable using AetherEngine, then VLC. Turn off to stay on Apple’s native video pipeline and show a compatibility message instead. Applies to the next video.").lineupSettingsFooter()
+                }.lineupSettingsRows()
+            }
         }
         .lineupSettingsList()
         .navigationTitle("Playback Engine")

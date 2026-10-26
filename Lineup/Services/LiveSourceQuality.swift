@@ -54,8 +54,10 @@ actor LiveQualityVerifier {
     private let uptime: @Sendable () -> TimeInterval
     private let defaults: UserDefaults?
     private var cache: [String: Entry]
+    private var played: [String: Sample]
     private var active: (id: UUID, task: Task<Selection, Never>)?
     private static let cacheKey = "lineup.live-source-quality.v1"
+    private static let playbackCacheKey = "lineup.live-playback-quality.v1"
 
     init(defaults: UserDefaults? = .standard,
          uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
@@ -69,6 +71,51 @@ actor LiveQualityVerifier {
         cache = defaults?.data(forKey: Self.cacheKey).flatMap {
             try? JSONDecoder().decode([String: Entry].self, from: $0)
         } ?? [:]
+        played = defaults?.data(forKey: Self.playbackCacheKey).flatMap {
+            try? JSONDecoder().decode([String: Sample].self, from: $0)
+        } ?? [:]
+    }
+
+    /// Startup never opens a speculative stream. A real playing input is the
+    /// only proof that a URL's measured quality was also playable. This cache
+    /// is separate from demux-only probe results from earlier app versions.
+    func preferredPlayback(_ candidates: [Candidate], fallback: Int) -> Selection {
+        guard !Task.isCancelled else { return Selection(streamID: fallback, wasCancelled: true) }
+        let now = Date()
+        let fallbackLanguage = candidates.first { $0.id == fallback }?.languageRank ?? 0
+        var winner: (selection: Selection, quality: LiveSourceQuality, language: Int)?
+        for candidate in candidates where candidate.languageRank <= fallbackLanguage {
+            for (index, url) in candidate.urls.enumerated() {
+                guard let sample = played[Self.playbackKey(url)], sample.expires > now,
+                      let quality = sample.quality, quality.isValid else { continue }
+                if winner == nil || candidate.languageRank < winner!.language
+                    || (candidate.languageRank == winner!.language && quality.outranks(winner!.quality)) {
+                    winner = (Selection(streamID: candidate.id, urlIndex: index, quality: quality), quality, candidate.languageRank)
+                }
+            }
+        }
+        return winner?.selection ?? Selection(streamID: fallback)
+    }
+
+    func rememberPlayback(url: URL, quality: LiveSourceQuality, now: Date = Date()) {
+        guard quality.isValid, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
+        played = played.filter { $0.value.expires > now }
+        let key = Self.playbackKey(url)
+        if played[key] == nil, played.count >= 256,
+           let oldest = played.min(by: { $0.value.expires < $1.value.expires })?.key { played[oldest] = nil }
+        let clean = LiveSourceQuality(width: quality.width, height: quality.height,
+            frameRate: quality.frameRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil })
+        played[key] = Sample(quality: clean, expires: now.addingTimeInterval(600))
+        if let data = try? JSONEncoder().encode(played) { defaults?.set(data, forKey: Self.playbackCacheKey) }
+    }
+
+    private static func playbackKey(_ url: URL) -> String {
+        SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func forgetPlayback(url: URL) {
+        guard played.removeValue(forKey: Self.playbackKey(url)) != nil else { return }
+        if let data = try? JSONEncoder().encode(played) { defaults?.set(data, forKey: Self.playbackCacheKey) }
     }
 
     static func key(_ candidate: Candidate) -> String {
@@ -223,5 +270,27 @@ actor LiveQualityVerifier {
     private func persist() {
         cache = cache.filter { $0.value.expires > Date() }
         if let data = try? JSONEncoder().encode(cache) { defaults?.set(data, forKey: Self.cacheKey) }
+    }
+}
+
+/// Reads metadata from the already-open player only. It cannot open a URL or
+/// change engines, transports or the selected channel. Audio-only/undecoded
+/// metadata never becomes a playback-confirmed quality measurement.
+@MainActor
+final class LivePlaybackQualityReporter {
+    private let verifier: LiveQualityVerifier
+    private var last: (url: URL, quality: LiveSourceQuality, at: Date)?
+    init(verifier: LiveQualityVerifier = .shared) { self.verifier = verifier }
+    func reset() { last = nil }
+    @discardableResult
+    func observe(url: URL?, width: Int, height: Int, frameRate: Double?,
+                 live: Bool, playing: Bool, picture: Bool) -> Task<Void, Never>? {
+        guard live, playing, picture, let url else { return nil }
+        let value = LiveSourceQuality(width: width, height: height, frameRate: frameRate)
+        guard value.isValid else { return nil }
+        let now = Date()
+        if let last, last.url == url, last.quality == value, now.timeIntervalSince(last.at) < 300 { return nil }
+        last = (url, value, now)
+        return Task { await verifier.rememberPlayback(url: url, quality: value, now: now) }
     }
 }

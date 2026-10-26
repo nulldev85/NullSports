@@ -37,6 +37,7 @@ extension EnvironmentValues {
 struct MediaServersView: View {
     @Environment(MediaLibrary.self) private var media
     @State private var addingServer = false
+    @State private var showingSeerr = false
     @State private var choosingShelf = false
     @State private var reorderingShelves = false
     @State private var clearingHistory = false
@@ -57,20 +58,18 @@ struct MediaServersView: View {
         stack
             .environment(\.playMedia, MediaPlayAction { playing = MediaPlayRequest(item: $0) })
             #if os(tvOS)
-            .fullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
-            .sheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
-            .sheet(item: Bindable(media).collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environment(media) }
-            .alert("New Collection", isPresented: Bindable(media).creatingCollection) {
-                TextField("Collection name", text: $newCollectionName)
-                Button("Create") {
+            .lineupSheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .lineupSheet(item: Bindable(media).collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environment(media) }
+            .lineupTextPrompt("New Collection", symbol: "folder.badge.plus", isPresented: Bindable(media).creatingCollection,
+                text: $newCollectionName, prompt: "Collection name", saveTitle: "Create",
+                canSave: !newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && newCollectionName.count <= 80,
+                onSave: {
                     media.createCollection(named: newCollectionName, adding: media.collectionCreationItem)
                     newCollectionName = ""
                     media.collectionCreationItem = nil
-                }
-                .disabled(newCollectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newCollectionName.count > 80)
-                Button("Cancel", role: .cancel) { newCollectionName = ""; media.collectionCreationItem = nil }
-            }
+                }, onCancel: { newCollectionName = ""; media.collectionCreationItem = nil })
             .mobileTabHome(.library) {
                 optionsOpen = false
                 searchingLibrary = false
@@ -88,7 +87,7 @@ struct MediaServersView: View {
             Group {
                 if !media.hasAnySource {
                     LineupUnavailableView(title: "Add a Media Server", symbol: "play.square.stack",
-                                          description: Text("Connect a Jellyfin, Emby or Plex server to watch your own library here.")) {
+                                          description: Text("Connect a Jellyfin, Emby, Plex or Silo server to watch your own library here.")) {
                         VStack(spacing: 18) {
                             MediaServerLogoRow(size: 34)
                             Button("Add Media Server") { addingServer = true }
@@ -131,15 +130,18 @@ struct MediaServersView: View {
             }
             #endif
             }
-            .sheet(isPresented: $addingServer) {
+            .lineupSheet(isPresented: $addingServer) {
                 MediaServerSetupView()
                     .environment(media)
                     .preferredColorScheme(.dark)
             }
-            .sheet(isPresented: $choosingShelf) {
+            .lineupSheet(isPresented: $showingSeerr) {
+                NavigationStack { SeerrSettingsView().environment(media) }
+            }
+            .lineupSheet(isPresented: $choosingShelf) {
                 MediaShelfPicker().environment(media)
             }
-            .sheet(isPresented: $reorderingShelves) {
+            .lineupSheet(isPresented: $reorderingShelves) {
                 LibraryShelfOrderSheet().environment(media)
                     .preferredColorScheme(.dark)
             }
@@ -202,6 +204,7 @@ struct MediaServersView: View {
             }
         }
         var servers = [
+            MobileMenuItem("Seerr · Discover & Requests", imageName: "SeerrLogo") { showingSeerr = true },
             MobileMenuItem("Refresh", symbol: "arrow.clockwise",
                            isEnabled: !media.isLoading && media.hasAnySource) {
                 Task { await media.reload() }
@@ -593,7 +596,7 @@ private struct TVMediaServersHome: View {
         .onAppear { tabBar?.reset() }
         // Collections from a card's hold menu, anywhere in the Library. The
         // Collections screen, opened from Settings, has its own while it is up.
-        .fullScreenCover(item: Binding(get: { media.collectionsScreenShown ? nil : media.collectionSelectionItem },
+        .lineupFullScreenCover(item: Binding(get: { media.collectionsScreenShown ? nil : media.collectionSelectionItem },
                                        set: { media.collectionSelectionItem = $0 })) { item in
             TVCollectionPicker(item: item).environment(media)
         }
@@ -818,11 +821,11 @@ private struct MediaCatalogsScreen: View {
         .onReceive(NotificationCenter.default.publisher(for: .lineupReturnToLibraryFront)) { _ in
             pushed = nil
         }
-        .sheet(isPresented: $searchPresented) { searchSheet }
+        .lineupSheet(isPresented: $searchPresented) { searchSheet }
         #if os(tvOS)
-        .fullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
+        .lineupFullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
         #else
-        .sheet(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
+        .lineupSheet(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
         #endif
         .task(id: searchRequestID) {
             let value = submittedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1913,6 +1916,13 @@ struct MediaGridScreen: View {
             .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         #else
         grid.navigationTitle(title)
+            .background(LineupPresentationStyle.ground.ignoresSafeArea())
+            .foregroundStyle(LineupPresentationStyle.text)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(LineupPresentationStyle.ground, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .lineupPresentation()
+            .mobileExpandNavigationOnAppear()
             .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
             .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         #endif
@@ -2165,8 +2175,8 @@ struct MediaShelfPicker: View {
         }
         .frame(maxWidth: 1180, alignment: .topLeading)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
+        .foregroundStyle(LineupPresentationStyle.text)
         .onExitCommand { dismiss() }
         .task { await loadSources() }
         #else
@@ -2199,7 +2209,7 @@ struct MediaShelfPicker: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("BUILT IN").modifier(LineupGroupHeading())
                             Text("Rows Lineup puts together for you").font(.inter(13))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(media.hiddenBuiltInRows) { row in
@@ -2225,7 +2235,7 @@ struct MediaShelfPicker: View {
                                 Text(group.title).modifier(LineupGroupHeading())
                             }
                             Text(group.detail).font(.inter(13))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(group.items, id: \.libraryKey) { item in
@@ -2250,7 +2260,7 @@ struct MediaShelfPicker: View {
                             Text(group.section.detail + " — playable titles found on "
                                  + (media.profiles.count > 1 ? "your media servers" : "this media server"))
                                 .font(.inter(13))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(group.items) { catalog in
@@ -2290,7 +2300,7 @@ struct MediaShelfPicker: View {
                                 ? "Not imported yet — choosing one starts the import"
                                 : "Importing can take several minutes. You can close this; it keeps going.")
                                 .font(.inter(13))
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.4))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.4))
                         }
                         .padding(.top, 18).padding(.bottom, 6)
                         ForEach(group.catalogs) { catalog in
@@ -2318,8 +2328,8 @@ struct MediaShelfPicker: View {
             }
             .lineupFocusRegion()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(LineupStyle.background.ignoresSafeArea())
-            .foregroundStyle(LineupStyle.lightPurple)
+            .background(LineupPresentationStyle.ground.ignoresSafeArea())
+            .foregroundStyle(LineupPresentationStyle.text)
         }
     }
 
@@ -2492,6 +2502,13 @@ private struct MediaDetailScreen: View {
     /// IMDb, TMDB and Rotten Tomatoes, once found. The television draws its
     /// page through the hero's own view, which finds them itself.
     @State private var pageRatings: MediaRatings?
+    @State private var castCredits: [LibraryCastMember] = []
+    @State private var openingSimilar: String?
+    @State private var similarTask: Task<Void, Never>?
+    @State private var similarLookupID = UUID()
+    @State private var similarRequest: SeerrTitleRoute?
+    @State private var similarUnavailable = false
+    @State private var similarTitle = ""
     #endif
 
     private var subject: MediaItem { media.displayItem(detail ?? item) }
@@ -2510,8 +2527,8 @@ private struct MediaDetailScreen: View {
             detailContent
             #endif
         }
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
+        .background(detailGround.ignoresSafeArea())
+        .foregroundStyle(detailText)
         #if !os(tvOS)
         .overlayPreferenceValue(MediaSeasonMenuAnchor.self) { anchor in
             GeometryReader { proxy in
@@ -2524,11 +2541,45 @@ private struct MediaDetailScreen: View {
         #endif
         .modifier(FullBleedHeader())
         .task(id: item.libraryKey) { await load() }
+        .task(id: "title-logo|" + media.metadataRequestKey(for: detail ?? item)) {
+            // Begin even while TV prepares seasons/backdrop/focus. The title
+            // view can use the same decoded logo on its very first frame.
+            await media.warmTitleLogos(for: detail ?? item)
+        }
         .task(id: media.metadataRequestKey(for: detail ?? item)) {
             await media.resolveMetadata(for: detail ?? item)
         }
         #if !os(tvOS)
         .task(id: item.libraryKey) { pageRatings = await media.ratings(for: item) }
+        .task(id: castRequestKey) {
+            castCredits = []
+            let requested = subject
+            let credits = await media.castCredits(for: requested)
+            guard !Task.isCancelled else { return }
+            castCredits = credits
+        }
+        .mobileExpandNavigationOnAppear()
+        .task(id: "similar|" + castRequestKey) {
+            related = []
+            let titles = await media.similarCatalogTitles(for: subject)
+            guard !Task.isCancelled else { return }
+            related = titles
+        }
+        .onDisappear {
+            similarLookupID = UUID(); similarTask?.cancel(); openingSimilar = nil
+        }
+        .overlay {
+            if openingSimilar != nil {
+                ProgressView("Finding your sources…").font(.inter(.callout, .semibold))
+                    .padding(20).lineupPresentationSurface(RoundedRectangle(cornerRadius: 18))
+                    .allowsHitTesting(false)
+            }
+        }
+        .lineupMessage("Not found in your sources", symbol: "magnifyingglass", isPresented: $similarUnavailable,
+            message: "\(similarTitle) was suggested by TMDB, but wasn't found on your connected servers or IPTV VOD.")
+        .lineupSheet(item: $similarRequest) { route in
+            NavigationStack { SeerrTitleView(id: route.id, kind: route.kind, initialTitle: route.title).environment(media) }
+        }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .toolbar {
             if ["Movie", "Series"].contains(subject.type) {
@@ -2545,14 +2596,14 @@ private struct MediaDetailScreen: View {
         .onDisappear { tabBar?.pageDisappeared(tabBarPageID) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .onExitCommand { dismiss() }
-        .fullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
+        .lineupFullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
             MediaSourcePicker(item: episode, startsOver: startingOver)
         }
-        .fullScreenCover(item: $summaryItem) { item in
+        .lineupFullScreenCover(item: $summaryItem) { item in
             TVMediaSummarySheet(item: item).presentationBackground(.clear)
         }
         #else
-        .sheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
+        .lineupSheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
         #endif
     }
 
@@ -2565,17 +2616,18 @@ private struct MediaDetailScreen: View {
                 hero
                 VStack(alignment: .leading, spacing: 16) {
                     GeometryReader { titleArea in
-                        MobileFanartTitle(item: subject, width: titleArea.size.width, height: 88) {
+                        MobileFanartTitle(item: subject, width: titleArea.size.width, height: 88, alignment: .center) {
                             Text(subject.name).font(titleFont).lineLimit(2).minimumScaleFactor(0.8)
+                                .multilineTextAlignment(.center).frame(maxWidth: .infinity)
                         }
                     }.frame(height: 88)
                     if let ratings = pageRatings ?? media.knownRatings(for: subject), !ratings.isEmpty {
-                        MediaRatingChips(ratings: ratings)
+                        MediaRatingChips(ratings: ratings, centered: true).frame(maxWidth: .infinity, alignment: .center)
                     }
-                    metaLine
+                    metaLine.frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
                     actions
                     overview
-                    LibraryMetadataCredit(item: subject)
+                    LibraryMetadataCredit(item: subject).frame(maxWidth: .infinity, alignment: .center)
                 }
                 .padding(.horizontal, horizontalPadding)
                 // Up into the fade. The art running down the screen and the
@@ -2589,6 +2641,8 @@ private struct MediaDetailScreen: View {
             }
             .padding(.bottom, 44)
         }
+        .defaultScrollAnchor(.top)
+        .id(item.libraryKey)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #endif
     }
@@ -2707,7 +2761,7 @@ private struct MediaDetailScreen: View {
                         Image(uiImage: preparedHero).resizable().scaledToFill()
                     }
                     #else
-                    LineupArtView(url: heroURL, width: heroWidth) { loaded in
+                    MobileLibraryArtView(url: heroURL, pixels: LineupArt.pixels(for: heroWidth)) { loaded in
                         if let image = loaded { image.resizable().scaledToFill() }
                         // The gradient behind is the placeholder, so there is
                         // nothing to draw here -- but something has to be
@@ -2730,8 +2784,8 @@ private struct MediaDetailScreen: View {
             .overlay(alignment: .bottom) {
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0),
-                    .init(color: LineupStyle.background.opacity(0.62), location: 0.46),
-                    .init(color: LineupStyle.background, location: 0.9)
+                    .init(color: detailGround.opacity(0.62), location: 0.46),
+                    .init(color: detailGround, location: 0.9)
                 ], startPoint: .top, endPoint: .bottom)
                     .frame(height: fadeHeight)
             }
@@ -2784,51 +2838,92 @@ private struct MediaDetailScreen: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 12) {
-            Button { chosen = playTarget } label: { playLabel.modifier(MediaChromeFocus()) }
-            .lineupFlatButton()
-            .disabled(playTarget == nil)
-            .opacity(playTarget == nil ? 0.45 : 1)
-
-            // Keep the Library useful even when a server cannot write user
-            // state, while still mirroring the choice back when it can.
-            Group {
-                iconButton("heart", on: favorite) {
-                    favorite.toggle()
-                    media.setLocalFavorite(favorite, for: subject)
-                    Task { await media.setFavorite(favorite, for: subject) }
+        VStack(alignment: detailActionAlignment, spacing: 10) {
+            HStack(spacing: 8) {
+                Button { chosen = playTarget } label: {
+                    playLabel
+                        #if os(tvOS)
+                        .modifier(MediaChromeFocus())
+                        #endif
                 }
-                iconButton("eye", on: watched) {
-                    let value = !media.isWatched(subject)
-                    Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
+                #if os(tvOS)
+                .lineupFlatButton()
+                #else
+                .buttonStyle(MobileLibraryDetailButtonStyle())
+                #endif
+                .disabled(playTarget == nil)
+                #if os(tvOS)
+                .opacity(playTarget == nil ? 0.45 : 1)
+                #endif
+
+                // Keep the Library useful even when a server cannot write user
+                // state, while still mirroring the choice back when it can.
+                Group {
+                    iconButton("heart", on: favorite) {
+                        favorite.toggle()
+                        media.setLocalFavorite(favorite, for: subject)
+                        Task { await media.setFavorite(favorite, for: subject) }
+                    }
+                    iconButton("eye", on: watched) {
+                        let value = !media.isWatched(subject)
+                        Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
+                    }
+                }
+                // Nothing to shuffle through on a film.
+                if subject.isSeries {
+                    iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
+                        .disabled(episodes.isEmpty)
                 }
             }
-            // Nothing to shuffle through on a film.
-            if subject.isSeries {
-                iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
-                    .disabled(episodes.isEmpty)
+            if media.seerr.isConnected {
+                NavigationLink { SeerrLibraryRequestView(item: subject).environment(media) } label: {
+                    #if os(tvOS)
+                    Label("Seerr", systemImage: "tray.and.arrow.down")
+                    #else
+                    HStack(spacing: 8) {
+                        Image("SeerrLogo").renderingMode(.original).resizable().scaledToFit()
+                            .frame(width: 22, height: 22).accessibilityHidden(true)
+                        Text("Seerr")
+                    }.padding(.horizontal, 14)
+                    #endif
+                }
+                #if os(tvOS)
+                .lineupButtonStyle()
+                #else
+                .buttonStyle(MobileLibraryDetailButtonStyle())
+                #endif
             }
         }
+        #if !os(tvOS)
+        .frame(maxWidth: .infinity, alignment: .center)
+        #endif
         .lineupFocusRegion()
     }
 
-    /// The play button.
-    ///
-    /// The same surface as the heart, the eye and the shuffle beside it. It
-    /// used to be filled on the phone, on the theory that a primary action
-    /// should be the one thing a thumb goes for -- but the fill is a pale slab
-    /// against a dark page, sitting directly beside three dark controls, and
-    /// what it read as was a mistake rather than an emphasis. The television
-    /// had already dropped it for the same reason.
-    ///
-    /// It is still the widest thing in the row, which is how it says it is the
-    /// main one. Width is the emphasis now; brightness was too much of it.
+    private var detailActionAlignment: HorizontalAlignment {
+        #if os(tvOS)
+        .leading
+        #else
+        .center
+        #endif
+    }
+
+    /// iPhone uses a compact transport glyph with a spoken Play/Resume label;
+    /// television retains its existing text and episode-code label.
     @ViewBuilder
     private var playLabel: some View {
+        #if !os(tvOS)
+        Image(systemName: "play.fill")
+            .font(.system(size: 20, weight: .bold))
+            .foregroundStyle(LineupStyle.highlight)
+            .frame(width: buttonHeight, height: buttonHeight)
+            .accessibilityLabel(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
+            .accessibilityValue(playTarget?.episodeCode ?? subject.name)
+        #else
         let text = HStack(spacing: 10) {
             LineupIconTile(symbol: "play.fill", size: 26)
             Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
-                .font(.inter(17, .semibold))
+                .font(.inter(17, .heavy))
             if let code = playTarget?.episodeCode {
                 // Quieter than the word beside it, on the same dark surface
                 // both platforms now use.
@@ -2836,15 +2931,13 @@ private struct MediaDetailScreen: View {
             }
         }
         .font(.inter(17))
-        #if os(tvOS)
         text.padding(.horizontal, 22).frame(height: buttonHeight)
-        #else
-        text.frame(maxWidth: .infinity).frame(height: buttonHeight)
         #endif
     }
 
     @ViewBuilder
     private func iconButton(_ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
+        #if os(tvOS)
         // The reference app's tile, in its own colour while on and grey
         // while off, standing in for the button it is.
         let label = LineupIconTile(symbol: symbol, size: buttonHeight,
@@ -2852,10 +2945,17 @@ private struct MediaDetailScreen: View {
             .overlay(RoundedRectangle(cornerRadius: buttonHeight * 0.26, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
             .modifier(MediaChromeFocus())
-        #if os(tvOS)
         TVSelectable(scale: LineupStyle.controlLift, action: action) { label }
         #else
-        Button(action: action) { label }.lineupFlatButton()
+        Button(action: action) {
+            Image(systemName: on && ["heart", "eye"].contains(symbol) ? symbol + ".fill" : symbol)
+                .font(.system(size: 21, weight: .semibold))
+                .frame(width: buttonHeight, height: buttonHeight)
+        }
+        .buttonStyle(MobileLibraryDetailButtonStyle(selected: on))
+        .accessibilityLabel(symbol == "heart" ? (on ? "Remove from Favorites" : "Add to Favorites")
+            : symbol == "eye" ? (on ? "Mark Unwatched" : "Mark Watched") : "Shuffle Episodes")
+        .accessibilityAddTraits(on && symbol != "shuffle" ? [.isSelected] : [])
         #endif
     }
 
@@ -2866,7 +2966,11 @@ private struct MediaDetailScreen: View {
                 .font(.inter(.subheadline))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.76))
                 .lineLimit(expandedOverview ? nil : 3)
+                #if os(tvOS)
                 .multilineTextAlignment(.leading)
+                #else
+                .multilineTextAlignment(.center).frame(maxWidth: .infinity, alignment: .center)
+                #endif
                 .onTapGesture {
                     withAnimation(.easeInOut(duration: 0.2)) { expandedOverview.toggle() }
                 }
@@ -2956,7 +3060,7 @@ private struct MediaDetailScreen: View {
                 #endif
             }
         }
-        .modifier(PhoneShelfPanel(bottom: 18))
+        .modifier(PhoneDetailPanel(bottom: 18))
     }
 
     // MARK: - More about this title
@@ -2989,7 +3093,7 @@ private struct MediaDetailScreen: View {
                     .padding(.horizontal, horizontalPadding)
                 }
             }
-            .modifier(PhoneShelfPanel(bottom: 18))
+            .modifier(PhoneDetailPanel(bottom: 18))
         }
     }
 
@@ -3016,7 +3120,13 @@ private struct MediaDetailScreen: View {
 
     @ViewBuilder
     private var castSection: some View {
+        #if os(tvOS)
         let cast = (subject.people ?? []).filter { $0.type?.lowercased() == "actor" }
+        #else
+        let cast = LibraryCastMember.merged(provider: subject.people ?? [], credits: castCredits) {
+            media.personImageURL(for: $0, of: subject)
+        }
+        #endif
         if !cast.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 detailSectionTitle("Cast", symbol: "person.2")
@@ -3025,6 +3135,7 @@ private struct MediaDetailScreen: View {
                         ForEach(cast) { person in
                             VStack(alignment: .leading, spacing: 6) {
                                 ZStack {
+                                    #if os(tvOS)
                                     RoundedRectangle(cornerRadius: 12).fill(LineupStyle.surface)
                                     LineupArtView(url: media.personImageURL(for: person, of: subject), width: 112) { loaded in
                                         if let image = loaded {
@@ -3035,8 +3146,11 @@ private struct MediaDetailScreen: View {
                                                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.35))
                                         }
                                     }
+                                    #else
+                                    MobileCastPortrait(member: person)
+                                    #endif
                                 }
-                                .frame(width: 112, height: 150)
+                                .frame(width: castPortraitWidth, height: castPortraitHeight)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 Text(person.name).font(.inter(.caption, .semibold)).lineLimit(2)
                                 if let role = person.role, !role.isEmpty {
@@ -3044,13 +3158,20 @@ private struct MediaDetailScreen: View {
                                         .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                                 }
                             }
-                            .frame(width: 112, alignment: .leading)
+                            .frame(width: castPortraitWidth, alignment: .leading)
                         }
                     }
                     .padding(.horizontal, horizontalPadding)
                 }
+                #if !os(tvOS)
+                if !castCredits.isEmpty {
+                    Link("Cast · TMDB", destination: URL(string: "https://www.themoviedb.org/")!)
+                        .font(.inter(.caption2)).foregroundStyle(LineupPresentationStyle.secondary)
+                        .padding(.horizontal, horizontalPadding)
+                }
+                #endif
             }
-            .modifier(PhoneShelfPanel(bottom: 18))
+            .modifier(PhoneDetailPanel(bottom: 18))
         }
     }
 
@@ -3061,10 +3182,17 @@ private struct MediaDetailScreen: View {
                 // Named for what it holds, because a row of posters under a
                 // bare "Related" does not say whether it is offering films or
                 // series.
+                #if os(tvOS)
                 detailSectionTitle(subject.isSeries ? "Related Shows" : "Related Movies",
                                    symbol: "square.stack")
+                #else
+                detailSectionTitle(subject.isSeries ? "Similar Shows" : "Similar Movies", symbol: "square.stack")
+                #endif
                 #if !os(tvOS)
-                MobileLibraryShelf(items: related, shape: .poster) { pushed = $0 }
+                MobileLibraryShelf(items: related, shape: .poster, discoversSources: true) { openSimilar($0) }
+                Link("Suggestions · TMDB", destination: URL(string: "https://www.themoviedb.org/")!)
+                    .font(.inter(.caption2)).foregroundStyle(LineupPresentationStyle.secondary)
+                    .padding(.horizontal, horizontalPadding)
                 #else
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: relatedItemSpacing) {
@@ -3096,7 +3224,7 @@ private struct MediaDetailScreen: View {
                 .lineupFocusRegion()
                 #endif
             }
-            .modifier(PhoneShelfPanel())
+            .modifier(PhoneDetailPanel())
         }
     }
 
@@ -3165,12 +3293,16 @@ private struct MediaDetailScreen: View {
     private func load() async {
         loading = true
         error = nil
-        related = []
+        detail = nil
+        nextUp = nil
+        seasons = []; selectedSeason = nil; episodes = []
         pageReady = false
         #if os(tvOS)
+        related = []
         preparedHero = nil
         #endif
         let loaded = try? await media.details(of: item)
+        guard !Task.isCancelled else { return }
         detail = loaded ?? item
         favorite = (loaded ?? item).isFavorite || media.isLocalFavorite(loaded ?? item)
         let detailedItem = subject
@@ -3187,7 +3319,8 @@ private struct MediaDetailScreen: View {
         related = await relatedItems
         preparedHero = (await heroData).flatMap(UIImage.init(data:))
         #else
-        related = await media.related(to: detailedItem)
+        // TMDB suggestions have their own task; they never hold up seasons,
+        // episode/resume selection or the detail header.
         #endif
         // A film is the whole of itself: nothing underneath to go and get.
         guard subject.isSeries else { loading = false; pageReady = true; return }
@@ -3219,6 +3352,23 @@ private struct MediaDetailScreen: View {
     }
 
     #if !os(tvOS)
+    private func openSimilar(_ item: MediaItem) {
+        guard openingSimilar == nil else { return }
+        similarTask?.cancel()
+        let request = UUID()
+        similarLookupID = request
+        openingSimilar = item.libraryKey
+        similarTask = Task { @MainActor in
+            defer { if similarLookupID == request { openingSimilar = nil } }
+            let copy = await media.libraryCopy(of: item)
+            guard !Task.isCancelled, similarLookupID == request else { return }
+            if let copy { pushed = copy }
+            else if media.seerr.isConnected, let raw = LibraryMetadataIdentity.ids(item)["tmdb"], let id = Int(raw) {
+                similarRequest = SeerrTitleRoute(id: id, kind: item.isSeries ? .tv : .movie, title: item.name)
+            } else { similarTitle = item.name; similarUnavailable = true }
+        }
+    }
+
     private func setSeasonMenu(_ open: Bool) {
         guard seasonMenuOpen != open else { return }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
@@ -3269,11 +3419,50 @@ private struct MediaDetailScreen: View {
 
     // MARK: - Metrics
 
+    private var detailGround: Color {
+        #if os(tvOS)
+        LineupStyle.background
+        #else
+        LineupPresentationStyle.ground
+        #endif
+    }
+
+    private var detailText: Color {
+        #if os(tvOS)
+        LineupStyle.lightPurple
+        #else
+        LineupPresentationStyle.text
+        #endif
+    }
+
+    private var castPortraitWidth: CGFloat {
+        #if os(tvOS)
+        112
+        #else
+        96
+        #endif
+    }
+
+    private var castPortraitHeight: CGFloat {
+        #if os(tvOS)
+        150
+        #else
+        128
+        #endif
+    }
+
+    #if !os(tvOS)
+    private var castRequestKey: String {
+        let ids = LibraryMetadataIdentity.ids(subject)
+        return ([subject.libraryKey] + ids.keys.sorted().map { "\($0):\(ids[$0] ?? "")" }).joined(separator: "|")
+    }
+    #endif
+
     private var heroURL: URL? {
         #if os(tvOS)
         media.backdropURL(for: subject) ?? media.imageURL(for: subject, width: 1280)
         #else
-        media.imageURL(for: subject, width: 900)
+        media.backdropURL(for: subject, width: 1280) ?? media.imageURL(for: subject, width: 900)
         #endif
     }
     /// Wider than any iPhone, so the hero is never decoded short of the screen
@@ -3299,7 +3488,7 @@ private struct MediaDetailScreen: View {
         // the whole page on entry and clipped the tab/navigation chrome.
         3
         #else
-        2 / 3
+        16 / 10
         #endif
     }
     /// How far the page's text reaches up into the fading art. Negative: it is
@@ -3308,17 +3497,15 @@ private struct MediaDetailScreen: View {
         #if os(tvOS)
         -110
         #else
-        0
+        -36
         #endif
     }
-    /// How far the art is feathered into the page at its foot. A phone keeps
-    /// this short: the fade used to run 160 points up a poster and take the
-    /// artwork's own title into shadow with it.
+    /// Feather the landscape backdrop into the detail page's title block.
     private var fadeHeight: CGFloat {
         #if os(tvOS)
         250
         #else
-        80
+        120
         #endif
     }
     private var horizontalPadding: CGFloat {
@@ -3535,14 +3722,14 @@ private struct MediaPlayableCard: View {
             MediaItemCard(item: item, shape: shape)
         }
             .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") { media.tvCardChoices(for: item) }
-            .fullScreenCover(isPresented: $choosingSource) {
+            .lineupFullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #else
         MediaItemCard(item: item, shape: shape)
             .lineupHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film",
                             items: { media.cardMenuItems(for: item) }, action: choose)
-            .sheet(isPresented: $choosingSource) {
+            .lineupSheet(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #endif
@@ -3807,8 +3994,6 @@ private struct TVMediaLibraryPreview: View {
     /// Each title's ratings once found. The hero moves on every few seconds
     /// and comes back round, and a title it has shown keeps its chips.
     @State private var ratings: [String: MediaRatings] = [:]
-    /// Catalog title logos, for titles whose server has none of its own.
-    @State private var titleLogos: [String: URL] = [:]
 
     var body: some View {
         Group {
@@ -3842,34 +4027,20 @@ private struct TVMediaLibraryPreview: View {
             let found = await media.ratings(for: item)
             ratings[item.libraryKey] = found
         }
-        // A server's own logo comes first; catalog title logos fill in where
-        // there is none -- a provider's title, a list's -- as on the phone.
-        .task(id: originalItem.map { "\(media.metadataRequestKey(for: $0))|\(media.fanartEnabled)" }) {
-            guard let item, media.logoURL(for: item, width: 620) == nil,
-                  titleLogos[item.libraryKey] == nil else { return }
-            if let logo = await media.titleLogo(for: item), !Task.isCancelled {
-                titleLogos[item.libraryKey] = logo
-            }
-        }
     }
 
     @ViewBuilder
     private func titleLockup(_ item: MediaItem) -> some View {
-        let titleLogo = media.fanartEnabled ? titleLogos[item.libraryKey] : nil
-        LineupArtView(url: media.logoURL(for: item, width: 620) ?? titleLogo, width: 620) { loaded in
-            if let loaded {
-                loaded.resizable().scaledToFit()
-            } else {
-                Text(item.name)
-                    .font(.inter(46, .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
-                    .multilineTextAlignment(steady ? .center : .leading)
-                    .shadow(color: .black.opacity(0.72), radius: 12, y: 3)
-            }
+        LineupTitleLogo(item: item, width: 620, height: compact ? 76 : 105,
+                        alignment: steady ? .center : .leading) {
+            Text(item.name)
+                .font(.inter(46, .bold))
+                .foregroundStyle(.white)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .multilineTextAlignment(steady ? .center : .leading)
+                .shadow(color: .black.opacity(0.72), radius: 12, y: 3)
         }
-        .frame(width: 620, height: compact ? 76 : 105, alignment: steady ? .center : .leading)
     }
 
     @ViewBuilder
@@ -4005,6 +4176,21 @@ private struct MediaLibraryHero: View {
                                                     enabled: rotates, pixels: pixels)) {
                         guard rotates else { return }
                         await rotate(pixels: pixels)
+                    }
+                    .task(id: LibraryHeroRotationKey(items: items.map(\.libraryKey), index: current,
+                                                    enabled: isVisible && scenePhase == .active,
+                                                    pixels: pixels)) {
+                        let candidates = items
+                        guard isVisible, scenePhase == .active, candidates.count > 1 else { return }
+                        do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+                        // Only the next two hero titles, never every Library
+                        // poster. Existing API/image coalescers bound the work.
+                        await withTaskGroup(of: Void.self) { group in
+                            for step in 1...min(2, candidates.count - 1) {
+                                let upcoming = candidates[(current + step) % candidates.count]
+                                group.addTask(priority: .utility) { await media.warmTitleLogos(for: upcoming) }
+                            }
+                        }
                     }
                 }
             }
@@ -4442,7 +4628,7 @@ struct LibraryHeroSettingsView: View {
             .padding(.horizontal, 70).padding(.vertical, 48)
             .frame(maxWidth: .infinity, alignment: .top)
         }
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .task { await loadSources() }
         #else
         List {
@@ -4485,7 +4671,7 @@ struct LibraryHeroSettingsView: View {
             #if os(tvOS)
             Text(group.title)
                 .font(.inter(headingSize, .heavy)).tracking(1.4)
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.5))
+                .foregroundStyle(LineupPresentationStyle.text.opacity(0.5))
                 .lineLimit(1)
             #else
             Text(group.title).modifier(LineupGroupHeading()).lineLimit(1)
@@ -4500,14 +4686,14 @@ struct LibraryHeroSettingsView: View {
         return HStack(spacing: 16) {
             Image(systemName: "sparkles.rectangle.stack.fill")
                 .font(.system(size: rowSymbolSize, weight: .semibold, design: .rounded))
-                .foregroundStyle(selected ? LineupStyle.highlight : LineupStyle.secondary)
+                .foregroundStyle(selected ? LineupStyle.highlight : LineupPresentationStyle.secondary)
                 .frame(width: rowSymbolFrame)
             VStack(alignment: .leading, spacing: 4) {
                 Text(choice.title).font(.inter(rowTitleSize, .semibold)).lineLimit(1)
                 if let detail = choice.detail, !detail.isEmpty {
                     Text(detail)
                         .font(.inter(rowDetailSize))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                        .foregroundStyle(LineupPresentationStyle.text.opacity(0.58))
                         .lineLimit(1)
                 }
             }
@@ -4521,11 +4707,11 @@ struct LibraryHeroSettingsView: View {
                     .accessibilityLabel("Selected")
             }
         }
-        .foregroundStyle(LineupStyle.lightPurple)
+        .foregroundStyle(LineupPresentationStyle.text)
         .padding(.horizontal, rowHorizontalPadding)
         .frame(minHeight: rowHeight)
         #if os(tvOS)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
             .stroke(LineupStyle.line, lineWidth: 1))
         #endif
@@ -4729,7 +4915,7 @@ private struct MediaSourcePicker: View {
                 nextEpisode = nil
                 nextEpisode = await media.episodeAfter(item)
             }
-            .fullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in
+            .lineupFullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in
                 playback(for: source)
             }
         #else
@@ -4743,7 +4929,7 @@ private struct MediaSourcePicker: View {
             nextEpisode = nil
             nextEpisode = await media.episodeAfter(item)
         }
-        .fullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in playback(for: source) }
+        .lineupFullScreenCover(item: $selectedSource, onDismiss: playerClosed) { source in playback(for: source) }
         #endif
     }
 
@@ -4996,8 +5182,14 @@ private struct MediaSourcePicker: View {
     }
     #endif
 
-    @ViewBuilder
     private func playback(for source: MediaPlaybackSource) -> some View {
+        SiloPlaybackPreparation(item: item, source: source, startsOver: startsOver) { prepared, native in
+            playback(for: prepared, nativeSilo: native)
+        }
+    }
+
+    @ViewBuilder
+    private func playback(for source: MediaPlaybackSource, nativeSilo: SiloPlaybackSession?) -> some View {
         if let url = media.playbackURL(for: item, source: source) {
             // Capture this presentation's identity. A late callback from the
             // previous episode must not write progress for the next one.
@@ -5006,12 +5198,14 @@ private struct MediaSourcePicker: View {
             let fromBeginning = startsOver
             #if os(tvOS)
             PlayerView(urls: [url], title: item.name, isLive: false,
-                       initialPosition: startsOver ? nil : media.resumePosition(for: item),
-                       expectedDuration: item.runTimeTicks.map { Double($0) / 10_000_000 },
+                       initialPosition: nativeSilo?.asset?.lease.playerStart ?? (startsOver ? nil : media.resumePosition(for: item)),
+                       expectedDuration: nativeSilo != nil ? nativeSilo?.asset?.duration : item.runTimeTicks.map { Double($0) / 10_000_000 },
+                       nativeSiloPlayback: nativeSilo,
                        onProgress: { position, duration in
                            media.trackPlayback(of: trackedItem, position: position, duration: duration,
                                                sessionID: sessionID)
                        },
+                       onTrackingSample: { sample in media.reportTrackingSample(sample, for: trackedItem, sessionID: sessionID) },
                        synopsis: tvPlayerSynopsis,
                        nextEpisode: nextEpisode.map { next in
                            TVNextEpisodeOffer(code: next.episodeCode, title: next.name) {
@@ -5033,11 +5227,11 @@ private struct MediaSourcePicker: View {
                            ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
                        seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) },
                        episodes: seasonEpisodes(around: trackedItem))
-            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning, nativeSilo: nativeSilo) }
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #else
-            MobilePlayerView(name: item.name, urls: [url], isLive: false,
+            MobilePlayerView(name: item.name, urls: [url], isLive: false, nativeSiloPlayback: nativeSilo,
                              sourceBitrate: source.formattedBitrate,
                              sourceQuality: source.quality,
                              synopsis: playerSynopsis,
@@ -5053,11 +5247,12 @@ private struct MediaSourcePicker: View {
                                  await media.seekPreview(for: trackedItem, source: source)
                              },
                              // Start Over starts over here too; it resumed.
-                             initialPosition: startsOver ? nil : media.resumePosition(for: item),
+                             initialPosition: nativeSilo?.asset?.lease.playerStart ?? (startsOver ? nil : media.resumePosition(for: item)),
                              onProgress: { position, duration in
                                  media.trackPlayback(of: trackedItem, position: position, duration: duration,
                                                      sessionID: sessionID)
                              },
+                             onTrackingSample: { sample in media.reportTrackingSample(sample, for: trackedItem, sessionID: sessionID) },
                              nextEpisode: nextEpisode.map { next in
                                  MobileNextEpisodeOffer(code: next.episodeCode, title: next.name) {
                                      advance = .playNext(next)
@@ -5067,7 +5262,7 @@ private struct MediaSourcePicker: View {
                                  media.completePlayback(of: trackedItem, sessionID: sessionID)
                                  if advance == nil { advance = .reachedEnd }
                              })
-            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning) }
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning, nativeSilo: nativeSilo) }
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #endif
         } else {
@@ -5126,13 +5321,13 @@ private struct MediaChromeSurface: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         if filled {
             content
-                .foregroundStyle(LineupStyle.background)
-                .background(LineupStyle.lightPurple, in: shape)
+                .foregroundStyle(LineupPresentationStyle.ground)
+                .background(LineupPresentationStyle.text, in: shape)
                 .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
         } else {
             content
-                .foregroundStyle(LineupStyle.lightPurple)
-                .lineupLiquidGlass(shape, fallback: LineupStyle.surface, border: border)
+                .foregroundStyle(LineupPresentationStyle.text)
+                .lineupLiquidGlass(shape, fallback: LineupPresentationStyle.card, border: border)
                 .lineupFocusLayer(focused, in: shape)
                 .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
         }
@@ -5246,8 +5441,8 @@ private struct MediaStreamBoard: View {
             // below the first screen sit on a plain background.
             .background(alignment: .top) { MediaStreamBackdrop(url: heading.backdrop) }
         }
-        .background(LineupStyle.background.ignoresSafeArea())
-        .foregroundStyle(LineupStyle.lightPurple)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
+        .foregroundStyle(LineupPresentationStyle.text)
     }
 
     // MARK: Header
@@ -5263,7 +5458,7 @@ private struct MediaStreamBoard: View {
             if let subtitle = heading.subtitle {
                 Text(subtitle)
                     .font(.inter(Style.subtitleSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.7))
                     .lineLimit(1)
             }
         }
@@ -5377,12 +5572,12 @@ private struct MediaStreamBoard: View {
                         }
                         if let why = status.tried ?? status.failure {
                             Text(why).font(.inter(Style.noteSize - 2)).lineLimit(2)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
+                                .foregroundStyle(LineupPresentationStyle.text.opacity(0.7))
                         }
                     }
                 }
             }
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+            .foregroundStyle(LineupPresentationStyle.text.opacity(0.6))
             .padding(.horizontal, Style.rowInsetH)
             .padding(.top, Style.sectionGap)
         }
@@ -5425,7 +5620,7 @@ private struct MediaStreamBoard: View {
             Text(title).font(.inter(Style.noticeTitleSize, .semibold))
             if let detail {
                 Text(detail).font(.inter(Style.noteSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.6))
                     .multilineTextAlignment(.center)
             }
         }
@@ -5443,7 +5638,7 @@ private struct MediaStreamBoard: View {
                 .multilineTextAlignment(.center)
             if let detail {
                 Text(detail).font(.inter(Style.noteSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.6))
                     .multilineTextAlignment(.center).lineLimit(3)
             }
         }
@@ -5475,13 +5670,13 @@ private struct MediaStreamBackdrop: View {
             .clipped()
             .overlay {
                 LinearGradient(stops: [
-                    .init(color: LineupStyle.background.opacity(0.45), location: 0),
-                    .init(color: LineupStyle.background.opacity(0.78), location: 0.5),
-                    .init(color: LineupStyle.background, location: 1)
+                    .init(color: LineupPresentationStyle.ground.opacity(0.45), location: 0),
+                    .init(color: LineupPresentationStyle.ground.opacity(0.78), location: 0.5),
+                    .init(color: LineupPresentationStyle.ground, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
             }
             .overlay {
-                LinearGradient(colors: [LineupStyle.background.opacity(0.7), .clear],
+                LinearGradient(colors: [LineupPresentationStyle.ground.opacity(0.7), .clear],
                                startPoint: .leading, endPoint: .trailing)
             }
             // Up into the margin above the list -- the television's overscan,
@@ -5573,7 +5768,7 @@ private struct MediaStreamRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                 Text(source.releaseName)
                     .font(.inter(Style.releaseSize))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.55))
                     .lineLimit(1).truncationMode(.middle)
                 #if !os(tvOS)
                 // A phone is too narrow for a column of sizes beside the
@@ -5581,7 +5776,7 @@ private struct MediaStreamRow: View {
                 if let measures = measuresLine {
                     Text(measures)
                         .font(.interDigits(Style.rateSize, .semibold))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.8))
+                        .foregroundStyle(LineupPresentationStyle.text.opacity(0.8))
                 }
                 #endif
                 origin
@@ -5594,14 +5789,14 @@ private struct MediaStreamRow: View {
         .padding(.horizontal, Style.rowInsetH).padding(.vertical, Style.rowInsetV)
         .frame(maxWidth: .infinity, alignment: .leading)
         #if os(tvOS)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous)
             .strokeBorder(LineupStyle.line, lineWidth: 1))
         #else
         // A panel of its own, as every card on the phone is.
-        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
         #endif
-        .foregroundStyle(LineupStyle.lightPurple)
+        .foregroundStyle(LineupPresentationStyle.text)
         .accessibilityElement(children: .combine)
     }
 
@@ -5620,7 +5815,7 @@ private struct MediaStreamRow: View {
         }
         .padding(.horizontal, 6)
         .frame(width: Style.tileWidth, height: Style.tileHeight)
-        .background(LineupStyle.lightPurple.opacity(0.08),
+        .background(LineupPresentationStyle.text.opacity(0.08),
                     in: RoundedRectangle(cornerRadius: Style.tileRadius, style: .continuous))
     }
 
@@ -5660,7 +5855,7 @@ private struct MediaStreamRow: View {
                 if let rank {
                     Text(rank).tracking(1.2)
                         .font(.interDigits(Style.markSize + 1, .heavy))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.9))
+                        .foregroundStyle(LineupPresentationStyle.text.opacity(0.9))
                         .fixedSize()
                 }
                 if source.isInstant {
@@ -5668,12 +5863,12 @@ private struct MediaStreamRow: View {
                         Image(systemName: "bolt.fill")
                         Text("INSTANT").tracking(1.2)
                     }
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.85))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.85))
                     .fixedSize()
                 }
             }
             .font(.inter(Style.markSize, .heavy))
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+            .foregroundStyle(LineupPresentationStyle.text.opacity(0.45))
         }
     }
 
@@ -5716,8 +5911,8 @@ private enum MediaStreamStyle {
     static let headerBottom: CGFloat = 30
     static let headerGap: CGFloat = 8
     static let eyebrowSize: CGFloat = 15
-    static var caption: Color { LineupStyle.lightPurple.opacity(0.55) }
-    static var sectionCaption: Color { LineupStyle.lightPurple.opacity(0.5) }
+    static var caption: Color { LineupPresentationStyle.text.opacity(0.55) }
+    static var sectionCaption: Color { LineupPresentationStyle.text.opacity(0.5) }
     static let eyebrowTracking: CGFloat = 2.2
     static let titleSize: CGFloat = 54
     static let subtitleSize: CGFloat = 24
@@ -5819,6 +6014,7 @@ private enum MediaStreamStyle {
 /// wrap onto as many lines as the width needs.
 private struct BadgeFlow: Layout {
     var spacing: CGFloat = 6
+    var centered = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let lines = wrap(subviews, within: proposal.width ?? .infinity)
@@ -5829,7 +6025,7 @@ private struct BadgeFlow: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var y = bounds.minY
         for line in wrap(subviews, within: bounds.width) {
-            var x = bounds.minX
+            var x = bounds.minX + (centered ? max(0, (bounds.width - line.width) / 2) : 0)
             for index in line.indices {
                 let size = subviews[index].sizeThatFits(.unspecified)
                 subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
@@ -5869,6 +6065,7 @@ private struct BadgeFlow: Layout {
 /// each source named in its own colour the way the sites' own badges are.
 struct MediaRatingChips: View {
     let ratings: MediaRatings
+    var centered = false
 
     private typealias Metrics = MediaRatingMetrics
 
@@ -5879,7 +6076,7 @@ struct MediaRatingChips: View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: Metrics.gap) { chips(tight: false) }.fixedSize()
             HStack(spacing: Metrics.tightGap) { chips(tight: true) }.fixedSize()
-            BadgeFlow(spacing: Metrics.tightGap) { chips(tight: true) }
+            BadgeFlow(spacing: Metrics.tightGap, centered: centered) { chips(tight: true) }
         }
         #else
         HStack(spacing: Metrics.gap) { chips(tight: false) }
@@ -6376,7 +6573,7 @@ private struct MediaProgressTrack: View {
 /// phone, the sign-ins sit side by side and a swipe moves between them as a
 /// tap on a logo does.
 ///
-/// All three sign-ins are built once, when the screen opens, and are only
+/// All four sign-ins are built once, when the screen opens, and are only
 /// ever shown and hidden after that. Building one afresh on every move, text
 /// fields and all, is what made moving between them stutter.
 struct MediaServerSetupView: View {
@@ -6428,7 +6625,7 @@ struct MediaServerSetupView: View {
             .padding(.horizontal, 90)
             .padding(.vertical, 56)
         }
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .disabled(media.isAddingServer)
         #else
         NavigationStack {
@@ -6463,7 +6660,7 @@ struct MediaServerSetupView: View {
                 .padding(.vertical, 12)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(LineupStyle.background)
+            .background(LineupPresentationStyle.ground)
             .navigationTitle("Add Media Server")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
@@ -6511,16 +6708,22 @@ struct MediaServerSetupView: View {
     }
 
     @ViewBuilder private func panel(for brand: MediaServerBrand) -> some View {
-        if brand == .plex {
-            PlexLinkPanel(onAdded: { dismiss() })
-        } else {
-            MediaServerSignInPanel(brand: brand, form: form(for: brand)) { sign in
-                Task {
-                    if await media.addServer(name: sign.name, serverURL: sign.server, username: sign.username,
-                                             password: sign.password, software: brand) { dismiss() }
+        Group {
+            if brand == .silo {
+                SiloSignInPanel(onAdded: { dismiss() })
+            } else if brand == .plex {
+                PlexLinkPanel(onAdded: { dismiss() })
+            } else {
+                MediaServerSignInPanel(brand: brand, form: form(for: brand)) { sign in
+                    Task {
+                        if await media.addServer(name: sign.name, serverURL: sign.server, username: sign.username,
+                                                 password: sign.password, software: brand) { dismiss() }
+                    }
                 }
             }
         }
+        .environment(\.lineupPresentationTint, brand.loginTint)
+        .tint(brand.loginTint)
     }
 
     private func form(for brand: MediaServerBrand) -> Binding<MediaServerSignIn> {
@@ -6587,7 +6790,7 @@ private struct MediaServerPagerTracking: ViewModifier {
 }
 #endif
 
-/// The three kinds of server, by their logos. On the television the one with
+/// All server options share one row. On the television the one with
 /// focus is the one chosen, so moving across them is choosing.
 private struct MediaServerPicker: View {
     @Binding var selection: MediaServerBrand
@@ -6604,8 +6807,8 @@ private struct MediaServerPicker: View {
                 let chosen = selection == brand
                 let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
                 tile(brand, chosen: chosen)
-                    .background(chosen ? LineupStyle.focused : LineupStyle.raised, in: shape)
-                    .overlay(shape.strokeBorder(chosen ? LineupStyle.text.opacity(0.6) : LineupStyle.line,
+                    .background(chosen ? brand.loginTint.opacity(0.18) : LineupPresentationStyle.row, in: shape)
+                    .overlay(shape.strokeBorder(chosen ? LineupPresentationStyle.text.opacity(0.6) : LineupStyle.line,
                                                 lineWidth: chosen ? 1.5 : 0.5))
                     .lineupFocusLayer(focused == brand, in: shape.inset(by: -6))
                     .focusable()
@@ -6648,12 +6851,12 @@ private struct MediaServerPicker: View {
             ZStack(alignment: .leading) {
                 HStack(spacing: gap) {
                     ForEach(MediaServerBrand.allCases, id: \.self) { _ in
-                        shape.fill(LineupStyle.raised)
+                        shape.fill(LineupPresentationStyle.row)
                             .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
                     }
                 }
-                shape.fill(LineupStyle.focused)
-                    .overlay(shape.strokeBorder(LineupStyle.text.opacity(0.6), lineWidth: 1.5))
+                shape.fill(selection.loginTint.opacity(0.18))
+                    .overlay(shape.strokeBorder(LineupPresentationStyle.text.opacity(0.6), lineWidth: 1.5))
                     .frame(width: width)
                     .offset(x: (width + gap) * position)
             }
@@ -6665,7 +6868,7 @@ private struct MediaServerPicker: View {
         VStack(spacing: labelGap) {
             MediaServerLogo(brand: brand).frame(width: logo, height: logo)
             Text(brand.name).font(.inter(labelSize, .semibold))
-                .foregroundStyle(chosen ? LineupStyle.text : LineupStyle.secondary)
+                .foregroundStyle(chosen ? LineupPresentationStyle.text : LineupPresentationStyle.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, padding)
@@ -6682,17 +6885,17 @@ private struct MediaServerPicker: View {
     private var labelGap: CGFloat { 12 }
     private var labelSize: CGFloat { 24 }
     #else
-    private var gap: CGFloat { 10 }
-    private var logo: CGFloat { 34 }
+    private var gap: CGFloat { 8 }
+    private var logo: CGFloat { 32 }
     private var padding: CGFloat { 12 }
     private var radius: CGFloat { 14 }
     private var labelGap: CGFloat { 8 }
-    private var labelSize: CGFloat { 15 }
+    private var labelSize: CGFloat { 13 }
     #endif
 }
 
 /// A server's own sign-in, under its logo and name.
-private struct MediaServerPanel<Content: View>: View {
+struct MediaServerPanel<Content: View>: View {
     let brand: MediaServerBrand
     let title: String
     @ViewBuilder var content: Content
@@ -6703,8 +6906,8 @@ private struct MediaServerPanel<Content: View>: View {
             HStack(spacing: headerGap) {
                 MediaServerLogo(brand: brand).frame(width: logo, height: logo)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.inter(titleSize, .semibold)).foregroundStyle(LineupStyle.text)
-                    Text(brand.signInNote).font(.inter(noteSize)).foregroundStyle(LineupStyle.secondary)
+                    Text(title).font(.inter(titleSize, .semibold)).foregroundStyle(LineupPresentationStyle.text)
+                    Text(brand.signInNote).font(.inter(noteSize)).foregroundStyle(LineupPresentationStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -6714,8 +6917,13 @@ private struct MediaServerPanel<Content: View>: View {
         // As tall as it is given: beside or behind the other sign-ins, each
         // card takes the tallest one's height.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.surface, in: shape)
-        .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 0.5))
+        #if os(tvOS)
+        .background(brand.loginTint.opacity(0.13), in: shape)
+        .background(LineupPresentationStyle.card, in: shape)
+        .overlay(shape.strokeBorder(brand.loginTint.opacity(0.24), lineWidth: 0.7))
+        #else
+        .modifier(MobileBrandPanel(palette: .server(brand)))
+        #endif
     }
 
     #if os(tvOS)
@@ -6757,14 +6965,11 @@ private struct MediaServerSignInPanel: View {
                 connect(form)
             } label: {
                 Text(media.isAddingServer ? "Connecting…" : "Connect")
-                    #if !os(tvOS)
-                    .frame(maxWidth: .infinity)
-                    #endif
             }
-            .lineupButtonStyle()
+            .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
             .disabled(media.isAddingServer || !form.isComplete)
             Text(footer)
-                .font(.inter(footerSize)).foregroundStyle(LineupStyle.secondary)
+                .font(.inter(footerSize)).foregroundStyle(LineupPresentationStyle.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -6791,7 +6996,7 @@ private struct MediaServerSignInPanel: View {
             Divider().overlay(LineupStyle.line).padding(.leading, 14)
             MediaServerField(label: "Password", prompt: "Optional", text: $form.password, kind: .password)
         }
-        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(brand.loginTint.opacity(0.09), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         #endif
     }
 
@@ -6818,17 +7023,17 @@ private struct MediaServerField: View {
     var body: some View {
         #if os(tvOS)
         VStack(alignment: .leading, spacing: 8) {
-            Text(label).font(.inter(20, .semibold)).foregroundStyle(LineupStyle.secondary)
+            Text(label).font(.inter(20, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
             input
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         #else
         HStack(spacing: 12) {
-            Text(label).font(.inter(.subheadline)).foregroundStyle(LineupStyle.secondary)
+            Text(label).font(.inter(.subheadline)).foregroundStyle(LineupPresentationStyle.secondary)
                 .frame(width: 84, alignment: .leading)
             input
                 .font(.inter(.subheadline))
-                .foregroundStyle(LineupStyle.text)
+                .foregroundStyle(LineupPresentationStyle.text)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 13)
@@ -6886,66 +7091,65 @@ private struct PlexLinkPanel: View {
             switch step {
             case .start:
                 Text("You'll get a short code to enter at plex.tv/link on any phone or computer. Lineup never sees your Plex password.")
-                    .font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button { link() } label: { wide("Link Plex Account") }
-                    .lineupButtonStyle()
+                Button { link() } label: { actionTitle("Link Plex Account") }
+                    .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
             case .waiting(let code):
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Go to **plex.tv/link** and enter this code:")
-                        .font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
                     Text(code)
                         .font(.interDigits(codeSize, .heavy)).tracking(codeSize * 0.22)
-                        .foregroundStyle(LineupStyle.text)
+                        .foregroundStyle(LineupPresentationStyle.text)
                         .padding(.horizontal, codeSize * 0.6).padding(.vertical, codeSize * 0.3)
-                        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text("Waiting for Plex…").font(.inter(captionSize)).foregroundStyle(LineupStyle.secondary)
+                        Text("Waiting for Plex…").font(.inter(captionSize)).foregroundStyle(LineupPresentationStyle.secondary)
                     }
                 }
                 #if !os(tvOS)
-                Button { openURL(URL(string: "https://plex.tv/link")!) } label: { wide("Open plex.tv/link") }
-                    .lineupButtonStyle()
+                Button { openURL(URL(string: "https://plex.tv/link")!) } label: { actionTitle("Open plex.tv/link") }
+                    .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
                 #endif
             case .finding:
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("Finding your Plex servers…").font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                    Text("Finding your Plex servers…").font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
             case .choosing(let servers):
                 Text("Choose the server to add.")
-                    .font(.inter(bodySize)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(servers) { server in
                         Button { add(server) } label: {
                             HStack(spacing: 12) {
                                 MediaServerLogo(brand: .plex).frame(width: rowLogo, height: rowLogo)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(server.name).font(.inter(bodySize, .semibold)).foregroundStyle(LineupStyle.text)
+                                    Text(server.name).font(.inter(bodySize, .semibold)).foregroundStyle(LineupPresentationStyle.text)
                                     Text(server.owned == false ? "Shared with you" : "Your server")
-                                        .font(.inter(captionSize)).foregroundStyle(LineupStyle.secondary)
+                                        .font(.inter(captionSize)).foregroundStyle(LineupPresentationStyle.secondary)
                                 }
+                                #if os(tvOS)
                                 Spacer(minLength: 0)
+                                #endif
                             }
                         }
-                        .lineupButtonStyle()
+                        .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
                     }
                 }
             case .failed(let message):
                 Text(message).font(.inter(bodySize)).foregroundStyle(LineupStyle.live)
-                Button { link() } label: { wide("Try Again") }
-                    .lineupButtonStyle()
+                Button { link() } label: { actionTitle("Try Again") }
+                    .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
             }
         }
         .onDisappear { linking?.cancel() }
     }
 
-    private func wide(_ title: String) -> some View {
+    private func actionTitle(_ title: String) -> some View {
         Text(title)
-            #if !os(tvOS)
-            .frame(maxWidth: .infinity)
-            #endif
     }
 
     private func link() {
@@ -7025,6 +7229,7 @@ struct MDBListIntegrationView: View {
                             LabeledContent("API requests left", value: remaining.formatted())
                         }
                     }
+                    .listRowBackground(LineupPresentationStyle.row)
                 }
 
                 Section {
@@ -7051,6 +7256,7 @@ struct MDBListIntegrationView: View {
                     Text("Create or copy a free API key from MDBList Preferences. Lineup stores it securely in this device’s Keychain. Your MDBList lists then appear in Library → Add Shelf.")
                     #endif
                 }
+                .listRowBackground(LineupPresentationStyle.row)
 
                 Section {
                     Link("Open MDBList Preferences", destination: URL(string: "https://mdblist.com/preferences/")!)
@@ -7059,6 +7265,7 @@ struct MDBListIntegrationView: View {
                             .lineupButtonStyle()
                     }
                 }
+                .listRowBackground(LineupPresentationStyle.row)
 
                 #if os(tvOS)
                 Section {
@@ -7071,6 +7278,10 @@ struct MDBListIntegrationView: View {
                     Section { Text(error).foregroundStyle(.red) }
                 }
             }
+            #if !os(tvOS)
+            .scrollContentBackground(.hidden)
+            #endif
+            .background(LineupPresentationStyle.ground)
             .navigationTitle("MDBList")
             #if !os(tvOS)
             .toolbar { LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) } }
@@ -7144,14 +7355,14 @@ struct InitialSourceSetupView: View {
         .padding(setupPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LineupStyle.background)
-        .sheet(isPresented: $addingIPTV) {
+        .lineupSheet(isPresented: $addingIPTV) {
             #if os(iOS)
             ProfileSetupView(addingProvider: true)
             #else
             ProfileSetupView()
             #endif
         }
-        .sheet(isPresented: $addingMedia) { MediaServerSetupView() }
+        .lineupSheet(isPresented: $addingMedia) { MediaServerSetupView() }
     }
 
     private var setupPadding: CGFloat {
@@ -7205,8 +7416,23 @@ private struct TVShelfTitle: View {
 }
 #endif
 
-/// A Library shelf as a panel on the phone: its posters scroll inside the
-/// card, between its edges. The television keeps its open rows.
+/// Details use the same dark panels as the updated app presentations.
+private struct PhoneDetailPanel: ViewModifier {
+    var bottom: CGFloat = 6
+    func body(content: Content) -> some View {
+        #if os(tvOS)
+        content
+        #else
+        content.padding(.bottom, bottom)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
+            .overlay(LineupPanelStyle.shape.strokeBorder(LineupPresentationStyle.border, lineWidth: 0.7))
+            .padding(.horizontal, LineupPanelStyle.margin)
+        #endif
+    }
+}
+
+/// Main Library shelves keep their existing approved panel appearance.
 private struct PhoneShelfPanel: ViewModifier {
     /// Under the last row: posters bring 8 of their own, other rows none.
     var bottom: CGFloat = 6

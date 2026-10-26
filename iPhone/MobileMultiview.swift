@@ -82,6 +82,7 @@ struct MobileMultiviewView: View {
                         MobileMultiviewTile(controller: players.tiles[index],
                                             title: game.map { library.sharedCoverageTitle(for: $0, on: streams[index])
                                                 ?? $0.matchupLine } ?? streams[index].name,
+                                            providerName: library.providerName(for: streams[index]),
                                             audible: audible == index,
                                             compact: frame.width < size.width * 0.4,
                                             onTap: { listen(to: index) },
@@ -110,6 +111,12 @@ struct MobileMultiviewView: View {
         .persistentSystemOverlays(.hidden)
         .onAppear(perform: begin)
         .onDisappear(perform: end)
+        .onChange(of: library.streamsRevision) { _, _ in
+            for index in 0..<2 where library.stream(withID: streams[index].id) == nil { players.tiles[index].stop() }
+        }
+        .onChange(of: library.providerRoot.enabledProfiles.map(\.id)) { _, _ in
+            for index in 0..<2 where library.playbackURLs(for: streams[index]).isEmpty { players.tiles[index].stop() }
+        }
         .onChange(of: scenePhase) { _, phase in sceneChanged(active: phase == .active) }
         .onReceive(NotificationCenter.default.publisher(for: ProcessInfo.thermalStateDidChangeNotification)
             .receive(on: RunLoop.main)) { _ in
@@ -124,7 +131,7 @@ struct MobileMultiviewView: View {
                 do { try await Task.sleep(for: .seconds(5)) } catch { return }
             }
         }
-        .sheet(item: Binding(get: { choosingFor.map(ChoosingTile.init) }, set: { choosingFor = $0?.index })) { choice in
+        .lineupSheet(item: Binding(get: { choosingFor.map(ChoosingTile.init) }, set: { choosingFor = $0?.index })) { choice in
             if let game = session.tiles[choice.index].game {
                 MobileChannelPicker(library: library, game: game) { stream in
                     library.saveGameSelection(stream, for: game)
@@ -320,6 +327,7 @@ private struct MobileMultiviewTile: View {
     /// The game by its teams, an event by its name, or the channel; a
     /// tournament on a channel it shares, by what the channel is showing.
     let title: String
+    let providerName: String?
     let audible: Bool
     let compact: Bool
     let onTap: () -> Void
@@ -372,11 +380,19 @@ private struct MobileMultiviewTile: View {
                 HStack {
                     // The channel, and the game by its teams -- never its
                     // score, which is ahead of the picture.
+                    VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.inter(compact ? 10 : 12, .bold)).lineLimit(1)
                         .foregroundStyle(LineupStyle.mediaText)
                         .padding(.horizontal, 8).padding(.vertical, 4)
                         .background(Color.black.opacity(0.55), in: Capsule())
+                    if let providerName {
+                        Text(providerName).font(.inter(compact ? 9 : 11, .semibold)).lineLimit(1)
+                            .foregroundStyle(LineupStyle.mediaSecondary)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Color.black.opacity(0.55), in: Capsule())
+                    }
+                    }
                     Spacer()
                 }
             }

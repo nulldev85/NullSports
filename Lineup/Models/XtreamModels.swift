@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-struct XtreamProfile: Codable, Identifiable, Equatable {
+struct XtreamProfile: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     var name: String
     var serverURL: String
@@ -21,6 +21,10 @@ struct XtreamProfile: Codable, Identifiable, Equatable {
 struct XtreamCategory: Codable, Identifiable, Hashable, Sendable {
     let categoryID: String
     let categoryName: String
+    /// Display-only provider prefixes in a combined guide are not event evidence.
+    /// This ephemeral value is never needed in a native provider cache.
+    var sourceCategoryName: String? = nil
+    var matchingName: String { sourceCategoryName ?? categoryName }
 
     var id: String { categoryID }
 

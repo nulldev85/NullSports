@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// Choosing the phone's accent, laid out like any other settings sheet: the
-/// app in the colour being tried, the ten presets as plain swatches, then a
-/// colour of one's own by its code or from the mixer, and the ones kept.
+/// app preview, a precise color wheel, saved colors, presets and fine tuning.
 /// Nothing changes until Done.
 struct MobileAccentPicker: View {
     @Environment(\.dismiss) private var dismiss
@@ -31,14 +30,10 @@ struct MobileAccentPicker: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     AccentPreviewCard(accent: accent)
-                    section("Color", symbol: "paintpalette", trailing: accent.isPreset ? accent.name : nil) {
-                        swatchGrid
-                    }
-                    section("Custom", symbol: "slider.horizontal.3") {
+                    section("Color", symbol: "paintpalette", trailing: accent.isPreset ? accent.name : "Custom") {
                         VStack(spacing: 0) {
+                            MobileAccentWheel(hex: $draft).padding(20)
                             hexRow
-                            Divider().overlay(LineupStyle.line).padding(.leading, 16)
-                            mixRow(accent)
                             Divider().overlay(LineupStyle.line).padding(.leading, 16)
                             saveRow(accent)
                         }
@@ -48,10 +43,12 @@ struct MobileAccentPicker: View {
                             savedGrid
                         }
                     }
+                    section("Presets", symbol: "circle.grid.2x2") { swatchGrid }
+                    section("Fine Tuning", symbol: "slider.horizontal.3") { mixRow(accent) }
                     if draft != LineupAccent.red.hex {
                         Button("Reset to Red") { choose(LineupAccent.red.hex) }
                             .font(.inter(.subheadline, .medium))
-                            .foregroundStyle(LineupStyle.secondary)
+                            .foregroundStyle(LineupPresentationStyle.secondary)
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -60,7 +57,7 @@ struct MobileAccentPicker: View {
                 .padding(.bottom, 32)
             }
             .scrollDismissesKeyboard(.interactively)
-            .background(LineupStyle.background)
+            .background(LineupPresentationStyle.ground)
             .navigationTitle("Accent Color")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -81,12 +78,12 @@ struct MobileAccentPicker: View {
             .onChange(of: draft) { _, value in
                 if !typingHex { hexText = value }
             }
-            .sheet(isPresented: $mixing) {
+            .lineupSheet(isPresented: $mixing) {
                 AccentColorChart(hex: draft) { chosen in choose(chosen) }
             }
         }
         .lineupHoldMenuHost()
-        .presentationBackground(LineupStyle.background)
+        .presentationBackground(LineupPresentationStyle.ground)
         .preferredColorScheme(.dark)
     }
 }
@@ -102,20 +99,20 @@ extension MobileAccentPicker {
                 LineupPanelHeader(title: title, systemImage: symbol) {
                     if let trailing {
                         Text(trailing).font(.inter(.footnote, .semibold))
-                            .foregroundStyle(LineupPanelStyle.quiet)
+                            .foregroundStyle(LineupPresentationStyle.secondary)
                     }
                 }
                 .padding(.top, 15).padding(.bottom, 11)
                 .padding(.horizontal, LineupPanelStyle.inset)
-                Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                     .padding(.horizontal, LineupPanelStyle.inset)
                 content()
             }
-            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+            .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
             if let footer {
                 Text(footer)
                     .font(.inter(.footnote))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
                     .padding(.horizontal, 4)
             }
         }
@@ -148,10 +145,10 @@ extension MobileAccentPicker {
     /// The colour's code, to read or to type a new one.
     fileprivate var hexRow: some View {
         HStack(spacing: 12) {
-            Text("Hex").foregroundStyle(LineupStyle.text)
+            Text("Hex").foregroundStyle(LineupPresentationStyle.text)
             Spacer(minLength: 8)
             HStack(spacing: 2) {
-                Text("#").foregroundStyle(LineupStyle.secondary)
+                Text("#").foregroundStyle(LineupPresentationStyle.secondary)
                 TextField("FF3347", text: $hexText)
                     .focused($typingHex)
                     .textInputAutocapitalization(.characters)
@@ -167,7 +164,7 @@ extension MobileAccentPicker {
                     .fixedSize()
             }
             .font(.interDigits(.body, .medium))
-            .foregroundStyle(LineupStyle.text)
+            .foregroundStyle(LineupPresentationStyle.text)
         }
         .font(.inter(.body))
         .padding(.horizontal, 16)
@@ -178,12 +175,12 @@ extension MobileAccentPicker {
     fileprivate func mixRow(_ accent: LineupAccent) -> some View {
         Button { mixing = true } label: {
             HStack(spacing: 12) {
-                Text("Mix a color").foregroundStyle(LineupStyle.text)
+                Text("Mix a color").foregroundStyle(LineupPresentationStyle.text)
                 Spacer(minLength: 8)
                 Circle().fill(accent.color).frame(width: 22, height: 22)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
             }
             .font(.inter(.body))
             .padding(.horizontal, 16)
@@ -205,7 +202,7 @@ extension MobileAccentPicker {
                 Spacer()
             }
             .font(.inter(.body))
-            .foregroundStyle(canSave || typingHex ? accent.color : LineupStyle.secondary)
+            .foregroundStyle(canSave || typingHex ? accent.color : LineupPresentationStyle.secondary)
             .padding(.horizontal, 16)
             .frame(height: 50)
             .contentShape(Rectangle())
@@ -273,7 +270,7 @@ private struct AccentSwatch: View {
             .fill(color)
             .frame(width: 34, height: 34)
             .padding(4)
-            .overlay(Circle().strokeBorder(selected ? LineupStyle.text : .clear, lineWidth: 2))
+            .overlay(Circle().strokeBorder(selected ? LineupPresentationStyle.text : .clear, lineWidth: 2))
             .frame(width: 44, height: 44)
             .contentShape(Circle())
             .animation(.easeOut(duration: 0.15), value: selected)
@@ -291,8 +288,8 @@ private struct AccentPreviewCard: View {
             HStack(spacing: 10) {
                 Rectangle().fill(accent.color).frame(width: 3, height: 28)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("LINEUP").font(.inter(18, .heavy)).foregroundStyle(LineupStyle.text)
-                    Text("LIVE SPORTS").font(.inter(8, .bold)).tracking(2.2).foregroundStyle(LineupStyle.secondary)
+                    Text("LINEUP").font(.inter(18, .heavy)).foregroundStyle(LineupPresentationStyle.text)
+                    Text("LIVE SPORTS").font(.inter(8, .bold)).tracking(2.2).foregroundStyle(LineupPresentationStyle.secondary)
                 }
                 Spacer(minLength: 8)
                 Toggle("Example switch", isOn: .constant(true))
@@ -314,7 +311,7 @@ private struct AccentPreviewCard: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupPanelStyle.fill, in: shape)
+        .background(LineupPresentationStyle.card, in: shape)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview in \(accent.name)")
     }
@@ -322,7 +319,7 @@ private struct AccentPreviewCard: View {
     private func tab(symbol: String, selected: Bool) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 18, design: .rounded))
-            .foregroundStyle(selected ? accent.color : LineupStyle.text)
+            .foregroundStyle(selected ? accent.color : LineupPresentationStyle.text)
             .opacity(selected ? 1 : 0.38)
             .frame(width: 32, height: 34)
             .overlay(alignment: .bottom) {
@@ -370,7 +367,7 @@ private struct AccentColorChart: View {
                                 .strokeBorder(.white.opacity(0.15), lineWidth: 1))
                             .frame(width: 64, height: 48)
                         HStack(spacing: 4) {
-                            Text("#").foregroundStyle(LineupStyle.secondary)
+                            Text("#").foregroundStyle(LineupPresentationStyle.secondary)
                             TextField("FF3347", text: $hexText)
                                 .focused($typing)
                                 .textInputAutocapitalization(.characters)
@@ -381,16 +378,16 @@ private struct AccentColorChart: View {
                         .font(.interDigits(.body, .semibold))
                         .padding(.horizontal, 14)
                         .frame(height: 48)
-                        .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     Text("Drag across the field for lighter and deeper shades, and along the strip for the hue.")
-                        .font(.inter(.footnote)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(.footnote)).foregroundStyle(LineupPresentationStyle.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .padding(20)
             }
             .scrollDisabled(true)
-            .background(LineupStyle.background)
+            .background(LineupPresentationStyle.ground)
             .navigationTitle("Custom Color")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -413,7 +410,7 @@ private struct AccentColorChart: View {
             }
         }
         .presentationDetents([.large])
-        .presentationBackground(LineupStyle.background)
+        .presentationBackground(LineupPresentationStyle.ground)
         .preferredColorScheme(.dark)
     }
 

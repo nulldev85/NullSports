@@ -93,6 +93,23 @@ final class SportsLibrary {
     nonisolated static let channelFormat = 2
     private(set) var isSwitchingProfile = false
     private let profileDefaults: UserDefaults
+    private let credentials: ProviderCredentialStore
+    private let persistsActiveSelection: Bool
+    private(set) var disabledProviderIDs: Set<UUID> = []
+    #if os(iOS)
+    @ObservationIgnored private var providerContexts: [UUID: SportsLibrary] = [:]
+    @ObservationIgnored private var providerContextLoads: [UUID: Task<SportsLibrary?, Never>] = [:]
+    @ObservationIgnored private var combinedGuideContext: SportsLibrary?
+    @ObservationIgnored private var combinedRegistry: MobileProviderStreamRegistry?
+    @ObservationIgnored private weak var combinedRoot: SportsLibrary?
+    @ObservationIgnored private weak var providerOwner: SportsLibrary?
+    @ObservationIgnored private var combinedSources: [Int: MobileProviderPlaybackSource] = [:]
+    @ObservationIgnored private var combinedDisplayIDs: [MobileProviderChannel.ID: Int] = [:]
+    @ObservationIgnored private var combinedProviderContexts: [UUID: SportsLibrary] = [:]
+    @ObservationIgnored private var combinedSignature: [String] = []
+    @ObservationIgnored private var combinedLoadCount = 0
+    private(set) var providerProblems: [UUID: String] = [:]
+    #endif
     private(set) var profiles: [XtreamProfile] = []
     var activeProfile: XtreamProfile?
     private(set) var categories: [XtreamCategory] = []
@@ -223,8 +240,12 @@ final class SportsLibrary {
     private let libraryLifetime: TimeInterval = 6 * 60 * 60
     private let tomorrowScheduleLifetime: TimeInterval = 3 * 60 * 60
 
-    init(profileDefaults: UserDefaults = .standard) {
+    init(profileDefaults: UserDefaults = .standard, credentials: ProviderCredentialStore = .keychain,
+         providerID: UUID? = nil, persistsActiveSelection: Bool = true) {
         self.profileDefaults = profileDefaults
+        self.credentials = credentials
+        self.persistsActiveSelection = persistsActiveSelection
+        disabledProviderIDs = Set((profileDefaults.stringArray(forKey: "Lineup.disabledIPTVProviders.v1") ?? []).compactMap(UUID.init(uuidString:)))
         if let data = profileDefaults.data(forKey: profilesKey),
            let decoded = try? JSONDecoder().decode([XtreamProfile].self, from: data) {
             profiles = decoded
@@ -235,6 +256,7 @@ final class SportsLibrary {
             activeProfile = profiles.first
         }
         if activeProfile == nil { activeProfile = profiles.first }
+        if let providerID { activeProfile = profiles.first { $0.id == providerID } }
         // Claim legacy favorites once for the previously active provider.
         if let profile = activeProfile {
             let key = favoritesKey + "." + profile.id.uuidString
@@ -415,7 +437,7 @@ final class SportsLibrary {
             return value
         }
 
-        let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName }
+        let categoryNames = categories.reduce(into: [String: String]()) { $0[$1.id] = $1.matchingName }
         // Prepared once per guide channel rather than once per stream. A
         // provider lists the same channel several times over -- HD, FHD, SD,
         // a backup feed -- and every one of them points at these same listings.
@@ -523,7 +545,7 @@ final class SportsLibrary {
     }
 
     private func saveConnectedProfile(_ profile: XtreamProfile, secret: String) async throws -> Bool {
-            try KeychainStore.save(password: secret, profileID: profile.id)
+            try credentials.save(secret, profile.id)
             passwordCache = nil
             profiles.append(profile)
             // Additional providers are saved without interrupting the current one.
@@ -717,6 +739,14 @@ final class SportsLibrary {
     }
 
     func reload() async {
+        #if os(iOS)
+        if let combinedRoot {
+            await MobileProviderCatalog.shared.invalidate()
+            await combinedRoot.reload()
+            _ = await combinedRoot.combinedGuide()
+            return
+        }
+        #endif
         guard !isSwitchingProfile else { return }
         refreshSchedule()
         await refreshLibrary(forceGuide: true)
@@ -729,7 +759,8 @@ final class SportsLibrary {
     private func refreshLibrary(forceGuide: Bool, refreshChannels: Bool = true,
                                 invalidatesSession: Bool = true) async {
         guard !libraryRefreshInFlight,
-              let profile = activeProfile, let password = KeychainStore.password(profileID: profile.id) else { return }
+              let profile = activeProfile, !disabledProviderIDs.contains(profile.id),
+              let password = credentials.password(profile.id) else { return }
         libraryRefreshInFlight = true
         defer {
             libraryRefreshInFlight = false
@@ -985,6 +1016,9 @@ final class SportsLibrary {
     }
 
     private func saveCache(profileID: UUID) {
+        #if os(iOS)
+        if combinedRoot != nil { return }
+        #endif
         let now = Date()
         let identities = matchIdentities(now: now)
         // Always written: every one of these changes on every refresh, which
@@ -1217,6 +1251,12 @@ final class SportsLibrary {
     // poll) that only need today's slate refreshed. Tomorrow's already-known games are
     // preserved rather than dropped, and are still refetched on their own lifetime.
     func refreshSchedule(showsLoading: Bool = false, includeTomorrow: Bool = true) {
+        #if os(iOS)
+        if let combinedRoot {
+            combinedRoot.refreshSchedule(showsLoading: showsLoading, includeTomorrow: includeTomorrow)
+            return
+        }
+        #endif
         guard !isSwitchingProfile else { return }
         let today = Calendar.current.startOfDay(for: Date())
         if scheduleDay != today {
@@ -1332,7 +1372,8 @@ final class SportsLibrary {
     /// What `eventChannels(for:)` is worked out from, for a view showing its
     /// answer that should ask again when any of it moves.
     var eventChannelsInputs: [AnyHashable] {
-        [activeProfile?.id, indexGeneration, streamsRevision, guideRevision, gamesRevision,
+        [activeProfile?.id, profiles.map { "\($0.id)|\($0.name)|\($0.serverURL)|\($0.username)|\($0.connectionKind ?? "")" },
+         disabledProviderIDs, indexGeneration, streamsRevision, guideRevision, gamesRevision,
          scheduleValidatedLeagues, didCompleteMatching, channelsValidatedThisSession,
          guideValidatedThisSession, sportsIndexReady, fastValidatedGameIDs, channelsAreSyncing]
     }
@@ -1347,8 +1388,12 @@ final class SportsLibrary {
 
     /// Reapply the list's stricter evidence to the current guide at selection.
     func isEventChannel(_ stream: XtreamStream, verifiedFor game: SportsGame) -> Bool {
+        #if os(iOS)
+        if let source = combinedSources[stream.id] { return source.library.isEventChannel(source.stream, verifiedFor: game) }
+        if combinedRoot != nil { return false }
+        #endif
         guard eventChannelsReady(for: game) else { return false }
-        let category = categories.first { $0.id == (stream.categoryID ?? "") }?.categoryName ?? ""
+        let category = categories.first { $0.id == (stream.categoryID ?? "") }?.matchingName ?? ""
         return Self.eventChannelScore(stream, game: game, preparedGame: Self.prepared(game),
             listings: programs(for: stream), category: category, now: Date()) != nil
     }
@@ -1367,6 +1412,9 @@ final class SportsLibrary {
         if let cached = eventChannelCache[cacheKey] { return cached.channels }
         var candidates = game.league == .ncaaf ? streams : streams(for: game.league)
         #if os(iOS)
+        if combinedRoot != nil {
+            candidates = candidates.filter { combinedSources[$0.id]?.library.automaticMatchingReady == true }
+        }
         // Reuse only the conservative candidate hints from this exact guide/
         // channel index and event identity. The strict scorer below still runs.
         // Keep college channels outside its ordinary pool: the full Channels
@@ -1404,13 +1452,24 @@ final class SportsLibrary {
     /// Only automatic event playback calls this. Manual and team preferences
     /// remain explicit choices; unrelated channels never enter the probe list.
     func bestQualityStream(for game: SportsGame, fallback: XtreamStream) async -> XtreamStream? {
+        #if os(iOS)
+        guard providerConnectionAvailable else { return nil }
+        if let source = combinedSources[fallback.id] {
+            guard source.library.providerConnectionAvailable else { return nil }
+            guard let chosen = await source.library.bestQualityStream(for: game, fallback: source.stream) else { return nil }
+            guard source.library.providerConnectionAvailable else { return nil }
+            return displayStream(for: MobileProviderPlaybackSource(library: source.library, stream: chosen))
+        }
+        if combinedRoot != nil { return nil }
+        #endif
+        // Event discovery reads the current catalog, not video inputs. Quality
+        // selection itself uses only sources confirmed by real playback.
         let deadline = ProcessInfo.processInfo.systemUptime + LiveQualityVerifier.startupBudget
         let profileID = activeProfile?.id
-        let generation = indexGeneration
         let identity = Self.matchIdentity(game)
         let found = await eventChannels(for: game, deadline: deadline)
         guard !Task.isCancelled, activeProfile?.id == profileID else { return nil }
-        let groups = Dictionary(categories.map { ($0.id, $0.categoryName) }, uniquingKeysWith: { first, _ in first })
+        let groups = Dictionary(categories.map { ($0.id, $0.matchingName) }, uniquingKeysWith: { first, _ in first })
         func foreign(_ channel: LiveEventChannel) -> Bool {
             ChannelLanguage.isForeign(name: channel.stream.name, category: groups[channel.stream.categoryID ?? ""] ?? "")
         }
@@ -1420,7 +1479,7 @@ final class SportsLibrary {
             !channel.sharedCoverage || !found.contains { !$0.sharedCoverage && (!foreign($0) || foreign(channel)) }
         }
         #if os(iOS)
-        StartupTrace.shared.note("quality discovery", "\(channels.count) verified channels; \(String(format: "%.2f", max(0, deadline - ProcessInfo.processInfo.systemUptime)))s probe budget remaining")
+        StartupTrace.shared.note("quality discovery", "\(channels.count) verified channels; playback-confirmed cache only, no startup video probes")
         #endif
         let context = ([profileID?.uuidString ?? ""] + identity).joined(separator: "|")
         let now = Date()
@@ -1432,20 +1491,31 @@ final class SportsLibrary {
                     category: groups[channel.stream.categoryID ?? ""] ?? "") ? 1 : 0,
                 advertisedHeight: channel.quality.height)
         }
-        let selection = await LiveQualityVerifier.shared.best(candidates, fallback: fallback.id,
-            budget: max(0, deadline - ProcessInfo.processInfo.systemUptime))
-        let selected = selection.streamID
+        let selection = await LiveQualityVerifier.shared.preferredPlayback(candidates, fallback: fallback.id)
+        var selected = selection.streamID
         #if os(iOS)
         StartupTrace.shared.note("quality selection", "\(channels.count) verified event channels; selected ID \(selected), measured \(selection.quality?.label ?? "unknown"), URL variant \(selection.urlIndex.map(String.init) ?? "fallback")")
         #endif
         let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
-        guard !Task.isCancelled, !selection.wasCancelled, activeProfile?.id == profileID, indexGeneration == generation,
+        guard !Task.isCancelled, !selection.wasCancelled, activeProfile?.id == profileID,
               current.isLive, Self.matchIdentity(current) == identity else { return nil }
+        #if os(iOS)
+        guard providerConnectionAvailable else { return nil }
+        #endif
+        // A new index generation alone is not a rejection. Revalidate the
+        // exact source and event now, and fall back if a cached upgrade retired.
+        let choice = stream(withID: selected)
+        let allowed = choice.map { selected == fallback.id
+            ? isStream($0, verifiedFor: current)
+            : isEventChannel($0, verifiedFor: current) } ?? false
+        if !allowed {
+            guard let fallbackStream = stream(withID: fallback.id),
+                  isStream(fallbackStream, verifiedFor: current) else { return nil }
+            selected = fallback.id
+        }
         guard let stream = stream(withID: selected) else { return nil }
-        let allowed = selected == fallback.id ? isStream(stream, verifiedFor: current) : isEventChannel(stream, verifiedFor: current)
-        guard allowed else { return nil }
         measuredPlaybackURLs = measuredPlaybackURLs.filter { $0.value.expires > Date() }
-        if let index = selection.urlIndex, let candidate = candidates.first(where: { $0.id == selected }),
+        if selected == selection.streamID, let index = selection.urlIndex, let candidate = candidates.first(where: { $0.id == selected }),
            candidate.urls.indices.contains(index) {
             measuredPlaybackURLs["\(profileID?.uuidString ?? "")|\(selected)"] =
                 (candidate.urls[index], Date().addingTimeInterval(600))
@@ -1566,6 +1636,10 @@ final class SportsLibrary {
     /// channel to its plan — all with the same rules, so a preference can never
     /// take a weaker path to playback than an automatic match would.
     func isStream(_ stream: XtreamStream, verifiedFor game: SportsGame) -> Bool {
+        #if os(iOS)
+        if let source = combinedSources[stream.id] { return source.library.isStream(source.stream, verifiedFor: game) }
+        if combinedRoot != nil { return false }
+        #endif
         guard matchIsReady(game), scheduleValidatedLeagues.contains(game.league) else { return false }
         return Self.carriesGame(stream, game: game, listings: programs(for: stream), now: Date())
     }
@@ -1993,7 +2067,7 @@ final class SportsLibrary {
                                                   board: [[String]] = [],
                                                   now: Date, deadline: TimeInterval? = nil) -> [LiveEventChannel] {
         let prepared = Self.prepared(game)
-        let groups = Dictionary(categories.map { ($0.id, $0.categoryName) }, uniquingKeysWith: { first, _ in first })
+        let groups = Dictionary(categories.map { ($0.id, $0.matchingName) }, uniquingKeysWith: { first, _ in first })
         var result: [LiveEventChannel] = []
         var seen: Set<Int> = []
         #if os(iOS)
@@ -2132,7 +2206,7 @@ final class SportsLibrary {
             }
 
             let collegeSlate = games.filter { $0.league == .ncaaf && ($0.isLive || $0.isUpcoming) }.map(Self.collegeMatchup)
-            let categoryNames = currentCategories.reduce(into: [String: String]()) { $0[$1.id] = $1.categoryName.lowercased() }
+            let categoryNames = currentCategories.reduce(into: [String: String]()) { $0[$1.id] = $1.matchingName.lowercased() }
             let collegeStreams = collegeSlate.isEmpty ? [] : currentStreams.filter { stream in
                 let category = categoryNames[stream.categoryID ?? ""] ?? ""
                 return !["radio", "radio_streams"].contains(stream.streamType?.lowercased() ?? "")
@@ -2528,12 +2602,20 @@ final class SportsLibrary {
     }
 
     func addFavorite(_ stream: XtreamStream) {
+        #if os(iOS)
+        guard canUseProviderStream(stream) else { return }
+        if let source = combinedSources[stream.id] { source.library.addFavorite(source.stream) }
+        #endif
         guard !isFavorite(stream) else { return }
         favoriteStreamOrder.append(stream.id)
         persistFavorites()
     }
 
     func removeFavorite(_ stream: XtreamStream) {
+        #if os(iOS)
+        guard canUseProviderStream(stream) else { return }
+        if let source = combinedSources[stream.id] { source.library.removeFavorite(source.stream) }
+        #endif
         favoriteStreamOrder.removeAll { $0 == stream.id }
         persistFavorites()
     }
@@ -2568,8 +2650,30 @@ final class SportsLibrary {
 
     private func persistFavorites() {
         guideListCache = nil
+        #if os(iOS)
+        if combinedRoot != nil {
+            profileDefaults.set(favoriteStreamOrder, forKey: "Lineup.combinedGuide.favorites.v1")
+            let contexts = Dictionary(combinedSources.values.compactMap { source in
+                source.library.activeProfile.map { ($0.id, source.library) }
+            }, uniquingKeysWith: { first, _ in first })
+            for (id, context) in contexts {
+                let native = favoriteStreamOrder.compactMap { combinedSources[$0] }
+                    .filter { $0.library.activeProfile?.id == id }.map { $0.stream.id }
+                let visible = Set(combinedSources.values.filter { $0.library.activeProfile?.id == id }.map { $0.stream.id })
+                context.favoriteStreamOrder = native + context.favoriteStreamOrder.filter { !visible.contains($0) }
+                context.persistFavorites()
+            }
+            return
+        }
+        #endif
         guard let profile = activeProfile else { return }
         profileDefaults.set(favoriteStreamOrder, forKey: favoritesKey + "." + profile.id.uuidString)
+        #if os(iOS)
+        if let providerOwner, providerOwner.activeProfile?.id == profile.id {
+            providerOwner.favoriteStreamOrder = favoriteStreamOrder
+            providerOwner.guideListCache = nil
+        }
+        #endif
         if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
@@ -2580,6 +2684,10 @@ final class SportsLibrary {
     private(set) var followedTeams = FollowedTeams()
 
     func isFollowing(_ game: SportsGame) -> Bool {
+        #if os(iOS)
+        // A tour follow supplements any existing individual-player follows.
+        if game.league.isTennis, let tour = game.league.seriesFollow, followedTeams.contains(tour.key) { return true }
+        #endif
         if let racing = game.racingFollow { return followedTeams.contains(racing.key) }
         return FollowedSlate.follows(Self.preferenceGame(game), in: followedTeams)
     }
@@ -2599,6 +2707,9 @@ final class SportsLibrary {
     }
 
     func toggleFollow(_ team: FollowedTeam) {
+        #if os(iOS)
+        if let combinedRoot { combinedRoot.toggleFollow(team); return }
+        #endif
         guard activeProfile != nil else { return }
         var teams = followedTeams
         teams.toggle(team)
@@ -2607,6 +2718,9 @@ final class SportsLibrary {
     }
 
     func unfollow(_ key: TeamChannelKey) {
+        #if os(iOS)
+        if let combinedRoot { combinedRoot.unfollow(key); return }
+        #endif
         var teams = followedTeams
         teams.unfollow(key)
         followedTeams = teams
@@ -2619,6 +2733,10 @@ final class SportsLibrary {
         if let data = try? JSONEncoder().encode(followedTeams) {
             profileDefaults.set(data, forKey: key)
         }
+        #if os(iOS)
+        combinedGuideContext?.followedTeams = followedTeams
+        for context in providerContexts.values { context.followedTeams = followedTeams }
+        #endif
         if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
@@ -2710,6 +2828,10 @@ final class SportsLibrary {
     }
 
     func savePreference(_ stream: XtreamStream, for key: TeamChannelKey, teamName: String) {
+        #if os(iOS)
+        guard canUseProviderStream(stream) else { return }
+        if let source = combinedSources[stream.id] { source.library.savePreference(source.stream, for: key, teamName: teamName) }
+        #endif
         teamPreferences.set(TeamChannelPreference(streamID: stream.id, channelName: stream.name,
                                                   teamName: teamName), for: key)
         persistTeamPreferences()
@@ -2719,6 +2841,10 @@ final class SportsLibrary {
     /// the iPhone choice sheet records this exact-game selection; the team
     /// choices additionally call `savePreference` for future games.
     func saveGameSelection(_ stream: XtreamStream, for game: SportsGame) {
+        #if os(iOS)
+        guard canUseProviderStream(stream) else { return }
+        if let source = combinedSources[stream.id] { source.library.saveGameSelection(source.stream, for: game) }
+        #endif
         gameChannelSelections.prune()
         gameChannelSelections.set(GameChannelSelection(streamID: stream.id,
                                                         channelName: stream.name,
@@ -2728,16 +2854,54 @@ final class SportsLibrary {
     }
 
     func removePreference(for key: TeamChannelKey) {
+        #if os(iOS)
+        if combinedRoot != nil {
+            for context in combinedProviderContexts.values { context.removePreference(for: key) }
+        }
+        #endif
         teamPreferences.remove(for: key)
         persistTeamPreferences()
+        #if os(iOS)
+        syncProviderPreferenceRemoval(key: key, all: false)
+        #endif
     }
 
     func removeAllPreferences() {
+        #if os(iOS)
+        if combinedRoot != nil {
+            for context in combinedProviderContexts.values { context.removeAllPreferences() }
+        }
+        #endif
         teamPreferences.removeAll()
         gameChannelSelections.removeAll()
         persistTeamPreferences()
         persistGameChannelSelections()
+        #if os(iOS)
+        syncProviderPreferenceRemoval(key: nil, all: true)
+        #endif
     }
+
+    #if os(iOS)
+    /// Settings still edits the preferred account. Retire its displayed
+    /// overrides too, so a removed preference cannot reappear on the next load.
+    private func syncProviderPreferenceRemoval(key: TeamChannelKey?, all: Bool) {
+        guard combinedRoot == nil, providerOwner == nil, let id = activeProfile?.id else { return }
+        providerContexts[id]?.teamPreferences = teamPreferences
+        providerContexts[id]?.gameChannelSelections = gameChannelSelections
+        guard let guide = combinedGuideContext else { return }
+        guide.teamPreferences = TeamChannelPreferences(entries: guide.teamPreferences.entries.filter { entry in
+            let owned = guide.combinedSources[entry.value.streamID]?.library.activeProfile?.id == id
+            return !owned || (!all && entry.key != key?.storageKey)
+        })
+        if all {
+            guide.gameChannelSelections = GameChannelSelections(entries: guide.gameChannelSelections.entries.filter {
+                guide.combinedSources[$0.value.streamID]?.library.activeProfile?.id != id
+            })
+            guide.persistGameChannelSelections()
+        }
+        guide.persistTeamPreferences()
+    }
+    #endif
 
     /// True when the provider no longer carries a saved preference's channel.
     /// Settings says so rather than hiding the row: the channel may come back,
@@ -2752,6 +2916,10 @@ final class SportsLibrary {
     /// the player surfaces. Opening a channel that never decodes must not push
     /// a dead feed to the top of the list.
     func recordRecentChannel(_ stream: XtreamStream) {
+        #if os(iOS)
+        guard canUseProviderStream(stream) else { return }
+        if let source = combinedSources[stream.id] { source.library.recordRecentChannel(source.stream) }
+        #endif
         let updated = RecentChannels.updated(recentStreamOrder, watching: stream.id)
         guard updated != recentStreamOrder else { return }
         recentStreamOrder = updated
@@ -2770,6 +2938,18 @@ final class SportsLibrary {
     }
 
     func clearRecentChannels() {
+        #if os(iOS)
+        if combinedRoot != nil {
+            for context in combinedProviderContexts.values { context.clearRecentChannels() }
+        } else if providerOwner == nil, let id = activeProfile?.id {
+            providerContexts[id]?.recentStreamOrder = []
+            if let guide = combinedGuideContext {
+                guide.recentStreamOrder.removeAll { guide.combinedSources[$0]?.library.activeProfile?.id == id }
+                guide.guideListCache = nil
+                guide.persistRecentChannels()
+            }
+        }
+        #endif
         guard !recentStreamOrder.isEmpty else { return }
         recentStreamOrder = []
         guideListCache = nil
@@ -2777,8 +2957,17 @@ final class SportsLibrary {
     }
 
     private func persistRecentChannels() {
+        #if os(iOS)
+        if combinedRoot != nil {
+            profileDefaults.set(recentStreamOrder, forKey: "Lineup.combinedGuide.recents.v1")
+            return
+        }
+        #endif
         guard let profile = activeProfile else { return }
         profileDefaults.set(recentStreamOrder, forKey: recentsKey + "." + profile.id.uuidString)
+        #if os(iOS)
+        if let providerOwner, providerOwner.activeProfile?.id == profile.id { providerOwner.recentStreamOrder = recentStreamOrder }
+        #endif
     }
 
     private func restoreRecentChannels() {
@@ -2805,7 +2994,7 @@ final class SportsLibrary {
         let listings = programsByChannel
         let now = Date()
         let preparedGame = Self.prepared(game)
-        let categoryNames = Dictionary(categories.map { ($0.categoryID, $0.categoryName) },
+        let categoryNames = Dictionary(categories.map { ($0.categoryID, $0.matchingName) },
                                        uniquingKeysWith: { first, _ in first })
         let foreign = Set(streams(for: game.league).filter { stream in
             ChannelLanguage.isForeign(name: stream.name, category: categoryNames[stream.categoryID ?? ""] ?? "")
@@ -2849,12 +3038,21 @@ final class SportsLibrary {
     }
 
     private func persistTeamPreferences() {
+        #if os(iOS)
+        if combinedRoot != nil {
+            profileDefaults.set(try? JSONEncoder().encode(teamPreferences), forKey: "Lineup.combinedGuide.teamPreferences.v1")
+            return
+        }
+        #endif
         // Strictly per provider, and never merged across them the way favorites
         // are: a channel identifier only means something inside the provider
         // that issued it.
         guard let profile = activeProfile,
               let data = try? JSONEncoder().encode(teamPreferences) else { return }
         profileDefaults.set(data, forKey: teamPreferencesKey + "." + profile.id.uuidString)
+        #if os(iOS)
+        if let providerOwner, providerOwner.activeProfile?.id == profile.id { providerOwner.teamPreferences = teamPreferences }
+        #endif
         if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
@@ -2869,9 +3067,18 @@ final class SportsLibrary {
     }
 
     private func persistGameChannelSelections() {
+        #if os(iOS)
+        if combinedRoot != nil {
+            profileDefaults.set(try? JSONEncoder().encode(gameChannelSelections), forKey: "Lineup.combinedGuide.gameSelections.v1")
+            return
+        }
+        #endif
         guard let profile = activeProfile,
               let data = try? JSONEncoder().encode(gameChannelSelections) else { return }
         profileDefaults.set(data, forKey: gameChannelSelectionsKey + "." + profile.id.uuidString)
+        #if os(iOS)
+        if let providerOwner, providerOwner.activeProfile?.id == profile.id { providerOwner.gameChannelSelections = gameChannelSelections }
+        #endif
         if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
@@ -2903,6 +3110,14 @@ final class SportsLibrary {
     }
 
     func playbackURLs(for stream: XtreamStream) -> [URL] {
+        #if os(iOS)
+        guard providerConnectionAvailable else { return [] }
+        if let source = combinedSources[stream.id] {
+            guard source.library.activeProfile.map({ combinedRoot?.isProviderEnabled($0.id) == true }) == true else { return [] }
+            return source.library.playbackURLs(for: source.stream)
+        }
+        if combinedRoot != nil { return [] }
+        #endif
         let urls = sourcePlaybackURLs(for: stream)
         if let profile = activeProfile,
            let preferred = measuredPlaybackURLs["\(profile.id.uuidString)|\(stream.id)"],
@@ -2913,6 +3128,11 @@ final class SportsLibrary {
     }
 
     private func sourcePlaybackURLs(for stream: XtreamStream) -> [URL] {
+        #if os(iOS)
+        guard providerConnectionAvailable else { return [] }
+        if let source = combinedSources[stream.id] { return source.library.sourcePlaybackURLs(for: source.stream) }
+        if combinedRoot != nil { return [] }
+        #endif
         guard let profile = activeProfile, let password = password(for: profile) else { return [] }
         return XtreamClient(profile: profile, password: password).playbackURLs(for: stream)
     }
@@ -2922,6 +3142,15 @@ final class SportsLibrary {
     /// On-demand NFL replay browsing, scoped to the account that requested it.
     /// The regular Guide keeps its existing, more permissive catch-up behavior.
     func gameReplayProgrammes(for stream: XtreamStream, profileID: UUID) async throws -> [CatchUpProgramme] {
+        #if os(iOS)
+        guard providerConnectionAvailable else { throw CancellationError() }
+        if let source = combinedSources[stream.id], let id = source.library.activeProfile?.id {
+            return try await source.library.gameReplayProgrammes(for: source.stream, profileID: id).map {
+                CatchUpProgramme(streamID: stream.id, title: $0.title, detail: $0.detail, start: $0.start, end: $0.end)
+            }
+        }
+        if combinedRoot != nil { throw XtreamClient.XtreamError.invalidResponse }
+        #endif
         guard let profile = activeProfile, profile.id == profileID, !profile.isPlaylist,
               stream.hasCatchUp, let secret = password(for: profile) else { throw XtreamClient.XtreamError.invalidResponse }
         let table = try await XtreamClient(profile: profile, password: secret).catchUpTable(streamID: stream.id)
@@ -2937,6 +3166,12 @@ final class SportsLibrary {
     /// table shows it, else UTC, which is what most panels keep. Only a zone
     /// the server gave is kept; a guess is tried again next time.
     func catchUpTimeZone(for stream: XtreamStream? = nil) async -> TimeZone {
+        #if os(iOS)
+        guard providerConnectionAvailable else { return TimeZone(secondsFromGMT: 0) ?? .current }
+        if let stream, let source = combinedSources[stream.id] {
+            return await source.library.catchUpTimeZone(for: source.stream)
+        }
+        #endif
         let utc = TimeZone(secondsFromGMT: 0) ?? .current
         guard let profile = activeProfile, let password = password(for: profile) else { return utc }
         if let catchUpZoneCache, catchUpZoneCache.profileID == profile.id { return catchUpZoneCache.zone }
@@ -2955,6 +3190,13 @@ final class SportsLibrary {
     /// `playbackURLs`: the one to try first is first).
     func catchUpURLs(for stream: XtreamStream, from start: Date, until end: Date,
                      in zone: TimeZone) -> [URL] {
+        #if os(iOS)
+        guard providerConnectionAvailable else { return [] }
+        if let source = combinedSources[stream.id] {
+            return source.library.catchUpURLs(for: source.stream, from: start, until: end, in: zone)
+        }
+        if combinedRoot != nil { return [] }
+        #endif
         guard let profile = activeProfile, let password = password(for: profile) else { return [] }
         let begin = CatchUpPolicy.minute(start)
         return XtreamClient(profile: profile, password: password).catchUpURLs(
@@ -2966,6 +3208,9 @@ final class SportsLibrary {
     /// known. Nil for a channel the provider doesn't record.
     func catchUpSource(for stream: XtreamStream) async -> CatchUpSource? {
         guard stream.hasCatchUp else { return nil }
+        #if os(iOS)
+        guard !playbackURLs(for: stream).isEmpty else { return nil }
+        #endif
         let zone = await catchUpTimeZone(for: stream)
         let programmes = guidePrograms(for: stream).normalizedEPG()
         return CatchUpSource(
@@ -2979,9 +3224,18 @@ final class SportsLibrary {
     /// to call as it moves through the recording. The account is read once,
     /// here, so the player can ask as often as it needs to.
     func catchUpAddresses(for stream: XtreamStream, in zone: TimeZone) -> (Date, Date) -> [URL] {
+        #if os(iOS)
+        if let source = combinedSources[stream.id] {
+            return source.library.catchUpAddresses(for: source.stream, in: zone)
+        }
+        if combinedRoot != nil { return { _, _ in [] } }
+        #endif
         guard let profile = activeProfile, let password = password(for: profile) else { return { _, _ in [] } }
         let client = XtreamClient(profile: profile, password: password)
         return { start, end in
+            #if os(iOS)
+            guard self.providerConnectionAvailable else { return [] }
+            #endif
             let begin = CatchUpPolicy.minute(start)
             return client.catchUpURLs(for: stream, from: begin,
                                       minutes: CatchUpPolicy.minutes(from: begin, to: end),
@@ -2993,6 +3247,14 @@ final class SportsLibrary {
     /// back as it keeps it. A panel that marks no listing as kept, though the
     /// channel says it records, is taken at the channel's word.
     func catchUpProgrammes(for stream: XtreamStream) async throws -> [CatchUpProgramme] {
+        #if os(iOS)
+        guard providerConnectionAvailable else { return [] }
+        if let source = combinedSources[stream.id] {
+            let native = try await source.library.catchUpProgrammes(for: source.stream)
+            return native.map { CatchUpProgramme(streamID: stream.id, title: $0.title, detail: $0.detail, start: $0.start, end: $0.end) }
+        }
+        if combinedRoot != nil { return [] }
+        #endif
         guard let profile = activeProfile, let password = password(for: profile) else { return [] }
         let table = try await XtreamClient(profile: profile, password: password)
             .catchUpTable(streamID: stream.streamID)
@@ -3016,7 +3278,7 @@ final class SportsLibrary {
 
     private func password(for profile: XtreamProfile) -> String? {
         if let passwordCache, passwordCache.profileID == profile.id { return passwordCache.password }
-        guard let password = KeychainStore.password(profileID: profile.id) else { return nil }
+        guard let password = credentials.password(profile.id) else { return nil }
         passwordCache = (profile.id, password)
         return password
     }
@@ -3082,7 +3344,7 @@ final class SportsLibrary {
         guard await waitForProviderWork() else { isSwitchingProfile = false; return }
         persistFavorites()
         resetProviderState()
-        activeProfile = profile
+        activeProfile = profiles.first { $0.id == profile.id } ?? profile
         restoreFavorites()
         restoreTeamPreferences()
         restoreGameChannelSelections()
@@ -3091,6 +3353,367 @@ final class SportsLibrary {
         isSwitchingProfile = false
         await bootstrap()
     }
+
+    /// Change only the display name. Identity, credentials and every provider's
+    /// favorites, channel preferences, caches and selected Guide category stay put.
+    @discardableResult
+    func renameProfile(id: UUID, name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 80,
+              let index = profiles.firstIndex(where: { $0.id == id }) else { return false }
+        profiles[index].name = trimmed
+        if activeProfile?.id == id { activeProfile = profiles[index] }
+        persistProfiles()
+        return true
+    }
+
+    var enabledProfiles: [XtreamProfile] { profiles.filter { !disabledProviderIDs.contains($0.id) } }
+
+    func isProviderEnabled(_ id: UUID) -> Bool {
+        profiles.contains { $0.id == id } && !disabledProviderIDs.contains(id)
+    }
+
+    func setProviderEnabled(_ id: UUID, enabled: Bool) {
+        guard profiles.contains(where: { $0.id == id }) else { return }
+        if enabled { disabledProviderIDs.remove(id) } else { disabledProviderIDs.insert(id) }
+        profileDefaults.set(disabledProviderIDs.map(\.uuidString), forKey: "Lineup.disabledIPTVProviders.v1")
+        #if os(iOS)
+        if !enabled { providerContexts[id] = nil }
+        #endif
+    }
+
+    #if os(iOS)
+    var eventChannelTournamentBoard: [[String]] {
+        Self.tournamentBoard(SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] })
+    }
+
+    /// Each enabled account owns a separate store. Resolving a feed never
+    /// switches the preferred account or retires another provider's playback.
+    func providerContext(id: UUID, catalog: MobileProviderCatalog = .shared) async -> SportsLibrary? {
+        if let combinedRoot { return await combinedRoot.providerContext(id: id, catalog: catalog) }
+        if let pending = providerContextLoads[id] { return await pending.value }
+        let pending = Task { await self.buildProviderContext(id: id, catalog: catalog) }
+        providerContextLoads[id] = pending
+        defer { providerContextLoads[id] = nil }
+        return await pending.value
+    }
+
+    private func buildProviderContext(id: UUID, catalog: MobileProviderCatalog) async -> SportsLibrary? {
+        guard isProviderEnabled(id), let profile = profiles.first(where: { $0.id == id }) else { return nil }
+        if activeProfile?.id == id && channelsAreSyncing && streams.isEmpty && !automaticMatchingReady { return nil }
+        guard let secret = credentials.password(id) else {
+            providerProblems[id] = "Sign in again in Settings → IPTV"
+            return nil
+        }
+        // Cached primary channels stay browsable while bootstrap validates
+        // them. Only the root's existing validation can authorize event play.
+        let usesPrimary = activeProfile?.id == id
+            && (automaticMatchingReady || (channelsAreSyncing && !streams.isEmpty))
+        let snapshot: MobileProviderSnapshot
+        if usesPrimary {
+            snapshot = MobileProviderSnapshot(categories: categories, streams: streams, programs: programsByChannel,
+                fetchedAt: min(libraryUpdatedAt ?? Date(), guideUpdatedAt ?? Date()))
+        } else {
+            do { snapshot = try await catalog.snapshot(for: profile, secret: secret) }
+            catch { providerProblems[id] = "Channels or guide unavailable"; return nil }
+        }
+        guard !Task.isCancelled, isProviderEnabled(id), credentials.password(id) == secret,
+              let current = profiles.first(where: { $0.id == id }),
+              Self.sameProviderConnection(current, profile) else { return nil }
+        let context: SportsLibrary
+        if let existing = providerContexts[id], let saved = existing.activeProfile,
+           Self.sameProviderConnection(saved, current) {
+            context = existing
+        } else {
+            context = SportsLibrary(profileDefaults: profileDefaults, credentials: credentials,
+                providerID: id, persistsActiveSelection: false)
+            providerContexts[id] = context
+        }
+        context.profiles = profiles
+        context.providerOwner = self
+        context.activeProfile = current
+        context.disabledProviderIDs = disabledProviderIDs
+        context.followedTeams = followedTeams
+        if context.gamesByLeague != gamesByLeague { context.gamesByLeague = gamesByLeague }
+        context.scheduleLoadedLeagues = scheduleLoadedLeagues
+        context.scheduleValidatedLeagues = scheduleValidatedLeagues
+        context.scheduleDay = scheduleDay
+        context.didRestoreSchedule = true
+        context.channelsValidatedThisSession = usesPrimary ? channelsValidatedThisSession : true
+        context.guideValidatedThisSession = usesPrimary ? guideValidatedThisSession : true
+        let changed = context.libraryUpdatedAt != snapshot.fetchedAt
+        if changed {
+            context.categories = snapshot.categories
+            context.streams = snapshot.streams
+            context.programsByChannel = snapshot.programs
+            context.libraryUpdatedAt = snapshot.fetchedAt
+            context.guideUpdatedAt = snapshot.fetchedAt
+            context.categoriesDigest = nil; context.streamsDigest = nil; context.guideDigest = nil
+            context.savedChannelsDigest = nil; context.savedGuideDigest = nil
+            context.passwordCache = nil
+        }
+        if usesPrimary {
+            context.indexGeneration = indexGeneration
+            context.professionalStreams = professionalStreams
+            context.leagueStreamCache = leagueStreamCache
+            context.sportsIndexReady = sportsIndexReady
+            context.didCompleteMatching = didCompleteMatching
+            context.gameStreamCache = gameStreamCache
+            context.matchedGameIdentities = matchedGameIdentities
+            context.fastValidatedGameIDs = fastValidatedGameIDs
+        } else if changed { await context.rebuildProfessionalStreams() }
+        else { await context.rebuildGameStreamCache() }
+        guard !Task.isCancelled, isProviderEnabled(id),
+              let saved = profiles.first(where: { $0.id == id }),
+              Self.sameProviderConnection(saved, current), credentials.password(id) == secret else { return nil }
+        providerProblems[id] = nil
+        return context
+    }
+
+    func prepareEventChannel(_ choice: MobileProviderChannel, for game: SportsGame,
+                             catalog: MobileProviderCatalog = .shared) async -> MobileProviderPlaybackSource? {
+        if let combinedRoot { return await combinedRoot.prepareEventChannel(choice, for: game, catalog: catalog) }
+        guard let profile = profiles.first(where: { $0.id == choice.profile.id }),
+              Self.sameProviderConnection(profile, choice.profile),
+              let context = await providerContext(id: profile.id, catalog: catalog) else { return nil }
+        let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+        guard current.isLive || current.isUpcoming,
+              let stream = context.stream(withID: choice.channel.id), stream == choice.channel.stream,
+              context.isEventChannel(stream, verifiedFor: current) else { return nil }
+        return MobileProviderPlaybackSource(library: context, stream: stream)
+    }
+
+    func providerSnapshot(_ profile: XtreamProfile, catalog: MobileProviderCatalog = .shared) async throws -> MobileProviderSnapshot {
+        if let combinedRoot { return try await combinedRoot.providerSnapshot(profile, catalog: catalog) }
+        guard isProviderEnabled(profile.id), let current = profiles.first(where: { $0.id == profile.id }),
+              Self.sameProviderConnection(current, profile), let secret = credentials.password(profile.id) else {
+            throw XtreamClient.XtreamError.unauthorized
+        }
+        let snapshot = try await catalog.snapshot(for: current, secret: secret)
+        guard !Task.isCancelled, isProviderEnabled(current.id), credentials.password(current.id) == secret,
+              profiles.contains(where: { Self.sameProviderConnection($0, current) }) else { throw CancellationError() }
+        return snapshot
+    }
+
+    func playbackSource(for stream: XtreamStream) -> MobileProviderPlaybackSource {
+        combinedSources[stream.id] ?? MobileProviderPlaybackSource(library: self, stream: stream)
+    }
+
+    var providerRoot: SportsLibrary { combinedRoot ?? providerOwner ?? self }
+
+    private var providerConnectionAvailable: Bool {
+        guard let providerOwner else { return true }
+        guard let profile = activeProfile else { return false }
+        return providerOwner.isProviderEnabled(profile.id)
+            && providerOwner.profiles.contains { Self.sameProviderConnection($0, profile) }
+    }
+
+    private func canUseProviderStream(_ stream: XtreamStream) -> Bool {
+        providerConnectionAvailable && (combinedRoot == nil
+            || combinedSources[stream.id].map { $0.library.providerConnectionAvailable } == true)
+    }
+
+    func displayStream(for source: MobileProviderPlaybackSource) -> XtreamStream? {
+        guard let id = source.library.activeProfile?.id,
+              let displayed = combinedDisplayIDs[.init(providerID: id, streamID: source.stream.id)] else { return nil }
+        return stream(withID: displayed)
+    }
+
+    var searchGamesSnapshot: [(game: SportsGame, channel: XtreamStream?)] {
+        games(for: nil).flatMap { game -> [(game: SportsGame, channel: XtreamStream?)] in
+            if combinedRoot != nil {
+                let matched = enabledProfiles.compactMap { profile -> XtreamStream? in
+                    guard let context = combinedProviderContexts[profile.id], let native = context.resolvedStream(for: game) else { return nil }
+                    return displayStream(for: MobileProviderPlaybackSource(library: context, stream: native))
+                }
+                return matched.isEmpty ? [(game, nil)] : matched.map { (game, Optional($0)) }
+            }
+            return [(game, resolvedStream(for: game))]
+        }
+    }
+
+    var searchProviderInfo: [Int: XtreamProfile] {
+        Dictionary(streams.compactMap { stream in
+            playbackSource(for: stream).library.activeProfile.map { (stream.id, $0) }
+        }, uniquingKeysWith: { first, _ in first })
+    }
+
+    func categorySource(for id: String) -> (profileID: UUID?, categoryID: String) {
+        if combinedRoot != nil, let split = id.firstIndex(of: "|"),
+           let profileID = UUID(uuidString: String(id[..<split])) {
+            return (profileID, String(id[id.index(after: split)...]))
+        }
+        return (activeProfile?.id, id)
+    }
+
+    func providerName(for stream: XtreamStream) -> String? {
+        if combinedRoot != nil && combinedSources[stream.id] == nil { return nil }
+        let source = playbackSource(for: stream)
+        let id = source.library.activeProfile?.id
+        return providerRoot.profiles.first { $0.id == id }?.name
+    }
+
+    func combinedGuide(catalog: MobileProviderCatalog = .shared,
+                       onUpdate: @MainActor (SportsLibrary) -> Void = { _ in }) async -> SportsLibrary {
+        if let combinedRoot { return await combinedRoot.combinedGuide(catalog: catalog, onUpdate: onUpdate) }
+        let facade = combinedGuideContext ?? SportsLibrary(profileDefaults: profileDefaults,
+            credentials: credentials, persistsActiveSelection: false)
+        combinedGuideContext = facade
+        combinedLoadCount += 1
+        facade.isLoading = true
+        defer { combinedLoadCount -= 1; facade.isLoading = combinedLoadCount > 0 }
+        facade.combinedRoot = self
+        if combinedRegistry == nil { combinedRegistry = MobileProviderStreamRegistry(defaults: profileDefaults) }
+        let ids = enabledProfiles.map(\.id)
+        var loaded = providerContexts.filter { isProviderEnabled($0.key) }
+        installCombinedGuide(facade, contexts: loaded)
+        onUpdate(facade)
+        await withTaskGroup(of: (UUID, SportsLibrary?).self) { group in
+            for id in ids { group.addTask { (id, await self.providerContext(id: id, catalog: catalog)) } }
+            while let (id, context) = await group.next() {
+                guard !Task.isCancelled else { group.cancelAll(); break }
+                if let context, isProviderEnabled(id) { loaded[id] = context }
+                else if let existing = loaded[id], isProviderEnabled(id), existing.providerConnectionAvailable {
+                    // Keep an already-playing channel during metadata refresh/
+                    // failure, but retire its automatic event evidence.
+                    existing.channelsValidatedThisSession = false
+                    existing.guideValidatedThisSession = false
+                    existing.fastValidatedGameIDs = []
+                } else { loaded[id] = nil }
+                installCombinedGuide(facade, contexts: loaded)
+                onUpdate(facade)
+            }
+        }
+        if !Task.isCancelled { installCombinedGuide(facade, contexts: loaded) }
+        return facade
+    }
+
+    private func installCombinedGuide(_ facade: SportsLibrary, contexts: [UUID: SportsLibrary]) {
+        guard let registry = combinedRegistry else { return }
+        let ordered = enabledProfiles.compactMap { contexts[$0.id] }
+        facade.profiles = profiles
+        facade.activeProfile = activeProfile
+        facade.disabledProviderIDs = disabledProviderIDs
+        facade.libraryUpdatedAt = ordered.compactMap(\.libraryUpdatedAt).min()
+        facade.guideUpdatedAt = ordered.compactMap(\.guideUpdatedAt).min()
+        if facade.gamesByLeague != gamesByLeague { facade.gamesByLeague = gamesByLeague }
+        facade.scheduleLoadedLeagues = scheduleLoadedLeagues
+        facade.scheduleValidatedLeagues = scheduleValidatedLeagues
+        facade.isScheduleLoading = isScheduleLoading
+        facade.scheduleErrorMessage = scheduleErrorMessage
+        facade.followedTeams = followedTeams
+        let signature = ordered.map { "\($0.activeProfile!.id)|\($0.activeProfile!.name)|\($0.libraryUpdatedAt?.timeIntervalSince1970 ?? 0)|\($0.guideUpdatedAt?.timeIntervalSince1970 ?? 0)|\($0.indexGeneration)|\($0.automaticMatchingReady)" }
+        guard facade.combinedSignature != signature else {
+            facade.restoreCombinedOrders()
+            facade.refreshCombinedMatches(contexts: ordered, registry: registry)
+            return
+        }
+        facade.combinedSignature = signature
+        var channels: [XtreamStream] = [], groups: [XtreamCategory] = []
+        var guide: [String: [CurrentProgram]] = [:]
+        var sources: [Int: MobileProviderPlaybackSource] = [:]
+        var displayIDs: [MobileProviderChannel.ID: Int] = [:]
+        var professional: [XtreamStream] = []
+        var leagues: [SportsLeague: [XtreamStream]] = [:]
+        for context in ordered {
+            guard let profile = context.activeProfile else { continue }
+            let prefix = profile.id.uuidString + "|"
+            var displayed: [Int: XtreamStream] = [:]
+            groups += context.categories.map { XtreamCategory(categoryID: prefix + $0.id,
+                categoryName: "\(profile.name) · \($0.categoryName)", sourceCategoryName: $0.matchingName) }
+            for native in context.streams {
+                let id = registry.id(provider: profile.id, stream: native.id)
+                let channel = XtreamStream(num: native.num, name: native.name, streamType: native.streamType,
+                    streamID: id, streamIcon: native.streamIcon,
+                    epgChannelID: native.epgChannelID.map { prefix + $0 }, categoryID: native.categoryID.map { prefix + $0 },
+                    tvArchive: native.tvArchive, archiveDays: native.archiveDays)
+                channels.append(channel)
+                displayed[native.id] = channel
+                sources[id] = MobileProviderPlaybackSource(library: context, stream: native)
+                displayIDs[.init(providerID: profile.id, streamID: native.id)] = id
+            }
+            for (id, listings) in context.programsByChannel { guide[prefix + id] = listings }
+            if context.automaticMatchingReady {
+                professional += context.professionalStreams.compactMap { displayed[$0.id] }
+                for (league, values) in context.leagueStreamCache { leagues[league, default: []] += values.compactMap { displayed[$0.id] } }
+            }
+        }
+        facade.combinedSources = sources
+        facade.combinedDisplayIDs = displayIDs
+        facade.combinedProviderContexts = Dictionary(ordered.compactMap { context in context.activeProfile.map { ($0.id, context) } },
+            uniquingKeysWith: { first, _ in first })
+        facade.categories = groups
+        facade.streams = channels
+        facade.programsByChannel = guide
+        facade.professionalStreams = professional
+        facade.leagueStreamCache = leagues
+        let ready = ordered.contains { $0.automaticMatchingReady }
+        facade.channelsValidatedThisSession = ready
+        facade.guideValidatedThisSession = ready
+        facade.sportsIndexReady = ready
+        facade.didCompleteMatching = ready
+        facade.refreshCombinedMatches(contexts: ordered, registry: registry)
+        facade.restoreCombinedOrders()
+        registry.save()
+    }
+
+    private func refreshCombinedMatches(contexts: [SportsLibrary], registry: MobileProviderStreamRegistry) {
+        var matches: [String: XtreamStream] = [:]
+        var teams = profileDefaults.data(forKey: "Lineup.combinedGuide.teamPreferences.v1")
+            .flatMap { try? JSONDecoder().decode(TeamChannelPreferences.self, from: $0) }?.entries ?? [:]
+        var selections = profileDefaults.data(forKey: "Lineup.combinedGuide.gameSelections.v1")
+            .flatMap { try? JSONDecoder().decode(GameChannelSelections.self, from: $0) }?.entries ?? [:]
+        teams = teams.filter { combinedSources[$0.value.streamID] != nil }
+        selections = selections.filter { combinedSources[$0.value.streamID] != nil }
+        for context in contexts {
+            guard let profile = context.activeProfile else { continue }
+            for (key, pref) in context.teamPreferences.entries {
+                let id = registry.id(provider: profile.id, stream: pref.streamID)
+                guard combinedSources[id] != nil, teams[key].map({ $0.savedAt < pref.savedAt }) ?? true else { continue }
+                teams[key] = TeamChannelPreference(streamID: id, channelName: pref.channelName, teamName: pref.teamName, savedAt: pref.savedAt)
+            }
+            for (key, pref) in context.gameChannelSelections.entries where selections[key] == nil {
+                let id = registry.id(provider: profile.id, stream: pref.streamID)
+                if combinedSources[id] != nil { selections[key] = pref.replacingStreamID(id) }
+            }
+            for (id, native) in context.gameStreamCache where matches[id] == nil && context.automaticMatchingReady {
+                guard let game = gamesByLeague.values.joined().first(where: { $0.id == id }),
+                      context.matchedGameIdentities[id] == Self.matchIdentity(game) else { continue }
+                matches[id] = stream(withID: registry.id(provider: profile.id, stream: native.id))
+            }
+        }
+        gameStreamCache = matches
+        teamPreferences = TeamChannelPreferences(entries: teams)
+        gameChannelSelections = GameChannelSelections(entries: selections)
+        gameChannelSelections.prune()
+        matchedGameIdentities = matchIdentities(now: Date())
+        fastValidatedGameIDs = Set(matches.keys)
+    }
+
+    private func restoreCombinedOrders() {
+        guideListCache = nil
+        let valid = Set(combinedSources.keys)
+        let saved = (profileDefaults.array(forKey: "Lineup.combinedGuide.favorites.v1") as? [Int] ?? []).filter { valid.contains($0) }
+        let favorites = enabledProfiles.flatMap { profile in
+            (combinedProviderContexts[profile.id]?.favoriteStreamOrder ?? []).compactMap {
+                combinedDisplayIDs[.init(providerID: profile.id, streamID: $0)]
+            }
+        }
+        favoriteStreamOrder = saved.filter { favorites.contains($0) } + favorites.filter { !saved.contains($0) }
+        let savedRecents = (profileDefaults.array(forKey: "Lineup.combinedGuide.recents.v1") as? [Int] ?? []).filter { valid.contains($0) }
+        let nativeRecents = enabledProfiles.flatMap { profile in
+            (combinedProviderContexts[profile.id]?.recentStreamOrder ?? []).compactMap {
+                combinedDisplayIDs[.init(providerID: profile.id, streamID: $0)]
+            }
+        }
+        recentStreamOrder = savedRecents + nativeRecents.filter { !savedRecents.contains($0) }
+    }
+
+    nonisolated static func sameProviderConnection(_ lhs: XtreamProfile, _ rhs: XtreamProfile) -> Bool {
+        lhs.id == rhs.id && lhs.serverURL == rhs.serverURL && lhs.username == rhs.username
+            && lhs.connectionKind == rhs.connectionKind
+    }
+    #endif
 
     func removeActiveProfile() {
         guard let profile = activeProfile else { return }
@@ -3102,7 +3725,12 @@ final class SportsLibrary {
         isSwitchingProfile = true
         guard await waitForProviderWork() else { isSwitchingProfile = false; return }
         let removingActive = activeProfile?.id == profile.id
-        KeychainStore.delete(profileID: profile.id)
+        credentials.delete(profile.id)
+        #if os(iOS)
+        providerContextLoads[profile.id]?.cancel()
+        providerContexts[profile.id] = nil
+        providerProblems[profile.id] = nil
+        #endif
         passwordCache = nil
         profiles.removeAll { $0.id == profile.id }
         profileDefaults.removeObject(forKey: favoritesKey + "." + profile.id.uuidString)
@@ -3180,7 +3808,7 @@ final class SportsLibrary {
         if let data = try? JSONEncoder().encode(profiles) {
             profileDefaults.set(data, forKey: profilesKey)
         }
-        profileDefaults.set(activeProfile?.id.uuidString, forKey: activeKey)
+        if persistsActiveSelection { profileDefaults.set(activeProfile?.id.uuidString, forKey: activeKey) }
         if profileDefaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 

@@ -1,5 +1,11 @@
 # Live quality verification and refresh presentation
 
+**Superseded for automatic playback in iPhone144 / tvOS92:** startup now uses
+only quality confirmed by actual rendered playback and opens no speculative
+video probes. See [Playback and presentation overhaul](live-playback-and-presentation-overhaul.md).
+The earlier bounded probe implementation described below remains available to
+explicit callers and its regressions; automatic event selection no longer calls it.
+
 Automatic event playback still verifies source dimensions/frame rate before
 choosing a channel and retains the exact measured URL. Manual/team choices,
 strict event matching, playback-engine selection and player format badges keep

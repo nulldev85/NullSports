@@ -17,6 +17,9 @@ struct MobilePlayerView: View {
     /// title from a media server, which has a length and a position. The two
     /// want different chrome, and showing a LIVE dot over a film was the tell.
     var isLive: Bool = true
+    var nativeSiloPlayback: SiloPlaybackSession? = nil
+    var providerName: String? = nil
+    var onPlaybackStarted: (() -> Void)? = nil
     /// The bitrate the server reported for this source. The server holds the
     /// file, so this is the one number nothing on the device can improve on.
     var sourceBitrate: String? = nil
@@ -41,6 +44,7 @@ struct MobilePlayerView: View {
     @AppStorage("Lineup.library.postCreditsNotice.v1") private var postCreditsEnabled = true
     var initialPosition: TimeInterval? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
+    var onTrackingSample: ((LibraryPlaybackSample) -> Void)? = nil
     /// Lineup chooses the episode; verified credits can show the offer earlier.
     var nextEpisode: MobileNextEpisodeOffer? = nil
     /// Told when the title plays to its end, before the player closes.
@@ -73,10 +77,12 @@ struct MobilePlayerView: View {
                 VStack(spacing: 16) {
                     Text(error).multilineTextAlignment(.center)
                     Button("Retry", systemImage: "arrow.clockwise") {
+                        if let nativeSiloPlayback { nativeSiloPlayback.retry(); return }
                         // A title picks up where it was when it stopped, not
                         // where it was when the player opened.
-                        controller.start(urls: urls, initialPosition: isLive ? nil
-                            : (lastReportedPosition > 0 ? lastReportedPosition : initialPosition))
+                        controller.start(urls: nativeSiloPlayback?.asset.map { [$0.url] } ?? urls,
+                            initialPosition: nativeSiloPlayback?.asset?.lease.playerStart ?? (isLive ? nil
+                            : (lastReportedPosition > 0 ? lastReportedPosition : initialPosition)))
                     }
                         .lineupProminentButton()
                 }
@@ -84,7 +90,7 @@ struct MobilePlayerView: View {
                 .lineupLiquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .padding(32)
             } else if controller.loading {
-                ProgressView("Opening stream…").padding(24)
+                ProgressView(controller.loadingMessage).padding(24)
                     .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous),
                                      fallback: Material.ultraThinMaterial, border: .clear)
             }
@@ -112,6 +118,7 @@ struct MobilePlayerView: View {
             if controlsVisible {
                 VStack(spacing: 0) {
                     LineupGlassGroup {
+                    VStack(alignment: .leading, spacing: 8) {
                     MobilePlayerHeader {
                     HStack(spacing: 10) {
                         control("xmark", label: "Close player") { exit() }
@@ -147,6 +154,16 @@ struct MobilePlayerView: View {
                             if let detail = badgeDetail { qualityBadge(detail).fixedSize() }
                             ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
                         }
+                    }
+                    if let providerName {
+                        Label("Provider: \(providerName)", systemImage: "antenna.radiowaves.left.and.right")
+                            .font(.inter(.caption2, .semibold)).lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(LineupStyle.mediaText.opacity(0.86))
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Color.black.opacity(0.66), in: Capsule())
+                            .accessibilityLabel("IPTV provider: \(providerName)")
+                            .accessibilityIdentifier("lineup.playback.provider").allowsHitTesting(false)
+                    }
                     }
                     }
                     .padding(.horizontal, 14)
@@ -280,7 +297,7 @@ struct MobilePlayerView: View {
             }
             return items
         } onCancel: { showControls() }
-        .sheet(isPresented: $showingOnlineSubtitles, onDismiss: { showControls() }) {
+        .lineupSheet(isPresented: $showingOnlineSubtitles, onDismiss: { showControls() }) {
             if let subtitleIdentityLookup {
                 MobileOnlineSubtitlesSheet(name: name, identity: subtitleIdentityLookup,
                     showsPiPLimitation: controller.engine == .aether) { data, subtitle in
@@ -297,11 +314,13 @@ struct MobilePlayerView: View {
             guard !Task.isCancelled else { return }
             seekPreview.configure(source)
         }
-        .sheet(isPresented: $showingSubtitleSettings, onDismiss: { showControls() }) {
+        .lineupSheet(isPresented: $showingSubtitleSettings, onDismiss: { showControls() }) {
             MobileSubtitleSettingsSheet(controller: controller)
         }
         .onAppear {
+            controller.libraryTrackingEvent = onTrackingSample
             controller.isLive = isLive
+            controller.configureSiloPlayback(nativeSiloPlayback)
             controller.remembersTracks(forShow: isLive ? nil : trackMemoryShow)
             controller.start(urls: urls, initialPosition: isLive ? nil : initialPosition)
         }
@@ -326,7 +345,8 @@ struct MobilePlayerView: View {
             controller.handleScenePhase(active: phase == .active)
         }
         .onChange(of: controller.isPlaying) { _, playing in
-            if playing { scheduleAutoHide() } else { hideControlsTask?.cancel(); controlsVisible = true }
+            if playing { onPlaybackStarted?(); scheduleAutoHide() }
+            else { hideControlsTask?.cancel(); controlsVisible = true }
         }
     }
 

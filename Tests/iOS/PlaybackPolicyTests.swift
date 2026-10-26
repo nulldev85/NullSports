@@ -7,8 +7,54 @@ import UIKit
 /// three player surfaces. Pulling them into `MobileBackgroundPolicy` is what
 /// makes them checkable without a device.
 final class PlaybackPolicyTests: XCTestCase {
+    func testLiveKeepsAConfirmedTransportFirstWhileLibraryStillUsesItsExistingPiPOrder() {
+        let ts = URL(string: "https://example.test/confirmed.ts")!
+        let hls = URL(string: "https://example.test/other.m3u8")!
+        XCTAssertEqual(MobileEngineSelection.ordered([ts, hls], live: true), [ts, hls])
+        XCTAssertEqual(MobileEngineSelection.ordered([hls, ts], live: true), [hls, ts])
+        XCTAssertEqual(MobileEngineSelection.ordered([ts, hls]), [hls, ts])
+    }
+    func testSlowMovieOpeningIsNotAStoppedStreamBeforeTheStartupBudget() {
+        for age in [0.0, 2, 8, 29.9] {
+            XCTAssertFalse(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: false, age: age))
+        }
+        XCTAssertTrue(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: false, age: 30))
+        XCTAssertFalse(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: true, hasShownPicture: false, age: 7.9))
+        XCTAssertTrue(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: true, hasShownPicture: false, age: 8))
+        XCTAssertTrue(MobilePlaybackOpeningPolicy.stoppedIsFailure(isLive: false, hasShownPicture: true, age: 2))
+    }
+
+    func testVLCStartupNeedsAnActualPictureEvenAfterTheShapeDeadline() {
+        XCTAssertFalse(StartTogether.canRevealVLC(displayedPictures: 0, settled: false, outputAge: 30))
+        XCTAssertFalse(StartTogether.canRevealVLC(displayedPictures: 0, settled: true, outputAge: 30))
+        XCTAssertFalse(StartTogether.canRevealVLC(displayedPictures: 1, settled: false, outputAge: 0.4))
+        XCTAssertTrue(StartTogether.canRevealVLC(displayedPictures: 1, settled: false, outputAge: 2.1))
+        XCTAssertTrue(StartTogether.canRevealVLC(displayedPictures: 4, settled: true, outputAge: 0.4))
+    }
+
+    func testAudioOnlyFallbackCannotReleaseSoundForAKnownVideoTrack() {
+        XCTAssertFalse(StartTogether.canReleaseAudioOnly(heldFor: 20, hasAudio: true, hasVideo: true))
+        XCTAssertFalse(StartTogether.canReleaseAudioOnly(heldFor: 20, hasAudio: false, hasVideo: false))
+        XCTAssertFalse(StartTogether.canReleaseAudioOnly(heldFor: 5, hasAudio: true, hasVideo: false))
+        XCTAssertTrue(StartTogether.canReleaseAudioOnly(heldFor: 6, hasAudio: true, hasVideo: false))
+    }
+
+    func testBufferingAndRecoveryLabelsRetainTheCurrentTitlesPresentationHistory() {
+        var state = MobilePlaybackPresentation()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: false), "Opening stream…")
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: true), "Waiting for picture…")
+        state.presentedVideo()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: false), "Buffering…")
+        state.beganRecovery()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: false), "Reconnecting…")
+        state.presentedVideo()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: true), "Buffering…")
+        state = MobilePlaybackPresentation()
+        XCTAssertEqual(state.loadingMessage(waitingForPicture: false), "Opening stream…")
+    }
+
     func testSettingsExposeVersionsForPackagedPlaybackEngines() {
-        XCTAssertNil(MobilePlaybackPreference.automatic.version)
+        XCTAssertNil(MobilePlaybackPreference.native.version)
         XCTAssertEqual(MobilePlaybackPreference.aether.version, "7.45.0")
         XCTAssertEqual(MobilePlaybackPreference.vlc.version, "3.6.0")
         XCTAssertEqual(MobilePlaybackPreference.mpv.version, "1.1.0-n9.0.2")
@@ -157,17 +203,37 @@ final class PlaybackPolicyTests: XCTestCase {
         XCTAssertNil(MobileEngineSelection.engine(for: ts, preference: .vlc, failed: [.vlc]))
     }
 
-    func testPlayerPreferencePersistsAndUnknownValuesUseAutomatic() throws {
+    func testPlayerPreferencePersistsAndLegacyAutomaticMigratesToNative() throws {
         let suite = "PlayerPreference.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .automatic)
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .native)
+        defaults.set("automatic", forKey: MobilePlaybackPreference.storageKey)
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .native)
         defaults.set("mpv", forKey: MobilePlaybackPreference.storageKey)
         XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .mpv)
         defaults.set("aether", forKey: MobilePlaybackPreference.storageKey)
         XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .aether)
         defaults.set("old-or-unknown", forKey: MobilePlaybackPreference.storageKey)
-        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .automatic)
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .native)
+    }
+
+    func testNativeChoiceKeepsItsCompatibilityLayerAndMakesDecoderFallbackExplicit() throws {
+        XCTAssertEqual(MobilePlaybackPreference.allCases, [.native, .aether, .vlc, .mpv])
+        let hls = URL(string: "https://fixture.test/video.m3u8")!
+        let mkv = URL(string: "https://fixture.test/video.mkv")!
+        XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .native), .system)
+        XCTAssertEqual(MobileEngineSelection.engine(for: mkv, preference: .native), .aether)
+        XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .native, failed: [.system], nativeFallback: false), .aether)
+        XCTAssertNil(MobileEngineSelection.engine(for: hls, preference: .native, failed: [.system, .aether], nativeFallback: false))
+        XCTAssertEqual(MobileEngineSelection.engine(for: mkv, preference: .native, failed: [.aether], nativeFallback: true), .vlc)
+        let suite = "NativeFallback." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        XCTAssertTrue(MobilePlaybackPreference.allowsNativeFallback(in: defaults))
+        defaults.set(false, forKey: MobilePlaybackPreference.nativeFallbackKey)
+        XCTAssertFalse(MobilePlaybackPreference.allowsNativeFallback(in: defaults))
+        XCTAssertEqual(MobileEngineSelection.engine(for: mkv, preference: .vlc), .vlc)
     }
 
     // MARK: - Surface reuse

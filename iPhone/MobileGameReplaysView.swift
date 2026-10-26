@@ -13,7 +13,7 @@ struct MobileGameReplaysSection: View {
         .map { MobileGameReplayPolicy.Team($0.followedTeam) }
 
     private var request: MobileGameReplayStore.Request {
-        .init(profileID: library.activeProfile?.id, playlist: library.activeProfile?.isPlaylist ?? false,
+        .init(profileID: library.activeProfile?.id, playlist: !library.enabledProfiles.contains(where: { !$0.isPlaylist }),
               refreshed: library.lastRefreshedAt, channelCount: library.streams.count,
               followedIDs: library.followedTeams.teams.filter { $0.league == "NFL" }.map(\.id).sorted(),
               enabled: enabled, refresh: refresh)
@@ -146,7 +146,9 @@ struct MobileGameReplayPlayer: View {
                 program: nil, expanded: true, showsMetadata: true,
                 videoHeight: MobilePlayerLayout.fullscreenHeight(containerHeight: viewport.size.height,
                     safeAreaTop: viewport.safeAreaInsets.top, safeAreaBottom: viewport.safeAreaInsets.bottom),
-                screenInsets: viewport.safeAreaInsets, onClose: { dismiss() }, onExpand: nil, onRetry: { retry = UUID() })
+                screenInsets: viewport.safeAreaInsets,
+                providerName: library.providerName(for: selection.recording.stream),
+                onClose: { dismiss() }, onExpand: nil, onRetry: { retry = UUID() })
                 .ignoresSafeArea()
         }
         .background(Color.black.ignoresSafeArea()).statusBarHidden(true).persistentSystemOverlays(.hidden)
@@ -155,6 +157,15 @@ struct MobileGameReplayPlayer: View {
         .onDisappear { controller.shutdown() }
         .onChange(of: scenePhase) { _, phase in controller.handleScenePhase(active: phase == .active) }
         .onChange(of: library.activeProfile?.id) { _, profile in if profile != selection.profileID { dismiss() } }
+        .onChange(of: library.providerRoot.enabledProfiles.map(\.id)) { _, _ in closeRetiredSource() }
+        .onChange(of: library.streamsRevision) { _, _ in closeRetiredSource() }
+    }
+
+    private func closeRetiredSource() {
+        let stream = selection.recording.stream
+        if library.stream(withID: stream.id) == nil || library.playbackURLs(for: stream).isEmpty {
+            controller.shutdown(); dismiss()
+        }
     }
 
     private func open() async {
@@ -178,7 +189,8 @@ struct MobileGameReplayPlayer: View {
             } else {
                 current = try await library.gameReplayProgrammes(for: stream, profileID: selection.profileID)
             }
-            guard !Task.isCancelled, library.activeProfile?.id == selection.profileID else { return }
+            guard !Task.isCancelled, library.activeProfile?.id == selection.profileID,
+                  !library.playbackURLs(for: stream).isEmpty else { return }
             guard let program = current.first(where: { $0.id == recording.program.id && $0.title == recording.program.title && $0.end == recording.program.end }) else {
                 unavailable()
                 return

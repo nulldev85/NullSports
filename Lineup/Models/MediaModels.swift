@@ -1,6 +1,6 @@
 import Foundation
 
-struct MediaServerProfile: Codable, Identifiable, Equatable {
+struct MediaServerProfile: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
     var name: String
     var serverURL: String
@@ -9,15 +9,17 @@ struct MediaServerProfile: Codable, Identifiable, Equatable {
     /// The software the server runs. Saved only since Emby and Plex joined
     /// Jellyfin, so a server saved before then reads as the Jellyfin it was.
     var software: MediaServerBrand?
+    var siloProfileID: String? = nil
 
     init(id: UUID = UUID(), name: String, serverURL: String, username: String, userID: String,
-         software: MediaServerBrand = .jellyfin) {
+         software: MediaServerBrand = .jellyfin, siloProfileID: String? = nil) {
         self.id = id
         self.name = name
         self.serverURL = serverURL
         self.username = username
         self.userID = userID
         self.software = software
+        self.siloProfileID = siloProfileID
     }
 
     var brand: MediaServerBrand { software ?? .jellyfin }
@@ -44,6 +46,7 @@ enum MediaServerBrand: String, Codable, CaseIterable, Sendable, Equatable {
     case jellyfin
     case emby
     case plex
+    case silo
 
     static func of(_ profile: MediaServerProfile) -> MediaServerBrand { profile.brand }
 
@@ -59,6 +62,7 @@ enum MediaServerBrand: String, Codable, CaseIterable, Sendable, Equatable {
         case .jellyfin: return "Jellyfin"
         case .emby: return "Emby"
         case .plex: return "Plex"
+        case .silo: return "Silo"
         }
     }
 
@@ -68,6 +72,7 @@ enum MediaServerBrand: String, Codable, CaseIterable, Sendable, Equatable {
         case .jellyfin: return "Your Jellyfin user. Servers built on Jellyfin sign in the same way."
         case .emby: return "Your Emby user, on your Emby Server."
         case .plex: return "A short code links your account. No password needed."
+        case .silo: return "Connect your Silo account or API key, then choose your household profile."
         }
     }
 }
@@ -142,6 +147,7 @@ struct MDBListAccount: Equatable, Sendable {
     let plan: String?
     let dailyLimit: Int?
     let requestsUsed: Int?
+    var userID: Int? = nil
 
     var requestsRemaining: Int? {
         guard let dailyLimit, let requestsUsed else { return nil }
@@ -572,6 +578,13 @@ struct LocalMediaPlayback: Codable, Hashable, Sendable, Identifiable {
     /// An episode selected by local progression rather than by recorded
     /// playback. Optional keeps existing on-device records decodable.
     var isUpNext: Bool? = nil
+
+    /// A duration measured by this copy's player, rather than catalog runtime.
+    /// Optional keeps existing device/account caches compatible.
+    var nativeDuration: TimeInterval? = nil
+    /// Verified account identity for a movie whose lightweight provider row
+    /// may omit external IDs. Never used to match by title alone.
+    var mdbMovieIDs: [String: String]? = nil
 
     var id: String { profileID.uuidString + "|" + item.id }
 
@@ -1222,6 +1235,9 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// provider's own address for a film or an episode.
     var directURL: URL? = nil
     var playSessionID: String? = nil
+    /// Native Silo chooses this exact version before returning a signed plan.
+    var siloFileID: String? = nil
+    var siloLease: SiloPlaybackLease? = nil
     /// Unlike the first standard Id, this names one exact AIOStreams version.
     var selectionID: String { aiostreams?.id ?? sourceID }
     var sourceType: String? = nil
@@ -1298,7 +1314,7 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// server that names none had its streams split by the first line of
     /// their names -- by quality.
     var group: String {
-        if directURL != nil { return "VOD" }
+        if directURL != nil && siloLease == nil { return "VOD" }
         return serverName ?? provider
     }
 

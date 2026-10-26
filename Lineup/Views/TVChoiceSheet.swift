@@ -50,18 +50,20 @@ extension View {
     /// closes it, as it closes everything.
     func tvChoices(_ title: String, symbol: String, isPresented: Binding<Bool>,
                    message: String? = nil, cancelTitle: String = "Cancel",
+                   tint: Color? = nil,
                    items: @escaping () -> [TVChoice],
                    onCancel: @escaping () -> Void = {}) -> some View {
         modifier(TVChoicesModifier(isPresented: isPresented, title: title, symbol: symbol,
-                                   message: message, cancelTitle: cancelTitle,
+                                   message: message, cancelTitle: cancelTitle, tint: tint,
                                    items: items, onCancel: onCancel))
     }
 
     /// Hold Select: the app's own choices for what has focus, in place of
     /// the system's context menu.
     func tvHoldMenu(_ title: String, symbol: String, message: String? = nil,
+                    tint: Color? = nil,
                     items: @escaping () -> [TVChoice]) -> some View {
-        modifier(TVHoldMenuModifier(title: title, symbol: symbol, message: message, items: items))
+        modifier(TVHoldMenuModifier(title: title, symbol: symbol, message: message, tint: tint, items: items))
     }
 }
 
@@ -71,6 +73,7 @@ private struct TVChoicesModifier: ViewModifier {
     let symbol: String
     let message: String?
     let cancelTitle: String
+    let tint: Color?
     let items: () -> [TVChoice]
     let onCancel: () -> Void
 
@@ -79,7 +82,7 @@ private struct TVChoicesModifier: ViewModifier {
     @State private var chosen: TVChoice?
 
     func body(content: Content) -> some View {
-        content.fullScreenCover(isPresented: $isPresented, onDismiss: {
+        content.lineupFullScreenCover(isPresented: $isPresented, onDismiss: {
             if let choice = chosen {
                 chosen = nil
                 choice.action()
@@ -87,7 +90,7 @@ private struct TVChoicesModifier: ViewModifier {
                 onCancel()
             }
         }) {
-            TVChoiceSheet(title: title, symbol: symbol, message: message, cancelTitle: cancelTitle,
+            TVChoiceSheet(title: title, symbol: symbol, message: message, cancelTitle: cancelTitle, tint: tint,
                           items: items()) { choice in
                 chosen = choice
                 isPresented = false
@@ -107,13 +110,15 @@ struct TVHoldMenuPresentation: Identifiable {
     let title: String
     let symbol: String
     let message: String?
+    let tint: Color?
     let items: [TVChoice]
 
-    init?(title: String, symbol: String, message: String?, items: [TVChoice]) {
+    init?(title: String, symbol: String, message: String?, tint: Color? = nil, items: [TVChoice]) {
         guard !items.isEmpty else { return nil }
         self.title = title
         self.symbol = symbol
         self.message = message
+        self.tint = tint
         self.items = items
     }
 }
@@ -122,6 +127,7 @@ private struct TVHoldMenuModifier: ViewModifier {
     let title: String
     let symbol: String
     let message: String?
+    let tint: Color?
     let items: () -> [TVChoice]
 
     @State private var presentation: TVHoldMenuPresentation?
@@ -132,15 +138,15 @@ private struct TVHoldMenuModifier: ViewModifier {
             .environment(\.tvHoldAction, TVHoldAction {
                 guard presentation == nil else { return }
                 chosen = nil
-                presentation = TVHoldMenuPresentation(title: title, symbol: symbol, message: message, items: items())
+                presentation = TVHoldMenuPresentation(title: title, symbol: symbol, message: message, tint: tint, items: items())
             })
-            .fullScreenCover(item: $presentation, onDismiss: {
+            .lineupFullScreenCover(item: $presentation, onDismiss: {
                 let action = chosen
                 chosen = nil
                 action?.action()
             }) { snapshot in
                 TVChoiceSheet(title: snapshot.title, symbol: snapshot.symbol, message: snapshot.message,
-                              cancelTitle: "Cancel", items: snapshot.items) { choice in
+                              cancelTitle: "Cancel", tint: snapshot.tint, items: snapshot.items) { choice in
                     chosen = choice
                     presentation = nil
                 } cancel: {
@@ -203,16 +209,18 @@ private struct TVChoiceSheet: View {
     @State private var message: String?
     @State private var items: [TVChoice]
     let cancelTitle: String
+    let tint: Color?
     let choose: (TVChoice) -> Void
     let cancel: () -> Void
 
-    init(title: String, symbol: String, message: String?, cancelTitle: String, items: [TVChoice],
+    init(title: String, symbol: String, message: String?, cancelTitle: String, tint: Color? = nil, items: [TVChoice],
          choose: @escaping (TVChoice) -> Void, cancel: @escaping () -> Void) {
         _title = State(initialValue: title)
         _symbol = State(initialValue: symbol)
         _message = State(initialValue: message)
         _items = State(initialValue: items)
         self.cancelTitle = cancelTitle
+        self.tint = tint
         self.choose = choose
         self.cancel = cancel
     }
@@ -228,26 +236,11 @@ private struct TVChoiceSheet: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 32, style: .continuous)
         ZStack {
-            Color.black.opacity(0.62).ignoresSafeArea()
+            Color.black.opacity(0.74).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 20) {
-                    LineupIconTile(symbol: symbol, size: 52)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(title)
-                            .font(.inter(30, .bold))
-                            .foregroundStyle(LineupStyle.text)
-                        if let message, !message.isEmpty {
-                            Text(message)
-                                .font(.inter(21))
-                                .foregroundStyle(LineupPanelStyle.quiet)
-                        }
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 8)
-                    Spacer(minLength: 0)
-                }
+                LineupPresentationHeading(title: title, symbol: symbol, detail: message)
                 .padding(30)
-                Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                     .padding(.horizontal, 30)
                 if !items.isEmpty {
                     ScrollView {
@@ -260,26 +253,26 @@ private struct TVChoiceSheet: View {
                     }
                     .scrollIndicators(.hidden)
                     .frame(maxHeight: min(CGFloat(items.count) * (Self.rowHeight + 6) + 28, 560))
-                    Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                    Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                         .padding(.horizontal, 30)
                 }
                 TVSelectable(scale: 1.02, fillRadius: 18, action: cancel,
                              requestInitialFocus: firstFocus == nil) {
                     Text(cancelTitle)
                         .font(.inter(24, .bold))
-                        .foregroundStyle(LineupStyle.text)
+                        .foregroundStyle(LineupPresentationStyle.text)
                         .frame(maxWidth: .infinity)
                         .frame(height: Self.rowHeight)
                 }
                 .padding(14)
             }
             .frame(width: 860)
-            .background(LineupPanelStyle.fill, in: shape)
-            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .lineupPresentationSurface(shape)
             .shadow(color: .black.opacity(0.6), radius: 40, y: 20)
             .focusSection()
         }
         .onExitCommand(perform: cancel)
+        .lineupPresentation(tint: tint)
     }
 
     private func row(_ item: TVChoice, focusedFirst: Bool) -> some View {
@@ -298,13 +291,13 @@ private struct TVChoiceSheet: View {
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 9) {
                     (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 24) : Text(item.title))
-                        .font(.inter(24, .semibold))
-                        .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
+                        .font(.inter(24, .bold))
+                        .foregroundStyle(item.isDestructive ? LineupPresentationStyle.destructive : LineupPresentationStyle.text)
                         .lineLimit(2)
                     if item.namesEngine, let version = item.version {
                         Text(version)
                             .font(.inter(16, .medium))
-                            .foregroundStyle(LineupPanelStyle.quiet)
+                            .foregroundStyle(LineupPresentationStyle.secondary)
                             .lineLimit(1)
                             .accessibilityLabel("version \(version)")
                     }
@@ -313,12 +306,12 @@ private struct TVChoiceSheet: View {
                 if item.isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 22, weight: .heavy, design: .rounded))
-                        .foregroundStyle(LineupStyle.highlight)
+                        .foregroundStyle(tint ?? LineupStyle.highlight)
                 }
             }
             .padding(.horizontal, 18)
             .frame(minHeight: Self.rowHeight)
-            .background(item.isSelected ? LineupPanelStyle.well : .clear,
+            .background(item.isSelected ? LineupPresentationStyle.selection(tint ?? LineupStyle.highlight) : LineupPresentationStyle.row,
                         in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .disabled(!item.isEnabled)

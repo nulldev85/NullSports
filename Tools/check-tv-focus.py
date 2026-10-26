@@ -28,6 +28,8 @@ import sys
 TARGET_FILES = [
     "Lineup/Views/ChannelViews.swift",
     "Lineup/Views/MediaViews.swift",
+    "Lineup/Views/SeerrViews.swift",
+    "Lineup/Views/SiloViews.swift",
     "Lineup/Views/TVMediaSummarySheet.swift",
     "Lineup/Views/TVAccentPicker.swift",
     "Lineup/Views/SportsTeamsSettingsView.swift",
@@ -36,6 +38,7 @@ TARGET_FILES = [
     "Lineup/Views/TVSeekRemoteInput.swift",
     "Lineup/Views/StreamingServiceViews.swift",
     "Lineup/Views/LibraryShelfOrderViews.swift",
+    "Lineup/Views/LibraryTrackingSettingsView.swift",
     "Lineup/Views/TVGameStatsPanel.swift",
     "Lineup/Views/TVTeamPage.swift",
     "Lineup/Views/TVSportsExtras.swift",
@@ -46,6 +49,7 @@ TARGET_FILES = [
     "Lineup/Views/RootView.swift",
     "Lineup/Views/SearchViews.swift",
     "Lineup/Design/LineupStyle.swift",
+    "Lineup/Design/LineupPresentationStyle.swift",
     "Lineup/Design/TeamBadge.swift",
     "Lineup/LineupApp.swift",
 ]

@@ -14,7 +14,7 @@ struct TVMediaSummaryPreview: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(text)
                     .font(compact ? .inter(.caption) : .inter(22))
-                    .foregroundStyle(LineupStyle.text.opacity(0.76))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.76))
                     .lineLimit(3, reservesSpace: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 8) {
@@ -26,7 +26,7 @@ struct TVMediaSummaryPreview: View {
             }
             .multilineTextAlignment(.leading)
             .padding(compact ? 12 : 22)
-            .background(LineupPanelStyle.fill.opacity(0.88),
+            .background(LineupPresentationStyle.card.opacity(0.88),
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .accessibilityLabel("Full summary. \(text)")
@@ -70,41 +70,41 @@ struct TVMediaSummarySheet: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(item.name).font(.inter(30, .bold)).lineLimit(2)
                         if !metadata.isEmpty {
-                            Text(metadata).font(.inter(20)).foregroundStyle(LineupPanelStyle.quiet)
+                            Text(metadata).font(.inter(20)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
                         if let genres = item.genres, !genres.isEmpty {
                             Text(genres.joined(separator: " · "))
-                                .font(.inter(19)).foregroundStyle(LineupPanelStyle.quiet)
+                                .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
                     }
                     Spacer(minLength: 0)
                 }
                 .padding(30)
-                Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.horizontal, 30)
+                Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1).padding(.horizontal, 30)
                 TVSummaryText(text: summary)
                     .frame(height: textHeight)
                     .padding(.horizontal, 30).padding(.vertical, 22)
                 LibraryMetadataCredit(item: item).padding(.horizontal, 30).padding(.bottom, 12)
                 if textHeight == 460 {
                     Text("Scroll to read more")
-                        .font(.inter(17)).foregroundStyle(LineupPanelStyle.quiet)
+                        .font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
                         .padding(.horizontal, 30).padding(.bottom, 18)
                 }
-                Rectangle().fill(LineupPanelStyle.divider).frame(height: 1).padding(.horizontal, 30)
+                Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1).padding(.horizontal, 30)
                 TVSelectable(scale: 1.02, fillRadius: 18, action: { dismiss() }, requestInitialFocus: true) {
                     Text("Done").font(.inter(24, .bold))
                         .frame(maxWidth: .infinity).frame(height: 70)
                 }
                 .padding(14)
             }
-            .foregroundStyle(LineupStyle.text)
+            .foregroundStyle(LineupPresentationStyle.text)
             .frame(width: 1100)
-            .background(LineupPanelStyle.fill, in: shape)
-            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .lineupPresentationSurface(shape)
             .shadow(color: .black.opacity(0.6), radius: 40, y: 20)
             .focusSection()
         }
         .onExitCommand { dismiss() }
+        .lineupPresentation()
     }
 }
 
@@ -116,7 +116,7 @@ private struct TVSummaryText: UIViewRepresentable {
         paragraph.lineSpacing = 8
         return NSAttributedString(string: text, attributes: [
             .font: UIFont(name: LineupFonts.face(for: .regular), size: 24) ?? .systemFont(ofSize: 24),
-            .foregroundColor: UIColor(LineupStyle.text).withAlphaComponent(0.86),
+            .foregroundColor: UIColor(LineupPresentationStyle.text).withAlphaComponent(0.86),
             .paragraphStyle: paragraph
         ])
     }

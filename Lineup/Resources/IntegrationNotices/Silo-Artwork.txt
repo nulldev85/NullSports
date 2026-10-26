@@ -1,0 +1,10 @@
+Silo Server integration artwork
+
+The Silo logo belongs to the Silo Server project and is included to identify
+the user's server software. Lineup is an independent client.
+
+Upstream: https://github.com/Silo-Server/silo-server
+Artwork source: web/public/silo-icon-1024.png at revision
+6de6d5e5e285a9b423e95a1122cb39e5bb9ca93b
+Upstream license: GNU Affero General Public License, version 3.
+The license text is included alongside this notice as Silo-AGPL-3.0.txt.

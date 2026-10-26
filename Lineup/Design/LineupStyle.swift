@@ -123,32 +123,56 @@ enum LineupPanelStyle {
     static let headerSize: CGFloat = 15
     static let headerTracking: CGFloat = 0.4
     #endif
+    #if os(iOS)
+    static let fill = LineupPresentationStyle.card
+    static let well = LineupPresentationStyle.row
+    static let divider = LineupPresentationStyle.divider
+    #else
     static let fill = rgb(0x2C2C2E)
     /// Inside a card: a bar's empty track, a pressed row, a chosen one.
     static let well = rgb(0x3A3A3C)
     static let divider = rgb(0x404043)
+    #endif
     /// Headers and body copy. White is kept for the numbers and names a card
     /// is about, so they stand out from the words around them.
+    #if os(iOS)
+    static let caption = LineupPresentationStyle.text
+    static let quiet = LineupPresentationStyle.secondary
+    #else
     static let caption = rgb(0xCCCCCC)
     static let quiet = rgb(0x9E9EA5)
+    #endif
     static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: radius, style: .continuous) }
 
     // Settings and the lists under it, as the reference app draws its own:
     // a dark grey ground with its rows a step lighter, hairlines between
     // them, and values in a quiet grey.
+    #if os(iOS)
+    static let listGround = LineupPresentationStyle.ground
+    static let listCard = LineupPresentationStyle.card
+    static let listSeparator = LineupPresentationStyle.divider
+    #else
     static let listGround = rgb(0x1C1C1E)
     static let listCard = rgb(0x2C2C2E)
     static let listSeparator = rgb(0x404043)
+    #endif
+    #if os(iOS)
+    static let listValue = LineupPresentationStyle.secondary
+    static let listChevron = Color.white.opacity(0.32)
+    static let listLogoTile = LineupPresentationStyle.row
+    #else
     static let listValue = rgb(0x9E9EA5)
     static let listChevron = rgb(0x656569)
     /// Under a server's own mark, as an app icon's dark ground.
     static let listLogoTile = rgb(0x1F1F1F)
+    #endif
 }
 
 /// A symbol on a small square of colour, the way Settings draws its rows --
 /// and, so the app reads as one, every panel's header too. Each symbol
 /// keeps one colour wherever it appears.
 struct LineupIconTile: View {
+    @Environment(\.lineupIsPresentation) private var presentation
     let symbol: String
     var size: CGFloat = 30
     var tint: Color? = nil
@@ -157,9 +181,10 @@ struct LineupIconTile: View {
         let style = Self.style(for: symbol)
         Image(systemName: style.symbol)
             .font(.system(size: size * 0.5, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
+            .foregroundStyle(presentation ? (tint ?? style.color).opacity(0.88) : Color.white)
             .frame(width: size, height: size)
-            .background(tint ?? style.color, in: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous))
+            .background(presentation ? (tint ?? style.color).opacity(0.15) : (tint ?? style.color),
+                        in: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous))
             .accessibilityHidden(true)
     }
 
@@ -424,25 +449,33 @@ extension LineupPanelHeader where Accessory == EmptyView {
 }
 
 enum LineupStyle {
-    /// One palette for the phone and the television, so the two apps are
-    /// the same colours: the same ground, panels and greys, the viewer's
-    /// accent for what is chosen and live, the same colour for each league.
+    /// Shared semantic colors. iOS pages use the current presentation tones;
+    /// television retains its approved surfaces and both retain custom accents.
     private static var palette: LineupPalette { .phone }
     /// The theme's text tint. Named for Velvet's lilac, which is no longer the
     /// only thing it can be.
-    static var lightPurple: Color { palette.accent }
+    static var lightPurple: Color { text }
     /// The frame on a selected Live card: the one place a theme is allowed its
     /// brightest edge.
     static var liveSelectionBorder: Color {
         return LineupAccent.current.color
     }
+    #if os(iOS)
+    static var background: Color { LineupPresentationStyle.ground }
+    static var surface: Color { LineupPresentationStyle.card }
+    static var raised: Color { LineupPresentationStyle.row }
+    static var sidebarRow: Color { LineupPresentationStyle.card }
+    static var selected: Color { LineupPresentationStyle.row }
+    static var focused: Color { LineupPresentationStyle.row }
+    #else
     static var background: Color { palette.background }
     static var surface: Color { palette.surface }
     static var raised: Color { palette.raised }
     static var sidebarRow: Color { palette.sidebar }
     static var selected: Color { palette.selected }
     static var focused: Color { palette.focused }
-    static var liveSurface: Color { palette.selected }
+    #endif
+    static var liveSurface: Color { selected }
     /// The accent the viewer chose, on the phone and the television alike.
     static var highlight: Color {
         return LineupAccent.current.color
@@ -455,14 +488,18 @@ enum LineupStyle {
         return LineupAccent.current.onAccent
     }
     static var liveBorder: Color { highlight.opacity(0.72) }
+    #if os(iOS)
+    static var line: Color { LineupPresentationStyle.border }
+    static var text: Color { LineupPresentationStyle.text }
+    static var secondary: Color { LineupPresentationStyle.secondary }
+    #else
     static var line: Color { palette.line }
     static var text: Color { palette.accent }
-    static var secondary: Color {
-        return lightPurple.opacity(0.66)
-    }
+    static var secondary: Color { lightPurple.opacity(0.66) }
+    #endif
     /// Playback chrome stays legible against video.
-    static var mediaText: Color { text }
-    static var mediaSecondary: Color { secondary }
+    static var mediaText: Color { .white }
+    static var mediaSecondary: Color { Color.white.opacity(0.66) }
     static var mediaAccent: Color { text }
     static var field: Color { lightPurple }
     /// An error is red whatever the accent.
@@ -674,6 +711,7 @@ struct LineupButtonStyle: ButtonStyle {
     // sits on, its words in white -- red for one that takes something away --
     // and its icon on a tile in the accent.
     private struct PurpleButtonLabel: View {
+        @Environment(\.lineupPresentationTint) private var presentationTint
         @Environment(\.isFocused) private var focused
         @Environment(\.isEnabled) private var enabled
         let configuration: ButtonStyle.Configuration
@@ -686,7 +724,7 @@ struct LineupButtonStyle: ButtonStyle {
                 .foregroundStyle(configuration.role == .destructive ? LineupIconTile.red : LineupStyle.text)
                 .padding(.horizontal, 20).padding(.vertical, 12)
                 .frame(minHeight: Self.height)
-                .background(LineupPanelStyle.well, in: shape)
+                .background(presentationTint?.opacity(0.15) ?? LineupPanelStyle.well, in: shape)
                 .lineupFocusLayer(focused, in: shape)
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
                 .animation(.easeOut(duration: 0.16), value: focused)
@@ -704,6 +742,7 @@ struct LineupButtonStyle: ButtonStyle {
 /// A Label's icon on a tile in the accent, beside its words: how a control
 /// with an icon reads anywhere in the app.
 struct LineupTileLabelStyle: LabelStyle {
+    @Environment(\.lineupPresentationTint) private var presentationTint
     #if os(tvOS)
     var tile: CGFloat = 34
     #else
@@ -716,7 +755,7 @@ struct LineupTileLabelStyle: LabelStyle {
                 .font(.system(size: tile * 0.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
                 .frame(width: tile, height: tile)
-                .background(LineupStyle.highlight,
+                .background(presentationTint ?? LineupStyle.highlight,
                             in: RoundedRectangle(cornerRadius: tile * 0.26, style: .continuous))
             configuration.title
         }
@@ -813,8 +852,8 @@ extension View {
         _ shape: S, clear: Bool = false, fallback: F,
         border: Color = .white.opacity(0.12)
     ) -> some View {
-        self.background(LineupPanelStyle.fill.opacity(clear ? 0.86 : 0.97), in: shape)
-            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        self.background(LineupPresentationStyle.card.opacity(clear ? 0.92 : 0.98), in: shape)
+            .overlay(shape.strokeBorder(LineupPresentationStyle.border, lineWidth: 1))
     }
 
     // The floating-control default: dark scrim and hairline below iOS 26.
@@ -852,6 +891,7 @@ extension View {
 /// of games divided by hairlines, a row of posters that scrolls beneath the
 /// card's edges -- take the card's full width instead.
 struct LineupPanel<Content: View, Accessory: View>: View {
+    @Environment(\.lineupIsPresentation) private var presentation
     let title: String
     var systemImage: String?
     var padded = true
@@ -870,7 +910,7 @@ struct LineupPanel<Content: View, Accessory: View>: View {
                 .padding(.top, padded ? 16 : 0).padding(.bottom, padded ? 18 : 4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+        .background(presentation ? LineupPresentationStyle.card : LineupPanelStyle.fill, in: LineupPanelStyle.shape)
         .clipShape(LineupPanelStyle.shape)
     }
 }
@@ -990,9 +1030,9 @@ extension View {
         _ shape: S, clear: Bool = false, fallback: F,
         border: Color = .white.opacity(0.12), prominent: Bool = false
     ) -> some View {
-        self.background(prominent ? LineupPanelStyle.well : LineupPanelStyle.fill.opacity(clear ? 0.86 : 0.97),
+        self.background(prominent ? LineupPresentationStyle.row : LineupPresentationStyle.card.opacity(clear ? 0.92 : 0.98),
                         in: shape)
-            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .overlay(shape.strokeBorder(LineupPresentationStyle.border, lineWidth: 1))
     }
 
     func lineupLiquidGlass<S: InsettableShape>(_ shape: S, clear: Bool = false) -> some View {
@@ -1078,9 +1118,7 @@ extension View {
 extension View {
     @ViewBuilder
     func nullGlass(clear: Bool = false, cornerRadius: CGFloat = 18) -> some View {
-        self
-            .background(LineupStyle.surface.opacity(clear ? 0.72 : 0.94), in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
+        modifier(LineupScopedSurface(clear: clear, cornerRadius: cornerRadius))
     }
 
     func focusLift(_ focused: Bool, scale: CGFloat = LineupStyle.cardLift) -> some View {

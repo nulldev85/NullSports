@@ -9,6 +9,8 @@ struct MobileMenuItem: Identifiable {
     /// as a channel category or a season, where a tile on every row would
     /// say nothing.
     var symbol: String?
+    /// Original-color integration artwork, fitted to the same icon slot.
+    var imageName: String?
     var isSelected = false
     var isEnabled = true
     var isDestructive = false
@@ -17,14 +19,18 @@ struct MobileMenuItem: Identifiable {
     /// Opens in the same panel, in place of the list it is in, with the way
     /// back in its header.
     var children: [MobileMenuSection]?
+    /// Optional secondary choices, using the same hold sheet as channel rows.
+    var holdItems: [MobileMenuItem] = []
+    var badge: String? = nil
     var action: () -> Void = {}
 
-    init(_ title: String, symbol: String? = nil, id: String? = nil,
+    init(_ title: String, symbol: String? = nil, imageName: String? = nil, id: String? = nil,
          isSelected: Bool = false, isEnabled: Bool = true, isDestructive: Bool = false, namesEngine: Bool = false,
          children: [MobileMenuSection]? = nil, action: @escaping () -> Void = {}) {
         self.id = id ?? title
         self.title = title
         self.symbol = symbol
+        self.imageName = imageName
         self.isSelected = isSelected
         self.isEnabled = isEnabled
         self.isDestructive = isDestructive
@@ -90,20 +96,20 @@ struct MobileDropdownPanel: View {
             header
                 .padding(.horizontal, LineupPanelStyle.inset)
                 .frame(height: Self.headerHeight - 1)
-            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+            Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                 .padding(.horizontal, LineupPanelStyle.inset)
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(Array(list.enumerated()), id: \.element.id) { index, section in
                         if index > 0 {
-                            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                            Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                                 .padding(.horizontal, 12).padding(.vertical, 4)
                         }
                         VStack(alignment: .leading, spacing: 0) {
                             if let title = section.title {
                                 Text(title)
                                     .font(.inter(12, .semibold))
-                                    .foregroundStyle(LineupPanelStyle.quiet)
+                                    .foregroundStyle(LineupPresentationStyle.secondary)
                                     .padding(.horizontal, 10)
                                     .padding(.top, 2)
                                     .padding(.bottom, 4)
@@ -125,11 +131,8 @@ struct MobileDropdownPanel: View {
             .scrollIndicators(.hidden)
             .frame(height: min(content, max(Self.rowHeight * 2, maxHeight - Self.headerHeight)))
         }
-        .background(LineupPanelStyle.fill, in: shape)
-        // It floats over panels of its own colour, so it takes a hairline of
-        // light round its edge and a deep shadow under it.
-        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .clipShape(shape)
+        .lineupPresentationSurface(shape)
+        .lineupPresentation()
         .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
         .onAppear {
             withAnimation(reduceMotion ? .easeOut(duration: 0.15)
@@ -149,14 +152,14 @@ struct MobileDropdownPanel: View {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 14, weight: .heavy, design: .rounded))
                         .foregroundStyle(LineupStyle.highlight)
-                    LineupPanelHeader(opened.title, systemImage: opened.symbol)
+                    LineupPresentationHeading(title: opened.title, symbol: opened.symbol ?? symbol, compact: true)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back to \(title)")
         } else {
-            LineupPanelHeader(title, systemImage: symbol)
+            LineupPresentationHeading(title: title, symbol: symbol, compact: true)
         }
     }
 
@@ -175,43 +178,69 @@ struct MobileDropdownPanel: View {
 /// One row of a dropdown or a choice sheet: its tile, its name, the accent's
 /// tick on the panel's grey well when it is the one chosen.
 struct MobileMenuRow: View {
+    @Environment(\.lineupPresentationTint) private var presentationTint
     let item: MobileMenuItem
     let select: () -> Void
 
     var body: some View {
-        Button(action: select) {
-            HStack(spacing: 12) {
-                if let symbol = item.symbol {
-                    LineupIconTile(symbol: symbol, size: 28)
-                }
-                (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 16) : Text(item.title))
-                    .font(.inter(16, .semibold))
-                    .foregroundStyle(item.isDestructive ? LineupIconTile.red : LineupStyle.text)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .minimumScaleFactor(0.85)
-                Spacer(minLength: 8)
-                if item.isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .heavy, design: .rounded))
-                        .foregroundStyle(LineupStyle.highlight)
-                }
-                if item.children != nil {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(LineupPanelStyle.quiet)
-                }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .frame(minHeight: MobileDropdownPanel.rowHeight)
-            .background(item.isSelected ? LineupPanelStyle.well : .clear,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .contentShape(Rectangle())
-            .opacity(item.isEnabled ? 1 : 0.4)
+        control
+            .disabled(!item.isEnabled)
+            .accessibilityAddTraits(item.isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    @ViewBuilder private var control: some View {
+        if item.holdItems.isEmpty {
+            Button(action: select) { label }
+                .buttonStyle(MobileDropdownRowStyle())
+        } else {
+            label
+                .lineupHoldMenu(item.title, symbol: item.symbol ?? "square.stack", press: .well,
+                                items: { item.holdItems }, action: select)
+                .accessibilityHint("Touch and hold for category options")
         }
-        .buttonStyle(MobileDropdownRowStyle())
-        .disabled(!item.isEnabled)
-        .accessibilityAddTraits(item.isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var label: some View {
+        HStack(spacing: 12) {
+            if let imageName = item.imageName {
+                Image(imageName).renderingMode(.original).resizable().scaledToFit()
+                    .frame(width: 28, height: 28).accessibilityHidden(true)
+            } else if let symbol = item.symbol {
+                LineupIconTile(symbol: symbol, size: 28)
+            }
+            (item.namesEngine ? PlaybackEngineMark.text(item.title, pointSize: 16) : Text(item.title))
+                .font(.inter(16, .bold))
+                .foregroundStyle(item.isDestructive ? LineupPresentationStyle.destructive : LineupPresentationStyle.text)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .minimumScaleFactor(0.85)
+            Spacer(minLength: 8)
+            if let badge = item.badge {
+                Text(badge)
+                    .font(.inter(11, .semibold))
+                    .foregroundStyle(presentationTint ?? LineupStyle.highlight)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(LineupPresentationStyle.row, in: Capsule())
+            }
+            if item.isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundStyle(presentationTint ?? LineupStyle.highlight)
+            }
+            if item.children != nil {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(LineupPresentationStyle.secondary)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .frame(minHeight: MobileDropdownPanel.rowHeight)
+        .background(item.isSelected ? LineupPresentationStyle.selection(presentationTint ?? LineupStyle.highlight)
+                    : LineupPresentationStyle.row,
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2))
+        .contentShape(Rectangle())
+        .opacity(item.isEnabled ? 1 : 0.4)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -272,9 +301,9 @@ struct MobileDropdownButton: View {
         Button(action: action) {
             Image(systemName: "ellipsis")
                 .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundStyle(LineupStyle.text)
+                .foregroundStyle(LineupPresentationStyle.text)
                 .frame(width: 36, height: 36)
-                .background(isOpen ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Circle())
+                .background(isOpen ? LineupPresentationStyle.row : LineupPresentationStyle.card, in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -287,7 +316,7 @@ struct MobileDropdownButton: View {
 private struct MobileDropdownRowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? LineupPanelStyle.well.opacity(0.8) : .clear,
+            .background(configuration.isPressed ? LineupPresentationStyle.row.opacity(0.8) : .clear,
                         in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)
@@ -301,10 +330,11 @@ extension View {
     /// what it means, a row a choice, and Cancel on its own beneath.
     func lineupChoices(_ title: String, symbol: String, isPresented: Binding<Bool>,
                        message: String? = nil, cancelTitle: String = "Cancel",
+                       tint: Color? = nil,
                        items: @escaping () -> [MobileMenuItem],
                        onCancel: @escaping () -> Void = {}) -> some View {
         modifier(MobileChoiceSheet(isPresented: isPresented, title: title, symbol: symbol,
-                                   message: message, cancelTitle: cancelTitle,
+                                   message: message, cancelTitle: cancelTitle, tint: tint,
                                    items: items, onCancel: onCancel))
     }
 }
@@ -315,6 +345,7 @@ private struct MobileChoiceSheet: ViewModifier {
     let symbol: String
     let message: String?
     let cancelTitle: String
+    let tint: Color?
     let items: () -> [MobileMenuItem]
     let onCancel: () -> Void
 
@@ -325,7 +356,7 @@ private struct MobileChoiceSheet: ViewModifier {
         content.overlay {
             ZStack(alignment: .bottom) {
                 if isPresented {
-                    Color.black.opacity(0.5)
+                    Color.black.opacity(0.62)
                         .ignoresSafeArea()
                         .contentShape(Rectangle())
                         .onTapGesture { cancel() }
@@ -352,25 +383,10 @@ private struct MobileChoiceSheet: ViewModifier {
         let list = items()
         return VStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 12) {
-                    LineupIconTile(symbol: symbol, size: 30)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
-                            .font(.inter(17, .bold))
-                            .foregroundStyle(LineupStyle.text)
-                        if let message {
-                            Text(message)
-                                .font(.inter(14))
-                                .foregroundStyle(LineupPanelStyle.quiet)
-                        }
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 5)
-                    Spacer(minLength: 0)
-                }
+                LineupPresentationHeading(title: title, symbol: symbol, detail: message)
                 .padding(LineupPanelStyle.inset)
                 if !list.isEmpty {
-                    Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+                    Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                         .padding(.horizontal, LineupPanelStyle.inset)
                     // Measure the rows at their actual width so wrapped text
                     // gets its room without stretching a short menu to 380pt.
@@ -391,21 +407,19 @@ private struct MobileChoiceSheet: ViewModifier {
                     .onPreferenceChange(MobileChoiceRowsHeight.self) { rowsHeight = $0 }
                 }
             }
-            .background(LineupPanelStyle.fill, in: shape)
-            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-            .clipShape(shape)
+            .lineupPresentationSurface(shape)
             Button { cancel() } label: {
                 Text(cancelTitle)
                     .font(.inter(17, .bold))
-                    .foregroundStyle(LineupStyle.text)
+                    .foregroundStyle(LineupPresentationStyle.text)
                     .frame(maxWidth: .infinity, minHeight: 54)
-                    .background(LineupPanelStyle.fill, in: shape)
-                    .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+                    .lineupPresentationSurface(shape)
                     .contentShape(shape)
             }
             .buttonStyle(MobileDropdownRowStyle())
         }
         .fixedSize(horizontal: false, vertical: true)
+        .lineupPresentation(tint: tint)
         .shadow(color: .black.opacity(0.6), radius: 30, y: 16)
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { cancel() }
@@ -444,14 +458,15 @@ final class MobileHoldMenu: ObservableObject {
         let title: String
         let symbol: String
         let message: String?
+        var tint: Color? = nil
         var items: [MobileMenuItem]
     }
 
     @Published var request: Request?
 
-    func present(_ title: String, symbol: String, message: String?, items: [MobileMenuItem]) {
+    func present(_ title: String, symbol: String, message: String?, tint: Color? = nil, items: [MobileMenuItem]) {
         guard !items.isEmpty else { return }
-        request = Request(title: title, symbol: symbol, message: message, items: items)
+        request = Request(title: title, symbol: symbol, message: message, tint: tint, items: items)
     }
 
     /// An asynchronous capability lookup belongs to the menu that opened it.
@@ -495,12 +510,13 @@ extension View {
     /// of `items`, in place of the system's context menu, which draws in
     /// its own glass and type.
     func lineupHoldMenu(_ title: String, symbol: String, message: String? = nil,
+                        tint: Color? = nil,
                         press: MobileHoldPress = .scale,
                         items: @escaping () -> [MobileMenuItem],
                         onPresent: ((MobileHoldMenu) -> Void)? = nil,
                         action: @escaping () -> Void) -> some View {
         modifier(MobileHoldButton(title: title, symbol: symbol, message: message,
-                                  press: press, items: items, onPresent: onPresent, action: action))
+                                  tint: tint, press: press, items: items, onPresent: onPresent, action: action))
     }
 }
 
@@ -513,7 +529,7 @@ private struct MobileHoldMenuHost: ViewModifier {
             .lineupChoices(menu.request?.title ?? "", symbol: menu.request?.symbol ?? "ellipsis",
                            isPresented: Binding(get: { menu.request != nil },
                                                 set: { if !$0 { menu.request = nil } }),
-                           message: menu.request?.message) {
+                           message: menu.request?.message, tint: menu.request?.tint) {
                 menu.request?.items ?? []
             }
     }
@@ -526,6 +542,7 @@ private struct MobileHoldButton: ViewModifier {
     let title: String
     let symbol: String
     let message: String?
+    let tint: Color?
     let press: MobileHoldPress
     let items: () -> [MobileMenuItem]
     let onPresent: ((MobileHoldMenu) -> Void)?
@@ -537,7 +554,7 @@ private struct MobileHoldButton: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contentShape(Rectangle())
-            .background(press == .well && pressing ? LineupPanelStyle.well : Color.clear)
+            .background(press == .well && pressing ? LineupPresentationStyle.row : Color.clear)
             .scaleEffect(press == .scale && pressing ? 0.97 : 1)
             .opacity(press == .dim && pressing ? 0.6 : 1)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: pressing)
@@ -553,7 +570,7 @@ private struct MobileHoldButton: ViewModifier {
         let list = items()
         guard !list.isEmpty, let menu else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        menu.present(title, symbol: symbol, message: message, items: list)
+        menu.present(title, symbol: symbol, message: message, tint: tint, items: list)
         onPresent?(menu)
     }
 }

@@ -95,7 +95,7 @@ struct LiveView: View {
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
             .background(LiveCanvas())
-            .fullScreenCover(item: $fullScreen) { item in
+            .lineupFullScreenCover(item: $fullScreen) { item in
                 PlayerView(
                     urls: library.playbackURLs(for: item.stream),
                     title: item.stream.name,
@@ -111,20 +111,20 @@ struct LiveView: View {
                     continuing: item.preview
                 )
             }
-            .fullScreenCover(item: $eventChannelsGame, onDismiss: applyPickedChannel) { game in
+            .lineupFullScreenCover(item: $eventChannelsGame, onDismiss: applyPickedChannel) { game in
                 TVEventChannelsScreen(game: game, playingID: previewGameID == game.id ? previewStream?.id : nil) { stream in
                     pickedChannel = TVPickedChannel(game: game, stream: stream, startsMultiview: false)
                     eventChannelsGame = nil
                 }
             }
-            .fullScreenCover(item: $teamPage) { TVTeamPage(target: $0) }
-            .fullScreenCover(item: $catchUpStream) { stream in
+            .lineupFullScreenCover(item: $teamPage) { TVTeamPage(target: $0) }
+            .lineupFullScreenCover(item: $catchUpStream) { stream in
                 TVCatchUpScreen(stream: stream) { programme in
                     catchUpStream = nil
                     watchRecording(of: stream, programme: programme)
                 }
             }
-            .fullScreenCover(isPresented: $showingReplays) {
+            .lineupFullScreenCover(isPresented: $showingReplays) {
                 TVGameReplaysScreen { recording in
                     showingReplays = false
                     watchRecording(of: recording.stream, programme: recording.program, recordingOnly: true)
@@ -141,7 +141,7 @@ struct LiveView: View {
                        isPresented: presenting($catchUpMissing),
                        message: "None of the channels Lineup found for this game keeps a recording with your provider. TV Guide's Catch Up lists every channel that does.",
                        cancelTitle: "OK") { [] }
-            .fullScreenCover(item: $manualChannelGame, onDismiss: applyPickedChannel) { game in
+            .lineupFullScreenCover(item: $manualChannelGame, onDismiss: applyPickedChannel) { game in
                 ManualGameChannelPicker(game: game) { stream in
                     pickedChannel = TVPickedChannel(game: game, stream: stream,
                                                     startsMultiview: manualSelectionStartsMultiview)
@@ -171,7 +171,7 @@ struct LiveView: View {
             .tvChoices("Channels are still syncing", symbol: "arrow.clockwise", isPresented: $showsChannelSyncMessage,
                        message: "Please wait for channel syncing to finish, then select the game again.",
                        cancelTitle: "OK") { [] }
-            .fullScreenCover(item: $multiviewSession) { session in
+            .lineupFullScreenCover(item: $multiviewSession) { session in
                 MultiviewView(
                     primary: session.primary,
                     secondary: session.secondary,
@@ -522,19 +522,19 @@ private struct ManualGameChannelPicker: View {
         .padding(.horizontal, 80)
         .padding(.top, 56)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
     }
 
     private var header: some View {
         HStack(alignment: .center, spacing: 28) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("CHOOSE A CHANNEL")
-                    .font(.inter(16, .heavy)).tracking(0.6).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(16, .heavy)).tracking(0.6).foregroundStyle(LineupPresentationStyle.secondary)
                 Text("\(game.awayTeam) vs. \(game.homeTeam)")
-                    .font(.inter(40, .semibold)).foregroundStyle(LineupStyle.text)
+                    .font(.inter(40, .semibold)).foregroundStyle(LineupPresentationStyle.text)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 Text(game.broadcast.isEmpty ? "No network listed" : "Listed on \(game.broadcast)")
-                    .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(20)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             Spacer(minLength: 24)
             TextField("Search channels", text: $query)
@@ -582,22 +582,22 @@ private struct ManualGameChannelPicker: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
                 Text(title.uppercased())
-                    .font(.inter(16, .heavy)).tracking(0.6).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(16, .heavy)).tracking(0.6).foregroundStyle(LineupPresentationStyle.secondary)
                     .lineLimit(1)
                 Spacer(minLength: 16)
                 Text(streams.count == 1 ? "1 channel" : "\(streams.count.formatted()) channels")
-                    .font(.inter(16)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(16)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .padding(.horizontal, 14)
             if streams.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: searching ? "magnifyingglass" : "tv")
-                        .font(.system(size: 44, design: .rounded)).foregroundStyle(LineupStyle.secondary)
+                        .font(.system(size: 44, design: .rounded)).foregroundStyle(LineupPresentationStyle.secondary)
                     Text(searching ? "Nothing matched \u{201C}\(query)\u{201D}" : "No channels here")
-                        .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
+                        .font(.inter(26, .semibold)).foregroundStyle(LineupPresentationStyle.text)
                     Text(searching ? "Try another name, or browse a category on the left."
                                    : "Choose another category on the left.")
-                        .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(20)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -628,26 +628,26 @@ private struct ManualGameChannelPicker: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
                     Text(stream.name)
-                        .font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text).lineLimit(1)
+                        .font(.inter(24, .semibold)).foregroundStyle(LineupPresentationStyle.text).lineLimit(1)
                     Text(now?.title ?? "No guide information")
-                        .font(.inter(19)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                        .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 16)
                 if let note {
                     Text(note.uppercased())
-                        .font(.inter(14, .bold)).tracking(1).foregroundStyle(LineupStyle.text)
+                        .font(.inter(14, .bold)).tracking(1).foregroundStyle(LineupPresentationStyle.text)
                         .lineLimit(1).fixedSize()
                         .padding(.horizontal, 12).frame(height: 28)
-                        .background(LineupStyle.raised, in: Capsule())
+                        .background(LineupPresentationStyle.row, in: Capsule())
                 }
                 if library.isFavorite(stream) {
                     Image(systemName: "star.fill")
-                        .font(.system(size: 18, design: .rounded)).foregroundStyle(LineupStyle.secondary)
+                        .font(.system(size: 18, design: .rounded)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
             }
             .padding(.horizontal, 20)
             .frame(height: 88)
-            .background(LineupStyle.surface, in: shape)
+            .background(LineupPresentationStyle.card, in: shape)
         }
         .accessibilityLabel("Watch \(game.awayTeam) versus \(game.homeTeam) on \(stream.name)")
     }
@@ -747,7 +747,7 @@ private struct TVCatchUpScreen: View {
         .padding(.horizontal, 90)
         .padding(.top, 70)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .task {
             do {
                 programmes = try await library.catchUpProgrammes(for: stream)
@@ -766,12 +766,12 @@ private struct TVCatchUpScreen: View {
             VStack(spacing: 14) {
                 Image(systemName: failed ? "wifi.exclamationmark" : "clock.arrow.circlepath")
                     .font(.system(size: 44, weight: .regular, design: .rounded))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
                 Text(failed ? "The provider didn't answer" : "Nothing kept yet")
-                    .font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
+                    .font(.inter(26, .semibold)).foregroundStyle(LineupPresentationStyle.text)
                 Text(failed ? "Try again in a moment."
                             : "Programs from this channel will show here once the provider has kept them.")
-                    .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 520)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -816,14 +816,14 @@ private struct TVCatchUpDetail: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
                     Text("CATCH UP").font(.inter(13, .heavy)).tracking(0.6)
-                        .foregroundStyle(LineupStyle.secondary)
-                    Text(stream.name).font(.inter(30, .bold)).foregroundStyle(LineupStyle.text)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
+                    Text(stream.name).font(.inter(30, .bold)).foregroundStyle(LineupPresentationStyle.text)
                         .lineLimit(2).minimumScaleFactor(0.8)
                 }
             }
             if programmeCount > 0 {
                 Text("\(programmeCount) programs over \(dayCount == 1 ? "1 day" : "\(dayCount) days")")
-                    .font(.inter(16, .medium)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(16, .medium)).foregroundStyle(LineupPresentationStyle.secondary)
                     .padding(.top, 14)
             }
 
@@ -833,9 +833,9 @@ private struct TVCatchUpDetail: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(TVCatchUpFormat.when(programme))
                         .font(.inter(15, .heavy)).tracking(0.6)
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                     Text(programme.title)
-                        .font(.inter(40, .bold)).foregroundStyle(LineupStyle.text)
+                        .font(.inter(40, .bold)).foregroundStyle(LineupPresentationStyle.text)
                         .lineLimit(3).minimumScaleFactor(0.75)
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 12) {
@@ -848,7 +848,7 @@ private struct TVCatchUpDetail: View {
                     }
                     if !programme.detail.isEmpty {
                         Text(programme.detail)
-                            .font(.inter(20)).foregroundStyle(LineupStyle.secondary)
+                            .font(.inter(20)).foregroundStyle(LineupPresentationStyle.secondary)
                             .lineSpacing(4)
                             .lineLimit(8)
                             .fixedSize(horizontal: false, vertical: true)
@@ -867,7 +867,7 @@ private struct TVCatchUpDetail: View {
                                                 : "Select to watch from the start")
             }
             .font(.inter(17, .medium))
-            .foregroundStyle(LineupStyle.secondary)
+            .foregroundStyle(LineupPresentationStyle.secondary)
             .padding(.bottom, 60)
         }
     }
@@ -882,20 +882,20 @@ private struct TVCatchUpDayHeader: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(TVCatchUpFormat.dayTitle(day))
                 .font(.inter(16, .heavy)).tracking(0.6)
-                .foregroundStyle(LineupStyle.text)
+                .foregroundStyle(LineupPresentationStyle.text)
             Text(day.formatted(.dateTime.month(.abbreviated).day()).uppercased())
                 .font(.inter(14, .heavy)).tracking(0.6)
-                .foregroundStyle(LineupStyle.secondary)
+                .foregroundStyle(LineupPresentationStyle.secondary)
             Spacer(minLength: 0)
             Text(count == 1 ? "1 program" : "\(count) programs")
                 .font(.inter(14, .medium))
-                .foregroundStyle(LineupStyle.secondary)
+                .foregroundStyle(LineupPresentationStyle.secondary)
         }
         .padding(.horizontal, 24)
         .padding(.top, 22).padding(.bottom, 12)
         // Opaque, so rows scrolling up under a pinned heading do not show
         // through it.
-        .background(LineupStyle.background)
+        .background(LineupPresentationStyle.ground)
     }
 }
 
@@ -908,10 +908,10 @@ private struct TVCatchUpRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(programme.start.formatted(date: .omitted, time: .shortened))
                     .font(.interDigits(22, .semibold))
-                    .foregroundStyle(LineupStyle.text)
+                    .foregroundStyle(LineupPresentationStyle.text)
                 Text(TVCatchUpFormat.length(programme.duration))
                     .font(.inter(15, .medium))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
             }
             .frame(width: 128, alignment: .leading)
 
@@ -922,13 +922,13 @@ private struct TVCatchUpRow: View {
                     if programme.isOnNow { TVCatchUpOnNow() }
                     Text(programme.title)
                         .font(.inter(23, .semibold))
-                        .foregroundStyle(LineupStyle.text)
+                        .foregroundStyle(LineupPresentationStyle.text)
                         .lineLimit(1)
                 }
                 if !programme.detail.isEmpty {
                     Text(programme.detail)
                         .font(.inter(16))
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                         .lineLimit(1)
                 }
                 if programme.isOnNow {
@@ -940,7 +940,7 @@ private struct TVCatchUpRow: View {
         }
         .padding(.horizontal, 24).padding(.vertical, 18)
         .frame(minHeight: 96)
-        .background(programme.isOnNow ? LineupStyle.focused : LineupStyle.raised,
+        .background(programme.isOnNow ? LineupStyle.focused : LineupPresentationStyle.row,
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
     }
@@ -963,9 +963,9 @@ private struct TVCatchUpChip: View {
     var body: some View {
         Text(text)
             .font(.inter(15, .semibold))
-            .foregroundStyle(LineupStyle.text)
+            .foregroundStyle(LineupPresentationStyle.text)
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(LineupStyle.raised, in: Capsule())
+            .background(LineupPresentationStyle.row, in: Capsule())
     }
 }
 
@@ -1013,8 +1013,8 @@ private enum TVCatchUpFormat {
 private enum LiveBoardStyle {
     static var accent: Color { LineupStyle.lightPurple }
     static var leagueFocus: Color { LineupStyle.focused }
-    static var canvas: Color { LineupStyle.background }
-    static var panel: Color { LineupStyle.surface }
+    static var canvas: Color { LineupPresentationStyle.ground }
+    static var panel: Color { LineupPresentationStyle.card }
     static var muted: Color { LineupStyle.lightPurple }
 }
 
@@ -2135,7 +2135,7 @@ private struct LiveGameMenu: ViewModifier {
     let onStartMultiview: () -> Void
 
     func body(content: Content) -> some View {
-        content.tvHoldMenu(game.matchupLine, symbol: "sportscourt") {
+        content.tvHoldMenu(game.matchupLine, symbol: "sportscourt", tint: LineupStyle.leagueColor(game.league)) {
             var items: [TVChoice] = []
             if game.league.isRacing {
                 items.append(TVChoice("Race Details", symbol: "flag.checkered") { showingRaceDetails = true })
@@ -2166,7 +2166,7 @@ private struct LiveGameMenu: ViewModifier {
             }
             return items
         }
-        .fullScreenCover(isPresented: $showingRaceDetails) { RacingSessionDetails(game: game) }
+        .lineupFullScreenCover(isPresented: $showingRaceDetails) { RacingSessionDetails(game: game) }
     }
 }
 
@@ -2905,7 +2905,7 @@ private struct LiveSelectedPreview: View {
             controller.start(urls: urls, muted: false, channelID: stream.id)
             TVPreviewHandoff.previewing(stream.id, in: controller)
         }
-        .fullScreenCover(item: $choosingGame, onDismiss: {
+        .lineupFullScreenCover(item: $choosingGame, onDismiss: {
             scopingChannel = library.asksScope(for: pickedChannel)
             pickedChannel = nil
         }) { game in
@@ -3722,7 +3722,7 @@ struct GuideView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .background(GuidePalette.background.ignoresSafeArea())
-                .fullScreenCover(item: $fullScreen, onDismiss: resumePreview) { item in
+                .lineupFullScreenCover(item: $fullScreen, onDismiss: resumePreview) { item in
                     PlayerView(
                         urls: library.playbackURLs(for: item.stream),
                         title: item.stream.name,
@@ -3738,13 +3738,13 @@ struct GuideView: View {
                         continuing: item.preview
                     )
                 }
-                .fullScreenCover(item: $catchUpChannel) { stream in
+                .lineupFullScreenCover(item: $catchUpChannel) { stream in
                     TVCatchUpScreen(stream: stream) { programme in
                         catchUpChannel = nil
                         watchRecording(of: stream, programme: programme)
                     }
                 }
-                .fullScreenCover(item: $multiviewSession) { session in
+                .lineupFullScreenCover(item: $multiviewSession) { session in
                     MultiviewView(
                         primary: session.primary,
                         secondary: session.secondary,
@@ -3754,7 +3754,7 @@ struct GuideView: View {
                         secondaryGame: session.secondaryGame
                     )
                 }
-                .fullScreenCover(isPresented: $reorderingFavorites) {
+                .lineupFullScreenCover(isPresented: $reorderingFavorites) {
                     TVFavoritesOrderView()
                 }
                 .task(id: isActive) {
@@ -5052,19 +5052,19 @@ private struct TVFavoritesOrderView: View {
 
     var body: some View {
         ZStack {
-            LineupStyle.background.ignoresSafeArea()
+            LineupPresentationStyle.ground.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 28) {
                 HStack(alignment: .center, spacing: 32) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("YOUR CHANNELS")
                             .font(.inter(13, .heavy)).tracking(0.6)
-                            .foregroundStyle(LineupStyle.secondary)
+                            .foregroundStyle(LineupPresentationStyle.secondary)
                         Text("Arrange Favorites")
                             .font(.inter(46, .bold))
                         Text(instruction)
                             .font(.inter(.title3))
-                            .foregroundStyle(LineupStyle.secondary)
+                            .foregroundStyle(LineupPresentationStyle.secondary)
                             .contentTransition(.opacity)
                     }
                     Spacer()
@@ -5131,19 +5131,19 @@ private struct TVFavoritesOrderView: View {
         let isFocused = focusedStreamID == stream.id
         return HStack(spacing: 22) {
             ZStack {
-                Circle().fill(isPicked ? LineupStyle.text : LineupStyle.raised)
+                Circle().fill(isPicked ? LineupPresentationStyle.text : LineupPresentationStyle.row)
                 Text("\(position)").font(.interDigits(.callout, .bold))
-                    .foregroundStyle(isPicked ? GuidePalette.background : LineupStyle.secondary)
+                    .foregroundStyle(isPicked ? GuidePalette.background : LineupPresentationStyle.secondary)
             }
             .frame(width: 44, height: 44)
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(LineupStyle.raised.opacity(0.82))
+                    .fill(LineupPresentationStyle.row.opacity(0.82))
                 LineupArtView(url: stream.streamIcon.flatMap(URL.init(string:)), width: 100) { loaded in
                     if let image = loaded {
                         image.resizable().scaledToFit().padding(10)
                     } else {
-                        Image(systemName: "tv").foregroundStyle(LineupStyle.secondary)
+                        Image(systemName: "tv").foregroundStyle(LineupPresentationStyle.secondary)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -5152,7 +5152,7 @@ private struct TVFavoritesOrderView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(stream.name).font(.inter(.title3, .semibold)).lineLimit(1)
                 Text(isPicked ? "Ready to move" : "Favorite channel")
-                    .font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             Spacer()
             if isPicked {
@@ -5173,13 +5173,13 @@ private struct TVFavoritesOrderView: View {
         .background(isPicked ? GuidePalette.raised : GuidePalette.surface,
                     in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(
-            isPicked ? LineupStyle.text : LineupStyle.line,
+            isPicked ? LineupPresentationStyle.text : LineupStyle.line,
             lineWidth: isPicked ? 2 : 1
         ))
         .lineupFocusLayer(isFocused && !isPicked, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(alignment: .leading) {
             if pickedStreamID != nil && isFocused && !isPicked {
-                Capsule().fill(LineupStyle.text).frame(width: 4, height: 44).offset(x: -2)
+                Capsule().fill(LineupPresentationStyle.text).frame(width: 4, height: 44).offset(x: -2)
             }
         }
         .contentShape(Rectangle())
@@ -5227,8 +5227,8 @@ private struct TVReorderDoneButton: View {
         Label("Done", systemImage: "checkmark")
             .font(.inter(.callout, .semibold))
             .padding(.horizontal, 22).frame(height: 48)
-            .background(LineupStyle.surface, in: Capsule())
-            .foregroundStyle(LineupStyle.text)
+            .background(LineupPresentationStyle.card, in: Capsule())
+            .foregroundStyle(LineupPresentationStyle.text)
             .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 1))
             .lineupFocusLayer(focused, in: Capsule())
             .contentShape(Capsule())
@@ -5390,6 +5390,8 @@ struct AccountView: View {
     @State private var choosingProvider = false
     @State private var addingMediaServer = false
     @State private var configuringMDBList = false
+    @State private var configuringSeerr = false
+    @State private var showingTracking = false
     @State private var managingTeamChannels = false
     @State private var managingTeams = false
     @State private var choosingAccent = false
@@ -5435,7 +5437,7 @@ struct AccountView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 56)
             }
-            .background(LineupStyle.background)
+            .background(LineupPresentationStyle.ground)
             // The store decides and the store owns it, as on the Media
             // Servers tab: a load tied to this screen was cancelled by
             // leaving it, and left the flag raised behind.
@@ -5465,18 +5467,24 @@ struct AccountView: View {
                     }
                 } + [TVChoice("Add TV Source", symbol: "plus", id: "add-provider") { addingProvider = true }]
             }
-            .sheet(isPresented: $addingProvider) {
+            .lineupSheet(isPresented: $addingProvider) {
                 ProfileSetupView().environment(library)
             }
-            .sheet(isPresented: $addingMediaServer) {
+            .lineupSheet(isPresented: $addingMediaServer) {
                 MediaServerSetupView().environment(media)
             }
-            .sheet(isPresented: $configuringMDBList) {
+            .lineupSheet(isPresented: $configuringMDBList) {
                 MDBListIntegrationView().environment(media)
             }
-            .fullScreenCover(isPresented: $showingCollections) { TVCollectionsScreen().environment(media) }
-            .sheet(isPresented: $choosingShelf) { MediaShelfPicker().environment(media) }
-            .sheet(isPresented: $reorderingShelves) {
+            .lineupSheet(isPresented: $configuringSeerr) {
+                NavigationStack { SeerrSettingsView().environment(media) }
+            }
+            .lineupSheet(isPresented: $showingTracking) {
+                NavigationStack { LibraryTrackingSettingsView().environment(media) }
+            }
+            .lineupFullScreenCover(isPresented: $showingCollections) { TVCollectionsScreen().environment(media) }
+            .lineupSheet(isPresented: $choosingShelf) { MediaShelfPicker().environment(media) }
+            .lineupSheet(isPresented: $reorderingShelves) {
                 LibraryShelfOrderSheet().environment(media).preferredColorScheme(.dark)
             }
             .tvChoices("Remove a Shelf", symbol: "minus.rectangle", isPresented: $removingShelf,
@@ -5491,13 +5499,13 @@ struct AccountView: View {
                        message: "This removes Continue Watching and local watched status from this Apple TV.") {
                 [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
             }
-            .sheet(isPresented: $managingTeamChannels) {
+            .lineupSheet(isPresented: $managingTeamChannels) {
                 TVPreferredChannelsView().environment(library)
             }
-            .fullScreenCover(isPresented: $managingTeams) {
+            .lineupFullScreenCover(isPresented: $managingTeams) {
                 SportsTeamsSettingsView().environment(library)
             }
-            .fullScreenCover(isPresented: $choosingAccent, onDismiss: {
+            .lineupFullScreenCover(isPresented: $choosingAccent, onDismiss: {
                 if let hex = pendingAccent {
                     pendingAccent = nil
                     choose(hex)
@@ -5512,13 +5520,13 @@ struct AccountView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("LINEUP")
                 .font(.inter(13, .heavy)).tracking(0.6)
-                .foregroundStyle(LineupStyle.secondary)
+                .foregroundStyle(LineupPresentationStyle.secondary)
             Text("Settings")
                 .font(.inter(52, .bold))
-                .foregroundStyle(LineupStyle.text)
+                .foregroundStyle(LineupPresentationStyle.text)
             Text("Your sources, your library, and how the app is running.")
                 .font(.inter(21))
-                .foregroundStyle(LineupStyle.secondary)
+                .foregroundStyle(LineupPresentationStyle.secondary)
         }
     }
 
@@ -5545,22 +5553,22 @@ struct AccountView: View {
         return TVSelectable(scale: 1.01, fillRadius: 18, action: { choosingProvider = true }) {
             HStack(spacing: 20) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.text)
+                    .font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(LineupPresentationStyle.text)
                     .frame(width: 52)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Live TV Sources").font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text)
+                    Text("Live TV Sources").font(.inter(24, .semibold)).foregroundStyle(LineupPresentationStyle.text)
                     Text("Add an EPGenius / M3U playlist or switch saved connections")
-                        .font(.inter(18)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                        .font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 16)
                 Text("\(library.profiles.count) saved")
-                    .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
+                    .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .padding(.horizontal, 30)
             .frame(height: 96)
-            .background(LineupPanelStyle.well, in: shape)
+            .background(LineupPresentationStyle.row, in: shape)
         }
         .disabled(library.isSwitchingProfile)
     }
@@ -5572,22 +5580,22 @@ struct AccountView: View {
         return TVSelectable(scale: 1.01, fillRadius: 18, action: { managingTeamChannels = true }) {
             HStack(spacing: 20) {
                 Image(systemName: "star.square.on.square")
-                    .font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.text)
+                    .font(.system(size: 28, weight: .semibold, design: .rounded)).foregroundStyle(LineupPresentationStyle.text)
                     .frame(width: 52)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Preferred Channels").font(.inter(24, .semibold)).foregroundStyle(LineupStyle.text)
+                    Text("Preferred Channels").font(.inter(24, .semibold)).foregroundStyle(LineupPresentationStyle.text)
                     Text(count == 0
                          ? "None yet. Hold Select on a game and pick Choose Another Channel to save one for a team."
                          : "\(count) \(count == 1 ? "team opens" : "teams open") on a saved channel")
-                        .font(.inter(18)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                        .font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 16)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
+                    .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             .padding(.horizontal, 30)
             .frame(height: 96)
-            .background(LineupPanelStyle.well, in: shape)
+            .background(LineupPresentationStyle.row, in: shape)
         }
     }
 
@@ -5686,15 +5694,15 @@ struct AccountView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Follow Your Teams").font(.inter(24, .semibold))
                         Text("NFL, NBA, NHL, MLB, and college football")
-                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                            .font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary)
                     }
                     Spacer()
                     Text("\(library.followedTeams.count) following")
-                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                     Image(systemName: "chevron.right").font(.inter(20, .semibold))
                 }
                 .padding(24)
-                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
     }
@@ -5724,7 +5732,7 @@ struct AccountView: View {
                         AccountServerRow(profile: profile)
                     }
                 }
-                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
             HStack(alignment: .top, spacing: gutter) {
                 AccountLinkCard(
@@ -5759,6 +5767,10 @@ struct AccountView: View {
         let removable = media.removableShelves.count
         return LazyVGrid(columns: [GridItem(.flexible(), spacing: gutter), GridItem(.flexible())],
                          alignment: .leading, spacing: gutter) {
+            AccountActionRow(symbol: "checkmark.circle", title: "Watch Tracking",
+                             detail: "Choose local tracking, MDBList, both, or neither") { showingTracking = true }
+            AccountActionRow(symbol: "tray.and.arrow.down", title: "Seerr",
+                             detail: media.seerr.isConnected ? "Discover, request and manage titles" : "Connect your request server") { configuringSeerr = true }
             AccountActionRow(symbol: "folder.fill", title: "Collections",
                              detail: own == 0 ? "Group titles your own way" : "\(own) of your own") {
                 showingCollections = true
@@ -5851,7 +5863,7 @@ struct AccountView: View {
         VStack(alignment: .leading, spacing: 22) {
             AccountSectionHeading("PLAYBACK")
             Text("Each tab plays with its own engine.")
-                .font(.inter(19)).foregroundStyle(LineupStyle.secondary)
+                .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
             VStack(spacing: 14) {
                 ForEach(TVPlaybackPlace.allCases) { place in
                     AccountEngineRow(place: place, engine: engine(for: place)) { choosingEngineFor = place }
@@ -5890,15 +5902,15 @@ struct AccountView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Accent Color").font(.inter(24, .semibold))
                         Text("Presets, custom colors, and My Colors")
-                            .font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                            .font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary)
                     }
                     Spacer()
                     Text(chosen.isPreset ? chosen.name : "#\(chosen.hex)")
-                        .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(21, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                     Image(systemName: "chevron.right").font(.inter(20, .semibold))
                 }
                 .padding(24)
-                .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
     }
@@ -5931,8 +5943,9 @@ private struct TVSettingsPanel: ViewModifier {
         content
             .padding(LineupPanelStyle.inset)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: LineupPanelStyle.radius,
+            .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: LineupPanelStyle.radius,
                                                                   style: .continuous))
+            .lineupPresentation()
     }
 }
 
@@ -5995,9 +6008,9 @@ private struct AccountStatusMark: View {
         HStack(spacing: 9) {
             switch status {
             case .connected:
-                Circle().fill(LineupStyle.text).frame(width: 8, height: 8)
+                Circle().fill(LineupPresentationStyle.text).frame(width: 8, height: 8)
             case .offline:
-                Circle().strokeBorder(LineupStyle.secondary, lineWidth: 1.5).frame(width: 9, height: 9)
+                Circle().strokeBorder(LineupPresentationStyle.secondary, lineWidth: 1.5).frame(width: 9, height: 9)
             case .busy:
                 ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 9, height: 9)
             }
@@ -6009,8 +6022,8 @@ private struct AccountStatusMark: View {
     }
 
     private var tint: Color {
-        if case .connected = status { return LineupStyle.text }
-        return LineupStyle.secondary
+        if case .connected = status { return LineupPresentationStyle.text }
+        return LineupPresentationStyle.secondary
     }
 }
 
@@ -6035,12 +6048,12 @@ private struct AccountSourceCard<Actions: View>: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
                         .font(.inter(12, .heavy)).tracking(0.6)
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                     Text(title)
-                        .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
+                        .font(.inter(28, .bold)).foregroundStyle(LineupPresentationStyle.text)
                         .lineLimit(1).minimumScaleFactor(0.8)
                     Text(subtitle)
-                        .font(.inter(17)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 12)
@@ -6053,11 +6066,11 @@ private struct AccountSourceCard<Actions: View>: View {
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text(stat.count.map { $0.formatted() } ?? "—")
-                            .font(.interDigits(34, .bold)).foregroundStyle(LineupStyle.text)
+                            .font(.interDigits(34, .bold)).foregroundStyle(LineupPresentationStyle.text)
                             .lineLimit(1).minimumScaleFactor(0.7)
                         Text(stat.label.uppercased())
                             .font(.inter(12, .heavy)).tracking(0.6)
-                            .foregroundStyle(LineupStyle.secondary)
+                            .foregroundStyle(LineupPresentationStyle.secondary)
                             .lineLimit(1)
                     }
                     .padding(.leading, index > 0 ? 24 : 0)
@@ -6068,12 +6081,12 @@ private struct AccountSourceCard<Actions: View>: View {
             HStack(spacing: 12) { actions }
             if let refreshed {
                 Text("Updated \(refreshed, style: .relative) ago")
-                    .font(.inter(14)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(14)).foregroundStyle(LineupPresentationStyle.secondary)
             }
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
             .strokeBorder(LineupStyle.line, lineWidth: 1))
     }
@@ -6097,11 +6110,11 @@ private struct AccountEmptySource<Action: View>: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
                         .font(.inter(12, .heavy)).tracking(0.6)
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                     Text(title)
-                        .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
+                        .font(.inter(28, .bold)).foregroundStyle(LineupPresentationStyle.text)
                     Text(detail)
-                        .font(.inter(17)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
                         .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
@@ -6111,7 +6124,7 @@ private struct AccountEmptySource<Action: View>: View {
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.surface.opacity(0.55), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(LineupPresentationStyle.card.opacity(0.55), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
             .strokeBorder(LineupStyle.line, style: StrokeStyle(lineWidth: 1, dash: [6, 6])))
     }
@@ -6146,10 +6159,10 @@ private struct AccountServerRow: View {
         HStack(spacing: 24) {
             MediaServerLogo(brand: .of(profile)).frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 4) {
-                Text(profile.name).font(.inter(22, .semibold)).foregroundStyle(LineupStyle.text)
+                Text(profile.name).font(.inter(22, .semibold)).foregroundStyle(LineupPresentationStyle.text)
                     .lineLimit(1)
                 Text(detail(state))
-                    .font(.inter(16)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(16)).foregroundStyle(LineupPresentationStyle.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 20)
@@ -6188,20 +6201,20 @@ private struct AccountTile<Destination: View>: View {
             HStack(spacing: 20) {
                 AccountGlyph(symbol: symbol)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.inter(24, .bold)).foregroundStyle(LineupStyle.text)
+                    Text(title).font(.inter(24, .bold)).foregroundStyle(LineupPresentationStyle.text)
                     PlaybackEngineMark.text(detail, pointSize: 17).font(.inter(17)).lineLimit(2)
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                         .multilineTextAlignment(.leading)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
             }
             .padding(28)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .frame(minHeight: 132)
-            .background(LineupStyle.surface, in: shape)
+            .background(LineupPresentationStyle.card, in: shape)
             .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
             .lineupFocusLayer(isFocused, in: shape)
             .scaleEffect(isFocused ? LineupStyle.cardLift : 1)
@@ -6234,7 +6247,7 @@ private struct TVPreferredChannelsView: View {
                           detail: "Games for these teams open on the channel saved for them. If it is unavailable, Lineup uses its own match and keeps the preference.")
                 if entries.isEmpty {
                     Text("No preferred channels yet. Hold Select on any game, pick Choose Another Channel, and Lineup can remember it for either team.")
-                        .font(.inter(22)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(22)).foregroundStyle(LineupPresentationStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     VStack(spacing: 12) {
@@ -6257,7 +6270,7 @@ private struct TVPreferredChannelsView: View {
             .padding(.horizontal, 90)
             .padding(.vertical, 56)
         }
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .tvChoices("Forget this channel?", symbol: "trash",
                    isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
                    message: forgetting.map { "\(name(of: $0)) games will open on Lineup's own match again." }) {
@@ -6281,30 +6294,30 @@ private struct TVPreferredChannelsView: View {
         let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
         return HStack(spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(name(of: entry)).font(.inter(26, .semibold)).foregroundStyle(LineupStyle.text)
+                Text(name(of: entry)).font(.inter(26, .semibold)).foregroundStyle(LineupPresentationStyle.text)
                 HStack(spacing: 10) {
                     Text(entry.preference.channelName)
-                        .font(.inter(20)).foregroundStyle(LineupStyle.secondary).lineLimit(1)
+                        .font(.inter(20)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                     // A provider can drop a channel and carry it again later,
                     // so this is a note, not a reason to delete the preference.
                     if !library.preferenceChannelIsAvailable(entry.preference) {
                         Text("UNAVAILABLE")
                             .font(.inter(13, .bold)).tracking(0.8)
                             .padding(.horizontal, 8).frame(height: 24)
-                            .background(LineupStyle.raised, in: Capsule())
-                            .foregroundStyle(LineupStyle.secondary)
+                            .background(LineupPresentationStyle.row, in: Capsule())
+                            .foregroundStyle(LineupPresentationStyle.secondary)
                     }
                 }
             }
             Spacer(minLength: 16)
             Text(entry.key.league.uppercased())
-                .font(.inter(16, .bold)).tracking(1.2).foregroundStyle(LineupStyle.secondary)
+                .font(.inter(16, .bold)).tracking(1.2).foregroundStyle(LineupPresentationStyle.secondary)
             Image(systemName: "trash")
-                .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupStyle.secondary)
+                .font(.system(size: 20, weight: .semibold, design: .rounded)).foregroundStyle(LineupPresentationStyle.secondary)
         }
         .padding(.horizontal, 28)
         .frame(height: 96)
-        .background(LineupStyle.surface, in: shape)
+        .background(LineupPresentationStyle.card, in: shape)
         .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
         .accessibilityElement(children: .combine)
         .accessibilityHint("Forget this team's channel")
@@ -6370,12 +6383,12 @@ private struct AccountButtonFace: View {
             Text(title).font(.inter(18, .semibold))
                 .lineLimit(1).minimumScaleFactor(0.75)
         }
-        .foregroundStyle(quiet && !focused ? LineupStyle.secondary : LineupStyle.text)
+        .foregroundStyle(quiet && !focused ? LineupPresentationStyle.secondary : LineupPresentationStyle.text)
         .padding(.leading, 11).padding(.trailing, 24).frame(height: 56)
         .frame(maxWidth: .infinity)
         // On a card, a step lighter than the card, as a pressed row is.
-        .background(quiet ? Color.clear : LineupPanelStyle.well, in: shape)
-        .overlay(shape.strokeBorder(prominent ? LineupStyle.text.opacity(0.7) : LineupStyle.line,
+        .background(quiet ? Color.clear : LineupPresentationStyle.row, in: shape)
+        .overlay(shape.strokeBorder(prominent ? LineupPresentationStyle.text.opacity(0.7) : LineupStyle.line,
                                     lineWidth: prominent ? 1.5 : 1))
         .lineupFocusLayer(focused, in: shape)
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
@@ -6395,16 +6408,16 @@ private struct AccountEngineRow: View {
                 LineupIconTile(symbol: place.symbol, size: 48)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(place.title).font(.inter(24, .semibold))
-                    Text(place.detail).font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                    Text(place.detail).font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 16)
                 PlaybackEngineText(engine.title, size: 21)
-                    .font(.inter(21, .semibold)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(21, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                 Image(systemName: "chevron.right").font(.inter(20, .semibold))
             }
             .padding(24)
-            .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .accessibilityLabel("\(place.title) playback engine, \(engine.title)")
     }
@@ -6426,17 +6439,17 @@ private struct AccountActionRow: View {
                 LineupIconTile(symbol: symbol, size: 48)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title).font(.inter(24, .semibold))
-                        .foregroundStyle(destructive ? LineupIconTile.red : LineupStyle.text)
-                    Text(detail).font(.inter(18)).foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(destructive ? LineupIconTile.red : LineupPresentationStyle.text)
+                    Text(detail).font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 12)
                 Image(systemName: "chevron.right").font(.inter(20, .semibold))
-                    .foregroundStyle(LineupStyle.secondary)
+                    .foregroundStyle(LineupPresentationStyle.secondary)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .opacity(enabled ? 1 : 0.42)
     }
@@ -6460,11 +6473,11 @@ private struct AccountLinkCard<Destination: View>: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(kind)
                         .font(.inter(12, .heavy)).tracking(0.6)
-                        .foregroundStyle(LineupStyle.secondary)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
                     Text(title)
-                        .font(.inter(28, .bold)).foregroundStyle(LineupStyle.text)
+                        .font(.inter(28, .bold)).foregroundStyle(LineupPresentationStyle.text)
                     Text(detail)
-                        .font(.inter(17)).foregroundStyle(LineupStyle.secondary)
+                        .font(.inter(17)).foregroundStyle(LineupPresentationStyle.secondary)
                         .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
@@ -6474,7 +6487,7 @@ private struct AccountLinkCard<Destination: View>: View {
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous)
             .strokeBorder(LineupStyle.line, lineWidth: 1))
     }
@@ -6493,12 +6506,12 @@ private struct TVStartupTraceView: View {
         ScrollView {
             Text(trace.report)
                 .font(.interDigits(21))
-                .foregroundStyle(LineupStyle.lightPurple)
+                .foregroundStyle(LineupPresentationStyle.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(40)
         }
         .focusable()
-        .background(LineupStyle.background)
+        .background(LineupPresentationStyle.ground)
     }
 }
 
@@ -6518,14 +6531,14 @@ private struct TVPlaybackJournalView: View {
             }
             if journal.entries.isEmpty {
                 Text("Nothing has played since the log was cleared.")
-                    .font(.inter(.title3)).foregroundStyle(LineupStyle.secondary)
+                    .font(.inter(.title3)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(journal.days) { day in
                         Text(day.name.uppercased())
                             .font(.inter(13, .heavy)).tracking(0.6)
-                            .foregroundStyle(LineupStyle.secondary)
+                            .foregroundStyle(LineupPresentationStyle.secondary)
                             .padding(.top, 18)
                         ForEach(Array(day.entries.enumerated()), id: \.offset) { _, entry in
                             TVPlaybackJournalRow(entry: entry)
@@ -6538,7 +6551,7 @@ private struct TVPlaybackJournalView: View {
         }
         .padding(.horizontal, 120).padding(.vertical, 48)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background)
+        .background(LineupPresentationStyle.ground)
     }
 }
 
@@ -6552,14 +6565,14 @@ private struct TVPlaybackJournalRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 24) {
             Text(PlaybackJournal.time(of: entry))
                 .font(.interDigits(19, .semibold))
-                .foregroundStyle(LineupStyle.secondary)
+                .foregroundStyle(LineupPresentationStyle.secondary)
             Text(entry.text)
                 .font(.inter(21))
-                .foregroundStyle(LineupStyle.text)
+                .foregroundStyle(LineupPresentationStyle.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
-        .background(LineupStyle.surface, in: shape)
+        .background(LineupPresentationStyle.card, in: shape)
         .lineupFocusLayer(focused, in: shape)
         .contentShape(shape)
         .focusable().focused($focused).focusEffectDisabled()
@@ -6583,8 +6596,8 @@ private struct MatchDiagnosticsView: View {
                 Spacer()
             }
             if games.isEmpty {
-                Text("No live or upcoming games to match.").foregroundColor(LineupStyle.lightPurple)
-                    .font(.inter(.title3)).foregroundStyle(LineupStyle.secondary)
+                Text("No live or upcoming games to match.").foregroundColor(LineupPresentationStyle.text)
+                    .font(.inter(.title3)).foregroundStyle(LineupPresentationStyle.secondary)
             }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
@@ -6595,7 +6608,7 @@ private struct MatchDiagnosticsView: View {
         }
         .padding(.horizontal, 120).padding(.vertical, 48)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(LineupStyle.background)
+        .background(LineupPresentationStyle.ground)
     }
 }
 
@@ -6609,29 +6622,29 @@ private struct MatchDiagnosticsRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(game.matchupLine).foregroundColor(LineupStyle.lightPurple)
+            Text(game.matchupLine).foregroundColor(LineupPresentationStyle.text)
                 .font(.inter(24, .semibold))
             Text("\(game.league.shortName)  ·  \(game.broadcast.isEmpty ? "No network listed" : game.broadcast)")
-                .foregroundColor(LineupStyle.lightPurple)
-                .font(.inter(16)).foregroundStyle(LineupStyle.secondary)
+                .foregroundColor(LineupPresentationStyle.text)
+                .font(.inter(16)).foregroundStyle(LineupPresentationStyle.secondary)
             if let stream {
-                Text(stream.name).foregroundColor(LineupStyle.lightPurple)
+                Text(stream.name).foregroundColor(LineupPresentationStyle.text)
                     .font(.inter(17, .medium)).lineLimit(1)
                 if let rejection = library.playbackRejection(for: game) {
                     Text(rejection.rawValue).foregroundColor(LineupStyle.warning).font(.inter(15))
                 } else {
                     Text(evidence?.rawValue ?? "Matched earlier, evidence not recorded yet")
-                        .foregroundColor(evidence == .dedicatedFeed ? LineupStyle.lightPurple : LineupStyle.warning)
+                        .foregroundColor(evidence == .dedicatedFeed ? LineupPresentationStyle.text : LineupStyle.warning)
                         .font(.inter(15))
                 }
             } else {
-                Text("No match — opens the channel picker").foregroundColor(LineupStyle.lightPurple)
-                    .font(.inter(15)).foregroundStyle(LineupStyle.secondary)
+                Text("No match — opens the channel picker").foregroundColor(LineupPresentationStyle.text)
+                    .font(.inter(15)).foregroundStyle(LineupPresentationStyle.secondary)
             }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .focusable().focused($focused).focusEffectDisabled()
@@ -6646,15 +6659,15 @@ private struct AccountRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 24) {
             Text(label.uppercased())
                 .font(.inter(13, .heavy)).tracking(0.6)
-                .foregroundStyle(LineupStyle.secondary)
+                .foregroundStyle(LineupPresentationStyle.secondary)
             Spacer(minLength: 12)
             Text(value)
-                .font(.inter(19, .medium)).foregroundStyle(LineupStyle.text)
+                .font(.inter(19, .medium)).foregroundStyle(LineupPresentationStyle.text)
                 .multilineTextAlignment(.trailing).lineLimit(2)
         }
         .padding(.horizontal, 28).padding(.vertical, 22)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -6783,7 +6796,7 @@ private struct MultiviewView: View {
         }
         .onPlayPauseCommand { switchLayout() }
         .onExitCommand(perform: back)
-        .fullScreenCover(item: $choosingChannel, onDismiss: {
+        .lineupFullScreenCover(item: $choosingChannel, onDismiss: {
             scopingChannel = library.asksScope(for: pickedChannel)
             pickedChannel = nil
         }) { choice in
@@ -7312,9 +7325,9 @@ private struct TVEpisodesPanel: View {
         let shape = RoundedRectangle(cornerRadius: 30, style: .continuous)
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 16) {
-                Text("Episodes").font(.inter(32, .bold)).foregroundStyle(LineupStyle.text)
+                Text("Episodes").font(.inter(32, .bold)).foregroundStyle(LineupPresentationStyle.text)
                 if let season = row.season {
-                    Text(season).font(.inter(22, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                    Text(season).font(.inter(22, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
             }
             .padding(.horizontal, Self.gutter + 4).padding(.top, 26)
@@ -7357,7 +7370,7 @@ private struct TVEpisodesPanel: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LineupPanelStyle.well.opacity(0.94), in: shape)
+        .background(LineupPresentationStyle.row.opacity(0.94), in: shape)
         .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
         .clipShape(shape)
         .padding(.trailing, -Self.overhang)
@@ -7404,13 +7417,13 @@ private struct TVEpisodeTile: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 14) {
                 ZStack(alignment: .bottom) {
-                    LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                    LinearGradient(colors: [LineupPresentationStyle.row, LineupPresentationStyle.card],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                     LineupArtView(url: episode.image, width: Self.still.width) { loaded in
                         if let loaded { loaded.resizable().scaledToFill() }
                         else {
                             Image(systemName: "film").font(.system(size: 38, weight: .light, design: .rounded))
-                                .foregroundStyle(LineupPanelStyle.quiet)
+                                .foregroundStyle(LineupPresentationStyle.secondary)
                         }
                     }
                     if let progress = episode.progress, !episode.isCurrent {
@@ -7430,7 +7443,7 @@ private struct TVEpisodeTile: View {
                         Text(facts.joined(separator: " · "))
                             .font(.interDigits(21, .semibold)).foregroundStyle(LineupPanelStyle.caption)
                     }
-                    Text(episode.title).font(.inter(25, .bold)).foregroundStyle(LineupStyle.text)
+                    Text(episode.title).font(.inter(25, .bold)).foregroundStyle(LineupPresentationStyle.text)
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 2)
@@ -7450,12 +7463,12 @@ private struct TVEpisodeTile: View {
         if episode.isCurrent {
             Text("NOW PLAYING")
                 .font(.inter(14, .heavy)).tracking(0.8)
-                .foregroundStyle(LineupStyle.text)
+                .foregroundStyle(LineupPresentationStyle.text)
                 .padding(.horizontal, 12).frame(height: 28)
-                .background(LineupPanelStyle.fill.opacity(0.9), in: Capsule())
+                .background(LineupPresentationStyle.card.opacity(0.9), in: Capsule())
         } else if episode.watched {
             Image(systemName: "checkmark").font(.system(size: 14, weight: .bold, design: .rounded))
-                .foregroundStyle(LineupStyle.background)
+                .foregroundStyle(LineupPresentationStyle.ground)
                 .frame(width: 30, height: 30)
                 .background(LineupStyle.lightPurple, in: Circle())
         }
@@ -7598,7 +7611,9 @@ struct PlayerView: View {
     var isLive = true
     var initialPosition: TimeInterval? = nil
     var expectedDuration: TimeInterval? = nil
+    var nativeSiloPlayback: SiloPlaybackSession? = nil
     var onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil
+    var onTrackingSample: ((LibraryPlaybackSample) -> Void)? = nil
     var game: SportsGame? = nil
     var channelID: Int? = nil
     /// For a Library title: its show, episode and details, which the stream
@@ -7718,7 +7733,9 @@ struct PlayerView: View {
 
     init(urls: [URL], title: String = "Live TV", program: CurrentProgram? = nil, isLive: Bool = true,
          initialPosition: TimeInterval? = nil, expectedDuration: TimeInterval? = nil,
+         nativeSiloPlayback: SiloPlaybackSession? = nil,
          onProgress: ((TimeInterval, TimeInterval) -> Void)? = nil,
+         onTrackingSample: ((LibraryPlaybackSample) -> Void)? = nil,
          game: SportsGame? = nil, channelID: Int? = nil, synopsis: TVPlayerSynopsis? = nil,
          channel: XtreamStream? = nil, lineup: [XtreamStream] = [],
          recording: CatchUpProgramme? = nil, startsOver: Bool = false, recordingOnly: Bool = false,
@@ -7736,7 +7753,9 @@ struct PlayerView: View {
         self.isLive = isLive
         self.initialPosition = initialPosition
         self.expectedDuration = expectedDuration
+        self.nativeSiloPlayback = nativeSiloPlayback
         self.onProgress = onProgress
+        self.onTrackingSample = onTrackingSample
         self.game = game
         self.channelID = channelID
         self.synopsis = synopsis
@@ -7903,7 +7922,7 @@ struct PlayerView: View {
             }
         }
         .background(Color.black)
-        .fullScreenCover(item: $choosingGame, onDismiss: {
+        .lineupFullScreenCover(item: $choosingGame, onDismiss: {
             scopingChannel = library.asksScope(for: pickedChannel)
             pickedChannel = nil
         }) { game in
@@ -7930,6 +7949,8 @@ struct PlayerView: View {
         }
         .onAppear {
             if continuesPreview { previewFailover = controller.failover }
+            controller.libraryTrackingEvent = onTrackingSample
+            controller.configureSiloPlayback(nativeSiloPlayback)
             if let game {
                 configureGameFailover(controller, game: game, library: library) { choosingGame = game }
             }
@@ -7970,7 +7991,7 @@ struct PlayerView: View {
             seekPreview.store.cancel()
             finishPlayback()
         }
-        .fullScreenCover(isPresented: $findingSubtitles, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
+        .lineupFullScreenCover(isPresented: $findingSubtitles, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
             if let subtitleIdentityLookup {
                 TVOnlineSubtitlesScreen(name: synopsis?.title ?? title, identity: subtitleIdentityLookup) { data, subtitle in
                     try await controller.addOnlineSubtitle(data, title: subtitle.title, language: subtitle.language,
@@ -7978,7 +7999,7 @@ struct PlayerView: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $subtitleSettingsShown, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
+        .lineupFullScreenCover(isPresented: $subtitleSettingsShown, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
             TVSubtitleSettingsScreen(controller: controller)
         }
         // The server's thumbnails for this copy, as the phone's player asks.
@@ -9276,10 +9297,20 @@ private struct PlaybackClockReader<Content: View>: View {
     }
     @Published private(set) var reconnecting = false
     @Published private(set) var error: String?
-    @Published private(set) var isPlaying = false
+    @Published private(set) var isPlaying = false { didSet { reportLibraryTracking() } }
+    var libraryTrackingEvent: ((LibraryPlaybackSample) -> Void)?
+    private var lastLibraryTrackingSample: LibraryPlaybackSample?
+    private func reportLibraryTracking() {
+        guard let libraryTrackingEvent, !isScrubbing else { return }
+        let sample = LibraryPlaybackSample(playing: isPlaying, pictureInPicture: false, position: elapsed, duration: duration)
+        guard sample.differs(from: lastLibraryTrackingSample) else { return }
+        lastLibraryTrackingSample = sample
+        libraryTrackingEvent(sample)
+    }
     @Published private(set) var isMuted = false
     @Published private(set) var videoHeight = 0
     @Published private(set) var mediaInfo = PlaybackMediaInfo()
+    private let liveQualityReporter = LivePlaybackQualityReporter()
     @Published private(set) var activeChannelName: String?
     @Published private(set) var failoverNotice: String?
     @Published private(set) var subtitleTracks: [PlaybackSubtitleTrack] = [.off]
@@ -9298,9 +9329,37 @@ private struct PlaybackClockReader<Content: View>: View {
     let clock = PlaybackClock()
     private(set) var elapsed: TimeInterval {
         get { clock.elapsed }
-        set { if clock.elapsed != newValue { clock.elapsed = newValue } }
+        set { if clock.elapsed != newValue { clock.elapsed = newValue }; reportLibraryTracking() }
     }
-    @Published private(set) var duration: TimeInterval = 0
+    @Published private(set) var duration: TimeInterval = 0 { didSet { reportLibraryTracking() } }
+    private var nativeSiloPlayback: SiloPlaybackSession?
+    private var pendingSiloSidecars: [SiloPlaybackSession.Sidecar] = []
+    private var siloSidecarRestore: Task<Void, Never>?
+    private var siloSubtitleWasOff = false
+    private var siloSubtitleTitle: String?
+
+    func configureSiloPlayback(_ session: SiloPlaybackSession?) {
+        nativeSiloPlayback = session
+        session?.assetChanged = { [weak self] asset in
+            guard let self else { return }
+            let paused = self.pausedByUser
+            let delay = self.subtitleDelaySeconds
+            let off = self.selectedSubtitleID == PlaybackSubtitleTrack.off.id
+            let selected = self.subtitleTracks.first { $0.id == self.selectedSubtitleID }?.title
+            let sidecars = self.nativeSiloPlayback?.sidecars ?? []
+            self.discardOnlineSubtitles()
+            self.chosenSubtitle = nil
+            self.scrubSeeks.cancel()
+            self.start(urls: [asset.url], muted: self.muted, initialPosition: asset.lease.playerStart,
+                       isLive: false, keepTrackChoices: true, expectedDuration: asset.duration)
+            self.subtitleDelaySeconds = delay
+            self.pendingSiloSidecars = sidecars; self.siloSubtitleWasOff = off; self.siloSubtitleTitle = selected
+            if paused { self.togglePlayback() }
+        }
+        session?.failed = { [weak self] message in self?.failoverNotice = message }
+        session?.preparing = { [weak self] in self?.error = nil; self?.reconnecting = true }
+        session?.retryFailed = { [weak self] message in self?.reconnecting = false; self?.error = message }
+    }
     /// How to play this channel's recording, while a channel the provider
     /// records is playing live. Nil for a channel that isn't recorded, for a
     /// film, and until the server's time zone is known.
@@ -9530,6 +9589,7 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     private func openCurrent() {
+        liveQualityReporter.reset()
         backend.stop()
         mediaInfo = PlaybackMediaInfo()
         videoHeight = 0
@@ -9559,6 +9619,9 @@ private struct PlaybackClockReader<Content: View>: View {
     /// Where a recorded title's stream is opened: back where it was after a
     /// drop, or where it was left off.
     private var openingPlace: TimeInterval? {
+        if let native = nativeSiloPlayback, let asset = native.asset {
+            return reopenPosition.map { max(0, $0 - asset.lease.timelineOffset) } ?? asset.lease.playerStart
+        }
         if let reopenPosition { return reopenPosition }
         guard !appliedInitialPosition, let requestedInitialPosition, requestedInitialPosition >= 10 else {
             return nil
@@ -9577,6 +9640,13 @@ private struct PlaybackClockReader<Content: View>: View {
     /// correctly after a seek that the viewer makes without resuming.
     private func updateProgress() {
         guard !isScrubbing else { return }
+        if let native = nativeSiloPlayback, let asset = native.asset {
+            guard let time = native.sourcePosition(playerTime: backend.time) else { return }
+            if let length = asset.duration, duration != length { duration = length }
+            elapsed = time
+            appliedInitialPosition = true
+            return
+        }
         let length = backend.duration
         if length.isFinite, length > 0, length != duration { duration = length }
         let time = backend.time
@@ -9635,6 +9705,7 @@ private struct PlaybackClockReader<Content: View>: View {
         guard isScrubbing, seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
         scrubDestination = target
+        guard nativeSiloPlayback?.asset?.requiresServerSeek != true else { return }
         scrubSeeks.preview(target) { [weak self] in self?.backend.seek(to: $0) }
     }
 
@@ -9656,6 +9727,12 @@ private struct PlaybackClockReader<Content: View>: View {
     func seek(to seconds: Double) {
         guard duration > 0, seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
+        if let native = nativeSiloPlayback, native.asset?.requiresServerSeek == true {
+            scrubSeeks.cancel()
+            native.seek(to: target)
+            elapsed = target
+            return
+        }
         appliedInitialPosition = true
         reopenPosition = nil
         seekLanding.expect(target, now: uptime())
@@ -9670,6 +9747,13 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     func checkPlayback() {
+        // A Silo retry owns the next signed URL. Do not let the old input's
+        // watchdog reopen its expired lease while that plan is being fetched.
+        if nativeSiloPlayback?.isReplanning == true {
+            health = freshHealth()
+            holdScreenAwake()
+            return
+        }
         let nextMediaInfo = backend.mediaInfo
         if mediaInfo != nextMediaInfo { mediaInfo = nextMediaInfo }
         guard !isScrubbing else { return }
@@ -9735,8 +9819,15 @@ private struct PlaybackClockReader<Content: View>: View {
             sawPicture = true
             let height = Int(backend.videoSize.height)
             if height > 0, height != videoHeight { videoHeight = height }
+            liveQualityReporter.observe(url: urls.indices.contains(urlIndex) ? urls[urlIndex] : nil,
+                width: Int(backend.videoSize.width), height: height, frameRate: mediaInfo.frameRate,
+                live: isLive && catchUp == nil, playing: backend.isPlaying, picture: health.hasShownPicture)
         }
         guard recover else { return }
+        if isLive, !health.hasShownPicture, urls.indices.contains(urlIndex) {
+            let url = urls[urlIndex]
+            Task { await LiveQualityVerifier.shared.forgetPlayback(url: url) }
+        }
         if engineKind == .mpv, !health.hasShownPicture {
             fallbackFromMPVToVLC("MPV did not produce a picture")
             return
@@ -9889,6 +9980,7 @@ private struct PlaybackClockReader<Content: View>: View {
     }
     func toggleMute() { setMuted(!muted) }
     func retry() {
+        if let nativeSiloPlayback { nativeSiloPlayback.retry(); return }
         let place = isLive ? nil : (reopenPosition ?? (elapsed > 0 ? elapsed : nil))
         log("Retry chosen")
         // Asked for before the stream opens, so it opens there.
@@ -9900,6 +9992,13 @@ private struct PlaybackClockReader<Content: View>: View {
     /// channel, which took away its ending: a drop or the real end then
     /// started it over again.
     func goLive() {
+        if let nativeSiloPlayback {
+            if pausedByUser { togglePlayback() }
+            if nativeSiloPlayback.asset?.requiresServerSeek == true {
+                nativeSiloPlayback.seek(to: 0); elapsed = 0
+            } else { seek(to: 0) }
+            return
+        }
         if catchUp != nil || pausedAt != nil, let source = catchUpSource {
             log("Back to live")
             skipTask?.cancel()
@@ -10230,12 +10329,14 @@ private struct PlaybackClockReader<Content: View>: View {
     /// is playing.
     func addOnlineSubtitle(_ data: Data, title: String, language: String, session: UUID) async throws {
         guard session == subtitleSession, canAttachOnlineSubtitles else { throw MobileSubtitleFailure.unsupported }
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
         let preparation = Task.detached(priority: .userInitiated) { () throws -> URL in
             guard let data = MobileOpenSubtitles.normalizedSubtitle(data) else { throw MobileSubtitleFailure.invalidFile }
+            let prepared = try SubtitleSourceTimeline.rebase(data, offset: offset)
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("LineupSubtitles", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let file = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("srt")
-            try data.write(to: file, options: .atomic)
+            try prepared.write(to: file, options: .atomic)
             return file
         }
         let file = try await withTaskCancellationHandler(operation: { try await preparation.value },
@@ -10249,6 +10350,7 @@ private struct PlaybackClockReader<Content: View>: View {
             throw MobileSubtitleFailure.invalidFile
         }
         onlineSubtitles.append(OnlineSubtitle(file: file, title: title, language: language))
+        nativeSiloPlayback?.rememberSubtitle(data, title: title, language: language)
         chosenSubtitle = nil
         adoptsAddedSubtitle = true
         log("Added subtitles found online")
@@ -10257,6 +10359,25 @@ private struct PlaybackClockReader<Content: View>: View {
     /// After a reconnect: the subtitles found online, added to the reopened
     /// title once it is showing.
     private func addOnlineSubtitlesAgain() {
+        if backend.hasVideoOut, !pendingSiloSidecars.isEmpty, siloSidecarRestore == nil {
+            let saved = pendingSiloSidecars, session = subtitleSession
+            pendingSiloSidecars = []
+            siloSidecarRestore = Task { [weak self] in
+                guard let self else { return }
+                defer { self.siloSidecarRestore = nil }
+                do {
+                    for subtitle in saved {
+                        try await self.addOnlineSubtitle(subtitle.data, title: subtitle.title, language: subtitle.language, session: session)
+                    }
+                    guard self.subtitleSession == session else { return }
+                    self.refreshSubtitleTracks()
+                    if self.siloSubtitleWasOff { self.selectSubtitle(.off, byViewer: false) }
+                    else if let title = self.siloSubtitleTitle, let selected = self.subtitleTracks.first(where: { $0.title == title }) {
+                        self.selectSubtitle(selected, byViewer: false)
+                    }
+                } catch { if !Task.isCancelled { self.failoverNotice = "Subtitles could not be restored after seeking. " + error.localizedDescription } }
+            }
+        }
         guard !onlineSubtitlesToAdd.isEmpty, backend.hasVideoOut else { return }
         for subtitle in onlineSubtitlesToAdd {
             _ = backend.addSubtitle(file: subtitle.file, title: subtitle.title, language: subtitle.language)
@@ -10265,6 +10386,7 @@ private struct PlaybackClockReader<Content: View>: View {
     }
 
     private func discardOnlineSubtitles() {
+        siloSidecarRestore?.cancel(); siloSidecarRestore = nil; pendingSiloSidecars = []
         for subtitle in onlineSubtitles { try? FileManager.default.removeItem(at: subtitle.file) }
         onlineSubtitles = []
         onlineSubtitlesToAdd = []

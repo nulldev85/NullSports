@@ -14,28 +14,34 @@ enum MobileRecordingSeekPolicy {
 enum MobileStreamEngine: String, Hashable {
     case system, aether, vlc, mpv
     var title: String {
-        switch self { case .system: "AVPlayer"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit" }
+        switch self { case .system: "Native player"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit" }
     }
     var supportsPictureInPicture: Bool { self == .system || self == .aether }
 }
 
 enum MobilePlaybackPreference: String, CaseIterable, Identifiable {
-    case automatic, aether, vlc, mpv
+    case automatic, native, aether, vlc, mpv
     static let storageKey = "Lineup.mobile.playbackEngine.v1"
+    static let nativeFallbackKey = "Lineup.mobile.nativePlayer.fallback.v1"
+    static let allCases: [Self] = [.native, .aether, .vlc, .mpv]
     var id: String { rawValue }
     var title: String {
-        switch self { case .automatic: "Automatic"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit (Trial)" }
+        switch self { case .automatic, .native: "Native player"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit (Trial)" }
     }
     var version: String? {
         switch self {
-        case .automatic: nil
+        case .automatic, .native: nil
         case .aether: PlaybackEngineVersions.aether
         case .vlc: PlaybackEngineVersions.vlc
         case .mpv: PlaybackEngineVersions.mpv
         }
     }
     static func selected(in defaults: UserDefaults = .standard) -> Self {
-        defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .automatic
+        let saved = defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .native
+        return saved == .automatic ? .native : saved
+    }
+    static func allowsNativeFallback(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: nativeFallbackKey) as? Bool ?? true
     }
 }
 
@@ -44,9 +50,14 @@ enum MobileEngineSelection {
     /// extensionless server routes with native or sample-buffer PiP. Failed
     /// engines are skipped for this URL, so fallback cannot loop forever.
     static func engine(for url: URL, preference: MobilePlaybackPreference = .automatic,
-                       failed: Set<MobileStreamEngine> = []) -> MobileStreamEngine? {
+                       failed: Set<MobileStreamEngine> = [], nativeFallback: Bool = true) -> MobileStreamEngine? {
         let order: [MobileStreamEngine]
         switch preference {
+        case .native:
+            // Files use the native compatibility pipeline as well, retaining
+            // the app's track, subtitle and seeking features around AVPlayer.
+            let direct = ["m3u8", "m3u"].contains(url.pathExtension.lowercased())
+            order = (direct ? [.system, .aether] : [.aether]) + (nativeFallback ? [.vlc] : [])
         case .automatic:
             order = ["m3u8", "m3u"].contains(url.pathExtension.lowercased())
                 ? [.system, .aether, .vlc] : [.aether, .vlc]
@@ -61,8 +72,11 @@ enum MobileEngineSelection {
     /// provider's relative order inside each group. A stable partition rather
     /// than a sort: when a provider lists two HLS variants, the first one stays
     /// first, and the transport streams stay available as fallbacks behind them.
-    static func ordered(_ urls: [URL]) -> [URL] {
-        urls.filter { engine(for: $0) == .system } + urls.filter { engine(for: $0) != .system }
+    static func ordered(_ urls: [URL], live: Bool = false) -> [URL] {
+        // Live providers already list HLS first. If a rendered playback
+        // measurement promoted TS, do not silently undo that exact choice.
+        guard !live else { return urls }
+        return urls.filter { engine(for: $0) == .system } + urls.filter { engine(for: $0) != .system }
     }
 
     /// True when any candidate could drive Picture in Picture. Used to decide
@@ -168,10 +182,15 @@ enum StartTogether {
     /// How long a live channel's sound may be held for a picture that will
     /// not move before the channel's other stream is tried instead.
     static let stillPictureDeadline: TimeInterval = 4
-    /// How long VLC may play with no picture at all before its sound goes
-    /// ahead alone. A radio channel has no picture to wait for, and VLC
-    /// cannot say so any sooner.
+    /// Minimum wait before allowing an identified audio-only source to play
+    /// without a picture. A known video track must still produce a frame.
     static let soundAloneAfter: TimeInterval = 6
+    static func canReleaseAudioOnly(heldFor: TimeInterval, hasAudio: Bool, hasVideo: Bool) -> Bool {
+        heldFor >= soundAloneAfter && hasAudio && !hasVideo
+    }
+    static func canRevealVLC(displayedPictures: Int, settled: Bool, outputAge: TimeInterval) -> Bool {
+        displayedPictures > 0 && (settled || outputAge >= vlcSettleDeadline)
+    }
     /// Once VLC's picture is up, how long its size must hold steady before
     /// it shows. VLC can draw a stream's first frames before it has worked
     /// out their shape, stretched to fill until it has.
@@ -195,6 +214,26 @@ enum StartTogether {
     static func shouldTryNext(heldFor: TimeInterval?, isLive: Bool, hasAnotherStream: Bool) -> Bool {
         guard isLive, hasAnotherStream, let heldFor else { return false }
         return heldFor > stillPictureDeadline
+    }
+}
+
+enum MobilePlaybackOpeningPolicy {
+    /// VLC may still report the old stopped/ended state while opening a new
+    /// input. A movie must get its normal startup window before recovery.
+    static func stoppedIsFailure(isLive: Bool, hasShownPicture: Bool, age: TimeInterval) -> Bool {
+        hasShownPicture || age >= (isLive ? 8 : 30)
+    }
+}
+
+struct MobilePlaybackPresentation: Equatable {
+    private(set) var hasPresentedVideo = false
+    private(set) var recovering = false
+    mutating func presentedVideo() { hasPresentedVideo = true; recovering = false }
+    mutating func beganRecovery() { recovering = true }
+    func loadingMessage(waitingForPicture: Bool) -> String {
+        if recovering { return "Reconnecting…" }
+        if hasPresentedVideo { return "Buffering…" }
+        return waitingForPicture ? "Waiting for picture…" : "Opening stream…"
     }
 }
 

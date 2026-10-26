@@ -235,11 +235,14 @@ struct JellyfinClient: Sendable {
         try await sendIgnoringBody(try request(path: "library/refresh", method: "POST"))
     }
 
-    /// One item in full. Generous with time: a server that builds items on
-    /// demand -- Gelato makes a library item of a search result the first time
-    /// it is asked for -- fetches its metadata before it answers.
+    /// Details need metadata, not playback sources. Nullfin interprets an
+    /// omitted Fields query as a request to resolve stream addons as well,
+    /// which can hold up the page. PlaybackInfo requests sources at Play.
+    /// Keep the timeout for servers that build new catalog items on demand.
     func item(userID: String, itemID: String) async throws -> MediaItem {
-        try await send(try request(path: "users/\(userID)/items/\(itemID)", timeout: 40))
+        try await send(try request(path: "users/\(userID)/items/\(itemID)", query: [
+            URLQueryItem(name: "Fields", value: Self.fields)
+        ], timeout: 40))
     }
 
     func similarItems(userID: String, itemID: String) async throws -> [MediaItem] {

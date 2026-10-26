@@ -56,23 +56,23 @@ struct MobileOnlineSubtitlesSheet: View {
                 LineupIconTile(symbol: "captions.bubble", size: 32)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Find Subtitles").font(.inter(.title3, .bold))
-                    Text(name).font(.inter(.caption)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(2)
+                    Text(name).font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(2)
                 }
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark").font(.system(size: 17, weight: .bold)).frame(width: 44, height: 44)
-                    .background(LineupPanelStyle.well, in: Circle()) }
+                    .background(LineupPresentationStyle.row, in: Circle()) }
                     .buttonStyle(.plain).accessibilityLabel("Close subtitle search")
             }
             HStack {
-                Image(systemName: "magnifyingglass").foregroundStyle(LineupPanelStyle.quiet)
+                Image(systemName: "magnifyingglass").foregroundStyle(LineupPresentationStyle.secondary)
                 MobileSubtitleSearchInput(results: results)
-            }.padding(.horizontal, 14).frame(height: 44).background(LineupPanelStyle.fill, in: Capsule())
+            }.padding(.horizontal, 14).frame(height: 44).background(LineupPresentationStyle.card, in: Capsule())
             Button { languagesOpen = true } label: {
                 HStack { Text(Self.languages.first { $0.0 == language }?.1 ?? language); Image(systemName: "chevron.down") }
                     .lineupChip(true)
             }.buttonStyle(.plain).disabled(downloading != nil)
             if let error {
-                PlaybackEngineText(error, style: .caption).font(.inter(.caption)).foregroundStyle(LineupPanelStyle.quiet)
+                PlaybackEngineText(error, style: .caption).font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.secondary)
                 Button("Try Again") { retry += 1 }.lineupFlatButton().disabled(downloading != nil)
             }
             if loading {
@@ -82,7 +82,7 @@ struct MobileOnlineSubtitlesSheet: View {
                     LazyVStack(spacing: 10) {
                         if results.visible.isEmpty {
                             Text("No matching releases. Try another language or clear the release filter.")
-                                .font(.inter(.callout)).foregroundStyle(LineupPanelStyle.quiet).padding(.vertical, 28)
+                                .font(.inter(.callout)).foregroundStyle(LineupPresentationStyle.secondary).padding(.vertical, 28)
                         }
                         ForEach(results.visible) { subtitle in
                             Button { download(subtitle) } label: { row(subtitle) }
@@ -92,13 +92,13 @@ struct MobileOnlineSubtitlesSheet: View {
                 }.scrollDismissesKeyboard(.interactively)
             }
             Text("Subtitles provided by OpenSubtitles.com. Choose a release matching your video.")
-                .font(.inter(.caption2)).foregroundStyle(LineupPanelStyle.quiet)
+                .font(.inter(.caption2)).foregroundStyle(LineupPresentationStyle.secondary)
             if showsPiPLimitation {
                 Text("Downloaded captions are available in this player, but not in Picture in Picture for this playback.")
-                    .font(.inter(.caption2)).foregroundStyle(LineupPanelStyle.quiet)
+                    .font(.inter(.caption2)).foregroundStyle(LineupPresentationStyle.secondary)
             }
         }
-        .padding(18).foregroundStyle(LineupStyle.text).background(LineupStyle.background.ignoresSafeArea())
+        .padding(18).foregroundStyle(LineupPresentationStyle.text).background(LineupPresentationStyle.ground.ignoresSafeArea())
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .lineupChoices("Subtitle Language", symbol: "globe", isPresented: $languagesOpen) {
             Self.languages.map { code, name in MobileMenuItem(name, id: code, isSelected: code == language) { language = code } }
@@ -114,11 +114,11 @@ struct MobileOnlineSubtitlesSheet: View {
                 Text(subtitle.title).font(.inter(.subheadline, .semibold)).multilineTextAlignment(.leading).lineLimit(3)
                 Text([subtitle.language.uppercased(), subtitle.hearingImpaired ? "Hearing impaired" : nil,
                       subtitle.foreignOnly ? "Foreign parts only" : nil].compactMap { $0 }.joined(separator: " · "))
-                    .font(.inter(.caption2)).foregroundStyle(LineupPanelStyle.quiet)
+                    .font(.inter(.caption2)).foregroundStyle(LineupPresentationStyle.secondary)
             }.frame(maxWidth: .infinity, alignment: .leading)
             if downloading == subtitle.id { ProgressView() }
             else { Image(systemName: "arrow.down.circle.fill").font(.system(size: 26)).foregroundStyle(LineupStyle.highlight) }
-        }.padding(14).background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 18))
+        }.padding(14).background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: 18))
     }
 
     private func search() async {
