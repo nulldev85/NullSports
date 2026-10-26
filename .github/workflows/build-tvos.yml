@@ -44,11 +44,15 @@ jobs:
       - name: Compile the app and its tests
         run: |
           set -euo pipefail
+          # A real simulator, as the full build's tests use, so only its own
+          # architecture is built: LibDovi ships no Intel simulator slice, so
+          # the generic simulator destination cannot link AetherEngine.
+          device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(v["udid"] for devices in d["devices"].values() for v in devices if "Apple TV" in v["name"]))')
           xcodebuild \
             -project Lineup.xcodeproj \
             -scheme Lineup \
             -configuration Debug \
-            -destination 'generic/platform=tvOS Simulator' \
+            -destination "platform=tvOS Simulator,id=$device" \
             -derivedDataPath build-sim \
             CODE_SIGNING_ALLOWED=NO \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD \
