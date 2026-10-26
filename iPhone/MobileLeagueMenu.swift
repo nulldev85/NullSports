@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The sport the Sports tab is showing, on one pill. A strip of eight logos
 /// asked to be read; this says the one that is chosen, and the rest are a
@@ -38,7 +39,8 @@ struct MobileLeagueMenuButton: View {
 }
 
 /// Every league, dropped from the pill: its mark, its name, and what it has
-/// on, with the chosen one ticked.
+/// on, with the chosen one ticked. Each league is a card like a game's on
+/// the Sports tab, filled with the colours of its own mark.
 struct MobileLeagueMenu: View {
     struct Entry: Identifiable {
         let league: SportsLeague?
@@ -56,7 +58,9 @@ struct MobileLeagueMenu: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
 
-    static let rowHeight: CGFloat = 54
+    static let rowHeight: CGFloat = 58
+    /// Half the gap between two cards, kept inside each row's height.
+    private static let cardInset: CGFloat = 3
     /// Wide enough for "12 GAMES" and "1 EVENT", so every count ends on the
     /// same line and the names keep the rest.
     private static let tallyWidth: CGFloat = 82
@@ -117,6 +121,7 @@ struct MobileLeagueMenu: View {
     private func row(_ entry: Entry) -> some View {
         let isSelected = entry.league == selected
         let quiet = entry.games == 0 && !isSelected
+        let card = RoundedRectangle(cornerRadius: 15, style: .continuous)
         return Button { onChoose(entry.league) } label: {
             HStack(spacing: 11) {
                 // The mark straight on the panel, as it sits on a game's
@@ -147,18 +152,50 @@ struct MobileLeagueMenu: View {
                     .opacity(isSelected ? 1 : 0)
                     .frame(width: 16)
             }
-            .padding(.horizontal, 10)
-            .frame(height: Self.rowHeight)
-            .background(isSelected ? LineupPresentationStyle.selection(entry.league.map(LineupStyle.leagueColor) ?? LineupStyle.highlight)
-                        : LineupPresentationStyle.row,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2))
-            .contentShape(Rectangle())
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.rowHeight - Self.cardInset * 2)
+            // A game's card: its colours across it, left to right, under
+            // the same faint edge. The chosen one is a little stronger as
+            // well as ticked.
+            .background(LinearGradient(colors: Self.fill(entry.league, selected: isSelected),
+                                       startPoint: .leading, endPoint: .trailing), in: card)
+            .overlay(card.strokeBorder(Color.white.opacity(isSelected ? 0.14 : 0.045), lineWidth: 1))
+            .contentShape(card)
+            .padding(.vertical, Self.cardInset)
             .opacity(quiet ? 0.45 : 1)
         }
         .buttonStyle(MobileLeagueRowStyle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(Self.title(entry.league)), \(spokenTally(entry))")
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// The colours a league's card is filled with, from its mark. Every
+    /// league takes the green of the Sports mark.
+    static func fill(_ league: SportsLeague?, selected: Bool) -> [Color] {
+        let strength = selected ? 0.36 : 0.26
+        let stops = (league?.markColors ?? ["#30D158"]).compactMap { stop($0, strength: strength) }
+        // A gradient needs two stops; a mark of one colour fills its card evenly.
+        return stops.count == 1 ? stops + stops : stops
+    }
+
+    /// One of a mark's colours as its card shows it. A colour keeps its hue
+    /// and saturation and is brightened as far as the dark panel needs: the
+    /// lift a game's card uses mixes in white, which turned navy to slate.
+    /// White, silver and black are a pale sheen at half the strength, so they
+    /// light the card without greying it.
+    private static func stop(_ hex: String, strength: Double) -> Color? {
+        guard hex.count == 7, let value = UInt64(hex.dropFirst(), radix: 16) else { return nil }
+        let color = UIColor(red: CGFloat((value >> 16) & 0xff) / 255, green: CGFloat((value >> 8) & 0xff) / 255,
+                            blue: CGFloat(value & 0xff) / 255, alpha: 1)
+        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+        color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        if saturation < 0.15 {
+            return Color(white: Double(max(brightness, 0.6))).opacity(strength / 2)
+        }
+        return Color(hue: Double(hue), saturation: Double(saturation), brightness: Double(max(brightness, 0.85)))
+            .opacity(strength)
     }
 
     /// What it has on: how many are live, else how many are still to come.
@@ -191,13 +228,33 @@ struct MobileLeagueMenu: View {
     }
 }
 
-/// A row pressed in: the grey of a chosen row, and a little give.
+/// A card pressed in, as a game's card gives under a finger.
 private struct MobileLeagueRowStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .background(configuration.isPressed ? LineupPresentationStyle.row.opacity(0.8) : .clear,
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: configuration.isPressed)
+    }
+}
+
+extension SportsLeague {
+    /// The colours of the league's own mark, in the order they run across
+    /// it. ATP and WTA draw their marks in white here, so theirs add the
+    /// tours' own colours, and the soccer ball is black and white.
+    var markColors: [String] {
+        switch self {
+        case .nfl: ["#013369", "#D50A0A", "#FFFFFF"]
+        case .nba: ["#1D428A", "#C8102E", "#FFFFFF"]
+        case .nhl: ["#111111", "#A2AAAD", "#FFFFFF"]
+        case .mlb: ["#041E42", "#BF0D3E", "#FFFFFF"]
+        case .ncaaf: ["#0078C0", "#FFFFFF"]
+        case .ufc: ["#D20A0A"]
+        case .atp: ["#002865", "#FFFFFF"]
+        case .wta: ["#5B2C8F", "#FFFFFF"]
+        case .soccer: ["#FFFFFF", "#111111"]
+        case .f1: ["#E10600"]
+        case .nascar: ["#FFD100", "#E4002B", "#007AC2"]
+        }
     }
 }
