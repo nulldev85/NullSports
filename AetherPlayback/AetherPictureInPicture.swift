@@ -6,9 +6,10 @@ import AetherEngine
 
 /// AVKit runs the floating window. Both Aether renderers expose a real content
 /// source; no second connection, screen recording, or VLC frame capture is used.
+/// AVKit calls both delegates on the main thread, which is where this lives.
 @MainActor
-final class AetherPictureInPicture: NSObject, AVPictureInPictureControllerDelegate,
-                                    AVPictureInPictureSampleBufferPlaybackDelegate {
+final class AetherPictureInPicture: NSObject, @preconcurrency AVPictureInPictureControllerDelegate,
+                                    @preconcurrency AVPictureInPictureSampleBufferPlaybackDelegate {
     private weak var session: AetherPlaybackSession?
     private var controller: AVPictureInPictureController?
     private var softwareSource: SoftwarePiPSource?

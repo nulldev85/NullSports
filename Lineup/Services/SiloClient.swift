@@ -326,7 +326,9 @@ struct SiloClient: MediaServerClient {
             .filter { $0.id != itemID }
     }
     func libraryCounts(userID: String) async throws -> MediaLibraryCounts {
-        func count(_ kind: String) async throws -> Int {
+        // The three counts are asked for together.
+        let transport = transport
+        @Sendable func count(_ kind: String) async throws -> Int {
             let result: SiloPage<SiloTitle> = try await transport.get(["catalog"], query: [.init(name: "type", value: kind), .init(name: "limit", value: "1")])
             guard let total = result.total else { throw MediaIntegrationError.invalidResponse }
             return total
