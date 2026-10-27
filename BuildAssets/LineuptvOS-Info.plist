@@ -34,6 +34,14 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- Set Up with iPhone: the TV advertises itself on the local network
+	     while its code is on screen, for the phone to find it. -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_lineup-setup._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Let Lineup on your iPhone find this Apple TV to set it up, and connect to IPTV providers and media servers on your network.</string>
 	<!-- Apple's Liquid Glass off: the tab bar, the bars' buttons and the
 	     system's sheets keep the solid look the rest of the app is drawn in. -->
 	<key>UIDesignRequiresCompatibility</key>

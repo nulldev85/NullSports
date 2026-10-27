@@ -32,6 +32,7 @@ struct AccountView: View {
     @State private var removingShelf = false
     @State private var reorderingShelves = false
     @State private var clearingHistory = false
+    @State private var settingUpFromPhone = false
     @AppStorage(TVPlaybackEngine.storageKey) private var playbackEngine = TVPlaybackEngine.vlc.rawValue
     // Each tab's own engine: empty until one is chosen, and the tab then
     // plays with the one above, which every tab used before they had their own.
@@ -54,6 +55,7 @@ struct AccountView: View {
                     header
                     // Each section a panel, as on the phone: the header
                     // and its hairline inside, the cards a step lighter.
+                    setUpFromPhone.modifier(TVSettingsPanel())
                     sources.modifier(TVSettingsPanel())
                     teamsSettings.modifier(TVSettingsPanel())
                     libraryAndCatalogs.modifier(TVSettingsPanel())
@@ -108,6 +110,9 @@ struct AccountView: View {
             .lineupSheet(isPresented: $configuringSeerr) {
                 NavigationStack { SeerrSettingsView().environment(media) }
             }
+            .lineupFullScreenCover(isPresented: $settingUpFromPhone) {
+                TVDeviceSetupView().environment(library).environment(media)
+            }
             .lineupSheet(isPresented: $showingTracking) {
                 NavigationStack { LibraryTrackingSettingsView().environment(media) }
             }
@@ -156,6 +161,19 @@ struct AccountView: View {
             Text("Your sources, your library, and how the app is running.")
                 .font(.inter(21))
                 .foregroundStyle(LineupPresentationStyle.secondary)
+        }
+    }
+
+    // MARK: Set up
+
+    /// Everything on the phone, brought over by scanning a code.
+    private var setUpFromPhone: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            AccountSectionHeading("IPHONE")
+            AccountActionRow(symbol: "iphone", title: "Set Up with iPhone",
+                             detail: "Bring providers, servers, sign-ins and settings from Lineup on your iPhone") {
+                settingUpFromPhone = true
+            }
         }
     }
 

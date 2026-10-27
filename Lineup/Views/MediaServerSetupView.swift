@@ -800,6 +800,9 @@ struct MDBListIntegrationView: View {
 struct InitialSourceSetupView: View {
     @State private var addingIPTV = false
     @State private var addingMedia = false
+    #if os(tvOS)
+    @State private var settingUpFromPhone = false
+    #endif
 
     var body: some View {
         VStack(spacing: 30) {
@@ -816,6 +819,9 @@ struct InitialSourceSetupView: View {
                     } icon: {
                         MediaServerLogoRow(size: 26)
                     }
+                }
+                Button { settingUpFromPhone = true } label: {
+                    Label("Set Up with iPhone", systemImage: "iphone")
                 }
             }
             .lineupButtonStyle()
@@ -848,6 +854,9 @@ struct InitialSourceSetupView: View {
             #endif
         }
         .lineupSheet(isPresented: $addingMedia) { MediaServerSetupView() }
+        #if os(tvOS)
+        .lineupFullScreenCover(isPresented: $settingUpFromPhone) { TVDeviceSetupView() }
+        #endif
     }
 
     private var setupPadding: CGFloat {

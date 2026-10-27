@@ -171,6 +171,7 @@ targets:
       - Tests/iOS/TitleArtworkTests.swift
       - Tests/iOS/MDBListTrackingTests.swift
       - Tests/iOS/UFCScheduleTests.swift
+      - Tests/iOS/DeviceSetupTests.swift
     dependencies:
       - target: Lineup
     settings:

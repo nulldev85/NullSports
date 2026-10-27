@@ -59,6 +59,7 @@ TARGET_FILES = [
     "Lineup/Views/TVSportsExtras.swift",
     "Lineup/Views/TVLibraryCollections.swift",
     "Lineup/Views/TVSubtitleScreens.swift",
+    "Lineup/Views/TVDeviceSetupView.swift",
     "Lineup/Design/GameStatsRows.swift",
     "Lineup/Design/GameStatsBoardViews.swift",
     "Lineup/Views/RootView.swift",

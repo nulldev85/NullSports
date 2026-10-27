@@ -758,6 +758,7 @@ private struct MobileAccountView: View {
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
     @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.automatic.rawValue
     @State private var choosingAccent = false
+    @State private var settingUpTV = false
     /// Done in the picker, applied once it has gone: the change redraws this
     /// screen, and a sheet should not be torn down from under itself.
     @State private var pendingAccent: String?
@@ -797,6 +798,15 @@ private struct MobileAccountView: View {
                     } label: {
                         SettingsRow("Media Servers", symbol: "play.square.stack", value: mediaValue)
                     }
+                }
+                .lineupSettingsRows()
+                Section {
+                    Button { settingUpTV = true } label: {
+                        SettingsRow(title: "Set Up Apple TV", symbol: "appletv") { SettingsChevron() }
+                    }
+                } footer: {
+                    Text("Send your providers, servers, sign-ins and settings to Lineup on an Apple TV by scanning its code.")
+                        .lineupSettingsFooter()
                 }
                 .lineupSettingsRows()
                 Section {
@@ -893,6 +903,9 @@ private struct MobileAccountView: View {
             .task {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
+            }
+            .lineupSheet(isPresented: $settingUpTV) {
+                MobileDeviceSetupSheet().environment(library).environment(media)
             }
             .lineupSheet(isPresented: $choosingAccent, onDismiss: {
                 guard let chosen = pendingAccent else { return }

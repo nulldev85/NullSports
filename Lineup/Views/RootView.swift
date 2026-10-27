@@ -9,6 +9,10 @@ struct RootView: View {
     /// Watched so the app's tint follows the accent; the tabs below redraw
     /// themselves for it.
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
+    #if os(iOS)
+    /// An Apple TV's setup code, opened from the Camera app.
+    @State private var incomingSetup: DeviceSetupPairing?
+    #endif
 
     var body: some View {
         Group {
@@ -25,6 +29,14 @@ struct RootView: View {
         .foregroundStyle(LineupStyle.text)
         .tint(LineupStyle.highlight)
         .background(LineupStyle.background.ignoresSafeArea())
+        #if os(iOS)
+        .onOpenURL { url in
+            if let pairing = DeviceSetupPairing(url: url) { incomingSetup = pairing }
+        }
+        .lineupSheet(item: $incomingSetup) { pairing in
+            MobileDeviceSetupSheet(pairing: pairing).environment(library).environment(media)
+        }
+        #endif
         #if os(tvOS)
         // Every focusable surface in this app draws its own focus -- a filled
         // background, a lift, a border. tvOS's plate was drawn on top of that,
