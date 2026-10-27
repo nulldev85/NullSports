@@ -439,25 +439,26 @@ private struct MobileSettingsBackdrop: View {
     }
 }
 
-/// The Settings tab keeps no bar of its own: the ground and its glow carry
-/// on up behind the title and the clock instead of stopping at a black box.
+/// The Settings tab has no bar or title above its rows, the tab bar already
+/// names it: the rows start under the clock, and the ground and its glow
+/// carry on up behind it. The pages it opens keep their bar and back button.
 private struct MobileSettingsClearHeader: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             // The fade stands in for the system's edge, so every version looks the same.
-            content.toolbarBackground(.hidden, for: .navigationBar)
+            content.toolbar(.hidden, for: .navigationBar)
                 .scrollEdgeEffectHidden(true, for: .top)
                 .overlay { MobileSettingsTopFade() }
         } else {
-            content.toolbarBackground(.hidden, for: .navigationBar)
+            content.toolbar(.hidden, for: .navigationBar)
                 .overlay { MobileSettingsTopFade() }
         }
     }
 }
 
-/// Over the top of the list, where the title and the clock sit: the same
-/// ground and glow as behind it, so a row fades out as it passes under the
-/// title rather than meeting the edge of a bar.
+/// Over the top of the list, where the clock sits: the same ground and glow
+/// as behind it, so a row fades out as it passes under the clock rather than
+/// meeting a hard edge.
 private struct MobileSettingsTopFade: View {
     var body: some View {
         GeometryReader { proxy in

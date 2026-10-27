@@ -4,8 +4,8 @@ import UIKit
 @testable import LineupiOS
 
 /// Settings is the app's black, lit only by the accent's glow in the top
-/// left, and that glow reaches the corner: no bar covers it, at rest or once
-/// the rows have scrolled up under the title.
+/// left, with no bar or title block above the rows: the glow reaches the
+/// corner at rest and once the rows have scrolled up under the clock.
 @MainActor
 final class SettingsBackdropTests: XCTestCase {
     func testSettingsIsBlackWithTheAccentGlowUpBehindTheTitle() async throws {
@@ -33,7 +33,11 @@ final class SettingsBackdropTests: XCTestCase {
         defer { window.isHidden = true; previous?.makeKey() }
         try await settle(window, passes: 8)
 
+        let bar = navigationBar(in: window)
+        XCTAssertTrue(bar == nil || bar?.isHidden == true, "Settings must keep no bar or title above its rows")
         let list = try XCTUnwrap(verticalScroll(in: window))
+        XCTAssertLessThan(list.adjustedContentInset.top, window.safeAreaInsets.top + 1,
+                          "The rows must start under the clock, with no header block above them")
         let rest = -list.adjustedContentInset.top
         let end = max(rest, list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height)
         for (name, offset) in [("top", 0.0), ("scrolled", 240.0), ("further", 560.0)] {
@@ -76,6 +80,12 @@ final class SettingsBackdropTests: XCTestCase {
         // Core Graphics counts rows up from the bottom.
         context.draw(cgImage, in: CGRect(x: -x, y: y - cgImage.height + 1, width: cgImage.width, height: cgImage.height))
         return (CGFloat(pixel[0]) / 255, CGFloat(pixel[1]) / 255, CGFloat(pixel[2]) / 255)
+    }
+
+    private func navigationBar(in view: UIView) -> UINavigationBar? {
+        if let bar = view as? UINavigationBar { return bar }
+        for child in view.subviews { if let bar = navigationBar(in: child) { return bar } }
+        return nil
     }
 
     private func verticalScroll(in view: UIView) -> UIScrollView? {
