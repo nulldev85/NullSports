@@ -157,7 +157,7 @@ final class DeviceSetupTests: XCTestCase {
         XCTAssertEqual(tvVault.passwords, [phoneProvider: "p"])
     }
 
-    func testTwoCopiesOfAServersHistoryBecomeOneRecordEachTheLaterPlayKept() throws {
+    func testTwoCopiesOfAServersHistoryBecomeOneRecordEachTheFurtherPlaceKept() throws {
         let (tvDefaults, _) = try defaults()
         let old = UUID(), new = UUID()
         let servers = [MediaServerProfile(id: new, name: "Jellyfin", serverURL: "http://server", username: "viewer", userID: "u")]
@@ -177,7 +177,7 @@ final class DeviceSetupTests: XCTestCase {
         XCTAssertEqual(tv.localPlayback.count, 1, "the title shows once")
         XCTAssertEqual(tv.localPlayback.first?.profileID, new)
         XCTAssertEqual(tv.localPlayback.first?.item.serverID, new)
-        XCTAssertEqual(tv.localPlayback.first?.position, 1_800, "the later play stays")
+        XCTAssertEqual(tv.localPlayback.first?.position, 1_800, "the further place stays")
     }
 
     func testASetupFromAnotherVersionChangesNothing() throws {
@@ -214,7 +214,7 @@ final class DeviceSetupTests: XCTestCase {
                      "no source arrives without the sign-in that opens it")
     }
 
-    func testThePhonesWatchHistoryJoinsTheTVsAndTheLaterPlayWins() throws {
+    func testThePhonesWatchHistoryJoinsTheTVsAndTheFurtherPlaceWins() throws {
         let (tvDefaults, _) = try defaults()
         let server = MediaServerProfile(name: "Server", serverURL: "http://server", username: "viewer", userID: "user")
         tvDefaults.set(try JSONEncoder().encode([server]), forKey: DeviceSetup.serversKey)
@@ -237,16 +237,81 @@ final class DeviceSetupTests: XCTestCase {
 
         let byID = Dictionary(uniqueKeysWithValues: tv.localPlayback.map { ($0.item.id, $0) })
         XCTAssertEqual(Set(byID.keys), ["both", "tv", "phone"], "nothing the TV watched is lost")
-        XCTAssertEqual(byID["both"]?.position, 3_000, "the later play wins")
+        XCTAssertEqual(byID["both"]?.position, 3_000, "the further place wins")
         XCTAssertEqual(byID["tv"]?.position, 100)
         XCTAssertEqual(byID["phone"]?.completed, true)
         XCTAssertEqual(tv.localFavorites.map(\.item.id), ["phone"])
         XCTAssertEqual(Set(MediaLibrary(defaults: tvDefaults).localPlayback.map(\.item.id)), ["both", "tv", "phone"],
                        "saved, so it is there after a relaunch")
 
-        tv.adoptPlaybackHistory([played("both", at: 10, on: 500)], favorites: [], dismissals: [])
+        tv.adoptPlaybackHistory([played("both", at: 10, on: 5_000)], favorites: [], dismissals: [])
         XCTAssertEqual(tv.localPlayback.first { $0.item.id == "both" }?.position, 3_000,
-                       "an older play from the phone never undoes a newer one here")
+                       "a place further back never undoes this one, however recently it was played")
+    }
+
+    private func episode(_ number: Int, on server: UUID) -> MediaItem {
+        MediaItem(id: "e\(number)", name: "Episode \(number)", type: "Episode", overview: nil,
+                  productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                  indexNumber: number, parentIndexNumber: 1, seriesName: "Show", seriesID: "show",
+                  serverID: server)
+    }
+
+    private func watched(_ number: Int, on server: UUID, at day: TimeInterval,
+                         stoppedAt position: TimeInterval? = nil) -> LocalMediaPlayback {
+        LocalMediaPlayback(profileID: server, item: episode(number, on: server), position: position ?? 3_000,
+                           duration: 3_000, updatedAt: Date(timeIntervalSince1970: day), completed: position == nil)
+    }
+
+    /// Where the show's Play button picks up, from these records alone.
+    private func resume(_ records: [LocalMediaPlayback], on server: UUID) -> String? {
+        let finished = Set(records.filter(\.completed).map(\.item.id))
+        return SeriesResumePolicy.target(episodes: (1...8).map { episode($0, on: server) }, records: records,
+                                         serverNext: nil, isWatched: { finished.contains($0.id) })?.id
+    }
+
+    func testTheDeviceFurtherIntoAShowKeepsItsPlaceThoughTheOtherPlayedItSince() throws {
+        let server = UUID()
+        // The TV is partway through episode 5. The phone, played since, is
+        // partway through episode 3.
+        let tv = (1...4).map { watched($0, on: server, at: 1_000 + Double($0)) }
+            + [watched(5, on: server, at: 1_010, stoppedAt: 900)]
+        let phone = [watched(1, on: server, at: 2_000), watched(2, on: server, at: 2_001),
+                     watched(3, on: server, at: 2_002, stoppedAt: 600)]
+        XCTAssertEqual(resume(phone, on: server), "e3")
+
+        let merged = MediaLibrary.mergedHistory(tv, adding: phone)
+
+        XCTAssertEqual(resume(merged, on: server), "e5", "the show picks up where the TV is")
+        let byID = Dictionary(uniqueKeysWithValues: merged.map { ($0.item.id, $0) })
+        XCTAssertEqual(Set(byID.keys), ["e1", "e2", "e3", "e4", "e5"])
+        XCTAssertEqual(byID["e3"]?.completed, true, "the phone's place in episode 3 stays behind")
+        XCTAssertEqual(byID["e5"]?.position, 900)
+        XCTAssertLessThan(try XCTUnwrap(byID["e2"]).updatedAt, Date(timeIntervalSince1970: 1_010),
+                          "the phone's finished episodes count, but never as the show's latest")
+    }
+
+    func testThePhoneFurtherIntoAShowMovesTheTVOnThoughTheTVPlayedItSince() {
+        let server = UUID()
+        let tv = [watched(1, on: server, at: 3_000), watched(2, on: server, at: 3_001, stoppedAt: 400)]
+        let phone = (1...5).map { watched($0, on: server, at: 1_000 + Double($0)) }
+            + [watched(6, on: server, at: 1_010, stoppedAt: 1_200)]
+
+        let merged = MediaLibrary.mergedHistory(tv, adding: phone)
+
+        XCTAssertEqual(resume(merged, on: server), "e6", "the show picks up where the phone is")
+        XCTAssertEqual(merged.filter { !$0.completed }.map(\.item.id), ["e6"],
+                       "the TV's place in episode 2 stays behind")
+        XCTAssertEqual(merged.count, 6)
+    }
+
+    func testAShowOnlyOneDeviceHasComesWhole() {
+        let server = UUID()
+        let phone = [watched(1, on: server, at: 1_000), watched(2, on: server, at: 1_001, stoppedAt: 300)]
+
+        let merged = MediaLibrary.mergedHistory([], adding: phone)
+
+        XCTAssertEqual(merged, phone)
+        XCTAssertEqual(resume(merged, on: server), "e2")
     }
 
     // MARK: Across the network
