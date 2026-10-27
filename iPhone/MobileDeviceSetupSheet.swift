@@ -102,7 +102,7 @@ struct MobileDeviceSetupSheet: View {
         } header: {
             Text("Sending to \(pairing.service)").lineupSettingsHeader()
         } footer: {
-            Text("Passwords and sign-ins are locked with the code on your TV and go straight to it over your Wi-Fi. Watch history joins the TV’s own: nothing it has watched is lost, and where both have played a title, the later play wins.")
+            Text("Passwords and sign-ins are locked with the code on your TV and go straight to it over your Wi-Fi. Watch history joins the TV’s own: nothing it has watched is lost, and where one is further into a show or film, that’s where it picks up.")
                 .lineupSettingsFooter()
         }
         .lineupSettingsRows()

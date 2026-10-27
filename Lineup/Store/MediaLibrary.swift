@@ -2667,8 +2667,8 @@ final class MediaLibrary {
     }
 
     /// The TV's own copies of servers the phone has too go by the phone's ids,
-    /// from Set Up with iPhone. Where two copies held the same title, the
-    /// later play stays, so it shows once.
+    /// from Set Up with iPhone. Where two copies held the same title, it
+    /// shows once, at the further place of the two.
     func adoptProfileIDs(_ renamed: [String: String]) {
         guard !renamed.isEmpty else { return }
         flushLocalPlayback()
@@ -2677,14 +2677,11 @@ final class MediaLibrary {
             guard let data = try? JSONEncoder().encode(value) else { return nil }
             return try? JSONDecoder().decode(T.self, from: DeviceSetup.replacingIDs(in: data, renamed))
         }
-        if let records = swapped(localPlayback) {
-            var kept: [LocalMediaPlayback] = []
-            for record in records.sorted(by: { $0.updatedAt > $1.updatedAt }) where !kept.contains(where: {
-                $0.profileID == record.profileID && Self.samePlaybackItem($0.item, record.item)
-            }) {
-                kept.append(record)
-            }
-            localPlayback = kept
+        let old = Set(renamed.keys.map { $0.uppercased() })
+        let moving = localPlayback.filter { old.contains($0.profileID.uuidString) }
+        if !moving.isEmpty, let moved = swapped(moving) {
+            let staying = localPlayback.filter { !old.contains($0.profileID.uuidString) }
+            localPlayback = Self.mergedHistory(staying, adding: moved)
             persistLocalPlayback()
         }
         if let favorites = swapped(localFavorites) {
@@ -2708,26 +2705,15 @@ final class MediaLibrary {
     var hiddenFromContinueWatching: [LocalContinueWatchingDismissal] { continueWatchingDismissals }
 
     /// Another device's watch history, from Set Up with iPhone. Every title
-    /// either device has played stays. Where both have the same one, the later
-    /// play wins, so an older record from the phone never undoes a newer one
-    /// here. Its favorites and the titles it took out of Continue Watching
-    /// join this device's.
+    /// either device has played stays, and where both have the same one, the
+    /// further place wins -- see `mergedHistory`. Its favorites and the titles
+    /// it took out of Continue Watching join this device's.
     func adoptPlaybackHistory(_ records: [LocalMediaPlayback], favorites: [LocalMediaFavorite],
                               dismissals: [LocalContinueWatchingDismissal]) {
         if localTrackingEnabled, !records.isEmpty {
             flushLocalPlayback()
             playbackGeneration = UUID()
-            var merged = localPlayback
-            for record in records.map({ Self.marked($0) }) {
-                if let index = merged.firstIndex(where: {
-                    $0.profileID == record.profileID && Self.samePlaybackItem($0.item, record.item)
-                }) {
-                    if record.updatedAt > merged[index].updatedAt { merged[index] = record }
-                } else {
-                    merged.append(record)
-                }
-            }
-            localPlayback = merged
+            localPlayback = Self.mergedHistory(localPlayback, adding: records.map { Self.marked($0) })
             persistLocalPlayback()
         }
         let favorited = Set(localFavorites.map(\.id))
@@ -2745,6 +2731,77 @@ final class MediaLibrary {
             continueWatchingDismissals += newDismissals
             persistContinueWatchingDismissals()
         }
+    }
+
+    /// Two devices' watch history as one. Where one device is further into a
+    /// show, the show picks up where that device is: the other's unfinished
+    /// episodes of it stay behind, and its finished ones come only to count
+    /// as watched, dated no later than the leading device's own place. An
+    /// earlier episode played more recently never takes the show back.
+    /// A title both have keeps the further of its two records.
+    nonisolated static func mergedHistory(_ mine: [LocalMediaPlayback],
+                                          adding theirs: [LocalMediaPlayback]) -> [LocalMediaPlayback] {
+        let mineShows = showProgress(in: mine), theirShows = showProgress(in: theirs)
+        func carried(_ record: LocalMediaPlayback, own: [String: (place: Int, newest: Date)],
+                     other: [String: (place: Int, newest: Date)]) -> LocalMediaPlayback? {
+            guard let show = showKey(record), let lead = other[show],
+                  own[show].map({ $0.place < lead.place }) ?? true else { return record }
+            guard record.completed else { return nil }
+            var finished = record
+            finished.updatedAt = min(record.updatedAt, lead.newest.addingTimeInterval(-1))
+            return finished
+        }
+        var merged = mine.compactMap { carried($0, own: mineShows, other: theirShows) }
+        for record in theirs.compactMap({ carried($0, own: theirShows, other: mineShows) }) {
+            if let index = merged.firstIndex(where: {
+                $0.profileID == record.profileID && samePlaybackItem($0.item, record.item)
+            }) {
+                if further(record, than: merged[index]) { merged[index] = record }
+            } else {
+                merged.append(record)
+            }
+        }
+        return merged
+    }
+
+    /// A show's episodes go together by server and show.
+    nonisolated private static func showKey(_ record: LocalMediaPlayback) -> String? {
+        guard record.item.type == "Episode" else { return nil }
+        return record.profileID.uuidString + "|" + seriesKey(for: record.item)
+    }
+
+    /// How far each show has got -- its latest episode finished or under
+    /// way, by season and number -- and when it was last played. Specials and
+    /// a queued Up Next don't move a show along.
+    nonisolated private static func showProgress(
+        in records: [LocalMediaPlayback]) -> [String: (place: Int, newest: Date)] {
+        var shows: [String: (place: Int, newest: Date)] = [:]
+        for record in records where record.isUpNext != true && record.explicitlyUnwatched != true
+            && (record.completed || record.position >= 5) {
+            guard let show = showKey(record), let season = record.item.parentIndexNumber, season > 0,
+                  let number = record.item.indexNumber, number > 0 else { continue }
+            let place = season * 100_000 + number
+            let known = shows[show]
+            shows[show] = (max(known?.place ?? 0, place), max(known?.newest ?? .distantPast, record.updatedAt))
+        }
+        return shows
+    }
+
+    /// Whether one record of a title is further along than another. A title
+    /// marked unwatched against one finished goes by which came later.
+    /// Otherwise finished beats under way, which beats a queued Up Next, and
+    /// of two under way the further position wins.
+    nonisolated private static func further(_ candidate: LocalMediaPlayback,
+                                            than existing: LocalMediaPlayback) -> Bool {
+        if candidate.explicitlyUnwatched == true || existing.explicitlyUnwatched == true {
+            return candidate.updatedAt > existing.updatedAt
+        }
+        if candidate.completed != existing.completed { return candidate.completed }
+        if candidate.completed { return candidate.updatedAt > existing.updatedAt }
+        let candidateQueued = candidate.isUpNext == true, existingQueued = existing.isUpNext == true
+        if candidateQueued != existingQueued { return existingQueued }
+        if candidate.position != existing.position { return candidate.position > existing.position }
+        return candidate.updatedAt > existing.updatedAt
     }
 
     // MARK: - Snapshots
