@@ -116,6 +116,70 @@ final class DeviceSetupTests: XCTestCase {
                           "a setting the phone doesn't send is never written")
     }
 
+    func testTheSameServerAndProviderAddedOnEachDeviceBecomeOne() throws {
+        let (phone, _) = try defaults()
+        let (tv, tvName) = try defaults()
+        let phoneServer = UUID(), tvServer = UUID(), phoneProvider = UUID(), tvProvider = UUID()
+        phone.set(try JSONSerialization.data(withJSONObject: [[
+            "id": phoneServer.uuidString, "name": "Jellyfin", "serverURL": "http://jellyfin.local:8096/",
+            "username": "viewer", "userID": "ABC123", "software": "jellyfin"]]), forKey: DeviceSetup.serversKey)
+        tv.set(try JSONSerialization.data(withJSONObject: [[
+            "id": tvServer.uuidString, "name": "Home", "serverURL": "http://192.168.1.20:8096",
+            "username": "viewer", "userID": "abc123", "software": "jellyfin"]]), forKey: DeviceSetup.serversKey)
+        phone.set(try JSONSerialization.data(withJSONObject: [[
+            "id": phoneProvider.uuidString, "name": "IPTV", "serverURL": "http://iptv.example:8080",
+            "username": "me"]]), forKey: DeviceSetup.providersKey)
+        tv.set(try JSONSerialization.data(withJSONObject: [[
+            "id": tvProvider.uuidString, "name": "IPTV", "serverURL": "HTTP://iptv.example:8080/",
+            "username": "Me"]]), forKey: DeviceSetup.providersKey)
+        phone.set([6, 7], forKey: "NullSports.favoriteStreams.\(phoneProvider.uuidString)")
+        tv.set([5, 6], forKey: "NullSports.favoriteStreams.\(tvProvider.uuidString)")
+        tv.set(["team"], forKey: "NullSports.followedTeams.\(tvProvider.uuidString)")
+        let payload = DeviceSetup.capture(defaults: phone,
+                                          secrets: Vault(passwords: [phoneProvider: "p"], tokens: [phoneServer: "t"]).secrets,
+                                          library: .init())
+        let tvVault = Vault()
+
+        let applied = try DeviceSetup.apply(payload, defaults: tv, secrets: tvVault.secrets)
+
+        XCTAssertEqual(applied.renamed, [tvServer.uuidString: phoneServer.uuidString,
+                                         tvProvider.uuidString: phoneProvider.uuidString])
+        XCTAssertEqual(DeviceSetup.profileIDs(in: tv.data(forKey: DeviceSetup.serversKey)), [phoneServer],
+                       "one server, not one per device")
+        XCTAssertEqual(DeviceSetup.profileIDs(in: tv.data(forKey: DeviceSetup.providersKey)), [phoneProvider])
+        XCTAssertEqual(tv.array(forKey: "NullSports.favoriteStreams.\(phoneProvider.uuidString)") as? [Int], [6, 7, 5],
+                       "the phone's favorites, then the ones only the TV had")
+        XCTAssertEqual(tv.array(forKey: "NullSports.followedTeams.\(phoneProvider.uuidString)") as? [String], ["team"],
+                       "what the TV kept for its copy goes with the phone's")
+        let saved = UserDefaults.standard.persistentDomain(forName: tvName) ?? [:]
+        XCTAssertNil(saved["NullSports.favoriteStreams.\(tvProvider.uuidString)"])
+        XCTAssertNil(saved["NullSports.followedTeams.\(tvProvider.uuidString)"])
+        XCTAssertEqual(tvVault.passwords, [phoneProvider: "p"])
+    }
+
+    func testTwoCopiesOfAServersHistoryBecomeOneRecordEachTheLaterPlayKept() throws {
+        let (tvDefaults, _) = try defaults()
+        let old = UUID(), new = UUID()
+        let servers = [MediaServerProfile(id: new, name: "Jellyfin", serverURL: "http://server", username: "viewer", userID: "u")]
+        tvDefaults.set(try JSONEncoder().encode(servers), forKey: DeviceSetup.serversKey)
+        func show(on server: UUID, at position: TimeInterval, day: TimeInterval) -> LocalMediaPlayback {
+            let item = MediaItem(id: "terminal-list", name: "The Terminal List", type: "Movie", overview: nil,
+                                 productionYear: 2022, primaryImageAspectRatio: nil, childCount: nil, serverID: server)
+            return LocalMediaPlayback(profileID: server, item: item, position: position, duration: 3_600,
+                                      updatedAt: Date(timeIntervalSince1970: day), completed: false)
+        }
+        tvDefaults.set(try JSONEncoder().encode([show(on: old, at: 600, day: 1_000), show(on: new, at: 1_800, day: 2_000)]),
+                       forKey: "Lineup.localMediaPlayback.v1")
+        let tv = MediaLibrary(defaults: tvDefaults)
+
+        tv.adoptProfileIDs([old.uuidString: new.uuidString])
+
+        XCTAssertEqual(tv.localPlayback.count, 1, "the title shows once")
+        XCTAssertEqual(tv.localPlayback.first?.profileID, new)
+        XCTAssertEqual(tv.localPlayback.first?.item.serverID, new)
+        XCTAssertEqual(tv.localPlayback.first?.position, 1_800, "the later play stays")
+    }
+
     func testASetupFromAnotherVersionChangesNothing() throws {
         let (phone, _) = try defaults()
         let (tv, tvName) = try defaults()
@@ -193,7 +257,7 @@ final class DeviceSetupTests: XCTestCase {
         let receiver = DeviceSetupReceiver(advertises: false, take: { payload in
             taken = payload
             return DeviceSetup.Applied(providers: 1, servers: 2)
-        }, settle: { _ in settled = true })
+        }, settle: { _, _ in settled = true })
         receiver.start()
         defer { receiver.stop() }
         let port = try await listening(receiver)
@@ -215,7 +279,7 @@ final class DeviceSetupTests: XCTestCase {
         let receiver = DeviceSetupReceiver(advertises: false, take: { _ in
             takes += 1
             return DeviceSetup.Applied(providers: 0, servers: 0)
-        }, settle: { _ in })
+        }, settle: { _, _ in })
         receiver.start()
         defer { receiver.stop() }
         let port = try await listening(receiver)

@@ -48,6 +48,9 @@ enum DeviceSetup {
     struct Applied: Equatable, Sendable {
         var providers: Int
         var servers: Int
+        /// The TV's own ids for providers and servers the phone has too, each
+        /// with the phone's id it goes by from now on.
+        var renamed: [String: String] = [:]
     }
 
     /// Everything here another device should have.
@@ -71,24 +74,54 @@ enum DeviceSetup {
     }
 
     /// Writes what the phone sent. A provider or server the TV already has
-    /// under the same id takes the phone's; one only the TV has stays, with its
-    /// sign-in. Sign-ins are written first, so a Keychain that refuses one
-    /// leaves the TV as it was rather than holding sources it can't open.
+    /// takes the phone's, whether it has the same id or is the same one added
+    /// by hand on each device: then everything the TV kept under its own id,
+    /// its favorites, shelves and channel choices, goes by the phone's, and
+    /// there is one of it rather than two. One only the TV has stays, with its
+    /// sign-in. A list or a table on both, favorites or shelf names, keeps
+    /// what only the TV had after the phone's.
+    ///
+    /// Sign-ins are written first, so a Keychain that refuses one leaves the
+    /// TV as it was rather than holding sources it can't open.
     @discardableResult
     static func apply(_ payload: DeviceSetupPayload, defaults: UserDefaults = .standard,
                       secrets: Secrets = .keychain) throws -> Applied {
         guard payload.version == DeviceSetupPayload.currentVersion else { throw DeviceSetupError.otherVersion }
-        var settings: [String: Any] = [:]
-        for (key, data) in payload.values where carries(key) {
-            guard let value = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) else { continue }
-            if key == providersKey || key == serversKey, let incoming = value as? Data {
-                settings[key] = merged(incoming, over: defaults.data(forKey: key))
-            } else {
-                settings[key] = value
+        var renamed = aliases(phone: payload.list(providersKey), tv: defaults.data(forKey: providersKey),
+                              identity: providerIdentity)
+        renamed.merge(aliases(phone: payload.list(serversKey), tv: defaults.data(forKey: serversKey),
+                              identity: serverIdentity)) { first, _ in first }
+
+        // The TV's settings as they read once its copies go by the phone's ids.
+        var writes: [String: Any] = [:]
+        var stale: Set<String> = []
+        if !renamed.isEmpty {
+            for (key, value) in defaults.dictionaryRepresentation() where carries(key) {
+                guard let data = try? PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+                else { continue }
+                let rewritten = replacingIDs(in: data, renamed)
+                let newKey = replacingIDs(in: key, renamed)
+                guard rewritten != data || newKey != key,
+                      let object = try? PropertyListSerialization.propertyList(from: rewritten, options: [], format: nil)
+                else { continue }
+                if newKey != key { stale.insert(key) }
+                writes[newKey] = writes[newKey].map { combined(object, over: $0) } ?? object
             }
         }
-        let providers = profileIDs(in: settings[providersKey] as? Data ?? defaults.data(forKey: providersKey))
-        let servers = profileIDs(in: settings[serversKey] as? Data ?? defaults.data(forKey: serversKey))
+        func own(_ key: String) -> Any? { writes[key] ?? (stale.contains(key) ? nil : defaults.object(forKey: key)) }
+
+        for (key, data) in payload.values where carries(key) {
+            guard let value = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) else { continue }
+            let taken: Any
+            if key == providersKey || key == serversKey, let incoming = value as? Data {
+                taken = merged(incoming, over: own(key) as? Data)
+            } else {
+                taken = combined(value, over: own(key))
+            }
+            writes[key] = taken
+        }
+        let providers = profileIDs(in: own(providersKey) as? Data)
+        let servers = profileIDs(in: own(serversKey) as? Data)
         do {
             for (key, password) in payload.providerPasswords {
                 guard let id = UUID(uuidString: key), providers.contains(id) else { continue }
@@ -101,19 +134,116 @@ enum DeviceSetup {
         } catch {
             throw DeviceSetupError.keychain
         }
-        for (key, value) in settings { defaults.set(value, forKey: key) }
-        return Applied(providers: payload.count(of: providersKey), servers: payload.count(of: serversKey))
+        for key in stale where writes[key] == nil { defaults.removeObject(forKey: key) }
+        for (key, value) in writes { defaults.set(value, forKey: key) }
+        return Applied(providers: payload.count(of: providersKey), servers: payload.count(of: serversKey),
+                       renamed: renamed)
     }
 
     /// The phone's list first, in its order, then whatever only the TV has.
     static func merged(_ incoming: Data, over existing: Data?) -> Data {
         guard let phone = try? JSONSerialization.jsonObject(with: incoming) as? [[String: Any]] else { return incoming }
         let ids = Set(phone.compactMap { $0["id"] as? String })
-        let saved = existing.flatMap { try? JSONSerialization.jsonObject(with: $0) }
-        let own = ((saved as? [[String: Any]]) ?? []).filter { entry in
+        let own = entries(existing).filter { entry in
             (entry["id"] as? String).map { !ids.contains($0) } ?? false
         }
         return (try? JSONSerialization.data(withJSONObject: phone + own)) ?? incoming
+    }
+
+    /// A list or a table from the phone, with whatever only the TV had kept
+    /// after it. Anything else is the phone's.
+    static func combined(_ incoming: Any, over existing: Any?) -> Any {
+        if let phone = incoming as? [Any], let own = existing as? [Any] {
+            let extra = own.filter { item in
+                !phone.contains { ($0 as? NSObject)?.isEqual(item) ?? false }
+            }
+            return phone + extra
+        }
+        if let phone = incoming as? [String: Any], let own = existing as? [String: Any] {
+            return own.merging(phone) { _, theirs in theirs }
+        }
+        return incoming
+    }
+
+    /// Each of the TV's providers or servers that the phone has under another
+    /// id: added by hand on both, the same one has an id of its own on each.
+    static func aliases(phone: Data?, tv: Data?, identity: ([String: Any]) -> String?) -> [String: String] {
+        let theirs = entries(phone)
+        let theirIDs = Set(theirs.compactMap { $0["id"] as? String })
+        var byIdentity: [String: String] = [:]
+        for entry in theirs {
+            if let key = identity(entry), let id = entry["id"] as? String, byIdentity[key] == nil { byIdentity[key] = id }
+        }
+        var result: [String: String] = [:]
+        for entry in entries(tv) {
+            guard let id = entry["id"] as? String, !theirIDs.contains(id),
+                  let key = identity(entry), let phoneID = byIdentity[key] else { continue }
+            result[id] = phoneID
+        }
+        return result
+    }
+
+    /// The same provider: the same kind of connection, address and account.
+    static func providerIdentity(_ entry: [String: Any]) -> String? {
+        guard let address = normalizedAddress(entry["serverURL"]) else { return nil }
+        let user = ((entry["username"] as? String) ?? "").lowercased()
+        return "\((entry["connectionKind"] as? String) ?? "xtream")|\(address)|\(user)"
+    }
+
+    /// The same server: the same software and the same account on it. A
+    /// Jellyfin or Emby user id belongs to its server, whichever address
+    /// reaches it. A Plex account's id is the same on each of its servers, so
+    /// the server is told by its plex.direct name, or by its address.
+    static func serverIdentity(_ entry: [String: Any]) -> String? {
+        let software = (entry["software"] as? String) ?? MediaServerBrand.jellyfin.rawValue
+        guard let user = (entry["userID"] as? String)?.lowercased(), !user.isEmpty else { return nil }
+        if software == MediaServerBrand.plex.rawValue {
+            guard let host = normalizedAddress(entry["serverURL"]).flatMap({ URL(string: $0)?.host }) else { return nil }
+            let labels = host.split(separator: ".")
+            let server = host.hasSuffix(".plex.direct") && labels.count > 2 ? String(labels[1]) : host
+            return "\(software)|\(user)|\(server)"
+        }
+        return "\(software)|\(user)|\((entry["siloProfileID"] as? String) ?? "")"
+    }
+
+    static func normalizedAddress(_ value: Any?) -> String? {
+        guard var text = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !text.isEmpty else { return nil }
+        while text.hasSuffix("/") { text.removeLast() }
+        return text
+    }
+
+    /// Every mention of one id swapped for another: in a key, in a setting
+    /// written out, in a watch history. An id is 36 characters either way, so
+    /// what holds it keeps its shape.
+    static func replacingIDs(in data: Data, _ renamed: [String: String]) -> Data {
+        var result = data
+        for (old, new) in renamed {
+            for (from, to) in [(old.uppercased(), new.uppercased()), (old.lowercased(), new.lowercased())] {
+                let needle = Data(from.utf8)
+                let replacement = Data(to.utf8)
+                var start = result.startIndex
+                while let found = result.range(of: needle, in: start..<result.endIndex) {
+                    result.replaceSubrange(found, with: replacement)
+                    start = found.lowerBound + replacement.count
+                }
+            }
+        }
+        return result
+    }
+
+    static func replacingIDs(in text: String, _ renamed: [String: String]) -> String {
+        var result = text
+        for (old, new) in renamed {
+            result = result.replacingOccurrences(of: old.uppercased(), with: new.uppercased())
+                .replacingOccurrences(of: old.lowercased(), with: new.lowercased())
+        }
+        return result
+    }
+
+    static func entries(_ data: Data?) -> [[String: Any]] {
+        guard let data, let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+        return list
     }
 
     static func profileIDs(in data: Data?) -> [UUID] {
@@ -160,12 +290,15 @@ struct DeviceSetupPayload: Codable, Sendable {
         var hiddenFromContinueWatching: Data?
     }
 
+    /// A list it carries, as the app keeps it.
+    func list(_ key: String) -> Data? {
+        guard let data = values[key] else { return nil }
+        return try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? Data
+    }
+
     /// How many entries a list in it has.
     func count(of key: String) -> Int {
-        guard let data = values[key],
-              let list = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? Data
-        else { return 0 }
-        return DeviceSetup.profileIDs(in: list).count
+        DeviceSetup.profileIDs(in: list(key)).count
     }
 }
 
@@ -206,7 +339,11 @@ extension MediaLibrary {
     /// Takes the Library's part of a setup sent from the phone, after its
     /// settings are written: the servers and shelves as iCloud's do, then
     /// each choice through the path the Library's own settings use.
-    func adoptSetup(_ choices: DeviceSetupPayload.LibraryChoices) async {
+    func adoptSetup(_ choices: DeviceSetupPayload.LibraryChoices, renamed: [String: String] = [:]) async {
+        // The TV's copies of the phone's servers go by the phone's ids now:
+        // its history, favorites and collections first, before anything
+        // reloads, so each title is one record rather than one per copy.
+        adoptProfileIDs(renamed)
         await restoreCloudSettings()
         seerr.restore()
         if let source = choices.metadataSource.flatMap(LibraryMetadataSource.init(rawValue:)) {

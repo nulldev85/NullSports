@@ -151,7 +151,7 @@ final class DeviceSetupReceiver {
     @ObservationIgnored private var busy = false
     @ObservationIgnored private let advertises: Bool
     @ObservationIgnored private let take: @MainActor (DeviceSetupPayload) throws -> DeviceSetup.Applied
-    @ObservationIgnored private let settle: @MainActor (DeviceSetupPayload) async -> Void
+    @ObservationIgnored private let settle: @MainActor (DeviceSetupPayload, DeviceSetup.Applied) async -> Void
     /// The port it listens on, once listening. Tests connect to it directly.
     @ObservationIgnored private(set) var port: UInt16?
 
@@ -159,7 +159,7 @@ final class DeviceSetupReceiver {
     /// once it has. `settle` then loads what arrived.
     init(pairing: DeviceSetupPairing = .make(), advertises: Bool = true,
          take: @escaping @MainActor (DeviceSetupPayload) throws -> DeviceSetup.Applied,
-         settle: @escaping @MainActor (DeviceSetupPayload) async -> Void) {
+         settle: @escaping @MainActor (DeviceSetupPayload, DeviceSetup.Applied) async -> Void) {
         self.pairing = pairing
         self.advertises = advertises
         self.take = take
@@ -265,7 +265,7 @@ final class DeviceSetupReceiver {
             }
             stop()
             phase = .settling
-            await settle(payload)
+            await settle(payload, applied)
             phase = .finished(applied)
         }
     }

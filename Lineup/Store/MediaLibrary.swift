@@ -2666,6 +2666,44 @@ final class MediaLibrary {
         }
     }
 
+    /// The TV's own copies of servers the phone has too go by the phone's ids,
+    /// from Set Up with iPhone. Where two copies held the same title, the
+    /// later play stays, so it shows once.
+    func adoptProfileIDs(_ renamed: [String: String]) {
+        guard !renamed.isEmpty else { return }
+        flushLocalPlayback()
+        playbackGeneration = UUID()
+        func swapped<T: Codable>(_ value: T) -> T? {
+            guard let data = try? JSONEncoder().encode(value) else { return nil }
+            return try? JSONDecoder().decode(T.self, from: DeviceSetup.replacingIDs(in: data, renamed))
+        }
+        if let records = swapped(localPlayback) {
+            var kept: [LocalMediaPlayback] = []
+            for record in records.sorted(by: { $0.updatedAt > $1.updatedAt }) where !kept.contains(where: {
+                $0.profileID == record.profileID && Self.samePlaybackItem($0.item, record.item)
+            }) {
+                kept.append(record)
+            }
+            localPlayback = kept
+            persistLocalPlayback()
+        }
+        if let favorites = swapped(localFavorites) {
+            var seen: Set<String> = []
+            localFavorites = favorites.filter { seen.insert($0.id).inserted }
+            persistLocalFavorites()
+        }
+        if let dismissals = swapped(continueWatchingDismissals) {
+            var seen: Set<String> = []
+            continueWatchingDismissals = dismissals.filter {
+                seen.insert("\($0.profileID)|\($0.itemID)|\($0.isShow)").inserted
+            }
+            persistContinueWatchingDismissals()
+        }
+        if let collections = swapped(personalCollections), collections != personalCollections {
+            personalCollections = collections
+        }
+    }
+
     /// The titles taken out of Continue Watching here, for Set Up with iPhone.
     var hiddenFromContinueWatching: [LocalContinueWatchingDismissal] { continueWatchingDismissals }
 

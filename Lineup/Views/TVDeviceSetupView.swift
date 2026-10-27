@@ -142,13 +142,13 @@ struct TVDeviceSetupView: View {
         guard receiver == nil else { return }
         let receiver = DeviceSetupReceiver(
             take: { payload in try DeviceSetup.apply(payload) },
-            settle: { [library, media] payload in
+            settle: { [library, media] payload, applied in
                 // Loading runs on past this screen: on a TV set up for the
                 // first time the Library and Sports tabs take its place as soon
                 // as a source arrives.
                 Task { await library.restoreCloudSettings() }
                 Task {
-                    await media.adoptSetup(payload.library)
+                    await media.adoptSetup(payload.library, renamed: applied.renamed)
                     GameReminders.shared.restore()
                 }
             })
