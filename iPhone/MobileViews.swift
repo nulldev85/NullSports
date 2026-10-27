@@ -421,9 +421,9 @@ private struct MobileSettingsRowsStyle: ViewModifier {
     }
 }
 
-/// Behind the Settings lists: the ground, lit by a soft glow of the chosen
-/// accent at the top and a cooler one further down. Flat black would leave
-/// the see-through rows nothing to show.
+/// Behind the Settings lists: the app's black, lit only by a soft glow of the
+/// chosen accent in the top left. Flat black would leave the see-through rows
+/// nothing to show.
 private struct MobileSettingsBackdrop: View {
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
 
@@ -433,10 +433,47 @@ private struct MobileSettingsBackdrop: View {
             LineupPresentationStyle.ground
             RadialGradient(colors: [accent.opacity(0.26), .clear], center: UnitPoint(x: 0.1, y: 0.02),
                            startRadius: 0, endRadius: 460)
-            RadialGradient(colors: [LineupIconTile.indigo.opacity(0.16), .clear], center: UnitPoint(x: 0.95, y: 0.62),
-                           startRadius: 0, endRadius: 420)
         }
         .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
+/// The Settings tab has no bar or title above its rows, the tab bar already
+/// names it: the rows start under the clock, and the ground and its glow
+/// carry on up behind it. The pages it opens keep their bar and back button.
+private struct MobileSettingsClearHeader: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            // The fade stands in for the system's edge, so every version looks the same.
+            content.toolbar(.hidden, for: .navigationBar)
+                .scrollEdgeEffectHidden(true, for: .top)
+                .overlay { MobileSettingsTopFade() }
+        } else {
+            content.toolbar(.hidden, for: .navigationBar)
+                .overlay { MobileSettingsTopFade() }
+        }
+    }
+}
+
+/// Over the top of the list, where the clock sits: the same ground and glow
+/// as behind it, so a row fades out as it passes under the clock rather than
+/// meeting a hard edge.
+private struct MobileSettingsTopFade: View {
+    var body: some View {
+        GeometryReader { proxy in
+            let top = proxy.safeAreaInsets.top
+            let height = top + 6
+            MobileSettingsBackdrop()
+                .mask(alignment: .top) {
+                    LinearGradient(stops: [.init(color: .black, location: max(0, top - 14) / height),
+                                           .init(color: .clear, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: height)
+                }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 }
@@ -747,7 +784,7 @@ private struct MobileLibrarySettingsView: View {
 /// Settings, as the reference app lays its own out: short groups of rows,
 /// each with a coloured tile, its name and what it is set to, leading to a
 /// page of its own.
-private struct MobileAccountView: View {
+struct MobileAccountView: View {
     @Binding var selectedTab: Int
     @State private var homeRevision = 0
     @Environment(SportsLibrary.self) private var library
@@ -900,6 +937,7 @@ private struct MobileAccountView: View {
             }
             .lineupSettingsList()
             .navigationTitle("Settings")
+            .modifier(MobileSettingsClearHeader())
             .task {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()
