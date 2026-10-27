@@ -20,7 +20,7 @@ Discovery and quality verification now share a four-second monotonic budget.
 New requests cancel superseded scans; the next socket waits for the old probe's
 actual teardown, and that wait consumes the new budget. Ordinary URLs get at most
 1.25 seconds or the remaining time. iOS can give a selected higher-quality HLS
-alternate up to two seconds within the same overall deadline. The pinned Aether 7.45.0 controlled probe
+alternate up to two seconds within the same overall deadline. The pinned Aether 7.49.0 controlled probe
 interrupts its reader and closes native resources before returning; no detached
 timeout race leaves a probe open while playback starts.
 

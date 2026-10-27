@@ -25,8 +25,8 @@ engines. Engine adapters supply native playback, clocks, and stream information.
 Movie and episode tracking continues through the existing local tracking policy;
 a dropped stream is not counted as a completed title.
 
-The Aether integration uses the unmodified **7.45.0** tag, revision
-`52802afaaf035a7f729bba1043b640ad4d9ebb3e`, and pins FFmpegBuild 3.9.0 and
+The Aether integration uses the unmodified **7.49.0** tag, revision
+`fe96b19566fcff9910d3b8e1f8045587e497c1d6`, and pins FFmpegBuild 3.10.1 and
 LibDovi 2.1.0. It is built with Aether's default package traits, so the
 optional TrueHD and DTS:X object audio and Dolby Vision components are not
 compiled. LibTrueHD is not linked; DTS:X uses FFmpegBuild's decoder rather than

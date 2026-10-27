@@ -43,7 +43,7 @@ entry explaining that AetherEngine or VLC is required. No forced engine switch
 or video restart is performed. Live Sports/Guide previews and fullscreen live
 playback do not request this Library-only integration.
 
-The pinned AetherEngine 7.45.0 documents mid-session sidecars as foreground-only:
+The pinned AetherEngine 7.49.0 documents mid-session sidecars as foreground-only:
 they cannot join native PiP subtitle renditions without reloading the media.
 The sheet explicitly explains that downloaded captions are unavailable in PiP
 for this playback. Existing PiP video/embedded subtitle paths remain intact; no
