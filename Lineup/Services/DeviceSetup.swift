@@ -20,8 +20,10 @@ enum DeviceSetup {
         "Lineup.subtitles.language.v1", "Lineup.subtitle.preferredLanguage.v1"
     ]
 
-    /// Whether a setting is one the phone sends. Nothing else is read or
-    /// written: not the device's own id, its caches or its watch history.
+    /// Whether a setting is one the phone sends as it is. Nothing else is read
+    /// or written this way: not the device's own id or its caches. Watch
+    /// history goes with the Library's choices, to be merged rather than
+    /// written over the TV's.
     static func carries(_ key: String) -> Bool {
         CloudSettingsSync.syncedKeys.contains(key) || extraKeys.contains(key)
             || CloudSettingsSync.syncedPrefixes.contains(where: key.hasPrefix)
@@ -151,6 +153,11 @@ struct DeviceSetupPayload: Codable, Sendable {
         var betterPostersTemplate: String?
         /// The person's own collections, as the Library writes them.
         var collections: Data?
+        /// Watch history kept on the phone, its favorites, and the titles it
+        /// took out of Continue Watching, as the Library writes them.
+        var playback: Data?
+        var favorites: Data?
+        var hiddenFromContinueWatching: Data?
     }
 
     /// How many entries a list in it has.
@@ -177,6 +184,21 @@ extension DeviceSetupPayload.LibraryChoices {
         betterPosters = media.betterPostersEnabled
         betterPostersTemplate = media.betterPostersTemplate
         collections = media.personalCollections.isEmpty ? nil : try? JSONEncoder().encode(media.personalCollections)
+        // Local history only: MDBList's own history reaches the TV from
+        // MDBList once the key is there.
+        if media.localTrackingEnabled, !media.localPlayback.isEmpty {
+            playback = try? JSONEncoder().encode(media.localPlayback.map(\.kept))
+        }
+        if !media.localFavorites.isEmpty {
+            favorites = try? JSONEncoder().encode(media.localFavorites.map { favorite in
+                var kept = favorite
+                kept.item = favorite.item.historyCopy
+                return kept
+            })
+        }
+        if !media.hiddenFromContinueWatching.isEmpty {
+            hiddenFromContinueWatching = try? JSONEncoder().encode(media.hiddenFromContinueWatching)
+        }
     }
 }
 
@@ -210,6 +232,13 @@ extension MediaLibrary {
             if !arriving.isEmpty { personalCollections += arriving }
         }
         setLocalTrackingEnabled(choices.localTracking)
+        let decoder = JSONDecoder()
+        adoptPlaybackHistory(
+            choices.playback.flatMap { try? decoder.decode([LocalMediaPlayback].self, from: $0) } ?? [],
+            favorites: choices.favorites.flatMap { try? decoder.decode([LocalMediaFavorite].self, from: $0) } ?? [],
+            dismissals: choices.hiddenFromContinueWatching.flatMap {
+                try? decoder.decode([LocalContinueWatchingDismissal].self, from: $0)
+            } ?? [])
         if let key = choices.mdbListAPIKey, !isMDBListConnected || MDBListKeychainStore.apiKey() != key {
             _ = await connectMDBList(apiKey: key)
         }

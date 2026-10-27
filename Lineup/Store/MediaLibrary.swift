@@ -2666,6 +2666,49 @@ final class MediaLibrary {
         }
     }
 
+    /// The titles taken out of Continue Watching here, for Set Up with iPhone.
+    var hiddenFromContinueWatching: [LocalContinueWatchingDismissal] { continueWatchingDismissals }
+
+    /// Another device's watch history, from Set Up with iPhone. Every title
+    /// either device has played stays. Where both have the same one, the later
+    /// play wins, so an older record from the phone never undoes a newer one
+    /// here. Its favorites and the titles it took out of Continue Watching
+    /// join this device's.
+    func adoptPlaybackHistory(_ records: [LocalMediaPlayback], favorites: [LocalMediaFavorite],
+                              dismissals: [LocalContinueWatchingDismissal]) {
+        if localTrackingEnabled, !records.isEmpty {
+            flushLocalPlayback()
+            playbackGeneration = UUID()
+            var merged = localPlayback
+            for record in records.map({ Self.marked($0) }) {
+                if let index = merged.firstIndex(where: {
+                    $0.profileID == record.profileID && Self.samePlaybackItem($0.item, record.item)
+                }) {
+                    if record.updatedAt > merged[index].updatedAt { merged[index] = record }
+                } else {
+                    merged.append(record)
+                }
+            }
+            localPlayback = merged
+            persistLocalPlayback()
+        }
+        let favorited = Set(localFavorites.map(\.id))
+        let newFavorites = favorites.filter { !favorited.contains($0.id) }.map { Self.marked($0) }
+        if !newFavorites.isEmpty {
+            localFavorites += newFavorites
+            persistLocalFavorites()
+        }
+        let newDismissals = dismissals.filter { incoming in
+            !continueWatchingDismissals.contains {
+                $0.profileID == incoming.profileID && $0.itemID == incoming.itemID && $0.isShow == incoming.isShow
+            }
+        }
+        if !newDismissals.isEmpty {
+            continueWatchingDismissals += newDismissals
+            persistContinueWatchingDismissals()
+        }
+    }
+
     // MARK: - Snapshots
 
     /// Save only the last complete answer. A half-loaded refresh never

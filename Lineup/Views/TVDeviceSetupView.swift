@@ -24,7 +24,7 @@ struct TVDeviceSetupView: View {
                     Text("Bring Lineup over from your iPhone")
                         .font(.inter(46, .bold))
                         .foregroundStyle(LineupPresentationStyle.text)
-                    Text("Your IPTV providers, media servers, sign-ins, favorites and settings come straight across your Wi-Fi. Nothing to type with the remote.")
+                    Text("Your IPTV providers, media servers, sign-ins, watch history, favorites and settings come straight across your Wi-Fi. Nothing to type with the remote.")
                         .font(.inter(22))
                         .foregroundStyle(LineupPresentationStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true)

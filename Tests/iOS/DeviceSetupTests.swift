@@ -81,7 +81,8 @@ final class DeviceSetupTests: XCTestCase {
             XCTAssertNotNil(payload.values[key], key)
         }
         XCTAssertNil(payload.values["NullSports.mediaDeviceID"], "each device keeps its own id")
-        XCTAssertNil(payload.values["Lineup.localMediaPlayback.v1"], "watch history stays on each device")
+        XCTAssertNil(payload.values["Lineup.localMediaPlayback.v1"],
+                     "history is merged into the TV's, never written over it")
         XCTAssertEqual(payload.providerPasswords, [iptv.uuidString: "secret"])
         XCTAssertEqual(payload.mediaTokens, [server.uuidString: "token", SeerrStore.credentialID.uuidString: "seerr"])
         XCTAssertEqual(payload.count(of: DeviceSetup.providersKey), 1)
@@ -147,6 +148,41 @@ final class DeviceSetupTests: XCTestCase {
         }
         XCTAssertNil(UserDefaults.standard.persistentDomain(forName: tvName)?[DeviceSetup.providersKey],
                      "no source arrives without the sign-in that opens it")
+    }
+
+    func testThePhonesWatchHistoryJoinsTheTVsAndTheLaterPlayWins() throws {
+        let (tvDefaults, _) = try defaults()
+        let server = MediaServerProfile(name: "Server", serverURL: "http://server", username: "viewer", userID: "user")
+        tvDefaults.set(try JSONEncoder().encode([server]), forKey: DeviceSetup.serversKey)
+        func movie(_ id: String) -> MediaItem {
+            MediaItem(id: id, name: id, type: "Movie", overview: nil, productionYear: 2026,
+                      primaryImageAspectRatio: nil, childCount: nil, serverID: server.id)
+        }
+        func played(_ id: String, at position: TimeInterval, on day: TimeInterval, done: Bool = false) -> LocalMediaPlayback {
+            LocalMediaPlayback(profileID: server.id, item: movie(id), position: position, duration: 6_000,
+                               updatedAt: Date(timeIntervalSince1970: day), completed: done)
+        }
+        tvDefaults.set(try JSONEncoder().encode([played("both", at: 600, on: 1_000), played("tv", at: 100, on: 1_000)]),
+                       forKey: "Lineup.localMediaPlayback.v1")
+        let tv = MediaLibrary(defaults: tvDefaults)
+
+        tv.adoptPlaybackHistory([played("both", at: 3_000, on: 2_000), played("phone", at: 6_000, on: 2_000, done: true)],
+                                favorites: [LocalMediaFavorite(profileID: server.id, item: movie("phone"),
+                                                               addedAt: Date(timeIntervalSince1970: 2_000))],
+                                dismissals: [])
+
+        let byID = Dictionary(uniqueKeysWithValues: tv.localPlayback.map { ($0.item.id, $0) })
+        XCTAssertEqual(Set(byID.keys), ["both", "tv", "phone"], "nothing the TV watched is lost")
+        XCTAssertEqual(byID["both"]?.position, 3_000, "the later play wins")
+        XCTAssertEqual(byID["tv"]?.position, 100)
+        XCTAssertEqual(byID["phone"]?.completed, true)
+        XCTAssertEqual(tv.localFavorites.map(\.item.id), ["phone"])
+        XCTAssertEqual(Set(MediaLibrary(defaults: tvDefaults).localPlayback.map(\.item.id)), ["both", "tv", "phone"],
+                       "saved, so it is there after a relaunch")
+
+        tv.adoptPlaybackHistory([played("both", at: 10, on: 500)], favorites: [], dismissals: [])
+        XCTAssertEqual(tv.localPlayback.first { $0.item.id == "both" }?.position, 3_000,
+                       "an older play from the phone never undoes a newer one here")
     }
 
     // MARK: Across the network

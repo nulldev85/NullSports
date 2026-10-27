@@ -90,11 +90,14 @@ struct MobileDeviceSetupSheet: View {
             }
             if media.isMDBListConnected { row("MDBList", symbol: "list.star", detail: "Lists and tracking") }
             if media.seerr.isConnected { row("Seerr", symbol: "tray.and.arrow.down", detail: "Requests") }
+            if media.localTrackingEnabled, !media.localPlayback.isEmpty {
+                row("Watch history", symbol: "clock.arrow.circlepath", detail: "Continue Watching and watched marks")
+            }
             row("Favorites, My Teams and settings", symbol: "star.square.on.square")
         } header: {
             Text("Sending to \(pairing.service)").lineupSettingsHeader()
         } footer: {
-            Text("Passwords and sign-ins are locked with the code on your TV and go straight to it over your Wi-Fi. What you’ve watched stays on each device.")
+            Text("Passwords and sign-ins are locked with the code on your TV and go straight to it over your Wi-Fi. Watch history joins the TV’s own: nothing it has watched is lost, and where both have played a title, the later play wins.")
                 .lineupSettingsFooter()
         }
         .lineupSettingsRows()
@@ -178,6 +181,7 @@ struct MobileDeviceSetupSheet: View {
 
     private func send(to pairing: DeviceSetupPairing) {
         phase = .sending
+        media.flushLocalPlayback()
         let payload = DeviceSetup.capture(library: DeviceSetupPayload.LibraryChoices(media))
         Task {
             do {
