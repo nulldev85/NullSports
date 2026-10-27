@@ -7,7 +7,7 @@ import LineupAetherPlayback
 @MainActor
 final class PlaybackEngineTests: XCTestCase {
     func testSettingsEngineChoicesExposeTheirPinnedVersions() {
-        XCTAssertEqual(TVPlaybackEngine.aether.version, "7.45.0")
+        XCTAssertEqual(TVPlaybackEngine.aether.version, "7.49.0")
         XCTAssertEqual(TVPlaybackEngine.vlc.version, "3.6.0")
         XCTAssertEqual(TVPlaybackEngine.mpv.version, "1.1.0-n9.0.2")
     }

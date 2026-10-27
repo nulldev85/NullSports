@@ -60,7 +60,7 @@ jobs:
 
   build:
     if: ${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}
-    # AetherEngine 7.45.0 is built and tested with Swift 6.4 / Xcode 27.
+    # AetherEngine 7.49.0 is built and tested with Swift 6.4 / Xcode 27.
     runs-on: xcode-27
     timeout-minutes: 45
     steps:

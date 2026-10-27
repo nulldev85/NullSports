@@ -5,7 +5,8 @@ public struct AetherSourceQuality: Sendable {
     public let width: Int
     public let height: Int
     /// Aether's display-normalized rate, not the raw container rational.
-    /// In pinned 7.45.0, the film window includes exact 24 and returns 23.976.
+    /// In pinned 7.49.0, an exact 24 stays 24; the rest of the film window
+    /// returns 23.976.
     public let frameRate: Double?
 }
 

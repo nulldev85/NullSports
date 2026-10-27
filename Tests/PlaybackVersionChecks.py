@@ -30,10 +30,10 @@ def main():
         if displayed.get(key) != pin:
             raise AssertionError(f"{package} pin {pin} does not match displayed version {displayed.get(key)!r}")
 
-    if package_version(project, "AetherEngine") != "7.45.0":
+    if package_version(project, "AetherEngine") != "7.49.0":
         raise AssertionError("Both app targets must stay on the requested AetherEngine release")
-    if package_version(project, "FFmpegBuild") != "3.9.0":
-        raise AssertionError("AetherEngine 7.45.0 requires the aligned FFmpegBuild 3.9.0 pin")
+    if package_version(project, "FFmpegBuild") != "3.10.1":
+        raise AssertionError("AetherEngine 7.49.0 requires the aligned FFmpegBuild 3.10.1 pin")
     print("Playback package pins match the engine versions displayed in Settings.")
 
 
