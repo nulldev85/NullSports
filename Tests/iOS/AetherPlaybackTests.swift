@@ -153,9 +153,11 @@ final class AetherPlaybackTests: XCTestCase {
         let quality = try await AetherSourceProbe.quality(url: url, timeout: 5)
         XCTAssertEqual(quality.width, 320)
         XCTAssertEqual(quality.height, 180)
-        // Aether 7.49.0 SourceProbe.videoFrameRate is display-normalized,
-        // and FrameRateSnap keeps an exact 24 fps source at 24 (AE#884).
-        XCTAssertEqual(try XCTUnwrap(quality.frameRate), 24, accuracy: 0.0001)
+        // Aether 7.49.0 SourceProbe.videoFrameRate is display-normalized.
+        // Only an exact 24 stays 24 (AE#884). This MP4 is a stream copy of the
+        // Matroska fixture, whose 1 ms timestamps average about 23.986 fps,
+        // so the film window still maps it to 23.976.
+        XCTAssertEqual(try XCTUnwrap(quality.frameRate), 23.976, accuracy: 0.0001)
     }
 
     func testLocalOriginServesRangesOnlyAfterARealPortIsReady() async throws {
