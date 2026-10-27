@@ -286,7 +286,7 @@ final class DeviceSetupTests: XCTestCase {
         let payload = DeviceSetupPayload(values: [:], providerPasswords: [:], mediaTokens: [:], library: .init())
 
         do {
-            try await DeviceSetupSender.send(payload, pairing: .make(), to: endpoint(port), timeout: .seconds(10))
+            try await DeviceSetupSender.send(payload, pairing: .make(), to: endpoint(port), answer: .seconds(10))
             XCTFail("a setup sealed with another code was taken")
         } catch {
             XCTAssertEqual(error as? DeviceSetupError, .wrongCode)

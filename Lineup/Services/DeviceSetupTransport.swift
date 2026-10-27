@@ -76,34 +76,81 @@ final class DeviceSetupOnce: @unchecked Sendable {
     }
 }
 
+/// A mark one callback can leave for another, from any thread.
+final class DeviceSetupFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var raised = false
+
+    func raise() { lock.withLock { raised = true } }
+    var isRaised: Bool { lock.withLock { raised } }
+}
+
 /// The phone's side.
 enum DeviceSetupSender {
+    /// Where a send has got to, for the phone to say.
+    enum Stage: Sendable, Equatable {
+        case connecting
+        case sending
+        case waiting
+    }
+
     /// Sends a setup to the TV whose code was read, and waits for the TV to
-    /// say it took it. `endpoint` is for tests; the phone finds the TV by the
-    /// name in its code.
+    /// say it took it. Each step has its own allowance. Reaching the TV can
+    /// wait on the phone asking for local network access the first time, and
+    /// that wait used to eat the TV's time to answer: the setup arrived, the
+    /// TV took it, and the phone had already said it couldn't reach it.
+    /// `endpoint` is for tests; the phone finds the TV by the name in its code.
     static func send(_ payload: DeviceSetupPayload, pairing: DeviceSetupPairing,
-                     to endpoint: NWEndpoint? = nil, timeout: Duration = .seconds(25)) async throws {
+                     to endpoint: NWEndpoint? = nil,
+                     reach: Duration = .seconds(60), answer: Duration = .seconds(45),
+                     stage: @escaping @Sendable (Stage) async -> Void = { _ in }) async throws {
         let target = endpoint ?? .service(name: pairing.service, type: DeviceSetupPairing.serviceType,
                                           domain: "local.", interface: nil)
         let body = try pairing.seal(JSONEncoder().encode(payload), .toTV)
         let connection = NWConnection(to: target, using: .tcp)
         defer { connection.cancel() }
+        let denied = DeviceSetupFlag()
+
+        await stage(.connecting)
         do {
-            try await DeviceSetupWire.within(timeout, cancelling: connection) {
-                try await ready(connection)
-                try await DeviceSetupWire.send(body, on: connection)
-                let answer = try await DeviceSetupWire.receive(on: connection)
-                let reply = try JSONDecoder().decode(DeviceSetupReply.self, from: pairing.open(answer, .reply))
-                guard reply.ok else { throw DeviceSetupError.refused(reply.message ?? "") }
+            try await DeviceSetupWire.within(reach, cancelling: connection) {
+                try await ready(connection, denied: denied)
             }
+        } catch DeviceSetupError.timedOut {
+            throw denied.isRaised ? DeviceSetupError.localNetworkDenied : DeviceSetupError.unreachable
         } catch let error as DeviceSetupError {
             throw error
         } catch {
             throw DeviceSetupError.unreachable
         }
+
+        await stage(.sending)
+        do {
+            try await DeviceSetupWire.within(.seconds(30), cancelling: connection) {
+                try await DeviceSetupWire.send(body, on: connection)
+            }
+        } catch {
+            throw DeviceSetupError.unreachable
+        }
+
+        await stage(.waiting)
+        let reply: DeviceSetupReply
+        do {
+            reply = try await DeviceSetupWire.within(answer, cancelling: connection) {
+                let sealed = try await DeviceSetupWire.receive(on: connection)
+                return try JSONDecoder().decode(DeviceSetupReply.self, from: pairing.open(sealed, .reply))
+            }
+        } catch DeviceSetupError.wrongCode {
+            throw DeviceSetupError.wrongCode
+        } catch {
+            // The whole setup reached the TV, which may well have taken it:
+            // say that, rather than that nothing happened.
+            throw DeviceSetupError.unconfirmed
+        }
+        guard reply.ok else { throw DeviceSetupError.refused(reply.message ?? "") }
     }
 
-    private static func ready(_ connection: NWConnection) async throws {
+    private static func ready(_ connection: NWConnection, denied: DeviceSetupFlag) async throws {
         let once = DeviceSetupOnce()
         try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, Error>) in
             connection.stateUpdateHandler = { state in
@@ -111,12 +158,11 @@ enum DeviceSetupSender {
                 case .ready:
                     once.run { done.resume() }
                 case .waiting(let error):
-                    // No route yet waits for the timeout. Local network
-                    // access turned off for Lineup never clears, so it says so
-                    // at once.
-                    if case .dns(let code) = error, code == -65570 {
-                        once.run { done.resume(throwing: DeviceSetupError.localNetworkDenied) }
-                    }
+                    // Waiting on local network access reads the same while the
+                    // phone is still asking for it as once it has been turned
+                    // down, so this only notes it. Allowed, the connection goes
+                    // on by itself; if the time runs out, it says why.
+                    if case .dns(let code) = error, code == -65570 { denied.raise() }
                 case .failed:
                     once.run { done.resume(throwing: DeviceSetupError.unreachable) }
                 case .cancelled:

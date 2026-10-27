@@ -469,6 +469,7 @@ enum DeviceSetupError: LocalizedError, Equatable {
     case timedOut
     case unreachable
     case localNetworkDenied
+    case unconfirmed
     case closed
     case refused(String)
 
@@ -485,7 +486,9 @@ enum DeviceSetupError: LocalizedError, Equatable {
         case .timedOut, .unreachable:
             return "Lineup couldn’t reach the Apple TV. Make sure both are on the same Wi-Fi, then try again."
         case .localNetworkDenied:
-            return "Lineup isn’t allowed to use your local network. Turn it on in Settings › Privacy & Security › Local Network, then try again."
+            return "Lineup isn’t allowed to use your local network. Turn it on in Settings › Privacy & Security › Local Network. If you’ve just allowed it, tap Try Again."
+        case .unconfirmed:
+            return "Your setup reached the Apple TV, but it didn’t answer in time. If the TV says All set, you’re done. If not, tap Try Again."
         case .refused(let message):
             return message.isEmpty ? "The Apple TV couldn’t take your setup. Try again." : message
         }

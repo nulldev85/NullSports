@@ -17,9 +17,14 @@ struct MobileDeviceSetupSheet: View {
 
     enum Phase: Equatable {
         case ready
-        case sending
+        case sending(DeviceSetupSender.Stage)
         case sent
         case failed(String)
+
+        var isSending: Bool {
+            if case .sending = self { return true }
+            return false
+        }
     }
 
     init(pairing: DeviceSetupPairing? = nil) {
@@ -44,11 +49,11 @@ struct MobileDeviceSetupSheet: View {
                 LineupToolbarItem(placement: .cancellationAction) {
                     Button(phase == .sent ? "Done" : "Cancel") { dismiss() }
                         .buttonStyle(LineupBarButtonStyle())
-                        .disabled(phase == .sending)
+                        .disabled(phase.isSending)
                 }
             }
         }
-        .interactiveDismissDisabled(phase == .sending)
+        .interactiveDismissDisabled(phase.isSending)
         .fullScreenCover(isPresented: $scanning) { scanner }
     }
 
@@ -108,15 +113,18 @@ struct MobileDeviceSetupSheet: View {
                     row("Send to Apple TV", symbol: "paperplane.fill")
                 }
                 .disabled(!hasSources)
-            case .sending:
+            case .sending(let stage):
                 HStack(spacing: 14) {
                     ProgressView()
-                    Text("Sending…").font(.inter(17, .medium))
+                    Text(Self.words(for: stage)).font(.inter(17, .medium))
                 }
             case .sent:
                 row("All set. Your Apple TV has everything.", symbol: "checkmark.circle.fill", tint: LineupIconTile.green)
             case .failed(let message):
                 row(message, symbol: "exclamationmark.triangle.fill", tint: LineupIconTile.orange)
+                // The TV keeps the same code until it has taken a setup, so
+                // sending again needs no new scan.
+                Button { send(to: pairing) } label: { row("Try Again", symbol: "arrow.clockwise") }
                 Button(action: startOver) { row("Scan Again", symbol: "qrcode.viewfinder") }
             }
         } footer: {
@@ -179,13 +187,24 @@ struct MobileDeviceSetupSheet: View {
         if DataScannerViewController.isSupported { scan() }
     }
 
+    private static func words(for stage: DeviceSetupSender.Stage) -> String {
+        switch stage {
+        case .connecting: return "Connecting to your Apple TV…"
+        case .sending: return "Sending…"
+        case .waiting: return "Waiting for your Apple TV…"
+        }
+    }
+
     private func send(to pairing: DeviceSetupPairing) {
-        phase = .sending
+        phase = .sending(.connecting)
         media.flushLocalPlayback()
         let payload = DeviceSetup.capture(library: DeviceSetupPayload.LibraryChoices(media))
+        let progress = $phase
         Task {
             do {
-                try await DeviceSetupSender.send(payload, pairing: pairing)
+                try await DeviceSetupSender.send(payload, pairing: pairing) { stage in
+                    await MainActor.run { progress.wrappedValue = .sending(stage) }
+                }
                 phase = .sent
             } catch {
                 phase = .failed((error as? LocalizedError)?.errorDescription
