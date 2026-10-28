@@ -69,12 +69,13 @@ final class PlaylistCompatibilityTests: XCTestCase {
     func testGzipGuideAndMalformedGuide() throws {
         // gzip.compress(b'<tv></tv>', mtime=0), no Content-Encoding required.
         let compressed = Data([31,139,8,0,0,0,0,0,2,3,179,41,41,179,179,209,7,18,0,118,210,162,192,9,0,0,0])
-        let expanded = try XMLTVData.expanded(compressed)
-        XCTAssertEqual(String(data: expanded, encoding: .utf8), "<tv></tv>")
+        XCTAssertEqual(try XMLTVParser.programs(fromGuide: compressed), [:])
         let parser = XMLTVParser()
-        _ = parser.parse(expanded)
+        _ = parser.parse(Data("<tv></tv>".utf8))
         XCTAssertTrue(parser.isValid)
-        XCTAssertThrowsError(try XMLTVData.expanded(Data([31,139,8,0])))
+        XCTAssertThrowsError(try XMLTVParser.programs(fromGuide: Data([31,139,8,0])), "A cut-off download is not a guide")
+        XCTAssertThrowsError(try XMLTVParser.programs(fromGuide: Data("<html>Sign in</html>".utf8)))
+        XCTAssertThrowsError(try XMLTVParser.programs(fromGuide: Data("<html><tv/></html>".utf8)))
         let html = XMLTVParser()
         _ = html.parse(Data("<html>Sign in</html>".utf8))
         XCTAssertFalse(html.isValid)

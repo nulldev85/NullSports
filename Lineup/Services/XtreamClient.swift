@@ -235,7 +235,11 @@ struct XtreamClient {
             url = address
         }
         var request = URLRequest(url: url)
-        request.timeoutInterval = 45
+        // A guide service can build the file when it is asked for it and send
+        // nothing for a minute or more, as panels do with their film lists.
+        // This is the silence allowed before the first byte; a guide that is
+        // still arriving never times out.
+        request.timeoutInterval = 180
         // The guide is too big for the shared cache to keep, so the app keeps
         // the server's validators itself and asks whether the guide it holds
         // has changed. A server that keeps them answers 304 and sends nothing;
@@ -258,11 +262,7 @@ struct XtreamClient {
             return .unchanged(bytes: data.count)
         }
         let programs = try await Task.detached(priority: .utility) {
-            let expanded = try XMLTVData.expanded(data)
-            let parser = XMLTVParser()
-            let programs = parser.parse(expanded)
-            guard parser.isValid else { throw PlaylistError.guide }
-            return programs
+            try XMLTVParser.programs(fromGuide: data)
         }.value
         // Only for a guide that read: the validators stand for what is held.
         validators.record(entry, for: url)
