@@ -1,4 +1,5 @@
 import XCTest
+import zlib
 @testable import LineupiOS
 
 /// The timestamp reader replaced three DateFormatters. These check it against
@@ -141,5 +142,117 @@ final class GuideRetentionTests: XCTestCase {
         <title>Long Over</title></programme></tv>
         """
         XCTAssertNil(XMLTVParser(now: now).parse(Data(xml.utf8))["c"])
+    }
+}
+
+/// A guide read a programme at a time (`XMLTVParser.programs(fromGuide:)`):
+/// the same listings as one whole parse when the guide is sound, and still
+/// the listings when one of them is not.
+final class GuideReadingTests: XCTestCase {
+    /// Noon UTC, so "now" is well inside the window wherever the tests run.
+    private let now = Date(timeIntervalSince1970: 1_789_732_800)  // 2026-09-18 12:00 UTC
+
+    private func stamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMddHHmmss Z"
+        return formatter.string(from: date)
+    }
+
+    private func programme(_ channel: String, at offset: TimeInterval, title: String, desc: String = "") -> String {
+        let start = now.addingTimeInterval(offset)
+        return "<programme start=\"\(stamp(start))\" stop=\"\(stamp(start.addingTimeInterval(1800)))\" channel=\"\(channel)\">"
+            + "<title lang=\"en\">\(title)</title><desc>\(desc)</desc></programme>\n"
+    }
+
+    private func gzip(_ data: Data) throws -> Data {
+        var stream = z_stream()
+        guard deflateInit2_(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY,
+                            ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
+            throw CocoaError(.coderInvalidValue)
+        }
+        defer { deflateEnd(&stream) }
+        var output = Data()
+        var chunk = [UInt8](repeating: 0, count: 65536)
+        try data.withUnsafeBytes { (input: UnsafeRawBufferPointer) in
+            stream.next_in = UnsafeMutablePointer(mutating: input.bindMemory(to: Bytef.self).baseAddress)
+            stream.avail_in = uInt(input.count)
+            var status = Z_OK
+            repeat {
+                let produced: Int = chunk.withUnsafeMutableBytes { buffer in
+                    stream.next_out = buffer.bindMemory(to: Bytef.self).baseAddress
+                    stream.avail_out = uInt(buffer.count)
+                    status = deflate(&stream, Z_FINISH)
+                    return buffer.count - Int(stream.avail_out)
+                }
+                output.append(contentsOf: chunk[0..<produced])
+                guard status == Z_OK || status == Z_STREAM_END else { throw CocoaError(.coderInvalidValue) }
+            } while status != Z_STREAM_END
+        }
+        return output
+    }
+
+    func testASoundGuideReadsAsOneWholeParseDoes() throws {
+        // Over a megabyte, so listings straddle the pieces it arrives in, with
+        // listings long past, far ahead and one written self-closing.
+        var xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE tv SYSTEM \"xmltv.dtd\">\n"
+            + "<!-- made for a test -->\n<tv generator-info-name=\"test\">\n"
+            + "<channel id=\"a\"><display-name>A</display-name></channel>\n"
+        for index in 0..<6000 {
+            let offset = TimeInterval((index % 200) - 40) * 1800
+            xml += programme("ch\(index % 20)", at: offset, title: "Show \(index) &amp; Friends",
+                             desc: "Episode \(index), padded out to a realistic length for a listing in a guide.")
+        }
+        xml += "<programme start=\"\(stamp(now))\" stop=\"\(stamp(now.addingTimeInterval(600)))\" channel=\"solo\"/>\n"
+        xml += programme("far", at: 5 * 86_400, title: "Next Week")
+        xml += "</tv>\n"
+        let data = Data(xml.utf8)
+        XCTAssertGreaterThan(data.count, 1 << 20)
+
+        let whole = XMLTVParser(now: now)
+        let expected = whole.parse(data)
+        XCTAssertTrue(whole.isValid)
+        XCTAssertFalse(expected.isEmpty)
+        XCTAssertNil(expected["far"], "Next week is outside the window")
+
+        XCTAssertEqual(try XMLTVParser.programs(fromGuide: data, now: now), expected)
+        XCTAssertEqual(try XMLTVParser.programs(fromGuide: try gzip(data), now: now), expected,
+                       "A gzip guide reads the same as it unpacks")
+    }
+
+    func testABrokenListingCostsOnlyItself() throws {
+        let xml = "<tv>\n"
+            + programme("c", at: 0, title: "Law & Order", desc: "With&nbsp;guests &eacute;t&#233; \u{0B}live")
+            + programme("c", at: 1800, title: "Kept")
+            + programme("c", at: 3600, title: "1 < 2", desc: "Unrepairable markup")
+            + programme("c", at: 5400, title: "Also Kept")
+            + "</tv>"
+        let data = Data(xml.utf8)
+
+        let whole = XMLTVParser(now: now)
+        _ = whole.parse(data)
+        XCTAssertFalse(whole.isValid, "One strict parse gives up on the whole guide")
+
+        let titles = try XMLTVParser.programs(fromGuide: data, now: now)["c"]?.map(\.title)
+        XCTAssertEqual(titles, ["Law & Order", "Kept", "Also Kept"])
+        let repaired = try XCTUnwrap(XMLTVParser.programs(fromGuide: data, now: now)["c"]?.first)
+        XCTAssertEqual(repaired.detail, "With\u{00A0}guests été  live")
+    }
+
+    func testAGuideInAnotherEncodingIsNotRewrittenAsUTF8() throws {
+        let body = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><tv>"
+            + programme("c", at: 0, title: "Caf\u{E9}")
+            + programme("c", at: 1800, title: "Caf\u{E9} & Bar")
+            + "</tv>"
+        let data = try XCTUnwrap(body.data(using: .isoLatin1))
+        let titles = try XMLTVParser.programs(fromGuide: data, now: now)["c"]?.map(\.title)
+        XCTAssertEqual(titles, ["Café", "Café & Bar"])
+    }
+
+    func testWhatIsNotAGuideStillFails() {
+        XCTAssertThrowsError(try XMLTVParser.programs(fromGuide: Data(), now: now))
+        XCTAssertThrowsError(try XMLTVParser.programs(fromGuide: Data("<!doctype html><html><body>Sign in</body></html>".utf8), now: now))
+        XCTAssertEqual(try XMLTVParser.programs(fromGuide: Data("<tv></tv>".utf8), now: now), [:])
     }
 }

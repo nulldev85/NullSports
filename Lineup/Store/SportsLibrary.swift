@@ -3409,7 +3409,12 @@ final class SportsLibrary {
                 fetchedAt: min(libraryUpdatedAt ?? Date(), guideUpdatedAt ?? Date()))
         } else {
             do { snapshot = try await catalog.snapshot(for: profile, secret: secret) }
-            catch { providerProblems[id] = "Channels or guide unavailable"; return nil }
+            catch {
+                // Say why: a guide that will not read and a server that is
+                // down call for different things from the person reading it.
+                providerProblems[id] = "Channels or guide unavailable: \(error.localizedDescription)"
+                return nil
+            }
         }
         guard !Task.isCancelled, isProviderEnabled(id), credentials.password(id) == secret,
               let current = profiles.first(where: { $0.id == id }),

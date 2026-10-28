@@ -1,6 +1,5 @@
 import Foundation
 import CryptoKit
-import zlib
 
 struct PlaylistCredentials: Codable, Sendable {
     let playlist: URL
@@ -197,33 +196,5 @@ actor PlaylistDownloads {
         let result = try await task.value
         recent[profileID] = (Date(), result)
         return result
-    }
-}
-
-enum XMLTVData {
-    /// XMLTV links commonly end in .gz without a Content-Encoding header.
-    static func expanded(_ data: Data) throws -> Data {
-        guard data.starts(with: [0x1f, 0x8b]) else { return data }
-        guard data.count <= 64 * 1024 * 1024 else { throw PlaylistError.guide }
-        var stream = z_stream()
-        guard inflateInit2_(&stream, 15 + 32, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else { throw PlaylistError.guide }
-        defer { inflateEnd(&stream) }
-        return try data.withUnsafeBytes { bytes in
-            stream.next_in = UnsafeMutablePointer(mutating: bytes.bindMemory(to: Bytef.self).baseAddress)
-            stream.avail_in = uInt(data.count)
-            var result = Data(), chunk = [UInt8](repeating: 0, count: 65536)
-            var status: Int32 = Z_OK
-            repeat {
-                let count = chunk.count
-                status = chunk.withUnsafeMutableBytes { output in
-                    stream.next_out = output.bindMemory(to: Bytef.self).baseAddress
-                    stream.avail_out = uInt(count)
-                    return inflate(&stream, Z_NO_FLUSH)
-                }
-                guard status == Z_OK || status == Z_STREAM_END, result.count < 256 * 1024 * 1024 else { throw PlaylistError.guide }
-                result.append(contentsOf: chunk.prefix(count - Int(stream.avail_out)))
-            } while status != Z_STREAM_END
-            return result
-        }
     }
 }

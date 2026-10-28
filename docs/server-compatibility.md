@@ -60,9 +60,13 @@ or activate it over the current provider. Select the saved connection to use it.
 Paste the generated playlist URL and optional guide URL. A playlist's
 x-tvg-url/url-tvg header can supply the guide. Known Google Drive file-share
 URLs are converted to download URLs; HTML sign-in/permission pages and invalid
-playlists cannot replace the last good data. Gzip XMLTV is expanded even without
-a Content-Encoding header, under a decompression size limit. Invalid XMLTV
-cannot silently clear a working guide.
+playlists cannot replace the last good data. Gzip XMLTV is unpacked as it is
+read, even without a Content-Encoding header, and only listings inside the two
+days the app keeps are parsed, so a large guide has no size ceiling. A
+malformed listing (a bare `&`, an HTML entity such as `&nbsp;`, a control
+character) is repaired, or failing that skipped on its own, as other players
+do. A response that is not XMLTV at all still cannot silently clear a working
+guide. A guide service may take up to three minutes to start sending.
 
 Preserve tvg-id, group-title and tvg-logo. Channel identities derive from source
 URLs with rotating auth query fields removed, not dynamic event titles. Two
