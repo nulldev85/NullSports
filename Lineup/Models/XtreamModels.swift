@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(SwiftUI)
 import SwiftUI
+#endif
 
 struct XtreamProfile: Codable, Identifiable, Equatable, Sendable {
     let id: UUID
@@ -502,7 +504,9 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     }
     /// The theme owns the set. These were five literals mixed against one
     /// background, which is why a second theme could not have its own.
+    #if canImport(SwiftUI)
     var color: Color { LineupStyle.leagueColor(self) }
+    #endif
 
     /// Kept for callers holding a plain string. Anything asking more than one
     /// league about the same text should prepare it once instead.

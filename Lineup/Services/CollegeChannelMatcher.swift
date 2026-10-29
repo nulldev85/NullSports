@@ -50,17 +50,21 @@ enum CollegeChannelMatcher {
             self.homeAbbreviation = homeAbbreviation
             self.kickoff = kickoff
             self.isLive = isLive
-            let normalizedStatus = CollegeChannelMatcher.normalized(status)
-            isDelayed = ["delay", "delayed", "suspended", "suspension", "power outage"].contains {
-                CollegeChannelMatcher.contains(normalizedStatus, phrase: $0)
-            } && !["postponed", "canceled", "cancelled", "final"].contains {
-                CollegeChannelMatcher.contains(normalizedStatus, phrase: $0)
-            }
+            isDelayed = CollegeChannelMatcher.isDelayed(status: status)
             expectedNetworks = CollegeChannelMatcher.networks(broadcast)
             awayAliases = CollegeChannelMatcher.teamAliases(away, abbreviation: awayAbbreviation)
             homeAliases = CollegeChannelMatcher.teamAliases(home, abbreviation: homeAbbreviation)
             awayAliasNeedles = awayAliases.map { " " + $0 + " " }
             homeAliasNeedles = homeAliases.map { " " + $0 + " " }
+        }
+    }
+
+    static func isDelayed(status: String) -> Bool {
+        let status = normalized(status)
+        return ["delay", "delayed", "suspended", "suspension", "power outage"].contains {
+            contains(status, phrase: $0)
+        } && !["postponed", "canceled", "cancelled", "final"].contains {
+            contains(status, phrase: $0)
         }
     }
 

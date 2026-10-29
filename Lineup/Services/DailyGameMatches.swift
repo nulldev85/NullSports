@@ -1,5 +1,19 @@
 import Foundation
 
+enum PreparedMatchPolicy {
+    static let refreshInterval: TimeInterval = 24 * 60 * 60
+    static let retention: TimeInterval = 48 * 60 * 60
+
+    static func needsRefresh(preparedAt: Date?, now: Date) -> Bool {
+        guard let preparedAt else { return true }
+        return preparedAt > now || now.timeIntervalSince(preparedAt) >= refreshInterval
+    }
+
+    static func canUse(preparedAt: Date, now: Date) -> Bool {
+        preparedAt <= now && now.timeIntervalSince(preparedAt) < retention
+    }
+}
+
 enum DailyCachePolicy {
     static func hasCompleteIndex(savedLeagues: Set<String>, expectedLeagues: Set<String>) -> Bool {
         !expectedLeagues.isEmpty && savedLeagues == expectedLeagues

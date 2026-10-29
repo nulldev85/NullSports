@@ -1,6 +1,6 @@
 import Foundation
 
-struct LiveEventChannel: Identifiable, Sendable {
+struct LiveEventChannel: Codable, Identifiable, Sendable {
     let stream: XtreamStream
     let program: CurrentProgram?
     let evidence: Int

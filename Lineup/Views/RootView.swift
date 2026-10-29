@@ -60,6 +60,13 @@ struct RootView: View {
                 library.refreshSchedule()
             }
         }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                library.refreshProviderIfNeeded()
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged)) { _ in
             if library.hasProfile { library.refreshSchedule() }
         }
@@ -180,7 +187,9 @@ struct MainView: View {
         .tint(.white)
         // Beside the tab bar, where the set's own notices appear, over every
         // tab. A player covers it: they are all full-screen presentations.
-        .overlay(alignment: .topTrailing) { DataRefreshPopup() }
+        .overlay(alignment: .topTrailing) {
+            if selectedTab == 1 { DataRefreshPopup() }
+        }
     }
 }
 #endif

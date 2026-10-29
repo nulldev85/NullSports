@@ -37,11 +37,9 @@ struct MainView: View {
         .tint(.white)
         .mobileNavigationChrome(selection: $tab, liquidGlass: navigationGlass,
                                 fullscreen: inlinePlayerFullscreen)
-        // Over every tab while channels, the guide and the matches refresh.
-        // Never over a picture: the full-screen player covers it, and it
-        // stands aside while the inline player fills the screen.
+        // Provider refresh feedback belongs to TV Guide alone.
         .overlay(alignment: .top) {
-            if !inlinePlayerFullscreen {
+            if tab == MobileNavigationTab.guide.rawValue && !inlinePlayerFullscreen {
                 DataRefreshPopup()
                     .padding(.horizontal, 16)
                     .padding(.top, 4)

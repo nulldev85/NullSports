@@ -116,6 +116,7 @@ struct XtreamClient {
 
     let profile: XtreamProfile
     let password: String
+    var session: URLSession = .shared
 
     func authenticate() async throws -> XtreamEnvelope {
         guard !profile.isPlaylist else { throw XtreamError.invalidServer }
@@ -364,7 +365,7 @@ struct XtreamClient {
     /// What a request answers with, reporting to `progress`, when there is
     /// one, how much has arrived as it arrives.
     private static func data(for request: URLRequest, progress: DownloadProgress?) async throws -> (Data, URLResponse) {
-        guard let progress else { return try await URLSession.shared.data(for: request) }
+        guard let progress else { return try await session.data(for: request) }
         let watcher = XtreamDownloadWatcher()
         let ticker = Task.detached(priority: .utility) {
             while !Task.isCancelled {
@@ -378,7 +379,7 @@ struct XtreamClient {
         }
         let answer: (Data, URLResponse)
         do {
-            answer = try await URLSession.shared.data(for: request, delegate: watcher)
+            answer = try await session.data(for: request, delegate: watcher)
         } catch {
             ticker.cancel()
             throw error
