@@ -79,40 +79,10 @@ enum XtreamAnswer<Value: Sendable>: Sendable {
     }
 }
 
-/// How much of a download has arrived, for a refresh's percentage.
-struct XtreamDownloadUpdate: Sendable {
-    let received: Int64
-    /// The size the server gave, or nil when it did not say.
-    let expected: Int64?
-    /// The last word on a download: `received` is everything that came.
-    let finished: Bool
-}
-
-/// Hands back the task an async `data(for:delegate:)` call makes, so how much
-/// of it has arrived can be read while the call is still waiting.
-///
-/// Read from a clock rather than told about each chunk: a ninety-megabyte
-/// guide arrives in tens of thousands of chunks, and the download should not
-/// slow down to report on itself.
-private final class XtreamDownloadWatcher: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    private let lock = NSLock()
-    private var task: URLSessionTask?
-
-    func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
-        lock.withLock { self.task = task }
-    }
-
-    var counts: (received: Int64, expected: Int64)? {
-        lock.withLock {
-            task.map { (received: $0.countOfBytesReceived, expected: $0.countOfBytesExpectedToReceive) }
-        }
-    }
-}
-
 struct XtreamClient {
     /// Told how a download is going, on the main actor, a few times a second
     /// and once more when it is done.
-    typealias DownloadProgress = @MainActor @Sendable (XtreamDownloadUpdate) -> Void
+    typealias DownloadProgress = XtreamDownload.Progress
 
     let profile: XtreamProfile
     let password: String
@@ -251,7 +221,7 @@ struct XtreamClient {
             if let etag = saved.etag { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
             if let modified = saved.lastModified { request.setValue(modified, forHTTPHeaderField: "If-Modified-Since") }
         }
-        let (data, response) = try await Self.data(for: request, progress: progress)
+        let (data, response) = try await XtreamDownload.data(for: request, session: session, progress: progress)
         guard let http = response as? HTTPURLResponse else { throw XtreamError.serverRejected }
         if http.statusCode == 304, digest != nil { return .unchanged(bytes: 0) }
         guard (200..<300).contains(http.statusCode) else { throw XtreamError.serverRejected }
@@ -355,42 +325,11 @@ struct XtreamClient {
         var request = URLRequest(url: url)
         request.timeoutInterval = timeout
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (data, response) = try await Self.data(for: request, progress: progress)
+        let (data, response) = try await XtreamDownload.data(for: request, session: session, progress: progress)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw XtreamError.serverRejected
         }
         return data
-    }
-
-    /// What a request answers with, reporting to `progress`, when there is
-    /// one, how much has arrived as it arrives.
-    private static func data(for request: URLRequest, progress: DownloadProgress?) async throws -> (Data, URLResponse) {
-        guard let progress else { return try await session.data(for: request) }
-        let watcher = XtreamDownloadWatcher()
-        let ticker = Task.detached(priority: .utility) {
-            while !Task.isCancelled {
-                if let counts = watcher.counts {
-                    await progress(XtreamDownloadUpdate(received: counts.received,
-                                                        expected: counts.expected > 0 ? counts.expected : nil,
-                                                        finished: false))
-                }
-                try? await Task.sleep(for: .milliseconds(250))
-            }
-        }
-        let answer: (Data, URLResponse)
-        do {
-            answer = try await session.data(for: request, delegate: watcher)
-        } catch {
-            ticker.cancel()
-            throw error
-        }
-        // The ticker is stopped before the last word, so nothing it was
-        // about to say can arrive after it.
-        ticker.cancel()
-        await ticker.value
-        let received = watcher.counts?.received ?? Int64(answer.0.count)
-        await progress(XtreamDownloadUpdate(received: received, expected: received, finished: true))
-        return answer
     }
 
     private func request<T: Decodable>(action: String?) async throws -> T {

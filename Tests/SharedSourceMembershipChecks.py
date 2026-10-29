@@ -15,6 +15,7 @@ SHARED = (
     "Lineup/Design/TitleArtwork.swift",
     "Lineup/Services/TitleLogoURLCache.swift",
     "Lineup/Services/PreparedLiveMatches.swift",
+    "Lineup/Services/XtreamDownload.swift",
     "Lineup/Models/LibraryCast.swift",
     "Lineup/Design/LineupPresentationStyle.swift",
     "Lineup/Services/MediaIntegrationHTTP.swift",

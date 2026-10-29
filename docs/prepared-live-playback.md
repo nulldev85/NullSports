@@ -34,7 +34,7 @@ do not show that popup, and background metadata refresh does not retune a player
 
 ## Release notes
 
-iPhone 156 and Apple TV 101:
+iPhone 157 and Apple TV 102:
 
 - Saved live games open faster, with their channels and alternatives ready when
   you return to Lineup.
@@ -52,6 +52,9 @@ last good snapshot. A held XMLTV response verifies playback while a guide is
 downloading and discovery of a newly added alternative after it completes.
 The Foundation daily checks cover the exact 24-hour refresh and 48-hour retention
 boundaries, including clock rollback. Both full simulator suites remain enabled.
+Both build workflows also compile and execute the shared provider download
+transport before the full SDK build. This covers injected sessions, progress,
+empty responses, and propagation of offline errors.
 
 Device review should include a cached relaunch with a deliberately slow EPG,
 primary and alternative playback before it finishes, TV Guide-only progress,
