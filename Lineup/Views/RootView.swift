@@ -55,6 +55,11 @@ struct RootView: View {
             if library.streams.isEmpty { await library.bootstrap() }
             else { library.refreshSchedule() }
         }
+        #if os(iOS)
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            library.setPreparationSuspended(phase == .background)
+        }
+        #endif
         .onChange(of: scenePhase) { _, phase in
             if phase == .active && library.hasProfile && !library.streams.isEmpty {
                 library.refreshSchedule()

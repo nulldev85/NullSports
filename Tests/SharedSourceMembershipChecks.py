@@ -15,6 +15,7 @@ SHARED = (
     "Lineup/Design/TitleArtwork.swift",
     "Lineup/Services/TitleLogoURLCache.swift",
     "Lineup/Services/PreparedLiveMatches.swift",
+    "Lineup/Services/LivePreparationWork.swift",
     "Lineup/Services/XtreamDownload.swift",
     "Lineup/Models/LibraryCast.swift",
     "Lineup/Design/LineupPresentationStyle.swift",
@@ -118,7 +119,7 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                        "iPhone/MobileAccentWheel.swift", "iPhone/MobileWelcomeSignalBackdrop.swift",
                        "iPhone/MobileIntegrationControls.swift", "iPhone/MobileLibraryDetailControls.swift",
                        "iPhone/MobileCastPortrait.swift", "iPhone/MobileIntegrationPalette.swift",
-                       "iPhone/MobileTitleArtwork.swift"):
+                       "iPhone/MobileTitleArtwork.swift", "iPhone/MobileCombinedCatalog.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))
             self.assertFalse(is_included(project, "Lineup", source))
@@ -132,7 +133,7 @@ class SharedSourceMembershipChecks(unittest.TestCase):
         self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobileSegmentAndFanartTests.swift"))
         for source in ("Tests/iOS/MobileEventChannelGroupingTests.swift", "Tests/iOS/MobilePlaybackPresentationTests.swift",
                        "Tests/iOS/MobileGuideCategoryVisibilityTests.swift", "Tests/iOS/MobileAccentWheelTests.swift",
-                       "Tests/iOS/StreamingServiceNavigationTests.swift"):
+                       "Tests/iOS/StreamingServiceNavigationTests.swift", "Tests/iOS/SportsRefreshRegressionTests.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOSTests", source))
             self.assertFalse(is_included(project, "LineupTests", source))

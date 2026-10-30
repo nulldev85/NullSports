@@ -15,6 +15,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = (
+    "Lineup/Services/LivePreparationWork.swift",
     "Lineup/Models/XtreamModels.swift", "Lineup/Models/SportsExpansionModels.swift",
     "Lineup/Models/CatchUp.swift", "Lineup/Models/LiveEventChannel.swift",
     "Lineup/Services/TeamChannelPreferences.swift", "Lineup/Services/FollowedTeams.swift",
@@ -27,6 +28,8 @@ SOURCES = (
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--swift", default=shutil.which("swift"))
+    parser.add_argument("--phone", action="store_true", help="Also run iPhone catalog, tennis and persistence regressions")
+    parser.add_argument("--identity-from", type=Path, help="Replay the tennis regression with a previous identity policy")
     args = parser.parse_args()
     if not args.swift:
         parser.error("Swift is required; pass --swift /path/to/swift")
@@ -39,6 +42,29 @@ def main():
         tests.mkdir(parents=True)
         for name in SOURCES:
             shutil.copyfile(ROOT / name, source / Path(name).name)
+        if args.identity_from:
+            pattern = r"(?ms)^    static func identity\(for game: SportsGame\).*?^    }"
+            previous = re.search(pattern, args.identity_from.read_text(encoding="utf-8-sig"))[0]
+            match_model = source / "PreparedLiveMatches.swift"
+            text, count = re.subn(pattern, lambda _: previous, match_model.read_text(encoding="utf-8"))
+            assert count == 1
+            match_model.write_text(text, encoding="utf-8")
+        if args.phone:
+            for name in ("iPhone/MobileCombinedCatalog.swift", "Lineup/Services/ExpandedSportsChannelMatcher.swift",
+                         "Lineup/Services/EventChannelEvidence.swift", "Lineup/Services/ChannelLanguage.swift"):
+                shutil.copyfile(ROOT / name, source / Path(name).name)
+            # Compile the actual pure scoring methods from the store, without
+            # importing the UI, account stores or playback frameworks.
+            library = (ROOT / "Lineup/Store/SportsLibrary.swift").read_text(encoding="utf-8")
+            scoring = library[library.index("    nonisolated private static func collegeMatchup"):
+                              library.index("    /// Match today's games to channels.")]
+            tournament = library[library.index("    nonisolated static func isArchive"):
+                                 library.index("    func games(for league:")]
+            (source / "SportsLibraryScoring.swift").write_text(
+                "import Foundation\nenum SportsLibrary {\n" + tournament + scoring + "\n}", encoding="utf-8")
+            regression = (ROOT / "Tests/iOS/SportsRefreshRegressionTests.swift").read_text(encoding="utf-8")
+            (tests / "SportsRefreshRegressionTests.swift").write_text(
+                regression.replace("@testable import LineupiOS", "@testable import Lineup"), encoding="utf-8")
         # A macOS host can import SwiftUI, but these Foundation checks do not
         # load the app's theme. Omit only the UI import/property from its copy.
         models = source / "XtreamModels.swift"

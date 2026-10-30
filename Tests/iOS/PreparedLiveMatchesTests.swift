@@ -96,6 +96,22 @@ final class PreparedLiveMatchesTests: XCTestCase {
         XCTAssertTrue(url.path.contains("/viewer/test-only-secret/1."))
     }
 
+    #if os(iOS)
+    func testBackgroundingCancelsPreparationWithoutWithdrawingSavedPlayback() async throws {
+        let f = try fixture()
+        defer { f.cleanUp() }
+        let library = f.library()
+        _ = await library.restorePreparedMatches()
+        library.setPreparationSuspended(true)
+        XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 1)
+        XCTAssertNil(library.refreshProgress.status)
+        library.refreshProviderIfNeeded()
+        XCTAssertFalse(library.channelsAreSyncing)
+        library.setPreparationSuspended(false)
+        XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 1)
+    }
+    #endif
+
     func testRestoringAgainDoesNotRenewTheDailyPreparationTimestamp() async throws {
         let f = try fixture()
         defer { f.cleanUp() }

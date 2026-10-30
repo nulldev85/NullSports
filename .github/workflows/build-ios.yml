@@ -56,6 +56,7 @@ jobs:
       - name: Check shared sports logic
         run: |
           set -euo pipefail
+          python3 -B Tools/check-tv-sports-refresh.py --phone
           python3 -B Tests/TeamDirectoryChecks.py
           python3 -B Tests/SimulatorSelectionChecks.py
           swiftc Tests/iOS/PlaybackFixtureByteRange.swift Tests/PlaybackFixtureRangeChecks.swift -o /tmp/playback-fixture-range-checks

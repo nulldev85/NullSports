@@ -2,10 +2,12 @@ import SwiftUI
 
 /// Stable display IDs only. Native provider numbers remain untouched in their
 /// own stores and are used for all playback and archive requests.
+@MainActor
 final class MobileProviderStreamRegistry {
     private let defaults: UserDefaults
     private var ids: [String: Int]
     private var next: Int
+    private(set) var revision = 0
     private static let key = "Lineup.combinedGuide.streamIDs.v1"
 
     init(defaults: UserDefaults) {
@@ -28,10 +30,25 @@ final class MobileProviderStreamRegistry {
         let value = next
         next -= 1
         ids[key] = value
+        revision &+= 1
         return value
     }
 
-    func save() { defaults.set(try? JSONEncoder().encode(ids), forKey: Self.key) }
+    var snapshot: MobileDisplayIDSnapshot { .init(ids: ids, next: next) }
+
+    func install(_ snapshot: MobileDisplayIDSnapshot) {
+        guard ids != snapshot.ids else { return }
+        ids = snapshot.ids
+        next = snapshot.next
+        revision &+= 1
+    }
+
+    func save() async {
+        let values = ids, version = revision
+        let data = await Task.detached(priority: .utility) { try? JSONEncoder().encode(values) }.value
+        guard revision == version else { return }
+        defaults.set(data, forKey: Self.key)
+    }
 }
 
 struct MobileCombinedGuideView: View {
