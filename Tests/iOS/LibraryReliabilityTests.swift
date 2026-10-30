@@ -53,8 +53,8 @@ final class LibraryReliabilityTests: XCTestCase {
         } onChange: {
             MainActor.assumeIsolated { state.invalidated = true }
         }
-        library.metadataSource = .provider
-        library.episodeDataSource = .provider
+        library.setMetadataSource(.provider)
+        library.setMetadataSource(.provider, episodes: true)
         XCTAssertFalse(state.invalidated, "Settings' shelf title must not depend on remapping item metadata")
         XCTAssertEqual(library.heroCatalog?.title, library.heroCatalogTitle)
     }
