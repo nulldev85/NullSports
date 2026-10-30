@@ -1,9 +1,12 @@
-"""Run TV refresh/concurrency regressions using real Foundation models.
+"""Run sports refresh/coverage regressions using real Foundation models.
 
 No Apple SDK is needed. UI/store integration still runs in the tvOS suite.
 The temporary package compiles the same helper and XCTest source as the app.
 The helper's outer tvOS guard and the model's unused SwiftUI color convenience
 are removed in the temporary host package; Foundation logic stays unchanged.
+Host copies resolve bundled directories/fixtures through SwiftPM's resource
+bundle and import FoundationNetworking on Linux. Phone checks also compile
+the actual expanded-sports client, date parser, alert rules and scoring methods.
 """
 import argparse
 import os
@@ -16,6 +19,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = (
     "Lineup/Services/LivePreparationWork.swift",
+    "Lineup/Services/GuideChannelList.swift",
     "Lineup/Models/XtreamModels.swift", "Lineup/Models/SportsExpansionModels.swift",
     "Lineup/Models/CatchUp.swift", "Lineup/Models/LiveEventChannel.swift",
     "Lineup/Services/TeamChannelPreferences.swift", "Lineup/Services/FollowedTeams.swift",
@@ -42,6 +46,16 @@ def main():
         tests.mkdir(parents=True)
         for name in SOURCES:
             shutil.copyfile(ROOT / name, source / Path(name).name)
+        for name in ("SportsTeams.json", "SportsCompetitions.json"):
+            shutil.copyfile(ROOT / "Lineup/Resources" / name, source / name)
+        for name in ("SportsTeamDirectory.swift", "SportsExpansionModels.swift"):
+            path = source / name
+            path.write_text(path.read_text(encoding="utf-8").replace("Bundle.main.url(forResource:",
+                "Bundle.module.url(forResource:"), encoding="utf-8")
+        fixture_directory = tests / "Fixtures"
+        fixture_directory.mkdir()
+        for path in (ROOT / "Tests/tvOS/Fixtures").glob("*.json"):
+            shutil.copyfile(path, fixture_directory / path.name)
         if args.identity_from:
             pattern = r"(?ms)^    static func identity\(for game: SportsGame\).*?^    }"
             previous = re.search(pattern, args.identity_from.read_text(encoding="utf-8-sig"))[0]
@@ -53,6 +67,23 @@ def main():
             for name in ("iPhone/MobileCombinedCatalog.swift", "Lineup/Services/ExpandedSportsChannelMatcher.swift",
                          "Lineup/Services/EventChannelEvidence.swift", "Lineup/Services/ChannelLanguage.swift"):
                 shutil.copyfile(ROOT / name, source / Path(name).name)
+            expanded = (ROOT / "Lineup/Services/ExpandedSportsScheduleClient.swift").read_text(encoding="utf-8")
+            (source / "ExpandedSportsScheduleClient.swift").write_text(
+                expanded.replace("import Foundation", "import Foundation\n#if canImport(FoundationNetworking)\nimport FoundationNetworking\n#endif", 1),
+                encoding="utf-8")
+            schedule = (ROOT / "Lineup/Services/SportsScheduleClient.swift").read_text(encoding="utf-8")
+            snapshot = re.search(r"(?ms)^    struct Snapshot: Sendable \{.*?^    }", schedule)[0]
+            dates = schedule[schedule.index("    private static let internetDate"):
+                             schedule.index("    private static func path")]
+            (source / "SportsScheduleClient.swift").write_text(
+                "import Foundation\nstruct SportsScheduleClient {\n" + snapshot + "\n" + dates + "\n}", encoding="utf-8")
+            alerts = (ROOT / "Lineup/Services/GameAlerts.swift").read_text(encoding="utf-8")
+            (source / "GameAlertRules.swift").write_text(
+                alerts[:alerts.index("@MainActor\nfinal class GameAlertCenter")], encoding="utf-8")
+            expanded_tests = (ROOT / "Tests/iOS/ExpandedSportsTests.swift").read_text(encoding="utf-8")
+            (tests / "ExpandedSportsTests.swift").write_text(
+                expanded_tests.replace("@testable import LineupiOS", "@testable import Lineup")
+                    .replace("Bundle(for: Self.self)", "Bundle.module"), encoding="utf-8")
             # Compile the actual pure scoring methods from the store, without
             # importing the UI, account stores or playback frameworks.
             library = (ROOT / "Lineup/Store/SportsLibrary.swift").read_text(encoding="utf-8")
@@ -85,7 +116,8 @@ def main():
         (package / "Package.swift").write_text('''// swift-tools-version: 5.9
 import PackageDescription
 let package = Package(name: "LineupTVRefreshChecks", platforms: [.macOS(.v13)], targets: [
-    .target(name: "Lineup"), .testTarget(name: "LineupTests", dependencies: ["Lineup"])
+    .target(name: "Lineup", resources: [.copy("SportsTeams.json"), .copy("SportsCompetitions.json")]),
+    .testTarget(name: "LineupTests", dependencies: ["Lineup"], resources: [.copy("Fixtures")])
 ], swiftLanguageVersions: [.v5])
 ''', encoding="utf-8")
         env = os.environ.copy()

@@ -6,6 +6,29 @@ import XCTest
 #endif
 
 final class ExpandedSportsTests: XCTestCase {
+    func testRequestedDomesticCupsDecodeRealFixturesAndKeepStrictMatchEvidence() throws {
+        for slug in ["eng.league_cup", "eng.fa", "esp.copa_del_rey", "esp.super_cup"] {
+            let data = try fixture("soccer-\(slug)")
+            let games = try ExpandedSportsScheduleClient.soccerGames(data: data, competitions: catalog)
+            XCTAssertFalse(games.isEmpty, "The captured \(slug) fixture must be accepted")
+            XCTAssertTrue(games.allSatisfy { $0.competition?.id == slug })
+            let game = try XCTUnwrap(games.first)
+            XCTAssertFalse(try XCTUnwrap(game.awayTeamID).isEmpty)
+            XCTAssertFalse(try XCTUnwrap(game.homeTeamID).isEmpty)
+            let prepared = ExpandedSportsChannelMatcher.soccer(game)
+            let listing = "\(game.competition!.shortName): \(game.awayTeam) vs \(game.homeTeam)"
+            XCTAssertNotNil(ExpandedSportsChannelMatcher.soccerScore(
+                channel: channel("Sports", listing: listing, at: game.start), prepared: prepared, game: game, now: game.start))
+            XCTAssertNil(ExpandedSportsChannelMatcher.soccerScore(
+                channel: channel("Sports", at: game.start), prepared: prepared, game: game, now: game.start),
+                "A broadcaster name must not authorize an unrelated cup game")
+            XCTAssertNil(ExpandedSportsChannelMatcher.soccerScore(
+                channel: channel("Sports", listing: "Replay: \(listing)", at: game.start), prepared: prepared, game: game, now: game.start))
+            XCTAssertTrue(try ExpandedSportsScheduleClient.soccerGames(data: data,
+                competitions: catalog.filter { $0.id != slug }).isEmpty, "Unknown competitions remain excluded")
+        }
+    }
+
     private var catalog: [SportsCompetition] { SportsCompetitionCatalog.bundled.competitions }
     private func fixture(_ name: String) throws -> Data {
         try Data(contentsOf: XCTUnwrap(Bundle(for: Self.self).url(forResource: name, withExtension: "json", subdirectory: "Fixtures")))

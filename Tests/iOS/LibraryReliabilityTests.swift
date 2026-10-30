@@ -1,4 +1,9 @@
 import XCTest
+import Observation
+#if os(iOS)
+import SwiftUI
+import UIKit
+#endif
 #if os(tvOS)
 @testable import Lineup
 #else
@@ -7,6 +12,118 @@ import XCTest
 
 @MainActor
 final class LibraryReliabilityTests: XCTestCase {
+    private func cachedFixture(itemCount: Int) throws -> (MediaServerProfile, UserDefaults, URL) {
+        let profile = MediaServerProfile(name: "Cached", serverURL: "https://cache.invalid", username: "viewer", userID: "viewer")
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "LibraryCacheResponsiveness.\(profile.id)"))
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        let root = MediaItem(id: "movies", name: "Cached Movies", type: "CollectionFolder", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil, serverID: profile.id)
+        let items = (0..<itemCount).map { index in
+            MediaItem(id: "film-\(index)", name: "Cached Film \(index)", type: "Movie", overview: "Cached metadata",
+                productionYear: 2026, primaryImageAspectRatio: nil, childCount: nil, serverID: profile.id)
+        }
+        let snapshot = MediaLibrary.LibrarySnapshot(roots: [root], collections: [], importedCatalogs: [],
+            catalogs: [MediaCatalog(root: root, items: items)], counts: nil, refreshedAt: Date(),
+            siloPlayback: nil, siloFavorites: nil)
+        let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Lineup-media-library-\(profile.id.uuidString).json")
+        try JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
+        return (profile, defaults, url)
+    }
+
+    func testLargeLaunchCacheYieldsTheUIActorAndSettingsTitleDoesNotObserveItemMetadata() async throws {
+        let (profile, defaults, file) = try cachedFixture(itemCount: 30_000)
+        defer {
+            defaults.removePersistentDomain(forName: "LibraryCacheResponsiveness.\(profile.id)")
+            try? FileManager.default.removeItem(at: file)
+        }
+        let state = LibraryCacheHeartbeat()
+        let heartbeat = Task { @MainActor in
+            while !state.finished { state.count += 1; await Task.yield() }
+        }
+        let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""), trackingKey: { nil })
+        await library.restoreCachedLibrary()
+        state.finished = true
+        await heartbeat.value
+        XCTAssertGreaterThan(state.count, 0, "Reading/decoding a large Library must not hold up the app's root")
+        XCTAssertEqual(library.state(of: profile).catalogs.first?.items.count, 30_000)
+        XCTAssertEqual(library.heroCatalogTitle, "Cached Movies")
+        withObservationTracking {
+            XCTAssertEqual(library.heroCatalogTitle, "Cached Movies")
+        } onChange: {
+            MainActor.assumeIsolated { state.invalidated = true }
+        }
+        library.metadataSource = .provider
+        library.episodeDataSource = .provider
+        XCTAssertFalse(state.invalidated, "Settings' shelf title must not depend on remapping item metadata")
+        XCTAssertEqual(library.heroCatalog?.title, library.heroCatalogTitle)
+    }
+
+    func testRemovingAProfileDuringCacheRestoreCannotRestoreItsShelves() async throws {
+        let (profile, defaults, file) = try cachedFixture(itemCount: 100)
+        defer {
+            defaults.removePersistentDomain(forName: "LibraryCacheResponsiveness.\(profile.id)")
+            try? FileManager.default.removeItem(at: file)
+        }
+        let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""), trackingKey: { nil })
+        library.remove(profile)
+        await library.restoreCachedLibrary()
+        XCTAssertTrue(library.profiles.isEmpty)
+        XCTAssertTrue(library.catalogs.isEmpty)
+        XCTAssertNil(library.servers[profile.id])
+    }
+
+    #if os(iOS)
+    func testRealSettingsRetainsItsScrollableListDuringPlaybackUpdatesWithALargeLibrary() async throws {
+        let (profile, defaults, file) = try cachedFixture(itemCount: 30_000)
+        defer {
+            defaults.removePersistentDomain(forName: "LibraryCacheResponsiveness.\(profile.id)")
+            try? FileManager.default.removeItem(at: file)
+        }
+        let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""), trackingKey: { nil },
+            serverClientFactory: { _ in throw URLError(.notConnectedToInternet) })
+        await media.restoreCachedLibrary()
+        let library = SportsLibrary(profileDefaults: defaults, automaticRefreshes: false)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: MobileAccountView(selectedTab: .constant(3))
+            .environment(library).environment(media).environmentObject(CloudSettingsSync.shared).preferredColorScheme(.dark))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        func scroll(in view: UIView) -> UIScrollView? {
+            if let scroll = view as? UIScrollView, scroll.contentSize.height > scroll.bounds.height { return scroll }
+            return view.subviews.lazy.compactMap { scroll(in: $0) }.first
+        }
+        let deadline = Date().addingTimeInterval(5)
+        while scroll(in: window) == nil, Date() < deadline {
+            window.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let list = try XCTUnwrap(scroll(in: window))
+        list.setContentOffset(CGPoint(x: 0, y: 120), animated: false)
+        window.layoutIfNeeded()
+        let offset = list.contentOffset.y
+        let diagnostics = PlaybackDiagnostics.shared, wasEnabled = diagnostics.isEnabled
+        diagnostics.isEnabled = true
+        defer { diagnostics.isEnabled = wasEnabled }
+        for index in 0..<20 {
+            diagnostics.record("Settings responsiveness sample \(index)")
+            await Task.yield()
+            window.layoutIfNeeded()
+            XCTAssertTrue(scroll(in: window) === list, "Playback updates must not replace the Settings list")
+            XCTAssertEqual(list.contentOffset.y, offset, accuracy: 1, "Settings must not jump while the player publishes diagnostics")
+        }
+        XCTAssertTrue(list.isScrollEnabled)
+        XCTAssertEqual(media.heroCatalogTitle, "Cached Movies")
+        let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        })
+        attachment.name = "Settings-large-library"; attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+    #endif
+
     private func fixture() throws -> (MediaLibrary, MediaServerProfile, UserDefaults, URLSession) {
         let profile = MediaServerProfile(name: "Test", serverURL: "https://library-review.test/base", username: "viewer", userID: "viewer")
         let defaults = UserDefaults(suiteName: "LibraryReliability." + UUID().uuidString)!
@@ -107,6 +224,13 @@ final class LibraryReliabilityTests: XCTestCase {
         XCTAssertNotNil(second.failure)
         XCTAssertEqual(LibraryReliabilityProtocol.requestCount, 1)
     }
+}
+
+@MainActor
+private final class LibraryCacheHeartbeat {
+    var finished = false
+    var count = 0
+    var invalidated = false
 }
 
 private final class LibraryReliabilityProtocol: URLProtocol, @unchecked Sendable {

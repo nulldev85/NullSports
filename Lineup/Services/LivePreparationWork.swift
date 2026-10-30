@@ -21,6 +21,13 @@ final class LatestSnapshotQueue<Key: Hashable, Value: Sendable> {
         worker = task
         return task
     }
+
+    /// Retire pending work for a removed account. An in-progress atomic write
+    /// is allowed to finish; callers can await the drain before deleting it.
+    func discard(key: Key) -> Task<Void, Never>? {
+        pending[key] = nil
+        return worker
+    }
 }
 
 /// A score poll may retire one event while another finishes matching. Publish

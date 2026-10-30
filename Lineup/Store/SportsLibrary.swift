@@ -2517,7 +2517,8 @@ final class SportsLibrary {
 
     nonisolated private static let eventChannelTeams: [SportsLeague: [EventChannelEvidence.Team]] = {
         let clubCompetitions: Set<String> = ["eng.1", "esp.1", "ger.1", "ita.1", "fra.1", "usa.1", "usa.nwsl",
-            "uefa.champions", "uefa.europa", "uefa.europa.conf"]
+            "uefa.champions", "uefa.europa", "uefa.europa.conf", "eng.league_cup", "eng.fa",
+            "esp.copa_del_rey", "esp.super_cup"]
         let professional: Set<SportsLeague> = [.nba, .nfl, .nhl, .mlb]
         let teams = SportsTeamDirectory.bundled.teams.filter { team in
             // Country names can identify a broadcaster's region. Only club
@@ -2779,6 +2780,9 @@ final class SportsLibrary {
                     && !["radio", "audio", "basketball", "ncaab", "high school", "nfhs"].contains(where: { category.contains($0) })
             }
             let collegeStreamsByID = Dictionary(grouping: collegeStreams, by: \.id)
+            #if os(iOS)
+            let collegeStreamIDs = Set(collegeStreamsByID.keys)
+            #endif
             // Each guide channel normalized once, including duplicate stream qualities.
             var collegeGuides: [String: [CollegeChannelMatcher.Listing]] = [:]
             func collegeCandidate(_ stream: XtreamStream) -> CollegeChannelMatcher.Candidate {
@@ -3015,9 +3019,8 @@ final class SportsLibrary {
                 var candidates = game.league == .ncaaf ? currentStreams : (leagues[game.league] ?? [])
                 #if os(iOS)
                 if let possible = eventCandidates[game.id] {
-                    let ordinaryPool = Set(collegeStreams.map(\.id))
                     candidates = candidates.filter {
-                        possible.contains($0.id) || (game.league == .ncaaf && !ordinaryPool.contains($0.id))
+                        possible.contains($0.id) || (game.league == .ncaaf && !collegeStreamIDs.contains($0.id))
                     }
                 }
                 #endif
@@ -3057,7 +3060,7 @@ final class SportsLibrary {
             await trace.note("candidate scores", "college \(collegeScores) (\(collegeKept) kept), professional \(professionalCandidatesScored); \(preparedChannels.count) channels and \(currentGuides.count) guides read; shortlists \(professionalIndex == nil && collegeIndex == nil ? "carried" : "rebuilt"); full evidence checks retained")
             return (matches, signatures, matches != previousMatches, evidenceByGame,
                     collegeSlate.count, collegeStreams.count, collegeSeconds, professionalSeconds,
-                    (eventCandidates, Set(collegeStreams.map(\.id))), preparedResults)
+                    (eventCandidates, collegeStreamIDs), preparedResults)
             #else
             return (matches, signatures, matches != previousMatches, evidenceByGame,
                     collegeSlate.count, collegeStreams.count, collegeSeconds, professionalSeconds, preparedResults)
@@ -3311,10 +3314,11 @@ final class SportsLibrary {
            cached.favorites == favoritesOnly, cached.recents == recentsOnly,
            cached.query == query { return cached.streams }
         let recentIDs = recentsOnly ? Set(recentStreamOrder) : []
+        let favoriteIDs = favoritesOnly ? Set(favoriteStreamOrder) : []
         let filtered = streams.filter { stream in
             guard stream.streamType?.lowercased() != "radio_streams",
                   stream.streamType?.lowercased() != "radio" else { return false }
-            if favoritesOnly && !isFavorite(stream) { return false }
+            if favoritesOnly && !favoriteIDs.contains(stream.id) { return false }
             if recentsOnly && !recentIDs.contains(stream.id) { return false }
             if let categoryID, stream.categoryID != categoryID { return false }
             return query.isEmpty || stream.name.localizedCaseInsensitiveContains(query)
@@ -3532,15 +3536,20 @@ final class SportsLibrary {
                   isStream(stream, verifiedFor: game) else { continue }
             verified.insert(stream.id)
         }
+        let matchedID = verifiedStream(for: game)?.id
+        // Resolve can only choose these two verified preferences or the
+        // verified match. Do not rebuild all provider IDs for every tap.
+        var available = verified
+        if let matchedID { available.insert(matchedID) }
         return teamPreferences.resolve(teams,
                                        // Unfinished *and* still working means wait.
                                        // Matching that has stopped without settling is
                                        // as good as it will get, so the picker opens
                                        // rather than a message that would never clear.
                                        matchingReady: eventChannelsReady(for: game) || !channelsAreSyncing,
-                                       availableStreamIDs: Set(streams.map(\.id)),
+                                       availableStreamIDs: available,
                                        verifiedStreamIDs: verified,
-                                       verifiedStreamID: verifiedStream(for: game)?.id)
+                                       verifiedStreamID: matchedID)
     }
 
     func stream(withID id: Int) -> XtreamStream? {

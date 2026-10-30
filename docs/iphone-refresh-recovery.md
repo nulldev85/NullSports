@@ -66,3 +66,13 @@ Release-note draft: Background refreshes do less repeated matching and catalog
 work, save smaller snapshots, and stop disposable preparation when you leave the
 iPhone app. Refresh progress includes alternative-feed preparation. Live tennis
 tournament coverage stays available as courts and rounds change.
+
+## Broader responsiveness follow-up
+
+The later audit also addresses iPhone Guide filtering, Library launch/cache
+work, Settings metadata/diagnostics redraws, and game-selection allocations,
+then adds the four requested domestic soccer cups. See
+[Responsiveness audit and domestic soccer cups](responsiveness-and-soccer-cups.md)
+for the additional changes, local results and pending native/device checks.
+The earlier successful iPhone976/TV716 builds cover the initial refresh repair
+only; they are not validation of that follow-up.

@@ -311,7 +311,7 @@ struct AccountView: View {
             TVSettingsSection("Browsing")
             TVSettingsLink(symbol: "sparkles.rectangle.stack", title: "Library Hero",
                            detail: "Choose the catalog shown across the top of Library.",
-                           value: media.heroCatalog?.title ?? "Choose Catalog") { LibraryHeroSettingsView().environment(media) }
+                           value: media.heroCatalogTitle ?? "Choose Catalog") { LibraryHeroSettingsView().environment(media) }
                 .disabled(!media.hasAnySource)
             TVSettingsLink(symbol: "text.book.closed", title: "Metadata",
                            detail: "Choose the sources for movie, show and episode information.",

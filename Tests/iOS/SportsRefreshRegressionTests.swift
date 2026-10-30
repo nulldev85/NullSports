@@ -143,6 +143,89 @@ final class SportsRefreshRegressionTests: XCTestCase {
         }
         XCTAssertEqual(builds, channels.count)
     }
+
+    func testGuideQueriesPreserveOrderingVisibilityAndRecommendedChannels() async throws {
+        let streams = (1...6).map { id in
+            XtreamStream(num: id == 2 ? 1 : id, name: id == 1 ? "Zulu Sports" : "Alpha Sports \(id)",
+                streamType: id == 6 ? "radio" : "live", streamID: id, streamIcon: nil,
+                epgChannelID: nil, categoryID: id < 4 ? "sports" : "news")
+        }
+        let all = try await GuideChannelList.load(streams, query: .init())
+        XCTAssertEqual(all.map(\.id), [2, 1, 3, 4, 5])
+        let favorites = try await GuideChannelList.load(streams, query: .init(favoritesOnly: true,
+            favorites: [5, 1, 6, 999], hiddenCategories: ["sports", "news"]))
+        XCTAssertEqual(favorites.map(\.id), [5, 1], "Personal lists keep their saved order and ignore hidden categories")
+        let recents = try await GuideChannelList.load(streams, query: .init(recentsOnly: true, recents: [3, 2, 6]))
+        XCTAssertEqual(recents.map(\.id), [3, 2])
+        let search = try await GuideChannelList.load(streams, query: .init(text: "alpha", hiddenCategories: ["news"]))
+        XCTAssertEqual(search.map(\.id), [2, 3])
+        let picker = try await GuideChannelList.load(streams, query: .init(hiddenCategories: ["sports"],
+            gamePicker: true, recommendedID: 3))
+        XCTAssertEqual(picker.map(\.id), [3, 2, 1, 4, 5])
+    }
+
+    func testThirtyThousandChannelQueriesLeaveTheUIActorAvailableAndCancelSupersededWork() async throws {
+        let streams = (0..<30_000).map { id in
+            XtreamStream(num: nil, name: "Sports \(30_000 - id)", streamType: "live", streamID: id,
+                streamIcon: nil, epgChannelID: nil, categoryID: "sports")
+        }
+        let state = GuideHeartbeat()
+        let heartbeat = Task { @MainActor in
+            while !state.finished { state.count += 1; await Task.yield() }
+        }
+        let start = ProcessInfo.processInfo.systemUptime
+        let result = try await GuideChannelList.load(streams, query: .init())
+        state.finished = true
+        await heartbeat.value
+        XCTAssertEqual(result.count, streams.count)
+        XCTAssertGreaterThan(state.count, 0, "Catalog work must yield the UI actor while the full result is built")
+        print("Guide workload: 30000 channels, \(ProcessInfo.processInfo.systemUptime - start)s, \(state.count) UI-actor heartbeats (host measurement)")
+        let canceled = Task { try await GuideChannelList.load(streams, query: .init(text: "Sports")) }
+        canceled.cancel()
+        do { _ = try await canceled.value; XCTFail("A canceled query must not publish stale results") }
+        catch is CancellationError { }
+        catch { XCTFail("Unexpected query error: \(error)") }
+    }
+
+    func testRemovingAnAccountDiscardsItsPendingSnapshotWithoutCancelingOtherAccounts() async {
+        let queue = LatestSnapshotQueue<String, Int>(), journal = SnapshotJournal()
+        let operation: @Sendable (Int) async -> Void = { await journal.write($0) }
+        let drain = queue.submit(key: "removed", value: 0, operation: operation)
+        await journal.started.wait()
+        _ = queue.submit(key: "removed", value: 1, operation: operation)
+        _ = queue.submit(key: "kept", value: 2, operation: operation)
+        _ = queue.discard(key: "removed")
+        journal.release.open()
+        await drain.value
+        XCTAssertEqual(journal.values, [0, 2])
+    }
+
+    func testCupOnlyClubChannelCannotBorrowAnUnrelatedGamesGuideEntry() async throws {
+        let club = try XCTUnwrap(SportsTeamDirectory.bundled.teams.first { $0.name == "Wrexham" })
+        XCTAssertTrue(Set(club.competitions ?? []).isSubset(of: ["eng.league_cup", "eng.fa"]))
+        var game = SportsGame(id: "cup-proof", league: .soccer, start: now.addingTimeInterval(-600),
+            awayTeam: "Arsenal", homeTeam: "Chelsea", awayAbbreviation: "ARS", homeAbbreviation: "CHE",
+            awayLogo: "", homeLogo: "", awayScore: "0", homeScore: "0", awayColor: nil, homeColor: nil,
+            awayRecord: nil, homeRecord: nil, venue: nil, location: nil, status: "Live", state: "in",
+            broadcast: "ESPN+", eventName: nil)
+        game.competition = try XCTUnwrap(SportsCompetitionCatalog.bundled.competitions.first { $0.id == "eng.fa" })
+        game.awayTeamID = "359"; game.homeTeamID = "363"
+        let channels = ["Wrexham TV", "ESPN+"].enumerated().map { offset, name in
+            XtreamStream(num: nil, name: name, streamType: "live", streamID: offset + 1,
+                streamIcon: nil, epgChannelID: "cup", categoryID: "soccer")
+        }
+        let listing = CurrentProgram(channelID: "cup", title: "FA Cup: Arsenal vs Chelsea", detail: "Live",
+            start: now.addingTimeInterval(-1800), end: now.addingTimeInterval(3600))
+        let matches = SportsLibrary.matchingEventChannels(for: game, candidates: channels,
+            programs: ["cup": [listing]], categories: [], now: now)
+        XCTAssertEqual(matches.map(\.id), [2], "New cup clubs must participate in the same wrong-team protection")
+    }
+}
+
+@MainActor
+private final class GuideHeartbeat {
+    var finished = false
+    var count = 0
 }
 
 @MainActor

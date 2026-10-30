@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-16",
+  "updatedAt": "2026-10-30",
   "season": 2026,
   "sources": [
     "https://sports.core.api.espn.com/v2/sports/football/leagues/college-football/seasons/2026/types/2/groups/80/teams?limit=1000",
@@ -26,7 +26,11 @@
     "https://site.api.espn.com/apis/site/v2/sports/soccer/concacaf.gold/teams?limit=1000",
     "https://site.api.espn.com/apis/site/v2/sports/soccer/caf.nations/teams?limit=1000",
     "https://site.api.espn.com/apis/site/v2/sports/soccer/afc.asian.cup/teams?limit=1000",
-    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.nations/teams?limit=1000"
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.nations/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.league_cup/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.fa/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.copa_del_rey/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.super_cup/teams?limit=1000"
   ],
   "teams": [
     {
@@ -3166,6 +3170,29 @@
     },
     {
       "league": "soccer",
+      "espnID": "2731",
+      "name": "Accrington Stanley",
+      "abbreviation": "ACC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2731.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18334",
+      "name": "AE Prat",
+      "abbreviation": "AEP",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "887",
       "name": "AEK Athens",
       "abbreviation": "AEK",
@@ -3184,7 +3211,53 @@
       "division": null,
       "competitions": [
         "eng.1",
-        "uefa.europa"
+        "uefa.europa",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "13884",
+      "name": "AFC Fylde",
+      "abbreviation": "FYL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/13884.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "10167",
+      "name": "AFC Hornchurch",
+      "abbreviation": "HOR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "132415",
+      "name": "AFC Rushden & Diamonds",
+      "abbreviation": "AFC",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3802",
+      "name": "AFC Wimbledon",
+      "abbreviation": "WIM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3802.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -3196,6 +3269,17 @@
       "division": null,
       "competitions": [
         "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21299",
+      "name": "Aguilas",
+      "abbreviation": "AGU",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -3228,7 +3312,19 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/96.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2737",
+      "name": "Albacete",
+      "abbreviation": "ALB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2737.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -3245,6 +3341,39 @@
     },
     {
       "league": "soccer",
+      "espnID": "131463",
+      "name": "Alcalá",
+      "abbreviation": "ALC",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6827",
+      "name": "Alcoyano",
+      "abbreviation": "ALC",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "632",
+      "name": "Aldershot Town",
+      "abbreviation": "ALD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/632.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "624",
       "name": "Algeria",
       "abbreviation": "ALG",
@@ -3253,6 +3382,61 @@
       "competitions": [
         "fifa.world",
         "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6832",
+      "name": "Almería",
+      "abbreviation": "ALM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/6832.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "633",
+      "name": "Altrincham",
+      "abbreviation": "ALT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/633.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21711",
+      "name": "Alvechurch",
+      "abbreviation": "ALV",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "12587",
+      "name": "Amorebieta",
+      "abbreviation": "AMO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/12587.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20776",
+      "name": "Anaitasuna",
+      "abbreviation": "ANA",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -3312,6 +3496,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "9449",
+      "name": "Antequera CF",
+      "abbreviation": "ANT",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "20024",
       "name": "Ararat-Armenia",
       "abbreviation": "ARA",
@@ -3357,6 +3552,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "22080",
+      "name": "Arosa",
+      "abbreviation": "ARO",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "359",
       "name": "Arsenal",
       "abbreviation": "ARS",
@@ -3364,7 +3570,8 @@
       "division": null,
       "competitions": [
         "eng.1",
-        "uefa.champions"
+        "uefa.champions",
+        "eng.league_cup"
       ]
     },
     {
@@ -3400,7 +3607,8 @@
       "division": null,
       "competitions": [
         "eng.1",
-        "uefa.champions"
+        "uefa.champions",
+        "eng.league_cup"
       ]
     },
     {
@@ -3423,7 +3631,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/93.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -3439,6 +3648,28 @@
     },
     {
       "league": "soccer",
+      "espnID": "14263",
+      "name": "Atlético Baleares",
+      "abbreviation": "BAL",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131403",
+      "name": "Atlético Calatayud",
+      "abbreviation": "CAL",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "1068",
       "name": "Atlético Madrid",
       "abbreviation": "ATM",
@@ -3446,7 +3677,74 @@
       "division": null,
       "competitions": [
         "esp.1",
-        "uefa.champions"
+        "uefa.champions",
+        "esp.super_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131419",
+      "name": "Atlético Melilla",
+      "abbreviation": "MEL",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21717",
+      "name": "Atlético Paso",
+      "abbreviation": "PASO",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133832",
+      "name": "Atlético Pinatarense",
+      "abbreviation": "APN",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131465",
+      "name": "Atlético Tordesillas",
+      "abbreviation": "TORD",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133833",
+      "name": "Atlético Unión Güímar",
+      "abbreviation": "AUG",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133847",
+      "name": "Auriense Cented Academy",
+      "abbreviation": "ACA",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -3520,6 +3818,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "5535",
+      "name": "Badajoz",
+      "abbreviation": "BDJ",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "4381",
       "name": "Bahrain",
       "abbreviation": "BHR",
@@ -3531,6 +3840,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "5421",
+      "name": "Barakaldo",
+      "abbreviation": "BAR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "83",
       "name": "Barcelona",
       "abbreviation": "BAR",
@@ -3538,7 +3858,43 @@
       "division": null,
       "competitions": [
         "esp.1",
-        "uefa.champions"
+        "uefa.champions",
+        "esp.super_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "280",
+      "name": "Barnet",
+      "abbreviation": "BAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/280.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "397",
+      "name": "Barnsley",
+      "abbreviation": "BAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/397.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "642",
+      "name": "Barrow",
+      "abbreviation": "BRW",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/642.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
       ]
     },
     {
@@ -3624,6 +3980,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "132350",
+      "name": "Berkhamsted",
+      "abbreviation": "BER",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "1895",
       "name": "Besiktas",
       "abbreviation": "BES",
@@ -3631,6 +3998,40 @@
       "division": null,
       "competitions": [
         "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "392",
+      "name": "Birmingham City",
+      "abbreviation": "BIR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/392.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "365",
+      "name": "Blackburn Rovers",
+      "abbreviation": "BLK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/365.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "346",
+      "name": "Blackpool",
+      "abbreviation": "BLP",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/346.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -3668,6 +4069,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "358",
+      "name": "Bolton Wanderers",
+      "abbreviation": "BOL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/358.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "20710",
       "name": "Borac Banja Luka",
       "abbreviation": "BBL",
@@ -3675,6 +4087,17 @@
       "division": null,
       "competitions": [
         "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2595",
+      "name": "Boreham Wood",
+      "abbreviation": "BOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2595.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
       ]
     },
     {
@@ -3736,6 +4159,18 @@
     },
     {
       "league": "soccer",
+      "espnID": "387",
+      "name": "Bradford City",
+      "abbreviation": "BRD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/387.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "2994",
       "name": "Braga",
       "abbreviation": "SCB",
@@ -3776,7 +4211,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/337.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
       ]
     },
     {
@@ -3799,7 +4235,43 @@
       "division": null,
       "competitions": [
         "eng.1",
-        "uefa.europa.conf"
+        "uefa.europa.conf",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "333",
+      "name": "Bristol City",
+      "abbreviation": "BRC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/333.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "308",
+      "name": "Bristol Rovers",
+      "abbreviation": "BRI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/308.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3129",
+      "name": "Bromley",
+      "abbreviation": "BRO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3129.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -3815,6 +4287,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "12597",
+      "name": "Burgos",
+      "abbreviation": "BUR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/12597.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "2845",
       "name": "Burkina Faso",
       "abbreviation": "BKA",
@@ -3826,6 +4309,29 @@
     },
     {
       "league": "soccer",
+      "espnID": "379",
+      "name": "Burnley",
+      "abbreviation": "BUR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/379.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2567",
+      "name": "Burton Albion",
+      "abbreviation": "BRT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2567.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "2925",
       "name": "Cagliari",
       "abbreviation": "CAG",
@@ -3833,6 +4339,29 @@
       "division": null,
       "competitions": [
         "ita.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21291",
+      "name": "Calvo Sotelo",
+      "abbreviation": "CSP",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "351",
+      "name": "Cambridge United",
+      "abbreviation": "CAM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/351.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -3883,6 +4412,193 @@
     },
     {
       "league": "soccer",
+      "espnID": "347",
+      "name": "Cardiff City",
+      "abbreviation": "CAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/347.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "322",
+      "name": "Carlisle United",
+      "abbreviation": "CAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/322.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4438",
+      "name": "Castellón",
+      "abbreviation": "CAS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4438.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "19288",
+      "name": "CD Artistico Navalcarnero",
+      "abbreviation": "NAV",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22372",
+      "name": "CD Baztán",
+      "abbreviation": "BAZ",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22432",
+      "name": "CD Cuarte",
+      "abbreviation": "CUA",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22430",
+      "name": "CD Extremadura",
+      "abbreviation": "EXT",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17888",
+      "name": "CD Laredo",
+      "abbreviation": "LAR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22437",
+      "name": "CD Minera",
+      "abbreviation": "MIN",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133835",
+      "name": "CD Pamplona",
+      "abbreviation": "CDP",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "11487",
+      "name": "CD Sabadell",
+      "abbreviation": "CDS",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/11487.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133836",
+      "name": "CD San José",
+      "abbreviation": "CSJ",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133837",
+      "name": "CD Tarancon",
+      "abbreviation": "CDT",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133838",
+      "name": "CD Tedeón",
+      "abbreviation": "TED",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "12585",
+      "name": "CD Tudelano",
+      "abbreviation": "TUD",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17569",
+      "name": "CD Varea",
+      "abbreviation": "VAR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21290",
+      "name": "CE Europa",
+      "abbreviation": "CEE",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "85",
       "name": "Celta Vigo",
       "abbreviation": "CEL",
@@ -3890,7 +4606,8 @@
       "division": null,
       "competitions": [
         "esp.1",
-        "uefa.europa"
+        "uefa.europa",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -3906,6 +4623,39 @@
     },
     {
       "league": "soccer",
+      "espnID": "5404",
+      "name": "Ceuta",
+      "abbreviation": "CEU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/5404.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133851",
+      "name": "Ceuta 6 de Junio",
+      "abbreviation": "C6J",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133839",
+      "name": "CF Calamocha",
+      "abbreviation": "CF ",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "9720",
       "name": "CF Montréal",
       "abbreviation": "MTL",
@@ -3913,6 +4663,17 @@
       "division": null,
       "competitions": [
         "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133840",
+      "name": "CF San Rafael",
+      "abbreviation": "CFSR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -3928,13 +4689,49 @@
     },
     {
       "league": "soccer",
+      "espnID": "372",
+      "name": "Charlton Athletic",
+      "abbreviation": "CHA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/372.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "363",
       "name": "Chelsea",
       "abbreviation": "CHE",
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/363.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "320",
+      "name": "Cheltenham Town",
+      "abbreviation": "CHL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/320.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "343",
+      "name": "Chesterfield",
+      "abbreviation": "CHES",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/343.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -3994,6 +4791,28 @@
     },
     {
       "league": "soccer",
+      "espnID": "131466",
+      "name": "Cieza",
+      "abbreviation": "CIE",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133834",
+      "name": "Ciudad De Lucena",
+      "abbreviation": "CDL",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "570",
       "name": "Club Brugge",
       "abbreviation": "BRU",
@@ -4001,6 +4820,18 @@
       "division": null,
       "competitions": [
         "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "339",
+      "name": "Colchester United",
+      "abbreviation": "COL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/339.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -4085,6 +4916,39 @@
     },
     {
       "league": "soccer",
+      "espnID": "4475",
+      "name": "Conquense",
+      "abbreviation": "CON",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20821",
+      "name": "Coria",
+      "abbreviation": "COR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8961",
+      "name": "Coruxo",
+      "abbreviation": "COR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "2894",
       "name": "Costa Rica",
       "abbreviation": "CRC",
@@ -4108,13 +4972,71 @@
     },
     {
       "league": "soccer",
+      "espnID": "22084",
+      "name": "Covadonga",
+      "abbreviation": "COV",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "388",
       "name": "Coventry City",
       "abbreviation": "COV",
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/388.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133841",
+      "name": "CP Talayuela",
+      "abbreviation": "CPT",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2594",
+      "name": "Crawley Town",
+      "abbreviation": "CRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2594.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20770",
+      "name": "Cray Wanderers",
+      "abbreviation": "CRWD",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "396",
+      "name": "Crewe Alexandra",
+      "abbreviation": "CAX",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/396.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -4139,7 +5061,8 @@
       "division": null,
       "competitions": [
         "eng.1",
-        "uefa.europa"
+        "uefa.europa",
+        "eng.league_cup"
       ]
     },
     {
@@ -4162,6 +5085,17 @@
       "division": null,
       "competitions": [
         "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "10629",
+      "name": "Cultural Leonesa",
+      "abbreviation": "CLE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/10629.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -4198,6 +5132,28 @@
         "fifa.world",
         "uefa.euro",
         "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3842",
+      "name": "Cádiz",
+      "abbreviation": "CAD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3842.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8447",
+      "name": "Córdoba",
+      "abbreviation": "COR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/8447.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -4253,7 +5209,19 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/90.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "374",
+      "name": "Derby County",
+      "abbreviation": "DER",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/374.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
       ]
     },
     {
@@ -4276,6 +5244,51 @@
       "division": null,
       "competitions": [
         "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9141",
+      "name": "Don Benito",
+      "abbreviation": "DON",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "279",
+      "name": "Doncaster Rovers",
+      "abbreviation": "DON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/279.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "293",
+      "name": "Dover Athletic",
+      "abbreviation": "DOV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/293.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3897",
+      "name": "Eastleigh",
+      "abbreviation": "ELH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3897.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
       ]
     },
     {
@@ -4315,6 +5328,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "3752",
+      "name": "Eibar",
+      "abbreviation": "EIB",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3752.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "125",
       "name": "Eintracht Frankfurt",
       "abbreviation": "SGE",
@@ -4343,7 +5367,19 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3751.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7320",
+      "name": "Eldense",
+      "abbreviation": "ELD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7320.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -4389,7 +5425,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/88.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -4411,7 +5448,20 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/368.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "324",
+      "name": "Exeter City",
+      "abbreviation": "EXE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/324.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -4438,6 +5488,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "20179",
+      "name": "FC Andorra",
+      "abbreviation": "AND",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/20179.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "3841",
       "name": "FC Augsburg",
       "abbreviation": "FCA",
@@ -4445,6 +5506,17 @@
       "division": null,
       "competitions": [
         "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5419",
+      "name": "FC Cartagena",
+      "abbreviation": "CAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/5419.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -4478,6 +5550,17 @@
       "division": null,
       "competitions": [
         "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "312",
+      "name": "FC Halifax Town",
+      "abbreviation": "HAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/312.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
       ]
     },
     {
@@ -4603,6 +5686,29 @@
     },
     {
       "league": "soccer",
+      "espnID": "3891",
+      "name": "Fleetwood Town",
+      "abbreviation": "FLE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3891.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "282",
+      "name": "Forest Green Rovers",
+      "abbreviation": "FGR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/282.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "478",
       "name": "France",
       "abbreviation": "FRA",
@@ -4644,7 +5750,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/370.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
       ]
     },
     {
@@ -4725,7 +5832,8 @@
       "division": null,
       "competitions": [
         "esp.1",
-        "uefa.europa.conf"
+        "uefa.europa.conf",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -4752,6 +5860,51 @@
     },
     {
       "league": "soccer",
+      "espnID": "389",
+      "name": "Gillingham",
+      "abbreviation": "GIL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/389.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6825",
+      "name": "Gimnastica Segoviana",
+      "abbreviation": "GSCF",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17570",
+      "name": "Gimnástica Torrelavega",
+      "abbreviation": "TOR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9812",
+      "name": "Girona",
+      "abbreviation": "GIR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9812.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "15364",
       "name": "Gotham FC",
       "abbreviation": "GFC",
@@ -4763,6 +5916,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "3747",
+      "name": "Granada",
+      "abbreviation": "GRA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3747.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "455",
       "name": "Greece",
       "abbreviation": "GRE",
@@ -4770,6 +5934,18 @@
       "division": null,
       "competitions": [
         "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "386",
+      "name": "Grimsby Town",
+      "abbreviation": "GRI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/386.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -4792,6 +5968,28 @@
       "division": null,
       "competitions": [
         "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "6858",
+      "name": "Guijuelo",
+      "abbreviation": "GUI",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2588",
+      "name": "Guiseley",
+      "abbreviation": "GUI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/2588.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
       ]
     },
     {
@@ -4852,6 +6050,28 @@
     },
     {
       "league": "soccer",
+      "espnID": "22468",
+      "name": "Harborough Town",
+      "abbreviation": "HAR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "19262",
+      "name": "Harrogate Town",
+      "abbreviation": "HAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/19262.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "262",
       "name": "Heart of Midlothian",
       "abbreviation": "HOM",
@@ -4896,13 +6116,37 @@
     },
     {
       "league": "soccer",
+      "espnID": "335",
+      "name": "Huddersfield Town",
+      "abbreviation": "HUD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/335.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5413",
+      "name": "Huesca",
+      "abbreviation": "HUE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/5413.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "306",
       "name": "Hull City",
       "abbreviation": "HUL",
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/306.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
       ]
     },
     {
@@ -4992,7 +6236,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/373.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
       ]
     },
     {
@@ -5214,6 +6459,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "319",
+      "name": "Kidderminster Harriers",
+      "abbreviation": "KID",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "18272",
       "name": "Kosovo",
       "abbreviation": "KOS",
@@ -5276,6 +6532,17 @@
       "division": null,
       "competitions": [
         "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "98",
+      "name": "Las Palmas",
+      "abbreviation": "LPA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/98.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -5363,7 +6630,31 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/357.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17534",
+      "name": "Leganés",
+      "abbreviation": "LEG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/17534.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "375",
+      "name": "Leicester City",
+      "abbreviation": "LEI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/375.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -5386,7 +6677,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/1538.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -5398,6 +6690,18 @@
       "division": null,
       "competitions": [
         "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "309",
+      "name": "Leyton Orient",
+      "abbreviation": "LEY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/309.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -5436,6 +6740,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "314",
+      "name": "Lincoln City",
+      "abbreviation": "LCN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/314.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "17856",
       "name": "Lincoln Red Imps",
       "abbreviation": "LRI",
@@ -5465,7 +6780,19 @@
       "division": null,
       "competitions": [
         "eng.1",
-        "uefa.champions"
+        "uefa.champions",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20824",
+      "name": "Llanera",
+      "abbreviation": "LLA",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -5477,6 +6804,18 @@
       "division": null,
       "competitions": [
         "fra.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "301",
+      "name": "Luton Town",
+      "abbreviation": "LTN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/301.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -5504,6 +6843,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "131494",
+      "name": "Macclesfield FC",
+      "abbreviation": "MFC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/131494.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "2950",
       "name": "Mainz",
       "abbreviation": "M05",
@@ -5526,6 +6876,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "84",
+      "name": "Mallorca",
+      "abbreviation": "MLL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/84.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "453",
       "name": "Malta",
       "abbreviation": "MLT",
@@ -5537,6 +6898,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "21713",
+      "name": "Manacor",
+      "abbreviation": "MNC",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "382",
       "name": "Manchester City",
       "abbreviation": "MNC",
@@ -5544,7 +6916,8 @@
       "division": null,
       "competitions": [
         "eng.1",
-        "uefa.champions"
+        "uefa.champions",
+        "eng.league_cup"
       ]
     },
     {
@@ -5556,7 +6929,53 @@
       "division": null,
       "competitions": [
         "eng.1",
-        "uefa.champions"
+        "uefa.champions",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "21722",
+      "name": "Manresa",
+      "abbreviation": "MNR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "304",
+      "name": "Mansfield Town",
+      "abbreviation": "MNF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/304.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131412",
+      "name": "Maracena",
+      "abbreviation": "MAR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "20771",
+      "name": "Marine",
+      "abbreviation": "MAR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
       ]
     },
     {
@@ -5586,6 +7005,51 @@
     },
     {
       "league": "soccer",
+      "espnID": "369",
+      "name": "Middlesbrough",
+      "abbreviation": "MID",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/369.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22043",
+      "name": "Mijas Las Lagunas",
+      "abbreviation": "MLL",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "391",
+      "name": "Millwall",
+      "abbreviation": "MIL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/391.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "390",
+      "name": "Milton Keynes Dons",
+      "abbreviation": "MKD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/390.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "17362",
       "name": "Minnesota United FC",
       "abbreviation": "MIN",
@@ -5593,6 +7057,17 @@
       "division": null,
       "competitions": [
         "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4515",
+      "name": "Mirandés",
+      "abbreviation": "MIR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4515.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -5681,7 +7156,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/99.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -5794,7 +7270,20 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/361.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "635",
+      "name": "Newport County",
+      "abbreviation": "NEW",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/635.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -5876,6 +7365,18 @@
     },
     {
       "league": "soccer",
+      "espnID": "353",
+      "name": "Northampton Town",
+      "abbreviation": "NHT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/353.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "586",
       "name": "Northern Ireland",
       "abbreviation": "NIR",
@@ -5910,13 +7411,48 @@
     },
     {
       "league": "soccer",
+      "espnID": "381",
+      "name": "Norwich City",
+      "abbreviation": "NOR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/381.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "393",
       "name": "Nottingham Forest",
       "abbreviation": "NFO",
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/393.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "340",
+      "name": "Notts County",
+      "abbreviation": "NCO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/340.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "100",
+      "name": "Numancia",
+      "abbreviation": "NUM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/100.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -5928,6 +7464,18 @@
       "division": null,
       "competitions": [
         "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "332",
+      "name": "Oldham Athletic",
+      "abbreviation": "OLD",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/332.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -5993,7 +7541,31 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/97.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4489",
+      "name": "Oxford City",
+      "abbreviation": "OXC",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "311",
+      "name": "Oxford United",
+      "abbreviation": "OXF",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/311.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -6112,6 +7684,29 @@
     },
     {
       "league": "soccer",
+      "espnID": "342",
+      "name": "Peterborough United",
+      "abbreviation": "PET",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/342.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7041",
+      "name": "Peña Sport",
+      "abbreviation": "PEN",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "10739",
       "name": "Philadelphia Union",
       "abbreviation": "PHI",
@@ -6134,6 +7729,40 @@
     },
     {
       "league": "soccer",
+      "espnID": "307",
+      "name": "Plymouth Argyle",
+      "abbreviation": "PLY",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/307.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "132948",
+      "name": "Plymouth Parkway",
+      "abbreviation": "PLY",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9414",
+      "name": "Poblense",
+      "abbreviation": "POB",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "471",
       "name": "Poland",
       "abbreviation": "POL",
@@ -6142,6 +7771,40 @@
       "competitions": [
         "uefa.euro",
         "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5463",
+      "name": "Ponferradina",
+      "abbreviation": "PON",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/5463.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3748",
+      "name": "Pontevedra",
+      "abbreviation": "PON",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "348",
+      "name": "Port Vale",
+      "abbreviation": "PTV",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/348.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -6164,6 +7827,17 @@
       "division": null,
       "competitions": [
         "usa.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "385",
+      "name": "Portsmouth",
+      "abbreviation": "POR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/385.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
       ]
     },
     {
@@ -6192,6 +7866,28 @@
     },
     {
       "league": "soccer",
+      "espnID": "5464",
+      "name": "Portugalete",
+      "abbreviation": "POR",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "394",
+      "name": "Preston North End",
+      "abbreviation": "PNE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/394.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "148",
       "name": "PSV Eindhoven",
       "abbreviation": "PSV",
@@ -6215,6 +7911,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "334",
+      "name": "Queens Park Rangers",
+      "abbreviation": "QPR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/334.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "20905",
       "name": "Racing Louisville FC",
       "abbreviation": "LOU",
@@ -6232,7 +7939,19 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/87.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "9028",
+      "name": "Rayo Majadahonda",
+      "abbreviation": "MAJ",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/9028.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -6243,7 +7962,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/101.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -6271,6 +7991,18 @@
     },
     {
       "league": "soccer",
+      "espnID": "338",
+      "name": "Reading",
+      "abbreviation": "REA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/338.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "244",
       "name": "Real Betis",
       "abbreviation": "BET",
@@ -6278,7 +8010,19 @@
       "division": null,
       "competitions": [
         "esp.1",
-        "uefa.champions"
+        "uefa.champions",
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5401",
+      "name": "Real Jaen CF",
+      "abbreviation": "JAEN",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -6290,7 +8034,19 @@
       "division": null,
       "competitions": [
         "esp.1",
-        "uefa.champions"
+        "uefa.champions",
+        "esp.super_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "92",
+      "name": "Real Oviedo",
+      "abbreviation": "OVI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/92.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -6313,7 +8069,63 @@
       "division": null,
       "competitions": [
         "esp.1",
-        "uefa.europa"
+        "uefa.europa",
+        "esp.super_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "8678",
+      "name": "Real Unión Irun",
+      "abbreviation": "RUN",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "95",
+      "name": "Real Valladolid",
+      "abbreviation": "VLL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/95.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "91",
+      "name": "Real Zaragoza",
+      "abbreviation": "ZAR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/91.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22439",
+      "name": "Real Ávila",
+      "abbreviation": "AVI",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "2571",
+      "name": "Recreativo Huelva",
+      "abbreviation": "HUE",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -6362,6 +8174,28 @@
     },
     {
       "league": "soccer",
+      "espnID": "131470",
+      "name": "Reus FC Reddis",
+      "abbreviation": "REUS",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133842",
+      "name": "Ribadesella",
+      "abbreviation": "RIB",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "19246",
       "name": "Riga FC",
       "abbreviation": "RIG",
@@ -6369,6 +8203,18 @@
       "division": null,
       "competitions": [
         "uefa.europa.conf"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "303",
+      "name": "Rochdale",
+      "abbreviation": "RCH",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/303.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -6385,6 +8231,18 @@
     },
     {
       "league": "soccer",
+      "espnID": "402",
+      "name": "Rotherham United",
+      "abbreviation": "ROT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/402.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "21922",
       "name": "Sabah FK",
       "abbreviation": "SAB",
@@ -6392,6 +8250,40 @@
       "division": null,
       "competitions": [
         "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "22440",
+      "name": "Salamanca UDS",
+      "abbreviation": "SAL",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "4703",
+      "name": "Salford City",
+      "abbreviation": "SAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/4703.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "132144",
+      "name": "Salisbury FC",
+      "abbreviation": "SAL",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
       ]
     },
     {
@@ -6436,6 +8328,28 @@
       "division": null,
       "competitions": [
         "uefa.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "18342",
+      "name": "San Sebastián de los Reyes",
+      "abbreviation": "SEB",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "5424",
+      "name": "Sant Andreu",
+      "abbreviation": "AND",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -6511,6 +8425,28 @@
     },
     {
       "league": "soccer",
+      "espnID": "313",
+      "name": "Scunthorpe United",
+      "abbreviation": "SCU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/313.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133850",
+      "name": "SD Noja",
+      "abbreviation": "SDN",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "15363",
       "name": "Seattle Reign FC",
       "abbreviation": "SEA",
@@ -6557,13 +8493,25 @@
     },
     {
       "league": "soccer",
+      "espnID": "6856",
+      "name": "Sestao",
+      "abbreviation": "SES",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "243",
       "name": "Sevilla",
       "abbreviation": "SEV",
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/243.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -6575,6 +8523,52 @@
       "division": null,
       "competitions": [
         "uefa.champions"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "398",
+      "name": "Sheffield United",
+      "abbreviation": "SHU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/398.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "399",
+      "name": "Sheffield Wednesday",
+      "abbreviation": "SHW",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/399.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133366",
+      "name": "Sholing",
+      "abbreviation": "SHO",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "302",
+      "name": "Shrewsbury Town",
+      "abbreviation": "SHR",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/302.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -6715,6 +8709,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "376",
+      "name": "Southampton",
+      "abbreviation": "SOU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/376.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "164",
       "name": "Spain",
       "abbreviation": "ESP",
@@ -6761,6 +8766,39 @@
     },
     {
       "league": "soccer",
+      "espnID": "133843",
+      "name": "Sporting de Alcázar",
+      "abbreviation": "SDA",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3788",
+      "name": "Sporting Gijón",
+      "abbreviation": "RSG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3788.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133831",
+      "name": "Sporting Hortaleza",
+      "abbreviation": "SPH",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "186",
       "name": "Sporting Kansas City",
       "abbreviation": "SKC",
@@ -6795,6 +8833,52 @@
     },
     {
       "league": "soccer",
+      "espnID": "2589",
+      "name": "Stafford Rangers",
+      "abbreviation": "STF",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "285",
+      "name": "Stevenage",
+      "abbreviation": "STE",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/285.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "400",
+      "name": "Stockport County",
+      "abbreviation": "STO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/400.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "336",
+      "name": "Stoke City",
+      "abbreviation": "STK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/336.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "180",
       "name": "Strasbourg",
       "abbreviation": "STR",
@@ -6824,7 +8908,8 @@
       "division": null,
       "competitions": [
         "eng.1",
-        "uefa.europa"
+        "uefa.europa",
+        "eng.league_cup"
       ]
     },
     {
@@ -6840,6 +8925,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "3231",
+      "name": "Sutton United",
+      "abbreviation": "SUT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3231.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "10388",
       "name": "SV Elversberg",
       "abbreviation": "ELV",
@@ -6847,6 +8943,17 @@
       "division": null,
       "competitions": [
         "ger.1"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "318",
+      "name": "Swansea City",
+      "abbreviation": "SWA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/318.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
       ]
     },
     {
@@ -6870,6 +8977,18 @@
       "division": null,
       "competitions": [
         "fifa.wwc"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "341",
+      "name": "Swindon Town",
+      "abbreviation": "SWI",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/341.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -6931,6 +9050,28 @@
     },
     {
       "league": "soccer",
+      "espnID": "133846",
+      "name": "Tavernes de la Valldigna",
+      "abbreviation": "UET",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "245",
+      "name": "Tenerife",
+      "abbreviation": "TEN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/245.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "4396",
       "name": "Thailand",
       "abbreviation": "THA",
@@ -6981,7 +9122,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/367.png",
       "division": null,
       "competitions": [
-        "eng.1"
+        "eng.1",
+        "eng.league_cup"
       ]
     },
     {
@@ -7008,6 +9150,18 @@
     },
     {
       "league": "soccer",
+      "espnID": "345",
+      "name": "Tranmere Rovers",
+      "abbreviation": "TRN",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/345.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "2627",
       "name": "Trinidad and Tobago",
       "abbreviation": "TRI",
@@ -7015,6 +9169,17 @@
       "division": null,
       "competitions": [
         "concacaf.gold"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17573",
+      "name": "Trival Valderas",
+      "abbreviation": "TRI",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -7067,6 +9232,50 @@
     },
     {
       "league": "soccer",
+      "espnID": "133844",
+      "name": "UB Lebrijana",
+      "abbreviation": "UBL",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133845",
+      "name": "UD Castellonense",
+      "abbreviation": "UDC",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "7206",
+      "name": "UD Logroñés",
+      "abbreviation": "LOG",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/7206.png",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "131474",
+      "name": "UD Ourense",
+      "abbreviation": "UDO",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "118",
       "name": "Udinese",
       "abbreviation": "UDI",
@@ -7108,6 +9317,17 @@
       "division": null,
       "competitions": [
         "uefa.europa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "19294",
+      "name": "Unionistas de Salamanca",
+      "abbreviation": "SAL",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -7170,6 +9390,17 @@
     },
     {
       "league": "soccer",
+      "espnID": "21723",
+      "name": "Utebo",
+      "abbreviation": "UTB",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "2570",
       "name": "Uzbekistan",
       "abbreviation": "UZB",
@@ -7188,7 +9419,8 @@
       "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/94.png",
       "division": null,
       "competitions": [
-        "esp.1"
+        "esp.1",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -7289,7 +9521,8 @@
       "division": null,
       "competitions": [
         "esp.1",
-        "uefa.champions"
+        "uefa.champions",
+        "esp.copa_del_rey"
       ]
     },
     {
@@ -7305,6 +9538,18 @@
     },
     {
       "league": "soccer",
+      "espnID": "401",
+      "name": "Walsall",
+      "abbreviation": "WAL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/401.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "15365",
       "name": "Washington Spirit",
       "abbreviation": "WAS",
@@ -7312,6 +9557,28 @@
       "division": null,
       "competitions": [
         "usa.nwsl"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "395",
+      "name": "Watford",
+      "abbreviation": "WAT",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/395.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3887",
+      "name": "Wealdstone",
+      "abbreviation": "WEA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/3887.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
       ]
     },
     {
@@ -7327,6 +9594,107 @@
     },
     {
       "league": "soccer",
+      "espnID": "383",
+      "name": "West Bromwich Albion",
+      "abbreviation": "WBA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/383.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "371",
+      "name": "West Ham United",
+      "abbreviation": "WHU",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/371.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "350",
+      "name": "Wigan Athletic",
+      "abbreviation": "WGA",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/350.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "133370",
+      "name": "Wimborne Town",
+      "abbreviation": "WIM",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "380",
+      "name": "Wolverhampton Wanderers",
+      "abbreviation": "WOL",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/380.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "649",
+      "name": "Worcester City",
+      "abbreviation": "Worcester Ci",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "352",
+      "name": "Wrexham",
+      "abbreviation": "WXM",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/352.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "344",
+      "name": "Wycombe Wanderers",
+      "abbreviation": "WYC",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/344.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "3835",
+      "name": "Xerez",
+      "abbreviation": "XER",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
+      ]
+    },
+    {
+      "league": "soccer",
       "espnID": "6014",
       "name": "Yemen",
       "abbreviation": "YEM",
@@ -7334,6 +9702,29 @@
       "division": null,
       "competitions": [
         "afc.asian.cup"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "284",
+      "name": "Yeovil Town",
+      "abbreviation": "YEO",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/284.png",
+      "division": null,
+      "competitions": [
+        "eng.fa"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "315",
+      "name": "York City",
+      "abbreviation": "YORK",
+      "logo": "https://a.espncdn.com/i/teamlogos/soccer/500/315.png",
+      "division": null,
+      "competitions": [
+        "eng.league_cup",
+        "eng.fa"
       ]
     },
     {
@@ -7356,6 +9747,17 @@
       "division": null,
       "competitions": [
         "caf.nations"
+      ]
+    },
+    {
+      "league": "soccer",
+      "espnID": "17565",
+      "name": "Zamora CF",
+      "abbreviation": "ZAM",
+      "logo": "",
+      "division": null,
+      "competitions": [
+        "esp.copa_del_rey"
       ]
     },
     {
