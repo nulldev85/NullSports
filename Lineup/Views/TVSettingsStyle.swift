@@ -74,18 +74,12 @@ struct TVSettingsBackdrop: View {
 }
 
 struct TVSettingsGlass: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 40, style: .continuous)
         content
-            .background {
-                if reduceTransparency {
-                    shape.fill(LineupStyle.surface)
-                } else {
-                    shape.fill(.ultraThinMaterial)
-                        .overlay(shape.fill(LineupStyle.surface.opacity(0.90)))
-                }
-            }
+            // The charcoal surface covered almost all of a live material
+            // blur. Draw that surface directly, without sampling the screen.
+            .background(shape.fill(LineupStyle.surface))
             .overlay(shape.strokeBorder(LineupStyle.line, lineWidth: 1))
             .shadow(color: .black.opacity(0.15), radius: 30, y: 16)
     }

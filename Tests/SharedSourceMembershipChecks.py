@@ -152,7 +152,8 @@ class SharedSourceMembershipChecks(unittest.TestCase):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "Lineup", source))
             self.assertFalse(is_included(project, "LineupiOS", source))
-        for source in ("Tests/tvOS/TVSettingsTests.swift", "Tests/tvOS/TVSportsBackgroundTests.swift"):
+        for source in ("Tests/tvOS/TVSettingsTests.swift", "Tests/tvOS/TVSportsBackgroundTests.swift",
+                       "Tests/tvOS/TVSportsRefreshTests.swift"):
             self.assertTrue(is_included(project, "LineupTests", source))
             self.assertFalse(is_included(project, "LineupiOSTests", source))
 

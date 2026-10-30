@@ -234,20 +234,76 @@ struct LiveCanvas: View {
         let colors = spotlight.game(in: events).map { LiveEventColors(game: $0) }
         ZStack {
             LineupStyle.background
-            if let colors {
-                LiveEventWash(colors: colors)
-                    .id(colors)
-                    .transition(reduceMotion ? .identity : .opacity)
-            }
+            LiveCanvasTint(colors: colors, animated: !reduceMotion)
+                .overlay(LivePalette.card.opacity(colors == nil ? 0 : 0.35))
             LinearGradient(colors: [LineupStyle.raised.opacity(0.26), .clear],
                            startPoint: .top, endPoint: .center)
             RadialGradient(colors: [.clear, .black.opacity(0.3)], center: .center,
                            startRadius: 520, endRadius: 1250)
         }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.45), value: colors)
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+}
+
+/// One persistent gradient, including during rapid remote navigation. Retarget
+/// the same animation from its visible colors instead of retaining outgoing
+/// full-screen SwiftUI transitions for every highlighted event.
+struct LiveCanvasTint: UIViewRepresentable {
+    let colors: LiveEventColors?
+    let animated: Bool
+
+    func makeUIView(context: Context) -> LiveCanvasTintView { LiveCanvasTintView(frame: .zero) }
+    func updateUIView(_ view: LiveCanvasTintView, context: Context) {
+        view.setColors(colors, animated: animated && !context.transaction.disablesAnimations)
+    }
+}
+
+final class LiveCanvasTintView: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+    private var palette: LiveEventColors?
+    private var initialized = false
+    private var gradient: CAGradientLayer { layer as! CAGradientLayer }
+    static let animationKey = "event-colors"
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isOpaque = false
+        gradient.startPoint = CGPoint(x: 0, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setColors(_ colors: LiveEventColors?, animated: Bool) {
+        guard !initialized || palette != colors else {
+            if !animated { gradient.removeAnimation(forKey: Self.animationKey) }
+            return
+        }
+        let wasInitialized = initialized
+        initialized = true
+        palette = colors
+        let clear = UIColor.clear.cgColor
+        let target = colors.map {
+            [UIColor($0.away).withAlphaComponent(0.19).cgColor,
+             UIColor($0.home).withAlphaComponent(0.19).cgColor]
+        } ?? [clear, clear]
+        let visible = gradient.presentation()?.colors ?? gradient.colors
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.colors = target
+        gradient.removeAnimation(forKey: Self.animationKey)
+        CATransaction.commit()
+        if animated, wasInitialized, let visible {
+            let animation = CABasicAnimation(keyPath: "colors")
+            animation.fromValue = visible
+            animation.toValue = target
+            animation.duration = 0.45
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            gradient.add(animation, forKey: Self.animationKey)
+        }
     }
 }
 

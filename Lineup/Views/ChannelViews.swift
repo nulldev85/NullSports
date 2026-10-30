@@ -94,7 +94,7 @@ struct LiveView: View {
                     .frame(height: LiveTicker.height)
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
-            .background(LiveCanvas(spotlight: spotlight, events: events))
+            .background(LineupStyle.background)
             .lineupFullScreenCover(item: $fullScreen) { item in
                 PlayerView(
                     urls: library.playbackURLs(for: item.stream),

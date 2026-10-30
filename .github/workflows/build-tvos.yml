@@ -109,6 +109,9 @@ jobs:
           swiftc Lineup/Services/DailyGameMatches.swift Tests/DailyGameMatchesChecks.swift -o /tmp/lineup-daily-cache-checks
           /tmp/lineup-daily-cache-checks
 
+      - name: Check TV refresh coalescing and saved-channel safety
+        run: python3 -B Tools/check-tv-sports-refresh.py
+
       - name: Check live stats, Auto Sync, team pages, title logos and track memory
         run: |
           set -euo pipefail

@@ -25,6 +25,24 @@ final class TVSportsBackgroundTests: XCTestCase {
         XCTAssertEqual(invalid.home, invalid.away)
     }
 
+    func testRapidFocusChangesRetargetOneGradientWithoutAccumulatingLayers() {
+        let view = LiveCanvasTintView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
+        let layer = view.layer
+        let red = LiveEventColors(game: game("red", away: "FF0000", home: "FF8800"))
+        let blue = LiveEventColors(game: game("blue", away: "0000FF", home: "00AACC"))
+        for index in 0..<200 {
+            view.setColors(index.isMultiple(of: 2) ? red : blue, animated: true)
+            XCTAssertTrue(view.layer === layer)
+            XCTAssertTrue(layer.sublayers?.isEmpty ?? true)
+            XCTAssertLessThanOrEqual(layer.animationKeys()?.count ?? 0, 1)
+        }
+        view.setColors(blue, animated: false)
+        XCTAssertTrue(layer.animationKeys()?.isEmpty ?? true,
+                      "Enabling Reduce Motion must stop an in-flight transition even if focus stays put")
+        view.setColors(nil, animated: false)
+        XCTAssertTrue(layer.animationKeys()?.isEmpty ?? true, "Reduce Motion must not retain a color animation")
+    }
+
     func testRenderedCanvasChangesWithHighlightedGameAndReturnsToNeutralWithoutEvents() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }

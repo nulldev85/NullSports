@@ -207,11 +207,28 @@ final class SportsLibrary {
     @ObservationIgnored private var scheduleSnapshotAt: Date?
     @ObservationIgnored private var cachedRestoreInFlight = false
     @ObservationIgnored private var cachedRestoreWaiters: [CheckedContinuation<Void, Never>] = []
-    private var indexGeneration = UUID()
-    @ObservationIgnored private var matchGeneration = UUID()
     #if os(tvOS)
+    private var indexGeneration = UUID() {
+        didSet {
+            tvIndexWorkerCancel?()
+            tvIndexWorkerCancel = nil
+        }
+    }
+    @ObservationIgnored private var matchGeneration = UUID() {
+        didSet {
+            tvMatchingWorkerCancel?()
+            tvMatchingWorkerCancel = nil
+        }
+    }
     @ObservationIgnored private var tvLivePreparation: (id: UUID, task: Task<Void, Never>)?
     @ObservationIgnored private var tvLivePreparationRequested = false
+    @ObservationIgnored private let tvMatchingQueue = TVSportsMatchingQueue()
+    @ObservationIgnored private var tvIndexWorkerCancel: (() -> Void)?
+    @ObservationIgnored private var tvMatchingWorkerCancel: (() -> Void)?
+    @ObservationIgnored private var tvEvidenceRevision = 0
+    #else
+    private var indexGeneration = UUID()
+    @ObservationIgnored private var matchGeneration = UUID()
     #endif
     #if os(iOS)
     private let mobileSportsWork = MobileSportsWork()
@@ -438,6 +455,10 @@ final class SportsLibrary {
             try Self.makeSportsIndex(categories: currentCategories, streams: currentStreams,
                                      programs: currentPrograms, facts: facts)
         }
+        #if os(tvOS)
+        tvIndexWorkerCancel = { worker.cancel() }
+        defer { if indexGeneration == generation { tvIndexWorkerCancel = nil } }
+        #endif
         #if os(iOS)
         let workID = mobileSportsWork.replace(.index, cancel: { worker.cancel() })
         defer { mobileSportsWork.finish(.index, id: workID) }
@@ -997,6 +1018,48 @@ final class SportsLibrary {
         }
     }
 
+    #if os(tvOS)
+    /// Validate outside the UI actor, then publish provider data and matching
+    /// proof in one synchronous step. A tap never sees new guide data paired
+    /// with proof from the previous guide. Concurrent guide/channel arrivals
+    /// retry against the newest evidence rather than restoring retired feeds.
+    private func installTVProviderEvidence(streams incomingStreams: [XtreamStream]? = nil,
+        categories incomingCategories: [XtreamCategory]? = nil,
+        programs incomingPrograms: [String: [CurrentProgram]]? = nil,
+        generation: UUID, checkGuide: Bool, install: () -> Void) async -> Bool {
+        while providerGeneration == generation, !Task.isCancelled {
+            let revision = (preparedMatchesRevision, streamsRevision, guideRevision, tvEvidenceRevision)
+            let matches = preparedMatches
+            let channels = incomingStreams ?? streams
+            let groups = incomingCategories ?? categories
+            let programs = incomingPrograms ?? programsByChannel
+            let result = await Task.detached(priority: .utility) {
+                TVPreparedReconciliation(matches: matches, streams: channels,
+                    categories: groups, programs: programs, checkGuide: checkGuide)
+            }.value
+            guard providerGeneration == generation, !Task.isCancelled else { return false }
+            guard revision == (preparedMatchesRevision, streamsRevision, guideRevision, tvEvidenceRevision) else { continue }
+            install()
+            tvEvidenceRevision &+= 1
+            if !result.changedIDs.isEmpty {
+                preparedMatches = result.matches
+                eventsNeedingPreparation.formUnion(result.changedIDs)
+                for id in result.changedIDs {
+                    let kept = result.matches[id]
+                    gameStreamCache[id] = kept?.primary
+                    matchedGameIdentities[id] = kept?.identity
+                    gameMatchSignatures[id] = nil
+                    fastValidatedGameIDs.remove(id)
+                }
+                eventChannelCache = [:]
+                persistPreparedMatches()
+            }
+            return true
+        }
+        return false
+    }
+    #endif
+
     private func refreshInBackground(topUp: Bool = false) {
         guard automaticRefreshes, backgroundRefresh == nil, !libraryRefreshInFlight,
               let profileID = activeProfile?.id else { return }
@@ -1004,13 +1067,31 @@ final class SportsLibrary {
         if let attempted = lastBackgroundRefreshAttempt, attempted <= now,
            now.timeIntervalSince(attempted) < 120 { return }
         let dailyDue = PreparedMatchPolicy.needsRefresh(preparedAt: dailyPreparedAt, now: Date())
+        #if os(tvOS)
+        let plan = TVProviderRefreshPlan(topUp: topUp, libraryFresh: isLibraryFresh,
+            guideFresh: isGuideFresh, dailyDue: dailyDue, indexReady: sportsIndexReady)
+        let channelsDue = plan.channels, guideDue = plan.guide
+        guard channelsDue || guideDue || plan.prepare else { return }
+        #else
         let channelsDue = topUp || !isLibraryFresh || dailyDue
         let guideDue = topUp || !isGuideFresh || dailyDue
         guard channelsDue || guideDue || !sportsIndexReady else { return }
+        #endif
         lastBackgroundRefreshAttempt = now
         let requestGeneration = providerGeneration
         backgroundRefresh = Task { [weak self] in
+            #if os(tvOS)
+            if channelsDue || guideDue {
+                await self?.refreshLibrary(forceGuide: guideDue, refreshChannels: channelsDue, invalidatesSession: !topUp)
+            } else if let self {
+                // Daily preparation uses fresh local inputs. It neither opens
+                // another provider request nor announces a data download.
+                if self.sportsIndexReady { await self.rebuildGameStreamCache() }
+                else { await self.rebuildProfessionalStreams() }
+            }
+            #else
             await self?.refreshLibrary(forceGuide: guideDue, refreshChannels: channelsDue, invalidatesSession: !topUp)
+            #endif
             guard let self, self.providerGeneration == requestGeneration, self.activeProfile?.id == profileID else { return }
             self.backgroundRefresh = nil
         }
@@ -1162,6 +1243,32 @@ final class SportsLibrary {
                 }.value
             }
             guard providerGeneration == requestGeneration, activeProfile?.id == profile.id else { return }
+            #if os(tvOS)
+            // Playlist decryption/decoding can be as large as the channel list.
+            let playlistURLs = profile.isPlaylist ? await Task.detached(priority: .utility) {
+                PlaylistCache.read(profileID: profile.id, secret: password)?.urls
+            }.value : nil
+            guard await installTVProviderEvidence(streams: newStreams?.value,
+                categories: newCategories?.value, generation: requestGeneration, checkGuide: false, install: {
+                    if let newCategories { categoriesDigest = newCategories.digest }
+                    if let newStreams { streamsDigest = newStreams.digest }
+                    if changes.0, let newCategories { categories = newCategories.value }
+                    if changes.1, let newStreams {
+                        guideListCache = nil
+                        streams = newStreams.value
+                    }
+                    if changes.0 || changes.1 {
+                        sportsIndexReady = false
+                        indexGeneration = UUID()
+                        matchGeneration = UUID()
+                    }
+                    libraryUpdatedAt = Date()
+                    hasFullCatalog = true
+                    didRestoreProviderCache = true
+                    if let playlistURLs { preparedPlaylistURLs = playlistURLs }
+                    channelsValidatedThisSession = true
+                }) else { return }
+            #else
             if let newCategories { categoriesDigest = newCategories.digest }
             if let newStreams { streamsDigest = newStreams.digest }
             if changes.0, let newCategories { categories = newCategories.value }
@@ -1181,6 +1288,7 @@ final class SportsLibrary {
             }
             channelsValidatedThisSession = true
             reconcilePreparedMatches(checkGuide: false)
+            #endif
             if isLoading { isLoading = false }
             #if os(iOS)
             // Input is now installed. Track the current index/match operations
@@ -1283,6 +1391,28 @@ final class SportsLibrary {
                        "\(StartupTrace.size(answer.bytes)), "
                        + (answer.payload == nil ? "unchanged — not parsed" : "parsed"))
             guard self.providerGeneration == requestGeneration, self.activeProfile?.id == profileID else { return }
+            #if os(tvOS)
+            let previousPrograms = self.programsByChannel
+            let incoming = answer.payload
+            let changed = await Task.detached(priority: .utility) {
+                incoming.map { previousPrograms != $0.value } ?? false
+            }.value
+            guard await self.installTVProviderEvidence(programs: incoming?.value,
+                generation: requestGeneration, checkGuide: true, install: {
+                    if let incoming { self.guideDigest = incoming.digest }
+                    if changed, let incoming {
+                        self.programsByChannel = incoming.value
+                        self.sportsIndexReady = false
+                        self.indexGeneration = UUID()
+                        self.matchGeneration = UUID()
+                    }
+                    self.guideUpdatedAt = Date()
+                    self.hasFullGuide = true
+                    self.guideValidatedThisSession = true
+                }) else { return }
+            if incoming != nil { progress.finish(.guideReading) }
+            else { progress.skip(.guideReading) }
+            #else
             var changed = false
             if let fresh = answer.payload {
                 let previousPrograms = self.programsByChannel
@@ -1310,6 +1440,7 @@ final class SportsLibrary {
             self.hasFullGuide = true
             self.guideValidatedThisSession = true
             self.reconcilePreparedMatches(checkGuide: true)
+            #endif
             #if os(iOS)
             progress.finish(guideWork)
             #endif
@@ -2555,9 +2686,22 @@ final class SportsLibrary {
     /// and provider checks still protect publication on both platforms.
     private func rebuildGameStreamCache(force: Bool = false) async {
         #if os(tvOS)
-        // Release newly live games before the full daily/upcoming slate. A
-        // single missing result must not inherit that slate's global wait.
+        // Live preparation remains independent of a long upcoming slate.
+        let provider = providerGeneration
         await prepareTVLiveGames()
+        guard providerGeneration == provider, !Task.isCancelled else { return }
+        await tvMatchingQueue.run(force: force) { [weak self] force in
+            guard let self, self.providerGeneration == provider else { return }
+            await self.performGameStreamCacheRebuild(force: force)
+        }
+        #else
+        await performGameStreamCacheRebuild(force: force)
+        #endif
+    }
+
+    private func performGameStreamCacheRebuild(force: Bool) async {
+        #if os(tvOS)
+        guard !Task.isCancelled else { return }
         #endif
         // A schedule response may arrive before startup/index rebuilding finishes.
         // The completed index rebuild will match the latest schedule itself.
@@ -2944,6 +3088,10 @@ final class SportsLibrary {
                     collegeSlate.count, collegeStreams.count, collegeSeconds, professionalSeconds, preparedResults)
             #endif
         }
+        #if os(tvOS)
+        tvMatchingWorkerCancel = { worker.cancel() }
+        defer { if matchGeneration == generation { tvMatchingWorkerCancel = nil } }
+        #endif
         #if os(iOS)
         let workID = mobileSportsWork.replace(.matching, cancel: { worker.cancel() })
         defer { mobileSportsWork.finish(.matching, id: workID) }
@@ -4412,6 +4560,12 @@ final class SportsLibrary {
         tvLivePreparation?.task.cancel()
         tvLivePreparation = nil
         tvLivePreparationRequested = false
+        tvMatchingQueue.cancel()
+        tvIndexWorkerCancel?()
+        tvIndexWorkerCancel = nil
+        tvMatchingWorkerCancel?()
+        tvMatchingWorkerCancel = nil
+        tvEvidenceRevision &+= 1
         #endif
         finishCachedRestore()
         bootstrapInFlight = false
