@@ -31,6 +31,7 @@ TARGET_FILES = [
     "Lineup/Views/TVLiveScreen.swift",
     "Lineup/Views/TVGuideView.swift",
     "Lineup/Views/TVSettingsView.swift",
+    "Lineup/Views/TVSettingsStyle.swift",
     "Lineup/Views/TVMultiview.swift",
     "Lineup/Views/TVPlayerView.swift",
     "Lineup/Views/TVPlaybackController.swift",

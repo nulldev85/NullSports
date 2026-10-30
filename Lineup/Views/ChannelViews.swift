@@ -8,6 +8,7 @@ struct LiveView: View {
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
     @State private var soccerCompetition: String?
+    @State private var spotlight = LiveSpotlight()
     /// What is full screen. One value carries the channel, the game and the
     /// preview's player together: read from state of their own inside the
     /// cover, the game and the player could come through as they were a
@@ -59,6 +60,7 @@ struct LiveView: View {
                 NavigationStack {
                     LiveScreen(
                         events: events,
+                        spotlight: spotlight,
                         selectedLeague: $selectedLeague,
                         soccerCompetition: $soccerCompetition,
                         previewStream: previewStream,
@@ -78,6 +80,7 @@ struct LiveView: View {
                         onStopPreview: stopPreview
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(LiveCanvas(spotlight: spotlight, events: events))
                     // Hold Select on any game for its channel, wherever the
                     // game's card is.
                     .environment(\.liveChooseChannel, { chooseChannel(for: $0) })
@@ -91,7 +94,7 @@ struct LiveView: View {
                     .frame(height: LiveTicker.height)
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
-            .background(LiveCanvas())
+            .background(LineupStyle.background)
             .lineupFullScreenCover(item: $fullScreen) { item in
                 PlayerView(
                     urls: library.playbackURLs(for: item.stream),

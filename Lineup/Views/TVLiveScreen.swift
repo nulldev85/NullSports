@@ -65,7 +65,7 @@ enum LiveMetrics {
 
 /// Which game the screen is describing.
 ///
-/// The screen holds this in plain `@State`, which keeps it without watching
+/// The tab holds this in plain `@State`, which keeps it without watching
 /// it, and only the views that describe the game observe it: the monitor, the
 /// light behind it and the row counter. An arrow press redraws those three and
 /// leaves every card and row where it is.
@@ -99,6 +99,7 @@ final class LiveSpotlight: ObservableObject {
 struct LiveScreen: View {
     @Environment(SportsLibrary.self) private var library
     let events: [SportsGame]
+    let spotlight: LiveSpotlight
     @Binding var selectedLeague: SportsLeague?
     @Binding var soccerCompetition: String?
     let previewStream: XtreamStream?
@@ -113,7 +114,6 @@ struct LiveScreen: View {
     let onStartMultiview: (SportsGame) -> Void
     let onCancelMultiview: () -> Void
     let onStopPreview: () -> Void
-    @State private var spotlight = LiveSpotlight()
     /// My Teams beside the monitor, or put away so the monitor runs the full
     /// width of the board and the picture sits centred. Kept between visits.
     @AppStorage("live.myTeamsShown") private var myTeamsShown = true
@@ -199,12 +199,43 @@ struct LiveScreen: View {
     }
 }
 
-/// The room the monitor stands in: the theme's ground, lifted a little
-/// overhead and falling away towards the corners.
-struct LiveCanvas: View {
+/// One palette for the matchup row and the room behind it. Score and clock
+/// updates do not alter the palette or restart a background transition.
+struct LiveEventColors: Hashable {
+    let away: Color
+    let home: Color
+
+    init(game: SportsGame) {
+        away = MobileTeamColor.readable(game.awayColor) ?? LineupStyle.leagueColor(game.league)
+        home = MobileTeamColor.readable(game.homeColor) ?? away
+    }
+}
+
+struct LiveEventWash: View {
+    let colors: LiveEventColors
     var body: some View {
         ZStack {
             LineupStyle.background
+            LinearGradient(colors: [colors.away.opacity(0.19), colors.home.opacity(0.19)],
+                           startPoint: .leading, endPoint: .trailing)
+                .overlay(LivePalette.card.opacity(0.35))
+        }
+    }
+}
+
+/// The remote's highlighted game colors the Sports tab, independently of
+/// whatever stream is playing, without invalidating the tab's lists or player.
+struct LiveCanvas: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ObservedObject var spotlight: LiveSpotlight
+    let events: [SportsGame]
+
+    var body: some View {
+        let colors = spotlight.game(in: events).map { LiveEventColors(game: $0) }
+        ZStack {
+            LineupStyle.background
+            LiveCanvasTint(colors: colors, animated: !reduceMotion)
+                .overlay(LivePalette.card.opacity(colors == nil ? 0 : 0.35))
             LinearGradient(colors: [LineupStyle.raised.opacity(0.26), .clear],
                            startPoint: .top, endPoint: .center)
             RadialGradient(colors: [.clear, .black.opacity(0.3)], center: .center,
@@ -212,6 +243,67 @@ struct LiveCanvas: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One persistent gradient, including during rapid remote navigation. Retarget
+/// the same animation from its visible colors instead of retaining outgoing
+/// full-screen SwiftUI transitions for every highlighted event.
+struct LiveCanvasTint: UIViewRepresentable {
+    let colors: LiveEventColors?
+    let animated: Bool
+
+    func makeUIView(context: Context) -> LiveCanvasTintView { LiveCanvasTintView(frame: .zero) }
+    func updateUIView(_ view: LiveCanvasTintView, context: Context) {
+        view.setColors(colors, animated: animated && !context.transaction.disablesAnimations)
+    }
+}
+
+final class LiveCanvasTintView: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+    private var palette: LiveEventColors?
+    private var initialized = false
+    private var gradient: CAGradientLayer { layer as! CAGradientLayer }
+    static let animationKey = "event-colors"
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isOpaque = false
+        gradient.startPoint = CGPoint(x: 0, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func setColors(_ colors: LiveEventColors?, animated: Bool) {
+        guard !initialized || palette != colors else {
+            if !animated { gradient.removeAnimation(forKey: Self.animationKey) }
+            return
+        }
+        let wasInitialized = initialized
+        initialized = true
+        palette = colors
+        let clear = UIColor.clear.cgColor
+        let target = colors.map {
+            [UIColor($0.away).withAlphaComponent(0.19).cgColor,
+             UIColor($0.home).withAlphaComponent(0.19).cgColor]
+        } ?? [clear, clear]
+        let visible = gradient.presentation()?.colors ?? gradient.colors
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradient.colors = target
+        gradient.removeAnimation(forKey: Self.animationKey)
+        CATransaction.commit()
+        if animated, wasInitialized, let visible {
+            let animation = CABasicAnimation(keyPath: "colors")
+            animation.fromValue = visible
+            animation.toValue = target
+            animation.duration = 0.45
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            gradient.add(animation, forKey: Self.animationKey)
+        }
     }
 }
 
@@ -1335,14 +1427,6 @@ struct LiveMatchupListRow: View {
         multiviewPrimaryID != nil && multiviewPrimaryID == library.stream(for: game)?.id
     }
 
-    private var awayColor: Color {
-        MobileTeamColor.readable(game.awayColor) ?? LineupStyle.leagueColor(game.league)
-    }
-
-    private var homeColor: Color {
-        MobileTeamColor.readable(game.homeColor) ?? awayColor
-    }
-
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 17, style: .continuous)
         HStack(spacing: 22) {
@@ -1393,9 +1477,7 @@ struct LiveMatchupListRow: View {
         .padding(.horizontal, 26).padding(.vertical, 10)
         .frame(maxWidth: .infinity).frame(height: rowHeight)
         .background {
-            LinearGradient(colors: [awayColor.opacity(0.19), homeColor.opacity(0.19)],
-                           startPoint: .leading, endPoint: .trailing)
-                .overlay(LivePalette.card.opacity(0.35))
+            LiveEventWash(colors: LiveEventColors(game: game))
                 .clipShape(shape)
         }
         .overlay(shape.strokeBorder(Color.white.opacity(0.045), lineWidth: 1))

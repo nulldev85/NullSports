@@ -145,6 +145,18 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                     self.assertTrue((ROOT / source).is_file())
                     self.assertTrue(is_included(project, target, source), f"{target} omits {source}")
 
+    def test_settings_and_sports_layouts_are_apple_tv_only(self):
+        project = (ROOT / "project.yml").read_text(encoding="utf-8")
+        for source in ("Lineup/Views/TVSettingsView.swift", "Lineup/Views/TVSettingsStyle.swift",
+                       "Lineup/Views/TVLiveScreen.swift", "Lineup/Views/ChannelViews.swift"):
+            self.assertTrue((ROOT / source).is_file())
+            self.assertTrue(is_included(project, "Lineup", source))
+            self.assertFalse(is_included(project, "LineupiOS", source))
+        for source in ("Tests/tvOS/TVSettingsTests.swift", "Tests/tvOS/TVSportsBackgroundTests.swift",
+                       "Tests/tvOS/TVSportsRefreshTests.swift"):
+            self.assertTrue(is_included(project, "LineupTests", source))
+            self.assertFalse(is_included(project, "LineupiOSTests", source))
+
     def test_tracking_regressions_belong_to_both_test_suites(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
         for source in ("Tests/iOS/MDBListTrackingTests.swift", "Tests/iOS/LibraryReliabilityTests.swift",
