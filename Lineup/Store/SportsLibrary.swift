@@ -209,6 +209,10 @@ final class SportsLibrary {
     @ObservationIgnored private var cachedRestoreWaiters: [CheckedContinuation<Void, Never>] = []
     private var indexGeneration = UUID()
     @ObservationIgnored private var matchGeneration = UUID()
+    #if os(tvOS)
+    @ObservationIgnored private var tvLivePreparation: (id: UUID, task: Task<Void, Never>)?
+    @ObservationIgnored private var tvLivePreparationRequested = false
+    #endif
     #if os(iOS)
     private let mobileSportsWork = MobileSportsWork()
     private let mobileIndexFacts = SportsIndexFacts()
@@ -2550,6 +2554,11 @@ final class SportsLibrary {
     /// stale passes to consume CPU until their result is rejected. Generation
     /// and provider checks still protect publication on both platforms.
     private func rebuildGameStreamCache(force: Bool = false) async {
+        #if os(tvOS)
+        // Release newly live games before the full daily/upcoming slate. A
+        // single missing result must not inherit that slate's global wait.
+        await prepareTVLiveGames()
+        #endif
         // A schedule response may arrive before startup/index rebuilding finishes.
         // The completed index rebuild will match the latest schedule itself.
         guard sportsIndexReady else { return }
@@ -2982,6 +2991,85 @@ final class SportsLibrary {
             saveCache(profileID: profileID)
         }
     }
+
+    #if os(tvOS)
+    /// Background preparation only. Live taps continue to read saved results;
+    /// they never start a channel search. Concurrent refreshes share this work.
+    private func prepareTVLiveGames() async {
+        guard sportsIndexReady, channelsValidatedThisSession, guideValidatedThisSession else { return }
+        tvLivePreparationRequested = true
+        if let pending = tvLivePreparation {
+            await pending.task.value
+            return
+        }
+        let id = UUID(), provider = providerGeneration
+        let task = Task { [weak self] in
+            guard let self else { return }
+            defer { if self.tvLivePreparation?.id == id { self.tvLivePreparation = nil } }
+            while self.tvLivePreparationRequested, self.providerGeneration == provider, !Task.isCancelled {
+                self.tvLivePreparationRequested = false
+                await self.prepareTVLiveGameBatch(provider: provider)
+            }
+        }
+        tvLivePreparation = (id, task)
+        await task.value
+        if tvLivePreparation?.id == id { tvLivePreparation = nil }
+    }
+
+    private func prepareTVLiveGameBatch(provider: UUID) async {
+        guard sportsIndexReady, channelsValidatedThisSession, guideValidatedThisSession else { return }
+        let now = Date(), index = indexGeneration
+        let channelRevision = streamsRevision, listingRevision = guideRevision
+        let allGames = gamesByLeague.values.flatMap { $0 }
+        let live = allGames.filter { $0.isLive && preparedMatch(for: $0, now: now) == nil }
+            .sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start }
+        guard !live.isEmpty else { return }
+        channelMatchingWorkCount += 1
+        defer { channelMatchingWorkCount -= 1 }
+        let programs = programsByChannel, groups = categories
+        let board = Self.tournamentBoard(allGames)
+        let names = Dictionary(groups.map { ($0.id, $0.matchingName) }, uniquingKeysWith: { first, _ in first })
+        for game in live {
+            guard !Task.isCancelled, providerGeneration == provider, indexGeneration == index,
+                  streamsRevision == channelRevision, guideRevision == listingRevision,
+                  sportsIndexReady else { return }
+            let candidates = game.league == .ncaaf ? streams : (leagueStreamCache[game.league] ?? [])
+            let worker = Task.detached(priority: .userInitiated) {
+                Self.matchingEventChannels(for: game, candidates: candidates, programs: programs,
+                    categories: groups, board: board, now: now)
+            }
+            let channels = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: { worker.cancel() }
+            guard !Task.isCancelled, providerGeneration == provider, indexGeneration == index,
+                  streamsRevision == channelRevision, guideRevision == listingRevision,
+                  sportsIndexReady else { return }
+            guard let current = gamesByLeague[game.league]?.first(where: { $0.id == game.id }),
+                  current.isLive, Self.matchIdentity(current) == Self.matchIdentity(game) else { continue }
+            let primary = channels.first(where: { !$0.sharedCoverage })?.stream
+            var evidence: [String: [CurrentProgram]] = [:], categories: [String: String] = [:]
+            for channel in channels {
+                if let key = channel.stream.epgChannelID { evidence[key] = programs[key] ?? [] }
+                if let key = channel.stream.categoryID { categories[key] = names[key] ?? "" }
+            }
+            let identity = Self.matchIdentity(current)
+            preparedMatches[game.id] = PreparedLiveMatch(preparedAt: now, eventStart: current.start,
+                identity: identity, primary: primary, alternatives: channels,
+                programs: evidence, categoryNames: categories)
+            gameStreamCache[game.id] = primary
+            matchedGameIdentities[game.id] = primary == nil ? nil : identity
+            gameMatchSignatures[game.id] = primary == nil ? nil : Self.matchSignature(current)
+            matchEvidenceScores[game.id] = channels.first(where: { $0.id == primary?.id })?.evidence
+            eventsNeedingPreparation.remove(game.id)
+            StartupTrace.shared.note("TV live game prepared", "\(game.id); \(channels.count) verified feeds; remaining slate runs behind playback")
+            // Let the Live screen consume this game's result before the next
+            // event is scored. No global completion flag is needed to play it.
+            await Task.yield()
+        }
+        guard providerGeneration == provider else { return }
+        persistPreparedMatches()
+    }
+    #endif
 
     // XMLTV is normally the slowest startup request. Reuse its same-day parsed
     // evidence while the replacement downloads, but only for a freshly returned
@@ -4320,6 +4408,11 @@ final class SportsLibrary {
 
     private func resetProviderState() {
         providerGeneration = UUID()
+        #if os(tvOS)
+        tvLivePreparation?.task.cancel()
+        tvLivePreparation = nil
+        tvLivePreparationRequested = false
+        #endif
         finishCachedRestore()
         bootstrapInFlight = false
         libraryRefreshInFlight = false

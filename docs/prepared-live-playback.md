@@ -42,6 +42,15 @@ do not show that popup, and background metadata refresh does not retune a player
 
 ## Release notes
 
+Apple TV 104 only:
+
+- Live games with newly available channels become playable before preparation
+  of the rest of the schedule finishes.
+- If a selected game is still being prepared, it opens as soon as its result is
+  ready, without repeatedly asking you to select it again.
+
+iPhone stays at 158; this repair has no iOS behavior changes.
+
 iPhone 158 and Apple TV 103:
 
 - Saved live games open faster, with their channels and alternatives ready when
@@ -64,6 +73,9 @@ The startup regressions include the Columbus Blue Jackets–Carolina Hurricanes
 matchup, migration from the existing daily cache, alternative-only and expired
 primary results, cold combined-provider startup, and an older catalog request
 held open while a ready cached source becomes available.
+TV-only regressions cover a newly available Thursday Night Football feed while
+another saved live event already works. They check both independent early
+playback and a completed no-match result, retaining rejection of another matchup.
 The Foundation daily checks cover the exact 24-hour refresh and 48-hour retention
 boundaries, including clock rollback. Both full simulator suites remain enabled.
 Both build workflows also compile and execute the shared provider download

@@ -23,6 +23,8 @@ struct LiveView: View {
     @State private var playbackTransitionID: UUID?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
+    @State private var pendingLiveSelection: (game: SportsGame, multiview: Bool)?
+    @State private var opensPendingSelectionAfterDismiss = false
     @State private var manualSelectionStartsMultiview = false
     /// Both teams have a saved channel and they disagree: which feed.
     @State private var feedChoice: TVFeedChoice?
@@ -164,8 +166,8 @@ struct LiveView: View {
             } onCancel: { feedChoice = nil }
             .channelScopePrompt($scopingChannel)
             .tvChoices("Channels are still syncing", symbol: "arrow.clockwise", isPresented: $showsChannelSyncMessage,
-                       message: "Please wait for channel syncing to finish, then select the game again.",
-                       cancelTitle: "OK") { [] }
+                       message: "This game will open when its channels are ready.",
+                       cancelTitle: "Cancel") { [] } onCancel: { finishPendingLiveSelection() }
             .lineupFullScreenCover(item: $multiviewSession) { session in
                 MultiviewView(
                     primary: session.primary,
@@ -186,8 +188,14 @@ struct LiveView: View {
                 }
             }
             .onChange(of: isActive) { _, active in
-                if !active { stopPreview() }
+                if !active {
+                    pendingLiveSelection = nil
+                    opensPendingSelectionAfterDismiss = false
+                    showsChannelSyncMessage = false
+                    stopPreview()
+                }
             }
+            .onChange(of: library.eventChannelsInputs) { retryPendingLiveSelection() }
             .onDisappear { catchUpLookup?.cancel() }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
@@ -221,8 +229,11 @@ struct LiveView: View {
     /// carrying the game, then Lineup's own match -- and the picker when none
     /// of those answers. `TeamChannelPreferences.resolve` decides.
     private func open(_ game: SportsGame, startsMultiview: Bool) {
+        pendingLiveSelection = nil
+        opensPendingSelectionAfterDismiss = false
         switch library.preferredChannel(for: game) {
         case .syncing:
+            pendingLiveSelection = (game, startsMultiview)
             showsChannelSyncMessage = true
         case let .play(streamID, _):
             if let stream = library.stream(withID: streamID) {
@@ -236,6 +247,31 @@ struct LiveView: View {
         case .pick:
             chooseChannel(for: game, startsMultiview: startsMultiview)
         }
+    }
+
+    private func retryPendingLiveSelection() {
+        guard isActive, showsChannelSyncMessage, let pending = pendingLiveSelection else { return }
+        let current = library.gamesByLeague[pending.game.league]?.first { $0.id == pending.game.id }
+        guard let current, current.isLive || current.isUpcoming else {
+            pendingLiveSelection = nil
+            showsChannelSyncMessage = false
+            return
+        }
+        if case .syncing = library.preferredChannel(for: current) { return }
+        opensPendingSelectionAfterDismiss = true
+        showsChannelSyncMessage = false
+    }
+
+    private func finishPendingLiveSelection() {
+        let pending = pendingLiveSelection, shouldOpen = opensPendingSelectionAfterDismiss
+        pendingLiveSelection = nil
+        opensPendingSelectionAfterDismiss = false
+        guard shouldOpen, isActive, let pending,
+              let current = library.gamesByLeague[pending.game.league]?.first(where: { $0.id == pending.game.id }),
+              current.isLive || current.isUpcoming else { return }
+        // A fallback picker or feed chooser must present after the wait sheet
+        // has left, just like the other TV choice-sheet actions.
+        open(current, startsMultiview: pending.multiview)
     }
 
     private func start(_ game: SportsGame, on stream: XtreamStream, startsMultiview: Bool,
