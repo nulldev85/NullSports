@@ -168,6 +168,12 @@ final class DataRefreshProgress: ObservableObject {
         }
     }
 
+    /// A different account owns subsequent work and progress now.
+    func cancel() {
+        ending?.cancel()
+        reset()
+    }
+
     /// Where a step probably is by the clock: steadily to nine tenths over the
     /// time it usually takes, then ever more slowly, never quite there until
     /// it is.

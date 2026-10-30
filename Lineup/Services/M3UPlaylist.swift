@@ -130,6 +130,23 @@ struct M3UPlaylist: Codable, Sendable {
 
 /// Playlist URLs frequently embed credentials. Keep the connection in Keychain
 /// and its downloaded source URLs in an encrypted cache, never the channel JSON.
+/// Only a prepared event's source URLs, encrypted with the same credential
+/// boundary as the full playlist. This avoids decrypting a whole playlist on
+/// the path to playback, and survives eviction of that larger cache.
+enum PreparedPlaylistSources {
+    static func seal(_ urls: [Int: URL], secret: String) -> Data? {
+        guard let data = try? JSONEncoder().encode(urls) else { return nil }
+        return try? AES.GCM.seal(data, using: SymmetricKey(data: SHA256.hash(data: Data(secret.utf8)))).combined
+    }
+
+    static func open(_ data: Data?, secret: String) -> [Int: URL] {
+        guard let data, let box = try? AES.GCM.SealedBox(combined: data),
+              let plain = try? AES.GCM.open(box, using: SymmetricKey(data: SHA256.hash(data: Data(secret.utf8)))),
+              let urls = try? JSONDecoder().decode([Int: URL].self, from: plain) else { return [:] }
+        return urls.filter { ["http", "https"].contains($0.value.scheme?.lowercased() ?? "") && $0.value.host != nil }
+    }
+}
+
 enum PlaylistCache {
     private final class Box: NSObject {
         let value: M3UPlaylist

@@ -16,6 +16,13 @@ Xtream-compatible profiles, passwords stored in the device Keychain, and
 selectable playback engines. You supply the provider, server and streams you are
 authorized to watch; Lineup does not include or sell content.
 
+Live games save their primary and alternative channels for the next launch.
+Lineup prepares a daily matching baseline while active and refreshes changed
+events in the background; saved playback can start before the full guide loads.
+The data refresh popup appears only in TV Guide. See
+[prepared live playback](docs/prepared-live-playback.md) for refresh behavior,
+first-load limits, and verification.
+
 ## iCloud sync and game reminders
 
 Lineup saves per-game reminders locally and schedules a

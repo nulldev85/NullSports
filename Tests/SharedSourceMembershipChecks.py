@@ -14,6 +14,8 @@ SHARED = (
     "Lineup/Views/LiveQualityProgress.swift",
     "Lineup/Design/TitleArtwork.swift",
     "Lineup/Services/TitleLogoURLCache.swift",
+    "Lineup/Services/PreparedLiveMatches.swift",
+    "Lineup/Services/XtreamDownload.swift",
     "Lineup/Models/LibraryCast.swift",
     "Lineup/Design/LineupPresentationStyle.swift",
     "Lineup/Services/MediaIntegrationHTTP.swift",
@@ -146,7 +148,7 @@ class SharedSourceMembershipChecks(unittest.TestCase):
     def test_tracking_regressions_belong_to_both_test_suites(self):
         project = (ROOT / "project.yml").read_text(encoding="utf-8")
         for source in ("Tests/iOS/MDBListTrackingTests.swift", "Tests/iOS/LibraryReliabilityTests.swift",
-                       "Tests/iOS/MediaIntegrationTests.swift"):
+                       "Tests/iOS/MediaIntegrationTests.swift", "Tests/iOS/PreparedLiveMatchesTests.swift"):
             self.assertTrue((ROOT / source).is_file())
             for target in ("LineupTests", "LineupiOSTests"):
                 self.assertTrue(is_included(project, target, source))

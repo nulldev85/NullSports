@@ -133,6 +133,8 @@ jobs:
       - name: Check live playback recovery and professional matchup evidence
         run: |
           set -euo pipefail
+          swiftc Lineup/Services/XtreamDownload.swift Tests/XtreamDownloadChecks.swift -o /tmp/lineup-download-checks
+          /tmp/lineup-download-checks
           swiftc Lineup/Services/LivePlaybackHealth.swift Tests/LivePlaybackHealthChecks.swift -o /tmp/lineup-playback-health-checks
           /tmp/lineup-playback-health-checks
           swiftc Lineup/Services/ProfessionalChannelMatcher.swift Lineup/Services/EventChannelEvidence.swift Tests/ProfessionalChannelMatcherChecks.swift -o /tmp/lineup-professional-match-checks

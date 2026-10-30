@@ -2,7 +2,7 @@ import Foundation
 
 /// Provider-advertised resolution/rate, not measured bitrate or an HDR claim.
 /// Unknown labels, codecs, "RAW" and marketing words confer no quality rank.
-struct LiveChannelQuality: Equatable, Comparable, Sendable {
+struct LiveChannelQuality: Codable, Equatable, Comparable, Sendable {
     let height: Int
     let frameRate: Int
     private let resolutionLabel: String?

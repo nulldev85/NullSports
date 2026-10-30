@@ -4,6 +4,7 @@ import UIKit
 enum MobileNavigationStyle {
     /// Device-local: this choice changes only the iPhone's bottom tab bar.
     static let glassKey = "lineup.appearance.navigationGlass"
+    static let transitionAnimation = Animation.smooth(duration: 0.36)
 
     static var supportsGlass: Bool {
         if #available(iOS 26.0, *) { return true }
@@ -188,7 +189,13 @@ final class MobileTabNavigation: ObservableObject {
     private var pendingHomes: Set<Int> = []
 
     init() {
-        scrollObservation.onChange = { [weak self] compact in self?.isCompact = compact }
+        scrollObservation.onChange = { [weak self] compact in
+            // The same transaction reaches the native toolbar and the floating
+            // control, including insertion/removal when glass changes forms.
+            withAnimation(UIAccessibility.isReduceMotionEnabled ? nil : MobileNavigationStyle.transitionAnimation) {
+                self?.isCompact = compact
+            }
+        }
     }
 
     func expand() { scrollObservation.expand() }
@@ -453,16 +460,21 @@ private struct MobileNavigationChrome: ViewModifier {
             // Extend only the floating overlay into the bottom container area.
             // Page clearance still comes from the actual capsule boundary.
             .overlay(alignment: .bottom) {
-                if (!glass || navigation.isCompact) && !fullscreen {
-                    MobileLineupNavigationBar(selection: $selection, navigation: navigation,
-                                              compact: navigation.isCompact, liquidGlass: glass) { tab in
-                        navigation.activate(tab) { selection = tab.rawValue }
+                ZStack {
+                    if (!glass || navigation.isCompact) && !fullscreen {
+                        MobileLineupNavigationBar(selection: $selection, navigation: navigation,
+                                                  compact: navigation.isCompact, liquidGlass: glass) { tab in
+                            navigation.activate(tab) { selection = tab.rawValue }
+                        }
+                        .padding(.bottom, MobileLineupNavigationLayout.bottomGap(safeAreaBottom: navigation.windowBottomInset))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .ignoresSafeArea(.container, edges: .bottom)
+                        .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 8)))
                     }
-                    .animation(reduceMotion ? nil : .smooth(duration: 0.28), value: navigation.isCompact)
-                    .padding(.bottom, MobileLineupNavigationLayout.bottomGap(safeAreaBottom: navigation.windowBottomInset))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .ignoresSafeArea(.container, edges: .bottom)
                 }
+                // Keep the animation outside the conditional so the glass
+                // control also animates when it appears and disappears.
+                .animation(reduceMotion ? nil : MobileNavigationStyle.transitionAnimation, value: navigation.isCompact)
             }
     }
 }
@@ -515,12 +527,20 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     // Keep this a value input: changing a property on the same navigation
     // object does not invalidate a UIViewRepresentable's unchanged inputs.
     var compact = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeUIView(context: Context) -> Probe { Probe() }
 
     func updateUIView(_ probe: Probe, context: Context) {
         probe.liquidGlass = liquidGlass
-        probe.nativeBarShouldBeHidden = !liquidGlass || fullscreen || compact
+        let hidden = !liquidGlass || fullscreen || compact
+        if probe.nativeBarShouldBeHidden != hidden {
+            // Layout follow-ups must not turn an in-flight scroll animation
+            // back into an immediate visibility change.
+            probe.animatesNativeVisibility = context.transaction.animation != nil
+                && !context.transaction.disablesAnimations && !reduceMotion && active && !fullscreen
+        }
+        probe.nativeBarShouldBeHidden = hidden
         probe.scrollInteractionEnabled = active && !fullscreen
         probe.navigation = navigation
         navigation?.order = order
@@ -536,6 +556,7 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     final class Probe: UIView {
         var liquidGlass = false
         var nativeBarShouldBeHidden = true
+        var animatesNativeVisibility = false
         var scrollInteractionEnabled = true
         weak var navigation: MobileTabNavigation?
         private weak var bar: UITabBar?
@@ -597,7 +618,8 @@ struct MobileTabBarAppearance: UIViewRepresentable {
                 // must not leave the expanded native bar hidden.
                 if #available(iOS 26.0, *),
                    tabs.isTabBarHidden != self.nativeBarShouldBeHidden {
-                    tabs.setTabBarHidden(self.nativeBarShouldBeHidden, animated: false)
+                    tabs.setTabBarHidden(self.nativeBarShouldBeHidden,
+                                         animated: self.animatesNativeVisibility && !UIAccessibility.isReduceMotionEnabled)
                 }
                 self.navigation?.requestContentInsetsUpdate()
             }

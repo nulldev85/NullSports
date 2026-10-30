@@ -66,6 +66,13 @@ enum DailyGameMatchesChecks {
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genB, resultProfileID: profileA, currentProfileID: profileA), "A rebuild superseded by a newer one already in flight must not publish its stale result")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: profileA, currentProfileID: profileB), "A profile switch mid-rebuild must not publish the previous profile's index")
         precondition(!DailyCachePolicy.shouldApplyRebuild(resultGeneration: genA, currentGeneration: genA, resultProfileID: nil, currentProfileID: profileA), "Signing out mid-rebuild must not publish an orphaned index")
-        print("28 daily schedule and match persistence checks passed")
+        precondition(!PreparedMatchPolicy.needsRefresh(preparedAt: savedAt, now: savedAt.addingTimeInterval(24 * 3600 - 1)), "Daily preparation is reused for a full 24 hours")
+        precondition(PreparedMatchPolicy.needsRefresh(preparedAt: savedAt, now: savedAt.addingTimeInterval(24 * 3600)), "A daily baseline is due at 24 hours")
+        precondition(PreparedMatchPolicy.needsRefresh(preparedAt: nil, now: reopen), "First setup prepares a baseline")
+        precondition(PreparedMatchPolicy.needsRefresh(preparedAt: reopen, now: savedAt), "Clock rollback requests a new baseline")
+        precondition(PreparedMatchPolicy.canUse(preparedAt: savedAt, now: savedAt.addingTimeInterval(25 * 3600)), "A missed daily refresh does not withdraw yesterday's prepared events")
+        precondition(!PreparedMatchPolicy.canUse(preparedAt: savedAt, now: savedAt.addingTimeInterval(48 * 3600)), "Multi-day stale preparations are not trusted")
+        precondition(!PreparedMatchPolicy.canUse(preparedAt: reopen, now: savedAt), "Future preparations cannot authorize playback")
+        print("35 daily schedule and match persistence checks passed")
     }
 }

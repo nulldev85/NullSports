@@ -11,7 +11,6 @@ import SwiftUI
 struct AppSearchView: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(MediaLibrary.self) private var media
-    @Environment(\.scenePhase) private var scenePhase
     #if !os(tvOS)
     /// Plays a channel full screen. On the phone the player belongs to the
     /// view that owns the tabs.
@@ -26,8 +25,6 @@ struct AppSearchView: View {
     @State private var searchingServers = false
     @State private var serverProblem: String?
     @State private var pushed: MediaItem?
-    @State private var qualityTask: Task<Void, Never>?
-    @State private var qualityRequest: UUID?
     #if !os(tvOS)
     @State private var homeRevision = 0
     @State private var combinedProviders: SportsLibrary?
@@ -84,7 +81,6 @@ struct AppSearchView: View {
             serverProblem = nil
             searchingServers = false
             choice = nil
-            cancelQualityCheck()
             providerResultsTask?.cancel()
             providerSearchID = UUID()
             homeRevision &+= 1
@@ -130,19 +126,14 @@ struct AppSearchView: View {
                        lineup: library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""))
         }
         #endif
-        .overlay(alignment: .top) {
-            if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
-        }
         #if !os(tvOS)
         .safeAreaInset(edge: .top, spacing: 0) { MobileProviderAvailabilityNotice(root: library.providerRoot) }
         #endif
         .onDisappear {
-            cancelQualityCheck()
             #if !os(tvOS)
             providerResultsTask?.cancel()
             #endif
         }
-        .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
     }
 
     // MARK: Searching
@@ -260,7 +251,6 @@ struct AppSearchView: View {
         #else
         let owner = library
         #endif
-        cancelQualityCheck()
         switch hit.kind {
         case .title(let item, _), .vod(let item, _):
             pushed = item
@@ -271,22 +261,9 @@ struct AppSearchView: View {
         case .game(let game, let channel):
             // The channel the Live tab would play: one chosen for this game
             // before, or the match it has checked; else the one the row names.
-            if game.isLive, let station = channel ?? owner.resolvedStream(for: game) {
-                if case .play(_, .verified) = owner.preferredChannel(for: game) {
-                    #if os(tvOS)
-                    TVPreviewHandoff.stopPreviews()
-                    #endif
-                    let request = UUID()
-                    qualityRequest = request
-                    qualityTask = Task { @MainActor in
-                        let chosen = await owner.bestQualityStream(for: game, fallback: station)
-                        guard !Task.isCancelled, qualityRequest == request else { return }
-                        qualityRequest = nil
-                        qualityTask = nil
-                        if let chosen { tune(chosen, game: game) }
-                        else { choice = hit }
-                    }
-                } else { tune(station, game: game) }
+            if game.isLive, let station = owner.resolvedStream(for: game)
+                ?? channel.flatMap({ owner.isStream($0, verifiedFor: game) ? $0 : nil }) {
+                tune(station, game: game)
             } else {
                 choice = hit
             }
@@ -294,7 +271,6 @@ struct AppSearchView: View {
     }
 
     private func tune(_ channel: XtreamStream, game: SportsGame?) {
-        cancelQualityCheck()
         choice = nil
         #if os(tvOS)
         playback = AppSearchPlayback(channel: channel, game: game)
@@ -303,12 +279,6 @@ struct AppSearchView: View {
         guard owner.stream(withID: channel.id) == channel else { return }
         mobilePlayback = MobileSearchProviderPlayback(library: owner, stream: channel)
         #endif
-    }
-
-    private func cancelQualityCheck() {
-        qualityTask?.cancel()
-        qualityTask = nil
-        qualityRequest = nil
     }
 
     private func channel(of hit: AppSearchHit) -> XtreamStream? {
