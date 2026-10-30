@@ -42,6 +42,11 @@ do not show that popup, and background metadata refresh does not retune a player
 
 ## Release notes
 
+iPhone 159 only:
+
+- The glass navigation bar now transitions more smoothly when it compacts while
+  scrolling and expands again. Reduce Motion is respected.
+
 Apple TV 104 only:
 
 - Live games with newly available channels become playable before preparation
