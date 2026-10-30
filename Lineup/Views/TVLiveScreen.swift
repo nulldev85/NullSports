@@ -1814,7 +1814,6 @@ struct LiveTicker: View {
             }
         }
         .padding(.horizontal, LiveMetrics.margin).padding(.bottom, 2)
-        .background(LineupStyle.surface.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
         .transaction { $0.animation = nil }
         .allowsHitTesting(false)

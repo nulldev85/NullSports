@@ -91,13 +91,11 @@ final class SportsMatchingQueue {
     private var requested = false
     private var forceRequested = false
 
-    func run(force: Bool, operation: @escaping @MainActor (Bool) async -> Void) async {
+    @discardableResult
+    func request(force: Bool, operation: @escaping @MainActor (Bool) async -> Void) -> Task<Void, Never> {
         requested = true
         forceRequested = forceRequested || force
-        if let pending {
-            await pending.task.value
-            return
-        }
+        if let pending { return pending.task }
         let id = UUID()
         let task = Task { [self] in
             defer { if pending?.id == id { pending = nil } }
@@ -109,8 +107,11 @@ final class SportsMatchingQueue {
             }
         }
         pending = (id, task)
-        await task.value
-        if pending?.id == id { pending = nil }
+        return task
+    }
+
+    func run(force: Bool, operation: @escaping @MainActor (Bool) async -> Void) async {
+        await request(force: force, operation: operation).value
     }
 
     func cancel() {

@@ -87,16 +87,21 @@ final class LibraryReliabilityTests: XCTestCase {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
-        window.rootViewController = UIHostingController(rootView: MobileAccountView(selectedTab: .constant(3))
+        window.rootViewController = UIHostingController(rootView: MainView(initialTab: .settings)
             .environment(library).environment(media).environmentObject(CloudSettingsSync.shared).preferredColorScheme(.dark))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previous?.makeKey() }
         func scroll(in view: UIView) -> UIScrollView? {
+            guard !view.isHidden, view.alpha > 0.01 else { return nil }
             if let scroll = view as? UIScrollView, scroll.contentSize.height > scroll.bounds.height { return scroll }
             return view.subviews.lazy.compactMap { scroll(in: $0) }.first
         }
+        func navigationProbe(in view: UIView) -> MobileTabBarAppearance.Probe? {
+            if let probe = view as? MobileTabBarAppearance.Probe { return probe }
+            return view.subviews.lazy.compactMap { navigationProbe(in: $0) }.first
+        }
         let deadline = Date().addingTimeInterval(5)
-        while scroll(in: window) == nil, Date() < deadline {
+        while (scroll(in: window) == nil || navigationProbe(in: window)?.navigation?.tabs == nil), Date() < deadline {
             window.layoutIfNeeded()
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -113,6 +118,40 @@ final class LibraryReliabilityTests: XCTestCase {
             window.layoutIfNeeded()
             XCTAssertTrue(scroll(in: window) === list, "Playback updates must not replace the Settings list")
             XCTAssertEqual(list.contentOffset.y, offset, accuracy: 1, "Settings must not jump while the player publishes diagnostics")
+        }
+        let navigation = try XCTUnwrap(navigationProbe(in: window)?.navigation)
+        let tabs = try XCTUnwrap(navigation.tabs)
+        XCTAssertEqual(tabs.selectedIndex, navigation.order.firstIndex(of: .settings))
+        let previousGlass = UserDefaults.standard.object(forKey: MobileNavigationStyle.glassKey)
+        defer {
+            if let previousGlass { UserDefaults.standard.set(previousGlass, forKey: MobileNavigationStyle.glassKey) }
+            else { UserDefaults.standard.removeObject(forKey: MobileNavigationStyle.glassKey) }
+        }
+        // Sample the transition itself in the production tab container. An
+        // endpoint-only check misses a page that jumps and returns meanwhile.
+        for glass in [false, true] {
+            UserDefaults.standard.set(glass, forKey: MobileNavigationStyle.glassKey)
+            navigation.expand()
+            try await Task.sleep(for: .milliseconds(450))
+            window.layoutIfNeeded()
+            XCTAssertTrue(scroll(in: window) === list)
+            list.setContentOffset(CGPoint(x: 0, y: 180), animated: false)
+            let before = list.contentOffset.y
+            navigation.scrollObservation.discoverScrollViews(from: list)
+            navigation.scrollObservation.receivePanInput(from: list, phase: .began, translation: .zero)
+            navigation.scrollObservation.receivePanInput(from: list, phase: .changed, translation: CGPoint(x: 0, y: -65))
+            var positions: [CGFloat] = []
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(16))
+                window.layoutIfNeeded()
+                positions.append(list.contentOffset.y)
+                XCTAssertTrue(scroll(in: window) === list, "Compacting navigation must retain the real Settings list")
+            }
+            XCTAssertTrue(navigation.isCompact)
+            XCTAssertLessThanOrEqual(positions.map { abs($0 - before) }.max() ?? 0, 1,
+                "Settings must remain stable throughout the transition, not just after it settles")
+            navigation.scrollObservation.receivePanInput(from: list, phase: .ended, translation: CGPoint(x: 0, y: -65))
+            navigation.expand()
         }
         XCTAssertTrue(list.isScrollEnabled)
         XCTAssertEqual(media.heroCatalogTitle, "Cached Movies")

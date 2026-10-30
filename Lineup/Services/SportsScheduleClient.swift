@@ -24,12 +24,12 @@ struct SportsScheduleClient: Sendable {
         let start = Calendar.current.startOfDay(for: Date())
         let end = Calendar.current.date(byAdding: .day, value: includeTomorrow ? 2 : 1, to: start) ?? start
         let racingEnd = Calendar.current.date(byAdding: .day, value: 14, to: start) ?? end
+        async let todaySnapshot = snapshot(for: today)
         async let expanded = ExpandedSportsScheduleClient.shared.games(from: start, to: end, racingTo: racingEnd)
         guard includeTomorrow else {
-            return Self.merging(await expanded, into: Self.adding(await tennis, to: await snapshot(for: today)))
+            return Self.merging(await expanded, into: Self.adding(await tennis, to: await todaySnapshot))
         }
 
-        async let todaySnapshot = snapshot(for: today)
         async let tomorrowSnapshot = snapshot(for: tomorrow)
         let (first, second) = await (todaySnapshot, tomorrowSnapshot)
         var merged: [SportsLeague: [SportsGame]] = [:]
@@ -77,6 +77,7 @@ struct SportsScheduleClient: Sendable {
         // Fetched alongside the schedule, never instead of it: a game without
         // its rank is still the game.
         async let rankings = CollegeFootballRankings.shared.ranks(for: day)
+        async let ufc = ufcSchedule(for: day)
         let base: Snapshot
         do { base = try await combinedSchedule(for: day) }
         catch { base = Snapshot(games: [:], loadedLeagues: [], errorMessage: Self.describe(error)) }
@@ -89,7 +90,7 @@ struct SportsScheduleClient: Sendable {
         var loaded = base.loadedLeagues
         var errors = [base.errorMessage].compactMap { $0 }
         do {
-            games[.ufc] = try await ufcSchedule(for: day)
+            games[.ufc] = try await ufc
             loaded.insert(.ufc)
         } catch {
             errors.append("UFC schedule unavailable.")

@@ -19,6 +19,10 @@ struct MainView: View {
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
     @AppStorage(MobileNavigationOrder.storageKey) private var savedTabOrder = MobileNavigationOrder.defaultValue
 
+    init(initialTab: MobileNavigationTab = .sports) {
+        _tab = State(initialValue: initialTab.rawValue)
+    }
+
     var body: some View {
         // Each tab's content is redrawn in a new accent, not the TabView: the
         // bar and the selected tab survive the change. The guide keeps its
@@ -64,8 +68,8 @@ struct MainView: View {
             // schedule publication every 30 seconds for no visible benefit.
             guard scenePhase == .active, tab == 0 || tab == 1 else { return }
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
                 library.refreshSchedule(showsLoading: false, includeTomorrow: false)
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
         }
     }

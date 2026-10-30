@@ -82,6 +82,63 @@ final class TVSportsBackgroundTests: XCTestCase {
         attach(neutral, name: "TV-Sports-background-empty")
     }
 
+    func testActualSportsTabColorsReachTheTopAndBottomOfTheWindow() async throws {
+        let suite = "TVFullScreenSportsCanvas.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let red = game("red", away: "FF0000", home: "FF8800")
+        let blue = game("blue", away: "0000FF", home: "00AACC")
+        let library = SportsLibrary(profileDefaults: defaults, automaticRefreshes: false,
+            scheduleCacheLocation: FileManager.default.temporaryDirectory.appendingPathComponent(suite),
+            scheduleFetcher: { _ in .init(games: [.nba: [red, blue]], loadedLeagues: [.nba], errorMessage: nil) })
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent(suite))
+        }
+        library.refreshSchedule()
+        let deadline = Date().addingTimeInterval(5)
+        while library.gamesByLeague[.nba]?.count != 2, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(library.gamesByLeague[.nba]?.count, 2)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let spotlight = LiveSpotlight()
+        let host = UIHostingController(rootView: TabView {
+            LiveView(isActive: false, spotlight: spotlight)
+                .tabItem { Label("Sports", systemImage: "play.rectangle") }
+            Color.black.tabItem { Label("Other", systemImage: "gear") }
+        }.environment(library).transaction {
+            $0.disablesAnimations = true
+            $0.animation = nil
+        })
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        // Check the real Sports/NavigationStack/ticker inside a native tab
+        // container. A standalone canvas screenshot misses the clipping bug.
+        for (event, redDominates) in [(red, true), (blue, false)] {
+            spotlight.rest(on: event)
+            let until = Date().addingTimeInterval(5)
+            var image: UIImage?
+            var matches = false
+            while !matches, Date() < until {
+                window.layoutIfNeeded()
+                let rendered = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                    window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+                }
+                let pixels = try [0.015, 0.5, 0.985].map {
+                    try sample(rendered, x: 0.008, y: $0)
+                }
+                matches = pixels.allSatisfy { redDominates ? $0.x > $0.z + 0.015 : $0.z > $0.x + 0.015 }
+                image = rendered
+                if !matches { try await Task.sleep(for: .milliseconds(20)) }
+            }
+            XCTAssertTrue(matches, "The same team wash must cover the tab-bar, content and bottom screen edges")
+            if let image { attach(image, name: "TV-Sports-full-screen-\(event.id)") }
+        }
+    }
+
     private func rendered(_ window: UIWindow, matching condition: (SIMD3<Double>) -> Bool) async throws -> UIImage {
         let deadline = Date().addingTimeInterval(5)
         while Date() < deadline {
@@ -96,9 +153,9 @@ final class TVSportsBackgroundTests: XCTestCase {
                       userInfo: [NSLocalizedDescriptionKey: "The rendered background did not follow the highlighted event"])
     }
 
-    private func sample(_ image: UIImage) throws -> SIMD3<Double> {
+    private func sample(_ image: UIImage, x: Double = 0.2, y: Double = 0.5) throws -> SIMD3<Double> {
         let cg = try XCTUnwrap(image.cgImage)
-        let crop = try XCTUnwrap(cg.cropping(to: CGRect(x: CGFloat(cg.width / 5), y: CGFloat(cg.height / 2), width: 1, height: 1)))
+        let crop = try XCTUnwrap(cg.cropping(to: CGRect(x: CGFloat(Double(cg.width) * x), y: CGFloat(Double(cg.height) * y), width: 1, height: 1)))
         var bytes = [UInt8](repeating: 0, count: 4)
         try bytes.withUnsafeMutableBytes { data in
             let context = try XCTUnwrap(CGContext(data: data.baseAddress, width: 1, height: 1,

@@ -92,9 +92,26 @@ struct PlaybackDiagnosticsReportView: View {
 /// Apple's daily reports of how the app ran on this phone.
 struct DeviceReportsView: View {
     @ObservedObject private var device = MobileDeviceReports.shared
+    @State private var copied = false
+    @State private var copying = false
 
     var body: some View {
         List {
+            Section {
+                if device.diagnostics.isEmpty {
+                    Text("No detailed hang or CPU report received yet. Any reports Apple provides are kept on this device and included when you tap Copy.")
+                        .font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
+                } else {
+                    ForEach(device.diagnostics) { diagnostic in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(diagnostic.summary).font(.inter(15, .medium))
+                            Text(diagnostic.end.formatted()).font(.inter(13))
+                                .foregroundStyle(LineupPanelStyle.listValue)
+                        }
+                    }
+                }
+            } header: { Text("Detailed diagnostics").lineupSettingsHeader() }
+            .lineupSettingsRows()
             if device.reports.isEmpty {
                 Section {
                     Text("No report yet. iOS sends one a day at most, so the first comes a day or so after this version is installed.")
@@ -122,6 +139,19 @@ struct DeviceReportsView: View {
         .lineupSettingsList()
         .navigationTitle("Device Reports")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(copying ? "Copying…" : copied ? "Copied" : "Copy") {
+                    copying = true
+                    Task {
+                        UIPasteboard.general.string = await device.exportedReport()
+                        copied = true
+                        copying = false
+                    }
+                }
+                .disabled(copying || (device.reports.isEmpty && device.diagnostics.isEmpty))
+            }
+        }
     }
 }
 

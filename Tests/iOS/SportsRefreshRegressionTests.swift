@@ -3,6 +3,22 @@ import XCTest
 
 @MainActor
 final class SportsRefreshRegressionTests: XCTestCase {
+    func testRequestingMaintenanceDoesNotWaitForItsWorkerAndCoalescesFurtherRequests() async {
+        let queue = SportsMatchingQueue(), started = SnapshotGate(), release = SnapshotGate()
+        var forces: [Bool] = []
+        let operation: @MainActor (Bool) async -> Void = { force in
+            forces.append(force)
+            if forces.count == 1 { started.open(); await release.wait() }
+        }
+        let drain = queue.request(force: false, operation: operation)
+        await started.wait()
+        for index in 0..<100 { _ = queue.request(force: index == 50, operation: operation) }
+        XCTAssertEqual(forces, [false], "Enqueuing maintenance must return while the previous pass is still blocked")
+        release.open()
+        await drain.value
+        XCTAssertEqual(forces, [false, true])
+    }
+
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
     private func tournament(start: Date, round: String, name: String = "Rolex Paris Masters") -> SportsGame {

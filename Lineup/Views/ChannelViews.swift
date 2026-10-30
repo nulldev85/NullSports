@@ -43,6 +43,11 @@ struct LiveView: View {
     @State private var catchUpLookup: Task<Void, Never>?
     @State private var showingReplays = false
 
+    init(isActive: Bool, spotlight: LiveSpotlight = LiveSpotlight()) {
+        self.isActive = isActive
+        _spotlight = State(initialValue: spotlight)
+    }
+
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
     private var events: [SportsGame] {
@@ -80,7 +85,6 @@ struct LiveView: View {
                         onStopPreview: stopPreview
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(LiveCanvas(spotlight: spotlight, events: events))
                     // Hold Select on any game for its channel, wherever the
                     // game's card is.
                     .environment(\.liveChooseChannel, { chooseChannel(for: $0) })
@@ -184,10 +188,11 @@ struct LiveView: View {
             .task(id: isActive) {
                 guard isActive else { return }
                 while !Task.isCancelled {
+                    // Refresh on entry too, so returning to Sports does not
+                    // leave an old score visible for another polling interval.
+                    library.refreshSchedule(showsLoading: false, includeTomorrow: false)
                     do { try await Task.sleep(for: .seconds(30)) }
                     catch { return }
-                    // Live scores need refreshing every 30s; tomorrow's slate does not.
-                    library.refreshSchedule(showsLoading: false, includeTomorrow: false)
                 }
             }
             .onChange(of: isActive) { _, active in
@@ -202,7 +207,10 @@ struct LiveView: View {
             .onDisappear { catchUpLookup?.cancel() }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-        .background(LineupStyle.background.ignoresSafeArea())
+        // Own one canvas outside the NavigationStack's clipped viewport.
+        // It can reach behind both system navigation and the score ticker.
+        .background(LiveCanvas(spotlight: spotlight, events: events))
+        .toolbarBackground(.hidden, for: .tabBar)
     }
 
     private func select(_ game: SportsGame) {

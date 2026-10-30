@@ -219,6 +219,7 @@ final class SportsLibrary {
     private let automaticRefreshes: Bool
     private let providerSession: URLSession
     private let scheduleCacheLocation: URL?
+    private let scheduleFetcher: @Sendable (Bool) async -> SportsScheduleClient.Snapshot
     @ObservationIgnored private var scheduleSnapshotAt: Date?
     @ObservationIgnored private var providerEvidenceRevision = 0
     @ObservationIgnored private var cachedRestoreInFlight = false
@@ -290,10 +291,11 @@ final class SportsLibrary {
     /// second one cannot start on top of it. The screen stays usable
     /// throughout, which is why nothing here feeds `channelsAreSyncing`.
     @ObservationIgnored private var backgroundRefresh: Task<Void, Never>?
-    @ObservationIgnored private var scheduleWriteTask: Task<Void, Never>?
-    /// When matching last ran, for the rematch a score-only refresh waits on.
+    @ObservationIgnored private let scheduleWrites = LatestSnapshotQueue<URL, ScheduleCache>()
+    /// When matching last ran, for throttling score-only maintenance.
     @ObservationIgnored private var lastMatchingPass = Date.distantPast
     private var scheduleRefreshInFlight = false
+    @ObservationIgnored let schedulePreparation = SportsMatchingQueue()
     @ObservationIgnored private var lastSavedMatchIdentities: [String: [String]] = [:]
     @ObservationIgnored private var lastSavedMatchDay: Date?
     private var guideUpdatedAt: Date?
@@ -306,7 +308,10 @@ final class SportsLibrary {
     init(profileDefaults: UserDefaults = .standard, credentials: ProviderCredentialStore = .keychain,
          providerID: UUID? = nil, persistsActiveSelection: Bool = true,
          preparedCacheDirectory: URL? = nil, automaticRefreshes: Bool = true,
-         providerSession: URLSession = .shared, scheduleCacheLocation: URL? = nil) {
+         providerSession: URLSession = .shared, scheduleCacheLocation: URL? = nil,
+         scheduleFetcher: @escaping @Sendable (Bool) async -> SportsScheduleClient.Snapshot = {
+             await SportsScheduleClient().gamesToday(includeTomorrow: $0)
+         }) {
         self.profileDefaults = profileDefaults
         self.credentials = credentials
         self.persistsActiveSelection = persistsActiveSelection
@@ -314,6 +319,7 @@ final class SportsLibrary {
         self.automaticRefreshes = automaticRefreshes
         self.providerSession = providerSession
         self.scheduleCacheLocation = scheduleCacheLocation
+        self.scheduleFetcher = scheduleFetcher
         disabledProviderIDs = Set((profileDefaults.stringArray(forKey: "Lineup.disabledIPTVProviders.v1") ?? []).compactMap(UUID.init(uuidString:)))
         if let data = profileDefaults.data(forKey: profilesKey),
            let decoded = try? JSONDecoder().decode([XtreamProfile].self, from: data) {
@@ -1098,6 +1104,7 @@ final class SportsLibrary {
         if suspended {
             mobileSportsWork.cancel()
             mobileMatchingQueue.cancel()
+            schedulePreparation.cancel()
             combinedCatalogBuild?.task.cancel()
             combinedCatalogBuild = nil
             refreshProgress.cancel()
@@ -1705,8 +1712,11 @@ final class SportsLibrary {
         let fetchesTomorrow = includeTomorrow
             || tomorrowScheduleUpdatedAt == nil
             || Date().timeIntervalSince(tomorrowScheduleUpdatedAt!) >= tomorrowScheduleLifetime
+        let fetchSchedule = scheduleFetcher
         Task { [weak self] in
-            let snapshot = await SportsScheduleClient().gamesToday(includeTomorrow: fetchesTomorrow)
+            let snapshot = await StartupTrace.shared.measure("fetch scores") {
+                await fetchSchedule(fetchesTomorrow)
+            }
             guard let self else { return }
             defer {
                 if self.providerGeneration == requestGeneration {
@@ -1764,23 +1774,36 @@ final class SportsLibrary {
                     ($0.isLive || $0.isUpcoming)
                         && (self.eventsNeedingPreparation.contains($0.id) || self.preparedMatch(for: $0) == nil)
                 }
-                if update.2 || unprepared || self.hasUnmatchedLiveGame
-                    || (update.1 && Date().timeIntervalSince(self.lastMatchingPass) >= Self.scoreOnlyRematchInterval) {
-                    await self.rebuildGameStreamCache()
-                }
-                if !self.bootstrapInFlight, self.hasUnmatchedGameNeedingProviderData,
-                   Date().timeIntervalSince(self.lastUnmatchedProviderRefresh ?? .distantPast) > 120 {
-                    self.lastUnmatchedProviderRefresh = Date()
-                    self.refreshInBackground(topUp: true)
-                }
-                guard self.providerGeneration == requestGeneration, self.activeProfile?.id == profileID else { return }
+                let needsMatching = update.2 || unprepared || self.hasUnmatchedLiveGame
+                    || (update.1 && Date().timeIntervalSince(self.lastMatchingPass) >= Self.scoreOnlyRematchInterval)
                 // Set on every refresh, even unchanged: the rows that read it are
                 // redrawn by it, which is what moves a game to live as its start
                 // time passes when nothing in the schedule did.
                 self.scheduleValidatedLeagues.formUnion(snapshot.loadedLeagues)
-                await self.promoteCachedMatchesIfSafe()
                 let loadedLeagues = self.scheduleLoadedLeagues.union(snapshot.loadedLeagues)
                 if loadedLeagues != self.scheduleLoadedLeagues { self.scheduleLoadedLeagues = loadedLeagues }
+                // Publication and the next score poll must not wait behind a
+                // full provider match pass. Keep maintenance single-flight and
+                // coalesce requests while it works on the latest schedule.
+                self.schedulePreparation.request(force: needsMatching) { [weak self] needsMatching in
+                    guard let self, !Task.isCancelled, self.providerGeneration == requestGeneration,
+                          self.activeProfile?.id == profileID else { return }
+                    #if os(iOS)
+                    guard !self.preparationSuspended else { return }
+                    #endif
+                    if needsMatching { await self.rebuildGameStreamCache() }
+                    guard !Task.isCancelled, self.providerGeneration == requestGeneration,
+                          self.activeProfile?.id == profileID else { return }
+                    #if os(iOS)
+                    guard !self.preparationSuspended else { return }
+                    #endif
+                    if !self.bootstrapInFlight, self.hasUnmatchedGameNeedingProviderData,
+                       Date().timeIntervalSince(self.lastUnmatchedProviderRefresh ?? .distantPast) > 120 {
+                        self.lastUnmatchedProviderRefresh = Date()
+                        self.refreshInBackground(topUp: true)
+                    }
+                    await self.promoteCachedMatchesIfSafe()
+                }
             }
             if self.scheduleErrorMessage != snapshot.errorMessage { self.scheduleErrorMessage = snapshot.errorMessage }
         }
@@ -1790,10 +1813,10 @@ final class SportsLibrary {
         let value = ScheduleCache(savedAt: Date(), games: Dictionary(uniqueKeysWithValues: loadedLeagues.map { ($0.rawValue, gamesByLeague[$0] ?? []) }))
         scheduleSnapshotAt = value.savedAt
         let location = scheduleCacheLocation ?? Self.scheduleURL()
-        let previousWrite = scheduleWriteTask
-        scheduleWriteTask = Task.detached(priority: .utility) {
-            await previousWrite?.value
-            Self.write(value, to: location)
+        scheduleWrites.submit(key: location, value: value) { value in
+            await Task.detached(priority: .utility) {
+                Self.write(value, to: location)
+            }.value
         }
         persistPreparedMatches()
     }
@@ -4641,6 +4664,7 @@ final class SportsLibrary {
         bootstrapInFlight = false
         libraryRefreshInFlight = false
         scheduleRefreshInFlight = false
+        schedulePreparation.cancel()
         guideRefresh?.cancel()
         guideRefresh = nil
         #if os(iOS)

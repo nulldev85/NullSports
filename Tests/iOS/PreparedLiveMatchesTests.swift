@@ -7,6 +7,48 @@ import XCTest
 
 @MainActor
 final class PreparedLiveMatchesTests: XCTestCase {
+    func testFreshHockeyScoresPublishWhileChannelPreparationIsBlocked() async throws {
+        let f = try fixture(league: .nhl)
+        defer { f.cleanUp() }
+        let feed = PreparedScoreFeed(["1", "3"].map {
+            game(start: f.game.start, broadcast: f.game.broadcast, score: $0, league: .nhl)
+        })
+        let library = SportsLibrary(profileDefaults: f.defaults,
+            credentials: .init(password: { _ in "test-only-secret" }, save: { _, _ in }, delete: { _ in }),
+            preparedCacheDirectory: f.directory, automaticRefreshes: false,
+            scheduleCacheLocation: f.directory.appendingPathComponent("schedule.json"),
+            scheduleFetcher: { _ in await feed.next() })
+        let restored = await library.restorePreparedMatches()
+        XCTAssertTrue(restored)
+        let started = PreparedCatalogGate(), release = PreparedCatalogGate()
+        let maintenance = library.schedulePreparation.request(force: false) { _ in
+            await started.release()
+            await release.wait()
+        }
+        defer {
+            library.schedulePreparation.cancel()
+            Task { await release.release() }
+        }
+        await started.wait()
+        for expected in ["1", "3"] {
+            library.refreshSchedule(showsLoading: true, includeTomorrow: false)
+            let deadline = Date().addingTimeInterval(5)
+            while library.gamesByLeague[.nhl]?.first?.awayScore != expected, Date() < deadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            XCTAssertEqual(library.gamesByLeague[.nhl]?.first?.awayScore, expected,
+                "A newer score must publish before channel preparation is released")
+            XCTAssertFalse(library.isScheduleLoading)
+            XCTAssertTrue(library.scheduleAvailable(for: .nhl))
+            XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 1,
+                "Score publication must preserve the saved playable feed")
+        }
+        let calls = await feed.calls
+        XCTAssertEqual(calls, 2, "Slow channel maintenance must not reject the next score poll")
+        await release.release()
+        await maintenance.value
+    }
+
     @MainActor private struct Fixture {
         let directory: URL
         let suite: String
@@ -576,6 +618,17 @@ final class PreparedLiveMatchesTests: XCTestCase {
         }
     }
     #endif
+}
+
+private actor PreparedScoreFeed {
+    let games: [SportsGame]
+    private(set) var calls = 0
+    init(_ games: [SportsGame]) { self.games = games }
+    func next() -> SportsScheduleClient.Snapshot {
+        let game = games[min(calls, games.count - 1)]
+        calls += 1
+        return .init(games: [.nhl: [game]], loadedLeagues: Set(SportsLeague.allCases), errorMessage: nil)
+    }
 }
 
 private actor PreparedCatalogGate {
