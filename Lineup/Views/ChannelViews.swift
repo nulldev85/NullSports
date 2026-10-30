@@ -5,7 +5,6 @@ import LineupMPVPlayback
 
 struct LiveView: View {
     @Environment(SportsLibrary.self) private var library
-    @Environment(\.scenePhase) private var scenePhase
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
     @State private var soccerCompetition: String?
@@ -22,8 +21,6 @@ struct LiveView: View {
     @State private var previewGameID: String?
     @State private var previewWasManuallySelected = false
     @State private var playbackTransitionID: UUID?
-    @State private var qualityTask: Task<Void, Never>?
-    @State private var qualityRequest: UUID?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var manualSelectionStartsMultiview = false
@@ -191,11 +188,7 @@ struct LiveView: View {
             .onChange(of: isActive) { _, active in
                 if !active { stopPreview() }
             }
-            .overlay(alignment: .top) {
-                if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
-            }
-            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel() }
-            .onChange(of: scenePhase) { _, phase in if phase == .background { cancelQualityCheck() } }
+            .onDisappear { catchUpLookup?.cancel() }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .background(LineupStyle.background.ignoresSafeArea())
@@ -228,25 +221,13 @@ struct LiveView: View {
     /// carrying the game, then Lineup's own match -- and the picker when none
     /// of those answers. `TeamChannelPreferences.resolve` decides.
     private func open(_ game: SportsGame, startsMultiview: Bool) {
-        cancelQualityCheck()
         switch library.preferredChannel(for: game) {
         case .syncing:
             showsChannelSyncMessage = true
-        case let .play(streamID, source):
+        case let .play(streamID, _):
             if let stream = library.stream(withID: streamID) {
                 TVPreviewHandoff.stopPreviews()
-                let request = UUID()
-                if source == .verified {
-                    qualityRequest = request
-                    qualityTask = Task { @MainActor in
-                        let chosen = await library.bestQualityStream(for: game, fallback: stream)
-                        guard !Task.isCancelled, qualityRequest == request, isActive else { return }
-                        qualityRequest = nil
-                        qualityTask = nil
-                        if let chosen { start(game, on: chosen, startsMultiview: startsMultiview) }
-                        else { chooseChannel(for: game, startsMultiview: startsMultiview) }
-                    }
-                } else { start(game, on: stream, startsMultiview: startsMultiview) }
+                start(game, on: stream, startsMultiview: startsMultiview)
             } else {
                 chooseChannel(for: game, startsMultiview: startsMultiview)
             }
@@ -259,7 +240,6 @@ struct LiveView: View {
 
     private func start(_ game: SportsGame, on stream: XtreamStream, startsMultiview: Bool,
                        manuallySelected: Bool = false) {
-        cancelQualityCheck()
         if startsMultiview {
             stopPreview()
             multiviewPrimary = stream
@@ -385,18 +365,12 @@ struct LiveView: View {
     }
 
     private func stopPreview() {
-        cancelQualityCheck()
         playbackTransitionID = nil
         previewStream = nil
         previewGameID = nil
         previewWasManuallySelected = false
     }
 
-    private func cancelQualityCheck() {
-        qualityTask?.cancel()
-        qualityTask = nil
-        qualityRequest = nil
-    }
 }
 
 /// Catch Up from a game's menu, with more than one channel recording it.

@@ -40,8 +40,6 @@ struct MobileLiveView: View {
     /// The channel just moved to, named over the picture for a moment.
     @State private var channelBanner: MobileChannelBannerInfo?
     @State private var bannerTask: Task<Void, Never>?
-    @State private var qualityTask: Task<Void, Never>?
-    @State private var qualityRequest: UUID?
     /// Both teams have a usable preference and they disagree.
     @State private var feedChoice: FeedChoice?
     /// A channel was just chosen for this game; ask how long it should apply.
@@ -368,14 +366,13 @@ struct MobileLiveView: View {
                 sportsCatchUpSheet(channel)
             }
             .overlay(alignment: .top) {
-                if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck() } }
                 if let connectingProvider {
                     ProgressView("Opening \(connectingProvider)…")
                         .font(.inter(14, .semibold)).padding(16)
                         .background(LineupStyle.background, in: RoundedRectangle(cornerRadius: 16))
                 }
             }
-            .onDisappear { cancelQualityCheck(); catchUpLookup?.cancel(); autoSync.stop() }
+            .onDisappear { catchUpLookup?.cancel(); autoSync.stop() }
             .task(id: rootLibrary.eventChannelsInputs + [AnyHashable(isActive)]) {
                 guard isActive else { return }
                 let combined = await rootLibrary.combinedGuide { guide in
@@ -474,7 +471,7 @@ struct MobileLiveView: View {
             }
             .onChange(of: isActive) { _, active in
                 if !active {
-                    cancelQualityCheck(); catchUpLookup?.cancel()
+                    catchUpLookup?.cancel()
                     providerSelectionTask?.cancel(); connectingProvider = nil
                 }
                 // Leaving the Live tab still closes the preview, unless it is
@@ -501,7 +498,6 @@ struct MobileLiveView: View {
                 if playing, let stream = previewStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .background { cancelQualityCheck() }
                 guard previewStream != nil else { return }
                 // Backgrounding no longer stops the stream; MobileBackgroundPolicy
                 // decides whether this transition touches playback at all.
@@ -673,7 +669,6 @@ struct MobileLiveView: View {
                 }
                 if MobileGameReplayPolicy.isVisible(myTeams: onlyFollowed, league: league) {
                     MobileGameReplaysSection(library: library, store: gameReplays, enabled: isActive) { selection in
-                        cancelQualityCheck()
                         closePreview()
                         selectedGameReplay = selection
                     }
@@ -801,7 +796,6 @@ struct MobileLiveView: View {
         pendingCatchUp = nil
         guard library.activeProfile?.id == selection.profileID,
               let stream = library.stream(withID: selection.recording.stream.id), stream.hasCatchUp else { return }
-        cancelQualityCheck()
         closePreview()
         // Present only after the program sheet dismisses. The recording player
         // retains the selected program for retries and never silently goes live.
@@ -812,26 +806,12 @@ struct MobileLiveView: View {
     /// saved preferences plus what the provider currently carries — see
     /// `TeamChannelPreferences.resolve`.
     private func open(_ game: SportsGame) {
-        cancelQualityCheck()
         switch library.preferredChannel(for: game) {
         case .syncing:
             showsChannelSyncMessage = true
-        case let .play(streamID, source):
+        case let .play(streamID, _):
             if let stream = library.stream(withID: streamID) {
-                if source == .verified {
-                    playback.shutdown()
-                    previewStream = nil
-                    let request = UUID()
-                    qualityRequest = request
-                    qualityTask = Task { @MainActor in
-                        let chosen = await library.bestQualityStream(for: game, fallback: stream)
-                        guard !Task.isCancelled, qualityRequest == request, isActive else { return }
-                        qualityRequest = nil
-                        qualityTask = nil
-                        if let chosen { showPreview(chosen, for: game) }
-                        else { choosingChannel = game }
-                    }
-                } else { showPreview(stream, for: game) }
+                showPreview(stream, for: game)
             }
             else { choosingChannel = game }
         case let .chooseFeed(home, away):
@@ -855,7 +835,6 @@ struct MobileLiveView: View {
     }
 
     private func showPreview(_ stream: XtreamStream, for game: SportsGame?) {
-        cancelQualityCheck()
         setExpanded(false)
         playback.shutdown()
         playback = MobilePlaybackController()
@@ -868,12 +847,6 @@ struct MobileLiveView: View {
         if let game { playback.failover = failoverContext(for: game) }
         playback.start(urls: library.playbackURLs(for: stream), channelID: stream.id)
         playback.loadCatchUpSource(for: stream, from: library)
-    }
-
-    private func cancelQualityCheck() {
-        qualityTask?.cancel()
-        qualityTask = nil
-        qualityRequest = nil
     }
 
     private func failoverContext(for game: SportsGame) -> MobilePlaybackController.FailoverContext {
@@ -984,7 +957,6 @@ struct MobileLiveView: View {
     }
 
     private func launchMultiview(_ tiles: [MobileMultiviewSession.Tile]) {
-        cancelQualityCheck()
         // Its connection goes before multiview opens two of its own.
         closePreview()
         multiview = MobileMultiviewSession(tiles: tiles)

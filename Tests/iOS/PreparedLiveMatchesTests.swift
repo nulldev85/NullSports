@@ -20,7 +20,8 @@ final class PreparedLiveMatchesTests: XCTestCase {
             SportsLibrary(profileDefaults: defaults,
                 credentials: .init(password: { _ in hasCredentials ? "test-only-secret" : nil },
                                    save: { _, _ in }, delete: { _ in }),
-                preparedCacheDirectory: directory, automaticRefreshes: false, providerSession: session)
+                preparedCacheDirectory: directory, automaticRefreshes: false, providerSession: session,
+                scheduleCacheLocation: directory.appendingPathComponent("schedule.json"))
         }
 
         func cleanUp() {
@@ -30,29 +31,34 @@ final class PreparedLiveMatchesTests: XCTestCase {
     }
 
     private func game(start: Date = Date().addingTimeInterval(-600), broadcast: String = "ABC",
-                      state: String = "in", score: String = "10") -> SportsGame {
-        SportsGame(id: "prepared-game", league: .nba, start: start,
-            awayTeam: "Orlando Magic", homeTeam: "Miami Heat", awayAbbreviation: "ORL", homeAbbreviation: "MIA",
+                      state: String = "in", score: String = "10", league: SportsLeague = .nba) -> SportsGame {
+        SportsGame(id: "prepared-game", league: league, start: start,
+            awayTeam: league == .nhl ? "Columbus Blue Jackets" : "Orlando Magic",
+            homeTeam: league == .nhl ? "Carolina Hurricanes" : "Miami Heat",
+            awayAbbreviation: league == .nhl ? "CBJ" : "ORL", homeAbbreviation: league == .nhl ? "CAR" : "MIA",
             awayLogo: "", homeLogo: "", awayScore: score, homeScore: "12", awayColor: nil, homeColor: nil,
             awayRecord: nil, homeRecord: nil, venue: nil, location: nil, status: "Live", state: state,
             broadcast: broadcast, eventName: nil)
     }
 
     private func fixture(preparedAt: Date = Date().addingTimeInterval(-30),
-                         programEnd: Date = Date().addingTimeInterval(3600)) throws -> Fixture {
+                         programEnd: Date = Date().addingTimeInterval(3600), league: SportsLeague = .nba) throws -> Fixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PreparedLiveTests-\(UUID())")
         let suite = "PreparedLiveTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let profile = XtreamProfile(name: "Test lineup", serverURL: "https://prepared.invalid", username: "viewer")
         defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.profiles")
         defaults.set(profile.id.uuidString, forKey: "NullSports.activeProfile")
-        let event = game()
-        let streams = ["US: ABC Miami 4K", "US: ABC Miami FHD"].enumerated().map { offset, name in
+        let event = game(broadcast: league == .nhl ? "ESPN+" : "ABC", league: league)
+        let names = league == .nhl
+            ? ["US: NHL Columbus Blue Jackets vs Carolina Hurricanes 4K", "US: NHL Columbus Blue Jackets vs Carolina Hurricanes FHD"]
+            : ["US: ABC Miami 4K", "US: ABC Miami FHD"]
+        let streams = names.enumerated().map { offset, name in
             XtreamStream(num: nil, name: name, streamType: "live", streamID: offset + 1,
                 streamIcon: nil, epgChannelID: "event", categoryID: "sports")
         }
         let programs = ["event": [CurrentProgram(channelID: "event",
-            title: "NBA Basketball: Orlando Magic at Miami Heat", detail: "",
+            title: league == .nhl ? "NHL Hockey: Columbus Blue Jackets at Carolina Hurricanes" : "NBA Basketball: Orlando Magic at Miami Heat", detail: "",
             start: Date().addingTimeInterval(-1200), end: programEnd)]]
         let alternatives = SportsLibrary.matchingEventChannels(for: event, candidates: streams,
             programs: programs, categories: [.init(categoryID: "sports", categoryName: "Sports")], now: Date())
@@ -76,6 +82,7 @@ final class PreparedLiveMatchesTests: XCTestCase {
         XCTAssertFalse(library.automaticMatchingReady, "No full index or network validation took place")
         XCTAssertTrue(library.eventChannelsReady(for: f.game))
         XCTAssertEqual(library.verifiedStream(for: f.game)?.id, 1)
+        XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 1)
         XCTAssertEqual(library.streams.count, 2, "Only the prepared channels were read")
         let channels = await library.eventChannels(for: f.game)
         XCTAssertEqual(channels.map(\.id), [1, 2])
@@ -101,6 +108,108 @@ final class PreparedLiveMatchesTests: XCTestCase {
         let saved = try XCTUnwrap(PreparedLiveStore.read(profile: f.profile, directory: f.directory))
         XCTAssertEqual(saved.dailyPreparedAt, f.snapshot.dailyPreparedAt)
         XCTAssertEqual(saved.matches[f.game.id]?.preparedAt, f.match.preparedAt)
+    }
+
+    private func replaceMatches(_ matches: [String: PreparedLiveMatch], in f: Fixture) {
+        let saved = PreparedLiveSnapshot(version: PreparedLiveSnapshot.version,
+            connection: f.snapshot.connection, savedAt: Date(), dailyPreparedAt: f.snapshot.dailyPreparedAt,
+            games: f.snapshot.games, loadedLeagues: f.snapshot.loadedLeagues, matches: matches)
+        PreparedLiveStore.write(saved, profileID: f.profile.id, directory: f.directory)
+    }
+
+    func testCachedEventsAppearEvenWhenNoChannelResultWasSaved() async throws {
+        let f = try fixture(league: .nhl)
+        defer { f.cleanUp() }
+        replaceMatches([:], in: f)
+        let library = f.library()
+        let restoredMatch = await library.restorePreparedMatches()
+        XCTAssertFalse(restoredMatch)
+        XCTAssertEqual(library.games(for: .nhl).map(\.id), [f.game.id],
+                       "Schedule restore must be independent of successful channel matching")
+        XCTAssertTrue(library.scheduleAvailable(for: .nhl))
+    }
+
+    func testPreparedAlternativePlaysWithoutAPrimaryOrAnyIndexBuild() async throws {
+        let f = try fixture(league: .nhl)
+        defer { f.cleanUp() }
+        let alternativeOnly = PreparedLiveMatch(preparedAt: f.match.preparedAt, eventStart: f.game.start,
+            identity: f.match.identity, primary: nil, alternatives: f.match.alternatives,
+            programs: f.match.programs, categoryNames: f.match.categoryNames)
+        replaceMatches([f.game.id: alternativeOnly], in: f)
+        let library = f.library()
+        _ = await library.restorePreparedMatches()
+        XCTAssertFalse(library.automaticMatchingReady)
+        XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 1)
+        if case .play(1, .verified) = library.preferredChannel(for: f.game) { }
+        else { XCTFail("A valid prepared alternative must not open the manual picker") }
+        let direct = await library.bestQualityStream(for: f.game, fallback: f.match.alternatives[0].stream)
+        XCTAssertEqual(direct?.id, 1, "Prepared playback bypasses discovery altogether")
+    }
+
+    func testExpiredPrimaryUsesThePreparedAlternativeInsteadOfThePicker() async throws {
+        let f = try fixture()
+        defer { f.cleanUp() }
+        let primary = try XCTUnwrap(f.match.primary)
+        let original = try XCTUnwrap(f.match.programs["event"]?.first)
+        let expired = CurrentProgram(channelID: "event", title: original.title, detail: "",
+            start: original.start, end: Date().addingTimeInterval(-1))
+        let alternate = XtreamStream(num: nil, name: "US: ABC Miami FHD", streamType: "live", streamID: 2,
+            streamIcon: nil, epgChannelID: "alternate", categoryID: "sports")
+        let listing = CurrentProgram(channelID: "alternate", title: original.title, detail: "",
+                                     start: original.start, end: original.end)
+        let entry = LiveEventChannel(stream: alternate, program: listing, evidence: 300, quality: .init(name: alternate.name))
+        let saved = PreparedLiveMatch(preparedAt: f.match.preparedAt, eventStart: f.game.start,
+            identity: f.match.identity, primary: primary, alternatives: [entry],
+            programs: ["event": [expired], "alternate": [listing]], categoryNames: f.match.categoryNames)
+        replaceMatches([f.game.id: saved], in: f)
+        let library = f.library()
+        _ = await library.restorePreparedMatches()
+        XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 2)
+        if case .play(2, .verified) = library.preferredChannel(for: f.game) { }
+        else { XCTFail("The prepared fallback should play without waiting for a refresh") }
+    }
+
+    func testExistingNHLMatchUpgradesLocallyBeforeAnyProviderRefresh() async throws {
+        struct Channels: Encodable { let categories: [XtreamCategory]; let streams: [XtreamStream] }
+        struct Guide: Encodable { let programsByChannel: [String: [CurrentProgram]] }
+        struct Schedule: Encodable { let savedAt: Date; let games: [String: [SportsGame]] }
+        struct State: Encodable {
+            let guideUpdatedAt: Date
+            let libraryUpdatedAt: Date
+            let matchCacheVersion = 2
+            let dailyMatches: DailyGameMatches<XtreamStream>
+        }
+        let f = try fixture(league: .nhl)
+        defer { f.cleanUp() }
+        PreparedLiveStore.remove(profileID: f.profile.id, directory: f.directory)
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let prefix = "lineup-" + f.profile.id.uuidString
+        let channels = cache.appendingPathComponent(prefix + "-channels.json")
+        let guide = cache.appendingPathComponent(prefix + "-guide.json")
+        let state = cache.appendingPathComponent(prefix + "-state.json")
+        defer { for file in [channels, guide, state] { try? FileManager.default.removeItem(at: file) } }
+        try JSONEncoder().encode(Channels(categories: [.init(categoryID: "sports", categoryName: "Sports")],
+                                         streams: f.match.streams)).write(to: channels, options: .atomic)
+        try JSONEncoder().encode(Guide(programsByChannel: f.match.programs)).write(to: guide, options: .atomic)
+        try JSONEncoder().encode(Schedule(savedAt: Date(), games: f.snapshot.games))
+            .write(to: f.directory.appendingPathComponent("schedule.json"), options: .atomic)
+        let oldIdentity = ["quality-v1", "nhl", "Columbus Blue Jackets", "Carolina Hurricanes", "CBJ", "CAR",
+                           "ESPN+", "", "", "", String(f.game.start.timeIntervalSince1970)]
+        let oldMatch = DailyGameMatches(savedAt: f.match.preparedAt,
+            identities: [f.game.id: oldIdentity],
+            channels: [f.game.id: try XCTUnwrap(f.match.primary)])
+        try JSONEncoder().encode(State(guideUpdatedAt: Date(), libraryUpdatedAt: Date(), dailyMatches: oldMatch))
+            .write(to: state, options: .atomic)
+        let library = f.library()
+        await library.bootstrap()
+        XCTAssertFalse(library.automaticMatchingReady)
+        XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 1)
+        XCTAssertEqual(PreparedLiveStore.read(profile: f.profile, directory: f.directory)?.matches[f.game.id]?.primary?.id, 1)
+        let reopened = f.library()
+        let restored = await reopened.restorePreparedMatches()
+        XCTAssertTrue(restored)
+        XCTAssertEqual(reopened.preparedPlaybackStream(for: f.game)?.id, 1)
     }
 
     func testFailedChannelAndGuideRefreshKeepPreparedPlaybackAndTheLastDiskSnapshot() async throws {
@@ -149,6 +258,9 @@ final class PreparedLiveMatchesTests: XCTestCase {
         await fulfillment(of: [requested], timeout: 5)
         XCTAssertTrue(library.isGuideLoading)
         XCTAssertEqual(library.verifiedStream(for: f.game)?.id, 1, "Guide I/O must not gate the saved game")
+        XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 1)
+        if case .play(1, .verified) = library.preferredChannel(for: f.game) { }
+        else { XCTFail("A stalled EPG must not turn a cached game tap into a wait or picker") }
         let whileLoading = await library.eventChannels(for: f.game)
         XCTAssertEqual(whileLoading.map(\.id), [1, 2])
         scenario.release()
@@ -328,6 +440,89 @@ final class PreparedLiveMatchesTests: XCTestCase {
     }
 
     #if os(iOS)
+    func testReadyPrimaryDoesNotWaitForAnEarlierCatalogRequest() async throws {
+        let f = try fixture(league: .nhl)
+        defer { f.cleanUp() }
+        PreparedLiveStore.remove(profileID: f.profile.id, directory: f.directory)
+        let started = expectation(description: "Older catalog request started")
+        let ready = expectation(description: "Prepared primary published before that request finishes")
+        let gate = PreparedCatalogGate()
+        defer { Task { await gate.release() } }
+        let snapshot = MobileProviderSnapshot(categories: [.init(categoryID: "sports", categoryName: "Sports")],
+            streams: f.match.streams, programs: f.match.programs, fetchedAt: Date())
+        let catalog = MobileProviderCatalog { _, _ in
+            started.fulfill()
+            await gate.wait()
+            return snapshot
+        }
+        let root = f.library()
+        let old = Task { await root.providerContext(id: f.profile.id, catalog: catalog) }
+        await fulfillment(of: [started], timeout: 5)
+        PreparedLiveStore.write(f.snapshot, profileID: f.profile.id, directory: f.directory)
+        _ = await root.restorePreparedMatches()
+        let cached = Task {
+            let context = await root.providerContext(id: f.profile.id, catalog: catalog)
+            XCTAssertEqual(context?.preparedPlaybackStream(for: f.game)?.id, 1)
+            ready.fulfill()
+        }
+        await fulfillment(of: [ready], timeout: 5)
+        await gate.release()
+        await cached.value
+        _ = await old.value
+    }
+
+    func testColdCombinedSportsPublishesCachedEventsWithoutWaitingForRootBootstrap() async throws {
+        let f = try fixture(league: .nhl)
+        defer { f.cleanUp() }
+        let root = f.library()
+        XCTAssertTrue(root.gamesByLeague.isEmpty)
+        let catalog = MobileProviderCatalog { _, _ in
+            XCTFail("A cached launch must not request a provider catalog before showing its games")
+            throw URLError(.cannotConnectToHost)
+        }
+        let combined = await root.combinedGuide(catalog: catalog)
+        XCTAssertEqual(combined.games(for: .nhl).map(\.id), [f.game.id])
+        let selected = try XCTUnwrap(combined.preparedPlaybackStream(for: f.game))
+        XCTAssertEqual(combined.playbackSource(for: selected).stream.id, 1)
+        if case .play(_, .verified) = combined.preferredChannel(for: f.game) { }
+        else { XCTFail("The first cached tap must play without full-guide or root-bootstrap completion") }
+    }
+
+    func testCombinedPlaybackUsesAnotherPreparedProviderWhenTheFirstCannotVerifyTheGame() async throws {
+        let f = try fixture(league: .nhl)
+        defer { f.cleanUp() }
+        let second = XtreamProfile(name: "Working lineup", serverURL: "https://working.invalid", username: "other")
+        f.defaults.set(try JSONEncoder().encode([f.profile, second]), forKey: "NullSports.profiles")
+        // The first provider has only an unplayable prepared result. It must
+        // not mask a ready source from another enabled account.
+        let stalePrimary = XtreamStream(num: nil, name: "US: ESPN FHD", streamType: "live", streamID: 1,
+            streamIcon: nil, epgChannelID: "wrong", categoryID: "sports")
+        let wrong = CurrentProgram(channelID: "wrong", title: "NHL Hockey: Boston Bruins at New York Rangers", detail: "",
+            start: Date().addingTimeInterval(-1200), end: Date().addingTimeInterval(3600))
+        let noFeed = PreparedLiveMatch(preparedAt: f.match.preparedAt, eventStart: f.game.start,
+            identity: f.match.identity, primary: stalePrimary, alternatives: [],
+            programs: ["wrong": [wrong]], categoryNames: f.match.categoryNames)
+        replaceMatches([f.game.id: noFeed], in: f)
+        let other = PreparedLiveSnapshot(version: PreparedLiveSnapshot.version,
+            connection: PreparedLiveSnapshot.connection(for: second), savedAt: Date(),
+            dailyPreparedAt: f.snapshot.dailyPreparedAt, games: f.snapshot.games,
+            loadedLeagues: f.snapshot.loadedLeagues, matches: f.snapshot.matches)
+        PreparedLiveStore.write(other, profileID: second.id, directory: f.directory)
+        let root = f.library()
+        _ = await root.restorePreparedMatches()
+        let catalog = MobileProviderCatalog { _, _ in
+            XCTFail("Both accounts have prepared local results")
+            throw URLError(.cannotConnectToHost)
+        }
+        let combined = await root.combinedGuide(catalog: catalog)
+        let selected = try XCTUnwrap(combined.preparedPlaybackStream(for: f.game))
+        let source = combined.playbackSource(for: selected)
+        XCTAssertEqual(source.library.activeProfile?.id, second.id)
+        XCTAssertEqual(source.stream.id, 1)
+        if case .play(_, .verified) = combined.preferredChannel(for: f.game) { }
+        else { XCTFail("A prepared source in another account must not open the picker") }
+    }
+
     func testCombinedLineupRestoresBothProvidersWithOverlappingIDsWithoutCatalogRequests() async throws {
         let f = try fixture()
         defer { f.cleanUp() }
@@ -365,6 +560,21 @@ final class PreparedLiveMatchesTests: XCTestCase {
         }
     }
     #endif
+}
+
+private actor PreparedCatalogGate {
+    private var released = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        guard !released else { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func release() {
+        released = true
+        let continuations = waiting
+        waiting = []
+        for continuation in continuations { continuation.resume() }
+    }
 }
 
 private final class PreparedOfflineProtocol: URLProtocol {

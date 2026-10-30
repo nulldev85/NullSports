@@ -203,6 +203,10 @@ final class SportsLibrary {
     private let preparedCacheDirectory: URL?
     private let automaticRefreshes: Bool
     private let providerSession: URLSession
+    private let scheduleCacheLocation: URL?
+    @ObservationIgnored private var scheduleSnapshotAt: Date?
+    @ObservationIgnored private var cachedRestoreInFlight = false
+    @ObservationIgnored private var cachedRestoreWaiters: [CheckedContinuation<Void, Never>] = []
     private var indexGeneration = UUID()
     @ObservationIgnored private var matchGeneration = UUID()
     #if os(iOS)
@@ -264,13 +268,14 @@ final class SportsLibrary {
     init(profileDefaults: UserDefaults = .standard, credentials: ProviderCredentialStore = .keychain,
          providerID: UUID? = nil, persistsActiveSelection: Bool = true,
          preparedCacheDirectory: URL? = nil, automaticRefreshes: Bool = true,
-         providerSession: URLSession = .shared) {
+         providerSession: URLSession = .shared, scheduleCacheLocation: URL? = nil) {
         self.profileDefaults = profileDefaults
         self.credentials = credentials
         self.persistsActiveSelection = persistsActiveSelection
         self.preparedCacheDirectory = preparedCacheDirectory
         self.automaticRefreshes = automaticRefreshes
         self.providerSession = providerSession
+        self.scheduleCacheLocation = scheduleCacheLocation
         disabledProviderIDs = Set((profileDefaults.stringArray(forKey: "Lineup.disabledIPTVProviders.v1") ?? []).compactMap(UUID.init(uuidString:)))
         if let data = profileDefaults.data(forKey: profilesKey),
            let decoded = try? JSONDecoder().decode([XtreamProfile].self, from: data) {
@@ -371,7 +376,13 @@ final class SportsLibrary {
     // Startup refreshes gate automatic matching; the Guide remains browsable.
     // Later score polling does not block already validated selections.
     var channelsAreSyncing: Bool {
-        bootstrapInFlight || libraryRefreshInFlight || isGuideLoading || channelMatchingWorkCount > 0
+        #if os(iOS)
+        if let combinedRoot {
+            return isLoading || combinedRoot.channelsAreSyncing
+                || combinedProviderContexts.values.contains { $0.channelsAreSyncing }
+        }
+        #endif
+        return bootstrapInFlight || libraryRefreshInFlight || isGuideLoading || channelMatchingWorkCount > 0
             || (scheduleRefreshInFlight && scheduleValidatedLeagues.isEmpty)
     }
 
@@ -607,7 +618,13 @@ final class SportsLibrary {
         guard let profile = activeProfile, !bootstrapInFlight else { return }
         let requestGeneration = providerGeneration
         bootstrapInFlight = true
-        defer { if providerGeneration == requestGeneration { bootstrapInFlight = false } }
+        if !didRestoreProviderCache { cachedRestoreInFlight = true }
+        defer {
+            if providerGeneration == requestGeneration {
+                finishCachedRestore()
+                bootstrapInFlight = false
+            }
+        }
         let trace = StartupTrace.shared
         // Prepared playback is independent of the full catalog and guide.
         if !didRestoreProviderCache {
@@ -617,17 +634,19 @@ final class SportsLibrary {
         guard providerGeneration == requestGeneration, activeProfile?.id == profile.id else { return }
         if !didRestoreSchedule {
             let key = scheduleKey
+            let location = scheduleCacheLocation ?? Self.scheduleURL()
+            let legacy = profileDefaults.data(forKey: key)
             let cached = await Task.detached(priority: .utility) { () -> ScheduleCache? in
                 // Earlier versions kept it in preferences; it is read from
                 // there once and taken out.
-                let saved = (try? Data(contentsOf: Self.scheduleURL())) ?? UserDefaults.standard.data(forKey: key)
-                UserDefaults.standard.removeObject(forKey: key)
+                let saved = (try? Data(contentsOf: location)) ?? legacy
                 guard let data = saved else { return nil }
                 // Undated legacy snapshots need a fresh fetch, not a guessed date.
                 return try? JSONDecoder().decode(ScheduleCache.self, from: data)
             }.value
             guard providerGeneration == requestGeneration, activeProfile?.id == profile.id else { return }
             didRestoreSchedule = true
+            profileDefaults.removeObject(forKey: key)
             let now = Date()
             if let cached, DailyCachePolicy.canCarryMatches(savedAt: cached.savedAt, now: now), gamesByLeague.isEmpty {
                 let today = Calendar.current.startOfDay(for: now)
@@ -638,6 +657,7 @@ final class SportsLibrary {
                 })
                 scheduleLoadedLeagues = Set(cached.games.keys.compactMap(SportsLeague.init(rawValue:)))
                 scheduleDay = today
+                scheduleSnapshotAt = cached.savedAt
             }
         }
         if !didRestoreProviderCache {
@@ -733,9 +753,14 @@ final class SportsLibrary {
             savedGuideDigest = guideSignature
             let now = Date()
             if preparedMatches.isEmpty, state?.matchCacheVersion == 2, let saved = state?.dailyMatches {
-                gameStreamCache = saved.restore(identities: matchIdentities(now: now), available: streams, now: now)
+                let identities = matchIdentities(now: now)
+                let legacyIdentities = Dictionary(gamesByLeague.values.joined().filter { identities[$0.id] != nil }
+                    .map { ($0.id, PreparedLiveMatch.legacyIdentity(for: $0)) }, uniquingKeysWith: { first, _ in first })
+                gameStreamCache = saved.restore(identities: identities, available: streams, now: now)
+                    .merging(saved.restore(identities: legacyIdentities, available: streams, now: now),
+                             uniquingKeysWith: { current, _ in current })
                 restoredMatchGameIDs = Set(gameStreamCache.keys)
-                matchedGameIdentities = saved.identities.filter { gameStreamCache[$0.key] != nil }
+                matchedGameIdentities = identities.filter { gameStreamCache[$0.key] != nil }
                 lastSavedMatchIdentities = saved.identities
                 lastSavedMatchDay = saved.savedAt
                 // Restored matches are kept as a pass keeps its own: in the
@@ -744,6 +769,8 @@ final class SportsLibrary {
                 for game in gamesByLeague.values.flatMap({ $0 }) where gameStreamCache[game.id] != nil {
                     gameMatchSignatures[game.id] = Self.matchSignature(game)
                 }
+                await prepareRestoredPrimaryMatches(savedAt: saved.savedAt)
+                guard providerGeneration == requestGeneration else { return }
             }
             // The index is a function of the channel list and the guide, and
             // neither of those is a function of what day it is. It used to be
@@ -780,6 +807,7 @@ final class SportsLibrary {
             }
         }
         guard providerGeneration == requestGeneration, activeProfile?.id == profile.id else { return }
+        finishCachedRestore()
         if automaticRefreshes { refreshSchedule(showsLoading: false) }
         // With nothing restored there is nothing to show, so the first sync is
         // awaited and reported. With cache on screen the same refresh runs
@@ -793,6 +821,18 @@ final class SportsLibrary {
         await refreshLibrary(forceGuide: true, refreshChannels: true)
     }
 
+    private func finishCachedRestore() {
+        cachedRestoreInFlight = false
+        let waiting = cachedRestoreWaiters
+        cachedRestoreWaiters = []
+        for continuation in waiting { continuation.resume() }
+    }
+
+    private func waitForCachedRestore() async {
+        guard cachedRestoreInFlight else { return }
+        await withCheckedContinuation { cachedRestoreWaiters.append($0) }
+    }
+
     /// Secondary providers use this same local restore before any catalog I/O.
     @discardableResult
     func restorePreparedMatches(now: Date = Date()) async -> Bool {
@@ -804,7 +844,7 @@ final class SportsLibrary {
             let saved = PreparedLiveStore.read(profile: profile, directory: directory)
             return (saved, PreparedPlaylistSources.open(saved?.playlistSources, secret: secret))
         }.value
-        guard providerGeneration == requestGeneration, activeProfile == profile, credentials.password(profile.id) == secret,
+        guard !Task.isCancelled, providerGeneration == requestGeneration, activeProfile == profile, credentials.password(profile.id) == secret,
               let saved = restored.0, !profile.isPlaylist || !restored.1.isEmpty else { return false }
         preparedPlaylistURLs = restored.1
         let today = Calendar.current.startOfDay(for: now)
@@ -816,17 +856,27 @@ final class SportsLibrary {
         let matches = saved.matches.filter { id, match in
             identities[id].map { match.isCurrent(identity: $0, now: now) } ?? false
         }
-        guard !matches.isEmpty else { return false }
-        preparedMatches = matches
-        dailyPreparedAt = saved.dailyPreparedAt
-        if gamesByLeague.isEmpty {
+        // A schedule is useful even when every result is currently unmatched.
+        // Publish it before any provider or guide work starts.
+        var restoredSchedule = false
+        if gamesByLeague.isEmpty, PreparedMatchPolicy.canUse(preparedAt: saved.savedAt, now: now) {
             gamesByLeague = Dictionary(uniqueKeysWithValues: games.compactMap { key, value in
                 SportsLeague(rawValue: key).map { ($0, value) }
             })
             scheduleLoadedLeagues = Set(saved.loadedLeagues.compactMap(SportsLeague.init(rawValue:)))
             scheduleDay = today
             didRestoreSchedule = true
+            scheduleSnapshotAt = saved.savedAt
+            restoredSchedule = true
         }
+        guard !matches.isEmpty else {
+            #if os(iOS)
+            if restoredSchedule { providerOwner?.providerContextsRevision &+= 1 }
+            #endif
+            return false
+        }
+        preparedMatches = matches
+        dailyPreparedAt = saved.dailyPreparedAt
         var compactStreams: [Int: XtreamStream] = [:]
         var compactPrograms: [String: [CurrentProgram]] = [:]
         var compactCategories: [String: String] = [:]
@@ -841,11 +891,52 @@ final class SportsLibrary {
             programsByChannel = compactPrograms
         }
         for (id, match) in matches {
-            gameStreamCache[id] = match.primary
+            if let game = gamesByLeague.values.joined().first(where: { $0.id == id }) {
+                gameStreamCache[id] = match.playbackCandidates(for: game, now: now).first
+            }
             matchedGameIdentities[id] = match.identity
         }
+        #if os(iOS)
+        providerOwner?.providerContextsRevision &+= 1
+        #endif
         StartupTrace.shared.note("prepared games playable", "\(matches.count) events; full guide not needed")
         return true
+    }
+
+    /// Upgrade an existing install without making it wait for another EPG
+    /// download or a full matching pass. Only previously selected channels are
+    /// checked here; the daily background pass prepares the complete alternatives.
+    private func prepareRestoredPrimaryMatches(savedAt: Date) async {
+        guard !gameStreamCache.isEmpty else { return }
+        let generation = providerGeneration
+        let games = gamesByLeague.values.flatMap { $0 }
+        let selected = gameStreamCache, programs = programsByChannel, groups = categories
+        let now = Date()
+        let prepared = await Task.detached(priority: .utility) {
+            var result: [String: PreparedLiveMatch] = [:]
+            let names = Dictionary(groups.map { ($0.id, $0.matchingName) }, uniquingKeysWith: { first, _ in first })
+            let board = Self.tournamentBoard(games)
+            for game in games {
+                guard let stream = selected[game.id], game.isLive || game.isUpcoming else { continue }
+                let verified = Self.matchingEventChannels(for: game, candidates: [stream],
+                    programs: programs, categories: groups, board: board, now: now)
+                guard !verified.isEmpty else { continue }
+                let evidence = stream.epgChannelID.map { [$0: programs[$0] ?? []] } ?? [:]
+                let category = stream.categoryID.map { [$0: names[$0] ?? ""] } ?? [:]
+                result[game.id] = PreparedLiveMatch(preparedAt: savedAt, eventStart: game.start,
+                    identity: Self.matchIdentity(game), primary: stream, alternatives: verified,
+                    programs: evidence, categoryNames: category)
+            }
+            return result
+        }.value
+        guard generation == providerGeneration else { return }
+        let identities = matchIdentities(now: Date())
+        for (id, entry) in prepared where identities[id] == entry.identity { preparedMatches[id] = entry }
+        if !preparedMatches.isEmpty {
+            persistPreparedMatches()
+            await preparedWriteTask?.value
+            StartupTrace.shared.note("existing matches prepared", "\(preparedMatches.count) games; no provider request")
+        }
     }
 
     private func persistPreparedMatches() {
@@ -1575,6 +1666,7 @@ final class SportsLibrary {
                     self.persistSchedule(loadedLeagues: self.scheduleLoadedLeagues.union(snapshot.loadedLeagues))
                 }
                 self.scheduleLoadedLeagues.formUnion(snapshot.loadedLeagues)
+                self.scheduleSnapshotAt = Date()
                 // A score or a clock moving can't change which channel carries a
                 // game. A refresh that moved only those rematches every few
                 // minutes, which still rechecks kept matches against the guide,
@@ -1608,10 +1700,12 @@ final class SportsLibrary {
 
     private func persistSchedule(loadedLeagues: Set<SportsLeague>) {
         let value = ScheduleCache(savedAt: Date(), games: Dictionary(uniqueKeysWithValues: loadedLeagues.map { ($0.rawValue, gamesByLeague[$0] ?? []) }))
+        scheduleSnapshotAt = value.savedAt
+        let location = scheduleCacheLocation ?? Self.scheduleURL()
         let previousWrite = scheduleWriteTask
         scheduleWriteTask = Task.detached(priority: .utility) {
             await previousWrite?.value
-            Self.write(value, to: Self.scheduleURL())
+            Self.write(value, to: location)
         }
         persistPreparedMatches()
     }
@@ -1637,7 +1731,9 @@ final class SportsLibrary {
 
     func stream(for game: SportsGame) -> XtreamStream? {
         guard eventChannelsReady(for: game) else { return nil }
-        if let prepared = preparedMatch(for: game) { return prepared.primary.flatMap { stream(withID: $0.id) } }
+        if let prepared = preparedMatch(for: game) {
+            return prepared.playbackCandidates(for: game, now: Date()).compactMap { self.stream(withID: $0.id) }.first
+        }
         return gameStreamCache[game.id]
     }
 
@@ -1741,6 +1837,7 @@ final class SportsLibrary {
     /// Only automatic event playback calls this. Manual and team preferences
     /// remain explicit choices; unrelated channels never enter the probe list.
     func bestQualityStream(for game: SportsGame, fallback: XtreamStream) async -> XtreamStream? {
+        if let prepared = preparedPlaybackStream(for: game) { return prepared }
         #if os(iOS)
         guard providerConnectionAvailable else { return nil }
         if let source = combinedSources[fallback.id] {
@@ -1898,15 +1995,55 @@ final class SportsLibrary {
 
     // Only playback actions revalidate. Row rendering must remain a cheap lookup.
     func verifiedStream(for game: SportsGame) -> XtreamStream? {
-        guard eventChannelsReady(for: game), let stream = stream(for: game),
-              matchedGameIdentities[game.id] == Self.matchIdentity(game) else { return nil }
+        guard eventChannelsReady(for: game) else { return nil }
         #if os(iOS)
-        if let source = combinedSources[stream.id] {
-            return source.library.isStream(source.stream, verifiedFor: game) ? stream : nil
+        if combinedRoot != nil {
+            for profile in enabledProfiles {
+                guard let context = combinedProviderContexts[profile.id],
+                      let native = context.verifiedStream(for: game),
+                      let id = combinedDisplayIDs[.init(providerID: profile.id, streamID: native.id)],
+                      let displayed = stream(withID: id) else { continue }
+                return displayed
+            }
+            return nil
         }
         #endif
-        guard Self.carriesGame(stream, game: game, listings: evidencePrograms(for: stream, game: game), now: Date()) else { return nil }
-        return stream
+        let candidates: [XtreamStream]
+        if let prepared = preparedMatch(for: game) {
+            candidates = prepared.playbackCandidates(for: game, now: Date())
+        } else {
+            guard matchedGameIdentities[game.id] == Self.matchIdentity(game) else { return nil }
+            candidates = gameStreamCache[game.id].map { [$0] } ?? []
+        }
+        for saved in candidates {
+            guard let current = stream(withID: saved.id),
+                  DailyCachePolicy.isSameChannelSlot(cachedID: saved.id, freshID: current.id,
+                    cachedName: saved.name, freshName: current.name,
+                    cachedEPG: saved.epgChannelID, freshEPG: current.epgChannelID),
+                  Self.carriesGame(current, game: game,
+                    listings: evidencePrograms(for: current, game: game), now: Date()) else { continue }
+            return current
+        }
+        return nil
+    }
+
+    /// This reads only already prepared results. Live taps use it directly;
+    /// channel discovery and quality selection belong to background preparation.
+    func preparedPlaybackStream(for game: SportsGame) -> XtreamStream? {
+        #if os(iOS)
+        if combinedRoot != nil {
+            for profile in enabledProfiles {
+                guard let context = combinedProviderContexts[profile.id],
+                      let native = context.preparedPlaybackStream(for: game),
+                      let id = combinedDisplayIDs[.init(providerID: profile.id, streamID: native.id)],
+                      let displayed = stream(withID: id) else { continue }
+                return displayed
+            }
+            return nil
+        }
+        #endif
+        guard preparedMatch(for: game) != nil else { return nil }
+        return verifiedStream(for: game)
     }
 
     /// Use a saved, working game channel first, then the verified daily match.
@@ -2764,7 +2901,14 @@ final class SportsLibrary {
                 let alternatives = Self.matchingEventChannels(for: game, candidates: candidates,
                     programs: listings, categories: currentCategories, board: board, now: now)
                 try Task.checkCancellation()
-                let selected = matches[game.id]
+                let selected = matches[game.id] ?? alternatives.first(where: { !$0.sharedCoverage })?.stream
+                if let selected {
+                    matches[game.id] = selected
+                    signatures[game.id] = Self.matchSignature(game)
+                    if let entry = alternatives.first(where: { $0.id == selected.id }) {
+                        evidenceByGame[game.id] = entry.evidence
+                    }
+                }
                 var evidence: [String: [CurrentProgram]] = [:]
                 var groups: [String: String] = [:]
                 for stream in (selected.map { [$0] } ?? []) + alternatives.map(\.stream) {
@@ -3744,6 +3888,11 @@ final class SportsLibrary {
     /// switches the preferred account or retires another provider's playback.
     func providerContext(id: UUID, catalog: MobileProviderCatalog = .shared) async -> SportsLibrary? {
         if let combinedRoot { return await combinedRoot.providerContext(id: id, catalog: catalog) }
+        if activeProfile?.id == id && !preparedMatches.isEmpty {
+            providerContextLoads[id]?.cancel()
+            providerContextLoads[id] = nil
+            return await buildProviderContext(id: id, catalog: catalog)
+        }
         if let pending = providerContextLoads[id] { return await pending.value }
         let pending = Task { await self.buildProviderContext(id: id, catalog: catalog) }
         providerContextLoads[id] = pending
@@ -3753,7 +3902,6 @@ final class SportsLibrary {
 
     private func buildProviderContext(id: UUID, catalog: MobileProviderCatalog) async -> SportsLibrary? {
         guard isProviderEnabled(id), let profile = profiles.first(where: { $0.id == id }) else { return nil }
-        if activeProfile?.id == id && channelsAreSyncing && streams.isEmpty && !automaticMatchingReady { return nil }
         guard let secret = credentials.password(id) else {
             providerProblems[id] = "Sign in again in Settings → IPTV"
             return nil
@@ -3765,14 +3913,26 @@ final class SportsLibrary {
         } else {
             context = SportsLibrary(profileDefaults: profileDefaults, credentials: credentials,
                 providerID: id, persistsActiveSelection: false, preparedCacheDirectory: preparedCacheDirectory,
-                automaticRefreshes: automaticRefreshes, providerSession: providerSession)
+                automaticRefreshes: automaticRefreshes, providerSession: providerSession,
+                scheduleCacheLocation: scheduleCacheLocation)
             providerContexts[id] = context
         }
+        context.providerOwner = self
         // The primary uses the root's prepared proof. Other accounts restore
         // their own proof before asking their catalog for anything.
+        if context.preparedMatches.isEmpty, preparedMatches.isEmpty || activeProfile?.id != id {
+            _ = await context.restorePreparedMatches()
+        }
+        // Wait only for local cache installation, never for network refreshes.
+        // Starting a second catalog request here used to keep the primary
+        // provider hidden after its cached match was already playable.
+        if activeProfile?.id == id, preparedMatches.isEmpty, cachedRestoreInFlight {
+            await waitForCachedRestore()
+            guard !Task.isCancelled, isProviderEnabled(id),
+                  profiles.contains(where: { Self.sameProviderConnection($0, profile) }) else { return nil }
+        }
         let usesPrimary = activeProfile?.id == id
             && (automaticMatchingReady || !preparedMatches.isEmpty || (channelsAreSyncing && !streams.isEmpty))
-        if !usesPrimary, context.preparedMatches.isEmpty { _ = await context.restorePreparedMatches() }
         let usesPrepared = !usesPrimary && !context.preparedMatches.isEmpty
         let snapshot: MobileProviderSnapshot
         if usesPrimary {
@@ -3798,12 +3958,14 @@ final class SportsLibrary {
         context.activeProfile = current
         context.disabledProviderIDs = disabledProviderIDs
         context.followedTeams = followedTeams
-        if !gamesByLeague.isEmpty {
+        if !gamesByLeague.isEmpty, context.gamesByLeague.isEmpty
+            || (scheduleSnapshotAt ?? .distantPast) >= (context.scheduleSnapshotAt ?? .distantPast) {
             if context.gamesByLeague != gamesByLeague { context.gamesByLeague = gamesByLeague }
             context.scheduleLoadedLeagues = scheduleLoadedLeagues
+            context.scheduleSnapshotAt = scheduleSnapshotAt
+            context.scheduleDay = scheduleDay
+            context.scheduleValidatedLeagues = scheduleValidatedLeagues
         }
-        context.scheduleValidatedLeagues = scheduleValidatedLeagues
-        context.scheduleDay = scheduleDay
         context.didRestoreSchedule = true
         context.channelsValidatedThisSession = usesPrimary ? channelsValidatedThisSession : (!usesPrepared || context.channelsValidatedThisSession)
         context.guideValidatedThisSession = usesPrimary ? guideValidatedThisSession : (!usesPrepared || context.guideValidatedThisSession)
@@ -3986,9 +4148,14 @@ final class SportsLibrary {
         facade.disabledProviderIDs = disabledProviderIDs
         facade.libraryUpdatedAt = ordered.compactMap(\.libraryUpdatedAt).min()
         facade.guideUpdatedAt = ordered.compactMap(\.guideUpdatedAt).min()
-        if facade.gamesByLeague != gamesByLeague { facade.gamesByLeague = gamesByLeague }
-        facade.scheduleLoadedLeagues = scheduleLoadedLeagues
-        facade.scheduleValidatedLeagues = scheduleValidatedLeagues
+        // A provider may restore its compact snapshot before the root finishes
+        // its own disk work. Publish that schedule instead of an empty facade.
+        let scheduleSource = ([self] + ordered).filter { !$0.gamesByLeague.isEmpty }
+            .max { ($0.scheduleSnapshotAt ?? .distantPast) < ($1.scheduleSnapshotAt ?? .distantPast) } ?? self
+        if facade.gamesByLeague != scheduleSource.gamesByLeague { facade.gamesByLeague = scheduleSource.gamesByLeague }
+        facade.scheduleLoadedLeagues = scheduleSource.scheduleLoadedLeagues
+        facade.scheduleValidatedLeagues = scheduleSource.scheduleValidatedLeagues
+        facade.scheduleSnapshotAt = scheduleSource.scheduleSnapshotAt
         facade.isScheduleLoading = isScheduleLoading
         facade.scheduleErrorMessage = scheduleErrorMessage
         facade.followedTeams = followedTeams
@@ -4066,11 +4233,9 @@ final class SportsLibrary {
                 let id = registry.id(provider: profile.id, stream: pref.streamID)
                 if combinedSources[id] != nil { selections[key] = pref.replacingStreamID(id) }
             }
-            for (id, native) in context.gameStreamCache where matches[id] == nil {
-                guard let game = gamesByLeague.values.joined().first(where: { $0.id == id }),
-                      context.eventChannelsReady(for: game),
-                      context.matchedGameIdentities[id] == Self.matchIdentity(game) else { continue }
-                matches[id] = stream(withID: registry.id(provider: profile.id, stream: native.id))
+            for game in gamesByLeague.values.joined() where matches[game.id] == nil {
+                guard context.eventChannelsReady(for: game), let native = context.stream(for: game) else { continue }
+                matches[game.id] = stream(withID: registry.id(provider: profile.id, stream: native.id))
             }
         }
         gameStreamCache = matches
@@ -4155,6 +4320,7 @@ final class SportsLibrary {
 
     private func resetProviderState() {
         providerGeneration = UUID()
+        finishCachedRestore()
         bootstrapInFlight = false
         libraryRefreshInFlight = false
         scheduleRefreshInFlight = false
@@ -4210,6 +4376,7 @@ final class SportsLibrary {
         scheduleLoadedLeagues = []
         scheduleDay = nil
         didRestoreSchedule = false
+        scheduleSnapshotAt = nil
         scheduleErrorMessage = nil
         isScheduleLoading = false
         isGuideLoading = false

@@ -25,15 +25,37 @@ struct PreparedLiveMatch: Codable, Sendable {
          game.league == .ncaaf && CollegeChannelMatcher.isDelayed(status: game.status) ? "delayed" : ""]
     }
 
+    /// The identity used by the existing on-disk match cache before prepared
+    /// snapshots. Read it only during migration; write the current identity.
+    static func legacyIdentity(for game: SportsGame) -> [String] {
+        ["quality-v1", game.league.rawValue, game.awayTeam, game.homeTeam,
+         game.awayAbbreviation, game.homeAbbreviation, game.broadcast,
+         game.eventName ?? "", game.competition?.id ?? "", game.race?.kind ?? "",
+         String(game.start.timeIntervalSince1970)]
+    }
+
+    /// Ordered results of background matching, with no catalog discovery.
+    /// An expired primary must not hide another prepared feed of this event.
+    func playbackCandidates(for game: SportsGame, now: Date) -> [XtreamStream] {
+        guard isCurrent(identity: Self.identity(for: game), now: now) else { return [] }
+        var seen: Set<Int> = []
+        let candidates = (primary.map { [$0] } ?? []) + alternatives.filter { !$0.sharedCoverage }.map(\.stream)
+        let originalPoint = max(eventStart, preparedAt)
+        let point = game.isLive ? now : game.start
+        return candidates.filter { stream in
+            guard seen.insert(stream.id).inserted else { return false }
+            let entries = programs[stream.epgChannelID ?? ""] ?? []
+            if let proof = entries.first(where: { $0.start <= originalPoint && originalPoint < $0.end }) {
+                return point < proof.end
+            }
+            return true
+        }
+    }
+
     func covers(_ game: SportsGame, now: Date) -> Bool {
         guard isCurrent(identity: Self.identity(for: game), now: now) else { return false }
-        guard let primary else { return true }
-        let entries = programs[primary.epgChannelID ?? ""] ?? []
-        let point = max(game.start, preparedAt)
-        // When the listing that authorized a primary ends, a background pass
-        // must look again. A named, guide-free event feed has no such boundary.
-        guard let proof = entries.first(where: { $0.start <= point && point < $0.end }) else { return true }
-        return (game.isLive ? now : game.start) < proof.end
+        if primary == nil && alternatives.allSatisfy(\.sharedCoverage) { return true }
+        return !playbackCandidates(for: game, now: now).isEmpty
     }
 
     var streams: [XtreamStream] {
