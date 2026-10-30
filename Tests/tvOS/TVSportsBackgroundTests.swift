@@ -32,7 +32,12 @@ final class TVSportsBackgroundTests: XCTestCase {
         let red = game("red", away: "FF0000", home: "FF8800")
         let blue = game("blue", away: "0000FF", home: "00AACC")
         let host = UIHostingController(rootView: LiveCanvas(spotlight: spotlight, events: [red, blue])
-            .environment(\.accessibilityReduceMotion, true))
+            .transaction { transaction in
+                // System accessibility values are read-only. Disable only this
+                // rendering test's animations while observing the real view.
+                transaction.disablesAnimations = true
+                transaction.animation = nil
+            })
         let window = UIWindow(windowScene: scene)
         window.rootViewController = host
         window.makeKeyAndVisible()
@@ -49,7 +54,10 @@ final class TVSportsBackgroundTests: XCTestCase {
                               "Team colors must remain a dark wash behind the interface")
         }
         host.rootView = LiveCanvas(spotlight: spotlight, events: [])
-            .environment(\.accessibilityReduceMotion, true)
+            .transaction { transaction in
+                transaction.disablesAnimations = true
+                transaction.animation = nil
+            }
         let neutral = try await rendered(window) { pixel in
             max(pixel.x, pixel.y, pixel.z) - min(pixel.x, pixel.y, pixel.z) < 0.02
         }
