@@ -12,7 +12,6 @@ struct AccountView: View {
     @EnvironmentObject private var cloud: CloudSettingsSync
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var category: TVSettingsCategory
-    @State private var focusedHelp: (title: String, detail: String)?
     @FocusState private var sidebarFocus: TVSettingsCategory?
     @Namespace private var settingsFocus
     @State private var addingProvider = false
@@ -124,32 +123,22 @@ struct AccountView: View {
             }
         }
     }
-
-
-
     private var settingsCanvas: some View {
         GeometryReader { geometry in
             let layout = TVSettingsLayout(size: geometry.size)
-            VStack(spacing: 22) {
-                HStack(alignment: .top, spacing: 0) {
-                    sidebar(layout: layout)
-                        .padding(.trailing, 28)
-                        .frame(width: layout.sidebarWidth)
-                    settingsDetail(layout: layout)
-                        .padding(.horizontal, 24)
-                        .frame(width: layout.contentWidth)
-                    descriptionRail(layout: layout)
-                        .frame(width: layout.descriptionWidth)
-                }
-                .padding(.horizontal, layout.inset)
-                .padding(.vertical, layout.verticalInset)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .modifier(TVSettingsGlass())
-                .focusScope(settingsFocus)
-                Text("Your Apple TV. Your settings.")
-                    .font(.inter(20)).foregroundStyle(TVSettingsPalette.secondary)
-                    .accessibilityHidden(true)
+            HStack(alignment: .top, spacing: 0) {
+                sidebar(layout: layout)
+                    .padding(.trailing, 28)
+                    .frame(width: layout.sidebarWidth)
+                settingsDetail(layout: layout)
+                    .padding(.horizontal, 24)
+                    .frame(width: layout.contentWidth)
             }
+            .padding(.horizontal, layout.inset)
+            .padding(.vertical, layout.verticalInset)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .modifier(TVSettingsGlass())
+            .focusScope(settingsFocus)
             .padding(.horizontal, layout.margin)
             .padding(.top, 28).padding(.bottom, 28)
         }
@@ -158,7 +147,6 @@ struct AccountView: View {
         .onChange(of: sidebarFocus) { _, value in
             guard let value, category != value else { return }
             category = value
-            focusedHelp = nil
         }
     }
 
@@ -172,7 +160,6 @@ struct AccountView: View {
                 let selected = category == item
                 Button {
                     category = item
-                    focusedHelp = nil
                 } label: {
                     HStack(spacing: 18) {
                         Image(systemName: item.symbol).font(.system(size: 27, weight: .regular))
@@ -180,13 +167,14 @@ struct AccountView: View {
                         Text(item.title).font(.inter(layout.compactHeight ? 22 : 24, .medium))
                             .lineLimit(1).minimumScaleFactor(0.8)
                         Spacer(minLength: 8)
-                        Circle().fill(selected ? (focused ? TVSettingsPalette.ink.opacity(0.7) : .white.opacity(0.8)) : .clear)
+                        Circle().fill(selected ? LineupStyle.highlight : .clear)
                             .frame(width: 6, height: 6)
                     }
-                    .foregroundStyle(focused ? TVSettingsPalette.ink : TVSettingsPalette.text)
+                    .foregroundStyle(TVSettingsPalette.text)
                     .padding(.horizontal, 18).frame(height: layout.sidebarRowHeight)
-                    .background(focused ? TVSettingsPalette.focus : (selected ? .white.opacity(0.12) : .clear),
+                    .background(focused ? TVSettingsPalette.focus : (selected ? LineupStyle.selected : .clear),
                                 in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .lineupFlatButton()
                 .focused($sidebarFocus, equals: item)
@@ -223,35 +211,9 @@ struct AccountView: View {
             .scrollIndicators(.hidden)
             .id(category)
             .focusSection()
-            .environment(\.tvSettingsHelp, { title, detail in focusedHelp = (title, detail) })
             .accessibilityIdentifier("settings.content.\(category.rawValue)")
         }
         .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    private func descriptionRail(layout: TVSettingsLayout) -> some View {
-        VStack(alignment: .leading, spacing: layout.compactHeight ? 16 : 22) {
-            Text(String(format: "%02d / SETTINGS", category.number))
-                .font(.inter(12, .semibold)).tracking(1.8)
-                .foregroundStyle(TVSettingsPalette.secondary)
-            Text(category.headline).font(.inter(layout.compactHeight ? 30 : 36, .semibold)).lineSpacing(4)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(category.subtitle).font(.inter(layout.compactHeight ? 19 : 21)).lineSpacing(5)
-                .foregroundStyle(TVSettingsPalette.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if let focusedHelp {
-                Rectangle().fill(.white.opacity(0.12)).frame(height: 1).padding(.vertical, 6)
-                Text(focusedHelp.title).font(.inter(21, .semibold))
-                Text(focusedHelp.detail).font(.inter(layout.compactHeight ? 17 : 18)).lineSpacing(5)
-                    .foregroundStyle(TVSettingsPalette.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, 32).padding(.top, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(alignment: .leading) { Rectangle().fill(.white.opacity(0.10)).frame(width: 1) }
-        .accessibilityIdentifier("settings.description")
     }
 
     @ViewBuilder private var categoryRows: some View {

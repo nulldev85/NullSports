@@ -12,13 +12,12 @@ final class TVSettingsTests: XCTestCase {
                      CGSize(width: 1920, height: 960), CGSize(width: 1920, height: 1080),
                      CGSize(width: 3840, height: 2160)] {
             let layout = TVSettingsLayout(size: size)
-            XCTAssertEqual(layout.sidebarWidth + layout.contentWidth + layout.descriptionWidth + layout.inset * 2,
+            XCTAssertEqual(layout.sidebarWidth + layout.contentWidth + layout.inset * 2,
                            layout.panelWidth, accuracy: 0.1)
             XCTAssertGreaterThan(layout.contentWidth - 48, 380, "The settings list must retain readable width")
-            XCTAssertGreaterThan(layout.descriptionWidth - 32, 180)
             let sidebarHeight = layout.sidebarRowHeight * 8 + layout.sidebarSpacing * 7
                 + (layout.compactHeight ? 64 : 80)
-            XCTAssertLessThanOrEqual(sidebarHeight, size.height - 56 - 46 - layout.verticalInset * 2 + 1,
+            XCTAssertLessThanOrEqual(sidebarHeight, size.height - 56 - layout.verticalInset * 2 + 1,
                                      "Every category must remain reachable without a second scrolling sidebar")
         }
     }
@@ -77,7 +76,7 @@ final class TVSettingsTests: XCTestCase {
             let scroll = try XCTUnwrap(mainScroll(in: host.view))
             let frame = scroll.convert(scroll.bounds, to: window)
             XCTAssertGreaterThan(frame.minX, window.bounds.width * 0.22, "The sidebar must sit outside the scrolling list")
-            XCTAssertLessThan(frame.maxX, window.bounds.width * 0.88, "The description rail must sit outside the scrolling list")
+            XCTAssertLessThan(frame.maxX, window.bounds.width - 28, "Settings must remain inside the panel’s right margin")
             XCTAssertGreaterThan(frame.width, 380)
             let screenshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
                 window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
