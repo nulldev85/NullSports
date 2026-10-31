@@ -30,7 +30,7 @@ struct MobileGuideView: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
+    @Environment(\.mobileUsesNativeTabBarLayout) private var usesNativeTabBarLayout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
     @AppStorage(MobileGuideDefaultCategory.storageKey) private var defaultCategories = "{}"
@@ -368,7 +368,7 @@ struct MobileGuideView: View {
                 }
             }
             .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
-            .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
+            .toolbar(fillsScreen || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
     }

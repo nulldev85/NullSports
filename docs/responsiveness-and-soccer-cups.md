@@ -124,14 +124,24 @@ the historical device report has identified either as its sole cause. Current
 Apple SDK/native tests and physical-device behavior still require verification.
 
 The iPhone981 native run exposed a 35-point Settings offset change during
-navigation compaction. Bar changes now use a transaction with
-`scrollContentOffsetAdjustmentBehavior = .disabled`, preserving the chrome's
-animation while disabling automatic row re-anchoring for that transition only.
-Normal data-update scroll behavior is retained. This uses Apple's documented
-[transaction setting](https://developer.apple.com/documentation/swiftui/transaction/scrollcontentoffsetadjustmentbehavior).
-The real Settings regression retains its one-point tolerance and now samples
-expansion as well as compaction in both appearances; SDK confirmation of this
-repair remains pending.
+navigation compaction. iPhone982 proved the transaction-only change did not
+prevent it: glass compaction moved the offset from 180 to 215, and expansion
+returned it to 180. Solid navigation passed. Glass now retains the native bar's
+layout reservation during compaction, fading only its presentation and disabling
+its hit targets/accessibility. Both SwiftUI toolbar declarations and the UIKit
+bridge keep that layout; actual fullscreen playback still removes it. Sports
+and Guide toolbar declarations follow the same policy. The inset owner accounts
+for existing native clearance, reserving any extra compact-control space in
+both glass states so changing presentation does not resize the page.
+
+The unsuccessful offset-transaction override is removed. The real Settings
+regression retains its one-point position tolerance in both directions and
+now also samples viewport geometry and checks faded controls cannot receive
+input/VoiceOver. A native inset test checks existing tab-bar clearance is not
+added twice while fading. The general navigation test checks actual opacity,
+input and layout visibility for the new presentation; its controller identity,
+scroll position, compact geometry and last-row reachability checks remain.
+SDK confirmation of this repair remains pending.
 
 That run also caught a missing picture cover while asynchronous audio setup
 was pending. Startup and replacement surfaces now stay covered during that
@@ -199,7 +209,10 @@ Sports top/center/bottom palette tests. iPhone981 compiled and packaged Release
 but failed three assertions among 794 native tests (one existing skip): the
 Settings compaction offset, missing startup cover, and synchronous VLC-input
 capture described above. The blocked-audio tests and other new Library/score
-checks passed. Native confirmation of the follow-up repair and actual device
+checks passed. At 53b547a, TV722 passed again; iPhone982 compiled and packaged
+Release and passed all playback checks. Only Settings glass compaction and
+expansion failed (794 tests, one existing skip, two assertions in one case).
+Native confirmation of the new layout-preserving repair and actual device
 navigation/first-picture/thermal measurements remain pending. Passing host
 checks does not establish that the reported phone-wide slowdown is resolved.
 

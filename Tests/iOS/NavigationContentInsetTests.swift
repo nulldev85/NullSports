@@ -5,6 +5,34 @@ import UIKit
 
 @MainActor
 final class NavigationContentInsetTests: XCTestCase {
+    func testNativeBarClearanceIsNotReservedAgainWhenTheBarFades() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let root = UIViewController()
+        root.tabBarItem = UITabBarItem(title: "Settings", image: nil, tag: 0)
+        let navigation = UINavigationController(rootViewController: root)
+        let tabs = UITabBarController()
+        tabs.setViewControllers([navigation], animated: false)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = tabs
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+        let original = navigation.additionalSafeAreaInsets.bottom
+        let safeBottom = root.view.convert(root.view.safeAreaLayoutGuide.layoutFrame, to: window).maxY
+        let insets = MobileNavigationContentInsets()
+        defer { insets.restore() }
+        for opacity in [CGFloat(1), 0, 1] {
+            tabs.tabBar.alpha = opacity
+            insets.apply(to: navigation, above: tabs.tabBar)
+            window.layoutIfNeeded()
+            XCTAssertEqual(navigation.additionalSafeAreaInsets.bottom, original, accuracy: 1,
+                "The native tab container already reserves its bar, including while transparent")
+            XCTAssertEqual(root.view.convert(root.view.safeAreaLayoutGuide.layoutFrame, to: window).maxY,
+                safeBottom, accuracy: 1, "Fading the bar must leave the page's safe area unchanged")
+        }
+    }
+
     func testLateNavigationContainerTakesOverWithoutInheritingAnEarlyReservation() throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }

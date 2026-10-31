@@ -47,7 +47,10 @@ final class NavigationScrollTests: XCTestCase {
         for glass in [false, true, false] {
             model.glass = glass
             try await settle("Expanded navigation must be visible after switching appearance; glass=\(glass)") {
-                tabs.tabBar.isHidden == !(glass && MobileNavigationStyle.supportsGlass)
+                if glass && MobileNavigationStyle.supportsGlass {
+                    return !tabs.tabBar.isHidden && tabs.tabBar.alpha > 0.99 && tabs.tabBar.isUserInteractionEnabled
+                }
+                return tabs.tabBar.isHidden
             }
             let scroll = try XCTUnwrap(Self.find(NavigationGestureScroll.self, in: page.view))
             scroll.setContentOffset(CGPoint(x: 0, y: 320), animated: false)
@@ -67,8 +70,11 @@ final class NavigationScrollTests: XCTestCase {
                 guard let boundary = MobileLineupNavigationBoundary.find(in: window) else { return false }
                 let width = boundary.layer.presentation()?.bounds.width ?? boundary.bounds.width
                 return navigation.isCompact && abs(boundary.bounds.width - 62) < 1
-                    && abs(width - 62) < 1 && tabs.tabBar.isHidden
+                    && abs(width - 62) < 1 && tabs.tabBar.alpha < 0.01 && !tabs.tabBar.isUserInteractionEnabled
             }
+            XCTAssertTrue(tabs.tabBar.accessibilityElementsHidden, "The faded native tabs must not remain in VoiceOver")
+            XCTAssertEqual(tabs.tabBar.isHidden, !(glass && MobileNavigationStyle.supportsGlass),
+                "Glass keeps its native layout reservation while fading; solid navigation removes it")
             let boundary = try XCTUnwrap(MobileLineupNavigationBoundary.find(in: window))
             let frame = boundary.convert(boundary.bounds, to: window)
             XCTAssertTrue(probe.nativeBarShouldBeHidden,
@@ -100,7 +106,9 @@ final class NavigationScrollTests: XCTestCase {
                                                          translation: CGPoint(x: 0, y: -42))
             try await settle("Upward scrolling must restore every tab; glass=\(glass)") {
                 guard !navigation.isCompact else { return false }
-                if glass && MobileNavigationStyle.supportsGlass { return !tabs.tabBar.isHidden }
+                if glass && MobileNavigationStyle.supportsGlass {
+                    return !tabs.tabBar.isHidden && tabs.tabBar.alpha > 0.99 && tabs.tabBar.isUserInteractionEnabled
+                }
                 guard let boundary = MobileLineupNavigationBoundary.find(in: window) else { return false }
                 let width = boundary.layer.presentation()?.bounds.width ?? boundary.bounds.width
                 return boundary.bounds.width > 250 && abs(width - boundary.bounds.width) < 1

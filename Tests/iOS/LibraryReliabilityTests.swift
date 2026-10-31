@@ -149,6 +149,7 @@ final class LibraryReliabilityTests: XCTestCase {
             XCTAssertTrue(scroll(in: window) === list)
             list.setContentOffset(CGPoint(x: 0, y: 180), animated: false)
             let before = list.contentOffset.y
+            let viewport = list.convert(list.bounds, to: window)
             navigation.scrollObservation.discoverScrollViews(from: list)
             navigation.scrollObservation.receivePanInput(from: list, phase: .began, translation: .zero)
             navigation.scrollObservation.receivePanInput(from: list, phase: .changed, translation: CGPoint(x: 0, y: -65))
@@ -158,10 +159,21 @@ final class LibraryReliabilityTests: XCTestCase {
                 window.layoutIfNeeded()
                 positions.append(list.contentOffset.y)
                 XCTAssertTrue(scroll(in: window) === list, "Compacting navigation must retain the real Settings list")
+                if glass && MobileNavigationStyle.supportsGlass {
+                    let current = list.convert(list.bounds, to: window)
+                    XCTAssertEqual(current.minY, viewport.minY, accuracy: 1, "Glass compaction must retain the viewport origin")
+                    XCTAssertEqual(current.height, viewport.height, accuracy: 1, "Glass compaction must retain the viewport height")
+                }
             }
             XCTAssertTrue(navigation.isCompact, "An active Settings pan must exercise compact navigation; glass=\(glass)")
             XCTAssertLessThanOrEqual(positions.map { abs($0 - before) }.max() ?? 0, 1,
                 "Settings must remain stable throughout compaction; glass=\(glass), before=\(before), positions=\(positions), insets=\(list.adjustedContentInset)")
+            if glass && MobileNavigationStyle.supportsGlass {
+                XCTAssertFalse(tabs.tabBar.isHidden, "Glass retains native layout space while compacted")
+                XCTAssertEqual(tabs.tabBar.alpha, 0, accuracy: 0.001)
+                XCTAssertFalse(tabs.tabBar.isUserInteractionEnabled)
+                XCTAssertTrue(tabs.tabBar.accessibilityElementsHidden)
+            }
             navigation.scrollObservation.receivePanInput(from: list, phase: .ended, translation: CGPoint(x: 0, y: -65))
             let compactOffset = list.contentOffset.y
             navigation.expand()
@@ -171,10 +183,20 @@ final class LibraryReliabilityTests: XCTestCase {
                 window.layoutIfNeeded()
                 expandedPositions.append(list.contentOffset.y)
                 XCTAssertTrue(scroll(in: window) === list, "Expanding navigation must retain the real Settings list")
+                if glass && MobileNavigationStyle.supportsGlass {
+                    let current = list.convert(list.bounds, to: window)
+                    XCTAssertEqual(current.minY, viewport.minY, accuracy: 1, "Glass expansion must retain the viewport origin")
+                    XCTAssertEqual(current.height, viewport.height, accuracy: 1, "Glass expansion must retain the viewport height")
+                }
             }
             XCTAssertFalse(navigation.isCompact)
             XCTAssertLessThanOrEqual(expandedPositions.map { abs($0 - compactOffset) }.max() ?? 0, 1,
                 "Settings must remain stable throughout expansion; glass=\(glass), before=\(compactOffset), positions=\(expandedPositions), insets=\(list.adjustedContentInset)")
+            if glass && MobileNavigationStyle.supportsGlass {
+                XCTAssertEqual(tabs.tabBar.alpha, 1, accuracy: 0.001)
+                XCTAssertTrue(tabs.tabBar.isUserInteractionEnabled)
+                XCTAssertFalse(tabs.tabBar.accessibilityElementsHidden)
+            }
         }
         XCTAssertTrue(list.isScrollEnabled)
         XCTAssertEqual(media.heroCatalogTitle, "Cached Movies")
