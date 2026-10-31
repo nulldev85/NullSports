@@ -602,11 +602,11 @@ final class MediaLibrary {
     }
 
     /// Every row on the Media Servers tab.
-    var shelves: [MediaCatalog] { catalogs }
+    var shelves: [MediaCatalog] { sourceCatalogs }
 
     /// The shelves a viewer can take away: every one, and the Streaming
     /// Services row while it is up.
-    var removableShelves: [MediaCatalog] { builtInShelves + catalogs }
+    var removableShelves: [MediaCatalog] { builtInShelves + sourceCatalogs }
 
     /// A missing or removed choice falls back to the first populated shelf.
     /// That keeps the hub useful immediately while leaving the actual saved
@@ -2543,16 +2543,22 @@ final class MediaLibrary {
 
     private func reconcileSeriesPositions(for profile: MediaServerProfile) async {
         let generation = playbackGeneration
-        let series = catalogs.flatMap(\.items).filter { $0.isSeries && $0.serverID == profile.id }
-        let records: [(seriesID: String, record: LocalMediaPlayback)] = localPlayback.compactMap { record in
-            guard record.profileID == profile.id, record.item.type == "Episode" else { return nil }
-            if let seriesID = record.item.seriesID { return (seriesID, record) }
-            guard let name = record.item.seriesName,
-                  let matched = series.first(where: {
-                      $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-                  }) else { return nil }
-            return (matched.id, record)
-        }
+        let sources = sourceCatalogs, history = localPlayback
+        let records: [(seriesID: String, record: LocalMediaPlayback)] = await Task.detached(priority: .utility) {
+            // Legacy history keeps the provider's series name. This lookup
+            // needs its original titles/IDs, not metadata for every shelf.
+            let series = sources.flatMap(\.items).filter { $0.isSeries && $0.serverID == profile.id }
+            return history.compactMap { record -> (seriesID: String, record: LocalMediaPlayback)? in
+                guard record.profileID == profile.id, record.item.type == "Episode" else { return nil }
+                if let seriesID = record.item.seriesID { return (seriesID, record) }
+                guard let name = record.item.seriesName,
+                      let matched = series.first(where: {
+                          $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+                      }) else { return nil }
+                return (matched.id, record)
+            }
+        }.value
+        guard !Task.isCancelled, generation == playbackGeneration, contains(profile) else { return }
         let grouped = Dictionary(grouping: records) { $0.seriesID }
         guard let source = try? client(for: profile) else { return }
         for (seriesID, entries) in grouped {
@@ -3051,7 +3057,7 @@ final class MediaLibrary {
         guard let profile = profile(for: root) else { return }
         let shelfRoot = root.servedBy(profile.id)
         let shelfID = MediaCatalog.id(for: shelfRoot)
-        guard !catalogs.contains(where: { $0.id == shelfID }) else { return }
+        guard !sourceCatalogs.contains(where: { $0.id == shelfID }) else { return }
         var loaded: [MediaItem] = []
         do {
             loaded = try await client(for: profile).items(userID: profile.userID, parent: root,
@@ -3061,7 +3067,7 @@ final class MediaLibrary {
         } catch {
             if !Self.isCancellation(error) { report(error, from: profile) }
         }
-        guard !catalogs.contains(where: { $0.id == shelfID }) else { return }
+        guard !sourceCatalogs.contains(where: { $0.id == shelfID }) else { return }
         update(profile) { $0.catalogs.append(MediaCatalog(root: shelfRoot, items: loaded)) }
         saveShelfIDs(for: profile)
         persistLibrarySnapshot(for: profile)
@@ -3110,7 +3116,7 @@ final class MediaLibrary {
     }
 
     private func unshelved(_ items: [MediaItem]) -> [MediaItem] {
-        let shelved = Set(catalogs.map(\.id))
+        let shelved = Set(sourceCatalogs.map(\.id))
         return items.filter { !shelved.contains(MediaCatalog.id(for: $0)) }
     }
 
@@ -4931,7 +4937,7 @@ extension MediaLibrary {
             rows.append(LibraryRow(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
                                    detail: nil, symbol: "heart.text.square", brand: nil))
         }
-        for catalog in catalogs {
+        for catalog in sourceCatalogs {
             let symbol: String
             if Self.isMDBListShelfID(catalog.id) { symbol = "list.star" }
             else if ProviderItem(id: catalog.root.id) != nil { symbol = "tv" }

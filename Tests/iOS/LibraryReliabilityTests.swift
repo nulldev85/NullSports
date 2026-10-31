@@ -57,6 +57,7 @@ final class LibraryReliabilityTests: XCTestCase {
         withObservationTracking {
             XCTAssertEqual(library.heroCatalog?.items.count, 30_000)
             XCTAssertEqual(library.heroCatalogChoices.first?.items.count, 30_000)
+            XCTAssertEqual(library.shelves.first?.items.count, 30_000)
         } onChange: {
             MainActor.assumeIsolated { heroState.invalidated = true }
         }

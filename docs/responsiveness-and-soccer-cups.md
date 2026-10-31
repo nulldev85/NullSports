@@ -115,6 +115,9 @@ Further source inspection found two additional UI-thread work paths:
   those titles. The hero settings picker also uses original names/counts and
   validates selection without remapping every shelf. Large-library observation
   coverage verifies these source reads do not depend on item metadata choices.
+  Shelf presence/counts and shelf-management rows likewise use original sources;
+  cards resolve their own visible metadata. Legacy series-history joins now run
+  on a utility snapshot with cancellation/source-generation checks before use.
 
 These are confirmed source paths and controlled regressions, not a claim that
 the historical device report has identified either as its sole cause. Current
