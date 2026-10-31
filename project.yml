@@ -82,6 +82,10 @@ targets:
     platform: tvOS
     sources:
       - Lineup
+      # Reuse the measured refresh model and conservative matching index.
+      # These sources have no iPhone UI dependencies.
+      - iPhone/MobileDataRefreshProgress.swift
+      - iPhone/MobileSportsMatching.swift
     dependencies:
       - package: VLCKitSPM
       - target: LineupAetherPlayback

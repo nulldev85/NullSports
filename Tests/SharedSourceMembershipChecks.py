@@ -87,6 +87,15 @@ def is_included(project, target, source):
 
 
 class SharedSourceMembershipChecks(unittest.TestCase):
+    def test_both_apps_compile_the_same_measured_progress_and_candidate_index(self):
+        project = (ROOT / "project.yml").read_text(encoding="utf-8")
+        for source in ("iPhone/MobileDataRefreshProgress.swift", "iPhone/MobileSportsMatching.swift"):
+            self.assertTrue((ROOT / source).is_file())
+            for target in ("Lineup", "LineupiOS"):
+                self.assertTrue(is_included(project, target, source), f"{target} must compile {source}")
+        self.assertFalse((ROOT / "Lineup/Store/DataRefreshProgress.swift").exists(),
+                         "Do not restore a second clock-estimated TV progress class")
+
     def test_search_genre_artwork_is_complete_on_both_platforms(self):
         source = (ROOT / "Lineup/Views/SearchViews.swift").read_text(encoding="utf-8")
         assets = re.findall(r'assetName: "(SearchGenre[^"]+)"', source)

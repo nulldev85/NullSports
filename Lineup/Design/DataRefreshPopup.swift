@@ -33,7 +33,7 @@ struct DataRefreshCapsule: View {
         #if os(iOS)
         status.completed ? status.detail : "\(status.step.title) · \(Int((fraction * 100).rounded(.down)))%"
         #else
-        "\(status.step.title) · \(status.percent)%"
+        status.detail
         #endif
     }
 
@@ -41,7 +41,7 @@ struct DataRefreshCapsule: View {
         #if os(iOS)
         detail
         #else
-        "\(status.step.title), \(status.percent) percent"
+        status.detail
         #endif
     }
 
@@ -62,10 +62,10 @@ struct DataRefreshCapsule: View {
                     .padding(.top, Metrics.barGap)
                     .animation(.easeOut(duration: 0.2), value: fraction)
             #else
-            LineupProgressBar(value: Double(status.percent) / 100, height: Metrics.bar)
+            LineupProgressBar(value: fraction, height: Metrics.bar)
                 .frame(width: Metrics.barWidth)
                 .padding(.top, Metrics.barGap)
-                .animation(.easeOut(duration: 0.35), value: status.percent)
+                .animation(.easeOut(duration: 0.35), value: fraction)
             #endif
         }
         .lineLimit(1)
