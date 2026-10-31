@@ -161,9 +161,20 @@ final class LibraryReliabilityTests: XCTestCase {
             }
             XCTAssertTrue(navigation.isCompact, "An active Settings pan must exercise compact navigation; glass=\(glass)")
             XCTAssertLessThanOrEqual(positions.map { abs($0 - before) }.max() ?? 0, 1,
-                "Settings must remain stable throughout the transition, not just after it settles")
+                "Settings must remain stable throughout compaction; glass=\(glass), before=\(before), positions=\(positions), insets=\(list.adjustedContentInset)")
             navigation.scrollObservation.receivePanInput(from: list, phase: .ended, translation: CGPoint(x: 0, y: -65))
+            let compactOffset = list.contentOffset.y
             navigation.expand()
+            var expandedPositions: [CGFloat] = []
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(16))
+                window.layoutIfNeeded()
+                expandedPositions.append(list.contentOffset.y)
+                XCTAssertTrue(scroll(in: window) === list, "Expanding navigation must retain the real Settings list")
+            }
+            XCTAssertFalse(navigation.isCompact)
+            XCTAssertLessThanOrEqual(expandedPositions.map { abs($0 - compactOffset) }.max() ?? 0, 1,
+                "Settings must remain stable throughout expansion; glass=\(glass), before=\(compactOffset), positions=\(expandedPositions), insets=\(list.adjustedContentInset)")
         }
         XCTAssertTrue(list.isScrollEnabled)
         XCTAssertEqual(media.heroCatalogTitle, "Cached Movies")

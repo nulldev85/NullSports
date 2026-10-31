@@ -707,6 +707,7 @@ final class MobilePlaybackController: ObservableObject {
             view.removeEngineSurface()
             attachSystemLayer(to: view)
         }
+        if audioStart != nil || audioReadyToOpen { view.holdPicture(true) }
     }
 
     func detachVideo(_ view: MobileVideoHost) {
@@ -1048,6 +1049,9 @@ final class MobilePlaybackController: ObservableObject {
                 && !nativeCompatibilityFailures.contains(first)
         }
         loading = true
+        // Keep the previous renderer covered while audio activates. A surface
+        // attached during this wait inherits the same cover in attachVideo.
+        videoView?.holdPicture(true)
         let request = UUID()
         audioStartID = request
         audioStart = Task { [weak self] in
@@ -1061,6 +1065,7 @@ final class MobilePlaybackController: ObservableObject {
                 self.audioStart = nil
                 self.error = "Audio could not start. Please try again."
                 self.loading = false
+                self.videoView?.holdPicture(false)
                 return
             }
             guard !Task.isCancelled, self.audioStartID == request else { return }

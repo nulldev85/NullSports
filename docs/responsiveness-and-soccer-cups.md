@@ -123,6 +123,25 @@ These are confirmed source paths and controlled regressions, not a claim that
 the historical device report has identified either as its sole cause. Current
 Apple SDK/native tests and physical-device behavior still require verification.
 
+The iPhone981 native run exposed a 35-point Settings offset change during
+navigation compaction. Bar changes now use a transaction with
+`scrollContentOffsetAdjustmentBehavior = .disabled`, preserving the chrome's
+animation while disabling automatic row re-anchoring for that transition only.
+Normal data-update scroll behavior is retained. This uses Apple's documented
+[transaction setting](https://developer.apple.com/documentation/swiftui/transaction/scrollcontentoffsetadjustmentbehavior).
+The real Settings regression retains its one-point tolerance and now samples
+expansion as well as compaction in both appearances; SDK confirmation of this
+repair remains pending.
+
+That run also caught a missing picture cover while asynchronous audio setup
+was pending. Startup and replacement surfaces now stay covered during that
+wait; Stop or an activation error releases the cover. The existing Aether
+source-replacement assertions are unchanged. The slow-VLC regression now waits
+for the asynchronously created input before capturing its identity, retaining
+the same input-identity, delayed-opening and rendered-picture assertions.
+Blocked-audio native coverage additionally checks both original and replacement
+surface covers, plus cleanup after Stop.
+
 ## Full-screen Apple TV Sports canvas
 
 The focused team-color canvas now belongs to the outside of the Sports layout,
@@ -175,10 +194,14 @@ future upstream completeness or a particular IPTV provider's live pictures.
   and unsupported competitions, retain follow identity, and reject a cup-only
   club channel borrowing another game's guide entry.
 
-Full Apple SDK builds, the new native Settings/cache tests, and actual device
-navigation/first-picture/thermal measurements remain pending the new review
-builds. Passing earlier builds or these host tests does not establish that the
-reported unusable Settings behavior or phone-wide slowdown is resolved.
+At 3cbd608, TV721 passed the full Apple SDK workflow, including the actual
+Sports top/center/bottom palette tests. iPhone981 compiled and packaged Release
+but failed three assertions among 794 native tests (one existing skip): the
+Settings compaction offset, missing startup cover, and synchronous VLC-input
+capture described above. The blocked-audio tests and other new Library/score
+checks passed. Native confirmation of the follow-up repair and actual device
+navigation/first-picture/thermal measurements remain pending. Passing host
+checks does not establish that the reported phone-wide slowdown is resolved.
 
 ## Release-note draft
 

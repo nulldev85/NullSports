@@ -94,6 +94,8 @@ final class AudioSessionResponsivenessTests: XCTestCase {
             _ = probe.release.wait(timeout: .now() + 3)
         }, deactivate: { _ = probe.record("deactivate") })
         let controller = MobilePlaybackController(audioSession: work)
+        let originalHost = MobileVideoHost(frame: CGRect(x: 0, y: 0, width: 390, height: 220))
+        controller.attachVideo(originalHost)
         defer { controller.shutdown(); probe.release.signal() }
         let began = ProcessInfo.processInfo.systemUptime
         controller.start(urls: [try XCTUnwrap(URL(string: "https://audio-test.invalid/live.m3u8"))])
@@ -101,7 +103,12 @@ final class AudioSessionResponsivenessTests: XCTestCase {
             "Start must return control before audio hardware is ready")
         await fulfillment(of: [entered], timeout: 2)
         XCTAssertTrue(controller.loading)
+        XCTAssertTrue(originalHost.pictureHeld, "Audio setup must not expose the previous source's picture")
+        let replacementHost = MobileVideoHost(frame: originalHost.bounds)
+        controller.attachVideo(replacementHost)
+        XCTAssertTrue(replacementHost.pictureHeld, "A replacement surface must also stay covered while audio is pending")
         controller.shutdown()
+        XCTAssertFalse(replacementHost.pictureHeld, "Stop must release the pending startup cover")
         probe.release.signal()
         await work.drain()
         try await Task.sleep(for: .milliseconds(50))

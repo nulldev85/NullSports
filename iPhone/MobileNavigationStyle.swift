@@ -190,9 +190,14 @@ final class MobileTabNavigation: ObservableObject {
 
     init() {
         scrollObservation.onChange = { [weak self] compact in
-            // The same transaction reaches the native toolbar and the floating
-            // control, including insertion/removal when glass changes forms.
-            withAnimation(UIAccessibility.isReduceMotionEnabled ? nil : MobileNavigationStyle.transitionAnimation) {
+            // Animate the chrome without asking List to re-anchor its rows
+            // when the native/custom bar changes the bottom safe area. That
+            // automatic offset compensation can move Settings during a pan.
+            // Scope this to bar transitions; data updates keep normal behavior.
+            var transaction = Transaction(animation: UIAccessibility.isReduceMotionEnabled
+                ? nil : MobileNavigationStyle.transitionAnimation)
+            transaction.scrollContentOffsetAdjustmentBehavior = .disabled
+            withTransaction(transaction) {
                 self?.isCompact = compact
             }
         }
