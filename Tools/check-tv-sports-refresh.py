@@ -18,6 +18,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = (
+    "Lineup/Views/TVTickerWindow.swift", "Lineup/Views/TVGuideChannelSnapshot.swift",
     "Lineup/Services/LivePreparationWork.swift",
     "Lineup/Services/GuideChannelList.swift",
     "Lineup/Models/XtreamModels.swift", "Lineup/Models/SportsExpansionModels.swift",
@@ -114,6 +115,7 @@ def main():
         (source / "TVSportsRefreshWork.swift").write_text(
             helper.removeprefix("#if os(tvOS)\n").removesuffix("#endif\n"), encoding="utf-8")
         shutil.copyfile(ROOT / "Tests/tvOS/TVSportsRefreshTests.swift", tests / "TVSportsRefreshTests.swift")
+        shutil.copyfile(ROOT / "Tests/tvOS/TVNavigationWorkTests.swift", tests / "TVNavigationWorkTests.swift")
         (package / "Package.swift").write_text('''// swift-tools-version: 5.9
 import PackageDescription
 let package = Package(name: "LineupTVRefreshChecks", platforms: [.macOS(.v13)], targets: [

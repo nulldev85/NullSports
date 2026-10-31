@@ -224,12 +224,111 @@ struct LiveEventWash: View {
 /// The remote's highlighted game colors the Sports tab, independently of
 /// whatever stream is playing, without invalidating the tab's lists or player.
 struct LiveCanvas: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var spotlight: LiveSpotlight
     let events: [SportsGame]
 
     var body: some View {
         let colors = spotlight.game(in: events).map { LiveEventColors(game: $0) }
+        LiveCanvasColors(colors: colors)
+    }
+}
+
+@MainActor final class TVSportsCanvasState: ObservableObject {
+    @Published private(set) var colors: LiveEventColors?
+    func setColors(_ colors: LiveEventColors?) {
+        if self.colors != colors { self.colors = colors }
+    }
+}
+
+private struct TVSportsCanvasStateKey: EnvironmentKey {
+    static let defaultValue: TVSportsCanvasState? = nil
+}
+
+extension EnvironmentValues {
+    var tvSportsCanvasState: TVSportsCanvasState? {
+        get { self[TVSportsCanvasStateKey.self] }
+        set { self[TVSportsCanvasStateKey.self] = newValue }
+    }
+}
+
+struct TVSportsCanvasSource: View {
+    @ObservedObject var spotlight: LiveSpotlight
+    let events: [SportsGame]
+    let canvas: TVSportsCanvasState
+    let active: Bool
+    var body: some View {
+        let colors = spotlight.game(in: events).map { LiveEventColors(game: $0) }
+        Color.clear.onChange(of: colors, initial: true) { _, colors in canvas.setColors(colors) }
+            .background(TVSportsCanvasSurface(active: active).frame(width: 0, height: 0))
+    }
+}
+
+/// UIKit may give the tab container/selected host an opaque default ground.
+/// Let the outside canvas show through Sports only, restoring other tabs.
+private struct TVSportsCanvasSurface: UIViewRepresentable {
+    let active: Bool
+    func makeUIView(context: Context) -> Probe { Probe() }
+    func updateUIView(_ view: Probe, context: Context) { view.active = active; view.apply() }
+    static func dismantleUIView(_ view: Probe, coordinator: ()) { view.restore() }
+
+    final class Probe: UIView {
+        var active = false
+        private struct Entry {
+            weak var view: UIView?
+            let color: UIColor?
+            let opaque: Bool
+        }
+        private var entries: [Entry] = []
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            apply()
+            DispatchQueue.main.async { [weak self] in self?.apply() }
+        }
+        func apply() {
+            guard active, window != nil else { restore(); return }
+            var responder: UIResponder? = next
+            var owner: UIViewController?
+            while let current = responder {
+                if let controller = current as? UIViewController { owner = controller; break }
+                responder = current.next
+            }
+            guard let tabs = owner?.tabBarController,
+                  let tabSurface = tabs.viewIfLoaded,
+                  let selected = tabs.selectedViewController?.viewIfLoaded,
+                  isDescendant(of: selected) else { return }
+            let targets = [tabSurface, selected]
+            if entries.count != 2 || entries[0].view !== targets[0] || entries[1].view !== targets[1] {
+                restore()
+                entries = targets.map { Entry(view: $0, color: $0.backgroundColor, opaque: $0.isOpaque) }
+            }
+            for target in targets {
+                if target.backgroundColor != UIColor.clear { target.backgroundColor = .clear }
+                if target.isOpaque { target.isOpaque = false }
+            }
+        }
+        func restore() {
+            for entry in entries {
+                guard let view = entry.view, view.backgroundColor == UIColor.clear, !view.isOpaque else { continue }
+                view.backgroundColor = entry.color
+                view.isOpaque = entry.opaque
+            }
+            entries.removeAll()
+        }
+    }
+}
+
+struct TVSportsTabCanvas: View {
+    @ObservedObject var canvas: TVSportsCanvasState
+    let active: Bool
+    var body: some View {
+        LiveCanvasColors(colors: active ? canvas.colors : nil)
+    }
+}
+
+struct LiveCanvasColors: View {
+    let colors: LiveEventColors?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
         ZStack {
             LineupStyle.background
             LiveCanvasTint(colors: colors, animated: !reduceMotion)
@@ -1753,22 +1852,14 @@ struct LiveTicker: View {
     static let height: CGFloat = 38
 
     let events: [SportsGame]
-    @State private var displayedEvents: [SportsGame] = []
-    /// Points a second: with each score's column wider for its larger
-    /// words, a score stays in view as long as it did before.
-    private let speed: Double = 67
-    private let cardWidth: CGFloat = 766
+    var isActive = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let cardWidth = CGFloat(TVTickerWindow.cardWidth)
     /// As tall as the strip has room for with the scores beside it; a wide
     /// mark has more room across.
     private let logoSize: CGFloat = 34
     private let logoWidth: CGFloat = 58
-    private let cardSpacing: CGFloat = 38
-    private let loopSpacing: CGFloat = 72
     private let emptyWidth: CGFloat = 520
-
-    private func cycleWidth(for count: Int) -> CGFloat {
-        count == 0 ? emptyWidth + loopSpacing : CGFloat(count) * (cardWidth + cardSpacing) - cardSpacing + loopSpacing
-    }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 24) {
@@ -1780,54 +1871,27 @@ struct LiveTicker: View {
                 .padding(.horizontal, 14).frame(height: 31)
                 .background(LineupStyle.highlight, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .padding(.bottom, 3)
-            GeometryReader { viewport in
-                let cycle = cycleWidth(for: displayedEvents.count)
-                let copies = max(2, Int(ceil(viewport.size.width / cycle)) + 1)
-                HStack(spacing: loopSpacing) {
-                    ForEach(0..<copies, id: \.self) { _ in tickerContent }
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                // The strip is built once and slid by the animation system.
-                // A clock used to rebuild every score in it sixty times a
-                // second for as long as a game was on, and the main thread
-                // was still busy with that when the viewer changed tabs. A
-                // new score changes the strip in place; only a game joining
-                // or leaving it starts the crawl again.
-                .keyframeAnimator(initialValue: 0.0, repeating: true) { strip, distance in
-                    strip.offset(x: -CGFloat(distance))
-                } keyframes: { _ in
-                    LinearKeyframe(Double(cycle), duration: Double(cycle) / speed)
-                }
-                .id(cycle)
-                .frame(width: viewport.size.width, height: viewport.size.height, alignment: .bottomLeading)
-                .clipped()
-                // Scores fade in and out at the ends rather than being cut
-                // off by the edge of the strip.
-                .mask {
-                    LinearGradient(stops: [
-                        .init(color: .clear, location: 0), .init(color: .black, location: 0.06),
-                        .init(color: .black, location: 0.94), .init(color: .clear, location: 1)
-                    ], startPoint: .leading, endPoint: .trailing)
-                }
+            TVScoreTicker(events: events, active: isActive && !reduceMotion) { entries in
+                AnyView(tickerContent(entries).fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading).ignoresSafeArea())
+            }
+            // Scores fade in and out at the ends rather than being cut off.
+            .mask {
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0), .init(color: .black, location: 0.06),
+                    .init(color: .black, location: 0.94), .init(color: .clear, location: 1)
+                ], startPoint: .leading, endPoint: .trailing)
             }
         }
         .padding(.horizontal, LiveMetrics.margin).padding(.bottom, 2)
         .overlay(alignment: .top) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
         .transaction { $0.animation = nil }
         .allowsHitTesting(false)
-        .onAppear { updateScores(events) }
-        .onChange(of: events) { _, updated in updateScores(updated) }
     }
 
-    private func updateScores(_ updated: [SportsGame]) {
-        guard updated != displayedEvents else { return }
-        // Score and status changes update in place without restarting the crawl.
-        displayedEvents = updated
-    }
-
-    private var tickerContent: some View {
-        HStack(spacing: cardSpacing) {
-            if displayedEvents.isEmpty {
+    private func tickerContent(_ entries: [TVTickerEntry]) -> some View {
+        HStack(spacing: 0) {
+            if entries.isEmpty {
                 Text("NO LIVE OR FINAL SCORES YET")
                     .font(.inter(21, .heavy)).tracking(0.7)
                     .foregroundStyle(LineupStyle.secondary).lineLimit(1)
@@ -1835,7 +1899,8 @@ struct LiveTicker: View {
             } else {
                 // Every column keeps its fixed width: the scroll arithmetic
                 // above counts in whole items of `cardWidth`.
-                ForEach(displayedEvents) { game in
+                ForEach(entries.indices, id: \.self) { slot in
+                    let game = entries[slot].game
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         // The league's own mark, as the board shows it,
                         // centred on the team codes' capitals.
@@ -1866,6 +1931,7 @@ struct LiveTicker: View {
                     }
                     .lineLimit(1)
                     .frame(width: cardWidth, alignment: .leading)
+                    .padding(.trailing, CGFloat(entries[slot].spacing))
                 }
             }
         }

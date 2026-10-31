@@ -103,20 +103,20 @@ final class TVSportsBackgroundTests: XCTestCase {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
         let spotlight = LiveSpotlight()
-        let host = UIHostingController(rootView: TabView {
-            LiveView(isActive: false, spotlight: spotlight)
-                .tabItem { Label("Sports", systemImage: "play.rectangle") }
-            Color.black.tabItem { Label("Other", systemImage: "gear") }
-        }.environment(library).transaction {
+        let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""), trackingKey: { nil })
+        let host = UIHostingController(rootView: MainView(spotlight: spotlight)
+            .environment(library).environment(media).environmentObject(CloudSettingsSync.shared)
+            .environment(\.scenePhase, .active).transaction {
             $0.disablesAnimations = true
             $0.animation = nil
         })
         let window = UIWindow(windowScene: scene)
         window.rootViewController = host
         window.makeKeyAndVisible()
+        applyLineupTabBarTheme()
         defer { window.isHidden = true; previous?.makeKey() }
-        // Check the real Sports/NavigationStack/ticker inside a native tab
-        // container. A standalone canvas screenshot misses the clipping bug.
+        // Include production tab chrome and its UIKit theme, not just a
+        // standalone Sports view in a generic tab container.
         for (event, redDominates) in [(red, true), (blue, false)] {
             spotlight.rest(on: event)
             let until = Date().addingTimeInterval(5)
@@ -128,8 +128,8 @@ final class TVSportsBackgroundTests: XCTestCase {
                 let rendered = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
                     window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
                 }
-                let pixels = try [0.015, 0.5, 0.985].map {
-                    try sample(rendered, x: 0.008, y: $0)
+                let pixels = try [0.008, 0.992].flatMap { x in
+                    try [0.015, 0.5, 0.985].map { y in try sample(rendered, x: x, y: y) }
                 }
                 sampledPixels = pixels
                 matches = pixels.allSatisfy { redDominates ? $0.x > $0.z + 0.015 : $0.z > $0.x + 0.015 }

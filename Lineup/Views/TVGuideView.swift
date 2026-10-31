@@ -48,6 +48,7 @@ private enum TVGuideViewMode: String, CaseIterable {
 
 struct GuideView: View {
     @Environment(SportsLibrary.self) private var library
+    @Environment(\.scenePhase) private var scenePhase
     var isActive = true
     @FocusState private var gridFocus: GuideGridFocus?
     @FocusState private var sidebarFocus: String?
@@ -96,8 +97,62 @@ struct GuideView: View {
     @State private var reorderingFavorites = false
     /// Where the remote is taking focus, and which rows exist to take it.
     @State private var navigation = GuideNavigation()
+    @State private var channelSnapshot = TVGuideChannelSnapshot.empty
+    @State private var installedChannels: ChannelRequest?
+    @State private var defaultPreview: TVGuideChannelSnapshot.Preview?
+    private struct ChannelRequest: Hashable {
+        let library: ObjectIdentifier
+        let revision: Int
+        let active: Bool
+        let query: GuideChannelList.Query
+    }
+    private var channelRequest: ChannelRequest {
+        ChannelRequest(library: ObjectIdentifier(library), revision: library.streamsRevision,
+            active: isActive && scenePhase == .active && fullScreen == nil && multiviewSession == nil,
+            query: .init(categoryID: searchActive ? nil : selectedCategoryID,
+                favoritesOnly: !searchActive && favoritesOnly, text: query,
+                favorites: !searchActive && favoritesOnly ? library.favoriteStreamOrder : []))
+    }
     private var filtered: [XtreamStream] {
-        library.guideStreams(categoryID: searchActive ? nil : selectedCategoryID, favoritesOnly: searchActive ? false : favoritesOnly, query: query)
+        let request = channelRequest
+        guard let installedChannels, installedChannels.library == request.library,
+              installedChannels.revision == request.revision, installedChannels.query == request.query else { return [] }
+        return channelSnapshot.streams
+    }
+    private var loadingChannels: Bool { channelRequest.active && installedChannels != channelRequest }
+    private func channelPosition(_ id: Int?) -> Int? {
+        guard let id, !filtered.isEmpty else { return nil }
+        return channelSnapshot.positions[id]
+    }
+    private func loadChannels() async {
+        let request = channelRequest
+        guard request.active else { return }
+        if let installedChannels, installedChannels.library == request.library,
+           installedChannels.revision == request.revision, installedChannels.query == request.query { return }
+        let streams = library.streams
+        guard let snapshot = try? await TVGuideChannelSnapshot.load(streams, query: request.query),
+              !Task.isCancelled, channelRequest == request else { return }
+        channelSnapshot = snapshot
+        installedChannels = request
+        restoreFilteredGuideFocus()
+    }
+    private struct PreviewRequest: Hashable {
+        let channels: ChannelRequest?
+        let guideRevision: Int
+        let now: Date
+        let active: Bool
+    }
+    private var previewRequest: PreviewRequest {
+        PreviewRequest(channels: installedChannels, guideRevision: library.guideRevision, now: guideNow,
+            active: channelRequest.active && channelPosition(focusedGuideItem?.stream.id) == nil)
+    }
+    private func loadDefaultPreview() async {
+        let request = previewRequest
+        guard request.active else { return }
+        let streams = filtered, programs = library.programsByChannel
+        let preview = try? await TVGuideChannelSnapshot.preview(in: streams, programs: programs, now: guideNow)
+        guard !Task.isCancelled, previewRequest == request else { return }
+        defaultPreview = preview
     }
     private var selectedTitle: String {
         if favoritesOnly { return "Favorites" }
@@ -105,13 +160,11 @@ struct GuideView: View {
     }
     private var guideViewMode: TVGuideViewMode { TVGuideViewMode.restored(guideViewModeValue) }
     private var previewItem: GuideFocusItem? {
-        if let focusedGuideItem, filtered.contains(where: { $0.id == focusedGuideItem.stream.id }) {
+        if let focusedGuideItem, channelPosition(focusedGuideItem.stream.id) != nil {
             return focusedGuideItem
         }
-        for stream in filtered {
-            if let program = library.guidePrograms(for: stream).first(where: { $0.start <= guideNow && guideNow < $0.end }) {
-                return GuideFocusItem(stream: stream, program: program)
-            }
+        if let preview = defaultPreview, channelPosition(preview.stream.id) != nil {
+            return GuideFocusItem(stream: preview.stream, program: preview.program)
         }
         return nil
     }
@@ -168,13 +221,18 @@ struct GuideView: View {
                                 GuideListHeader(now: guideNow, channelWidth: layout.listChannelWidth)
                             }
                             if filtered.isEmpty {
-                                Label(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.",
-                                      systemImage: favoritesOnly ? "star" : "rectangle.stack")
-                                    .font(.inter(22, .medium)).foregroundStyle(GuidePalette.secondary)
-                                    .padding(.top, 28).padding(.leading, 14)
-                                    .focusable()
-                                    .focused($gridFocus, equals: GuideGridFocus(streamID: -1, programStart: nil))
-                                    .modifier(GuideLeftBoundary(enabled: !sidebarVisible && !searchActive, onOpen: openSidebar))
+                                if loadingChannels {
+                                    ProgressView("Loading channels…")
+                                        .padding(.top, 28).padding(.leading, 14)
+                                } else {
+                                    Label(favoritesOnly ? "Your favorite channels will appear here." : "No channels in this category.",
+                                          systemImage: favoritesOnly ? "star" : "rectangle.stack")
+                                        .font(.inter(22, .medium)).foregroundStyle(GuidePalette.secondary)
+                                        .padding(.top, 28).padding(.leading, 14)
+                                        .focusable()
+                                        .focused($gridFocus, equals: GuideGridFocus(streamID: -1, programStart: nil))
+                                        .modifier(GuideLeftBoundary(enabled: !sidebarVisible && !searchActive, onOpen: openSidebar))
+                                }
                             } else {
                                 ScrollViewReader { proxy in
                                 ScrollView {
@@ -320,20 +378,18 @@ struct GuideView: View {
                 .lineupFullScreenCover(isPresented: $reorderingFavorites) {
                     TVFavoritesOrderView()
                 }
-                .task(id: isActive) {
-                    guard isActive else { return }
+                .task(id: channelRequest.active) {
+                    guard channelRequest.active else { return }
                     while !Task.isCancelled {
                         guideNow = Date()
                         do { try await Task.sleep(for: .seconds(5)) }
                         catch { return }
                     }
                 }
+                .task(id: channelRequest) { await loadChannels() }
+                .task(id: previewRequest) { await loadDefaultPreview() }
                 .onChange(of: gridFocus?.streamID) { _, streamID in rest(on: streamID) }
                 .onChange(of: guideViewModeValue) { _, value in restoreGuideFocus(for: value) }
-                .onChange(of: selectedCategoryID) { _, _ in restoreFilteredGuideFocus() }
-                .onChange(of: favoritesOnly) { _, _ in restoreFilteredGuideFocus() }
-                .onChange(of: searchActive) { _, _ in restoreFilteredGuideFocus() }
-                .onChange(of: query) { _, _ in restoreFilteredGuideFocus() }
                 // Away from the Guide nothing plays, and coming back to it
                 // plays nothing until the remote rests on a channel.
                 .onChange(of: isActive) { _, active in
@@ -402,7 +458,7 @@ struct GuideView: View {
     }
 
     private func restoreFilteredGuideFocus() {
-        guard !filtered.contains(where: { $0.id == gridFocus?.streamID }), let first = filtered.first else { return }
+        guard channelPosition(gridFocus?.streamID) == nil, let first = filtered.first else { return }
         if guideViewMode == .list {
             gridFocus = GuideGridFocus(streamID: first.id, programStart: nil)
         } else {
@@ -431,7 +487,7 @@ struct GuideView: View {
     private func moveGuideFocus(_ direction: MoveCommandDirection, from cell: GuideGridFocus,
                                 proxy: ScrollViewProxy) {
         let source = navigation.headingTo() ?? cell
-        guard let row = filtered.firstIndex(where: { $0.id == source.streamID }) else { return }
+        guard let row = channelPosition(source.streamID) else { return }
 
         switch direction {
         case .up, .down:
@@ -470,7 +526,7 @@ struct GuideView: View {
     private func moveGuideListFocus(_ direction: MoveCommandDirection, from cell: GuideGridFocus,
                                     proxy: ScrollViewProxy) {
         let source = navigation.headingTo() ?? cell
-        guard let row = filtered.firstIndex(where: { $0.id == source.streamID }) else { return }
+        guard let row = channelPosition(source.streamID) else { return }
         switch direction {
         case .left:
             openSidebar()

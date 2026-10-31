@@ -124,7 +124,15 @@ private struct TVTabBarStateKey: EnvironmentKey {
     static let defaultValue: TVTabBarState? = nil
 }
 
+private struct TVTabIsActiveKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
 extension EnvironmentValues {
+    var tvTabIsActive: Bool {
+        get { self[TVTabIsActiveKey.self] }
+        set { self[TVTabIsActiveKey.self] = newValue }
+    }
     var tvTabBar: TVTabBarState? {
         get { self[TVTabBarStateKey.self] }
         set { self[TVTabBarStateKey.self] = newValue }
@@ -139,10 +147,17 @@ private extension View {
 
 struct MainView: View {
     @State private var selectedTab = 0
+    @State private var sportsSpotlight: LiveSpotlight
+    @State private var sportsCanvas = TVSportsCanvasState()
     @State private var tabBar = TVTabBarState()
     /// The accent chosen on the phone, which iCloud brings here: the tabs
     /// are drawn again in it when it changes, as the phone's are.
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
+
+    init(initialTab: Int = 0, spotlight: LiveSpotlight = LiveSpotlight()) {
+        _selectedTab = State(initialValue: initialTab)
+        _sportsSpotlight = State(initialValue: spotlight)
+    }
 
     var body: some View {
         // The tabs are Lineup's primary navigation, not transient playback
@@ -151,7 +166,7 @@ struct MainView: View {
         // to restore it afterward, so every tab states it, and only a title's
         // page takes it away (`TVTabBarState`).
         TabView(selection: $selectedTab) {
-            LiveView(isActive: selectedTab == 0)
+            LiveView(isActive: selectedTab == 0, spotlight: sportsSpotlight)
                 .environment(\.tvPlaybackPlace, .sports)
                 .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
@@ -164,6 +179,7 @@ struct MainView: View {
                 .tabItem { Label("TV Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
                 .tag(1)
             MediaServersView()
+                .environment(\.tvTabIsActive, selectedTab == 2)
                 .environment(\.tvPlaybackPlace, .library)
                 .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
@@ -180,12 +196,20 @@ struct MainView: View {
             // Not rebuilt for a new accent: the accent is chosen here, and
             // rebuilding would throw the remote off the swatch it is on.
             AccountView(selectedTab: $selectedTab)
+                .environment(\.tvTabIsActive, selectedTab == 3)
                 .environment(\.tvPlaybackPlace, .library)
                 .tabBar(hidden: tabBar.hidden)
                 .tabItem { Label("Settings", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
                 .tag(3)
         }
         .environment(\.tvTabBar, tabBar)
+        .environment(\.tvSportsCanvasState, sportsCanvas)
+        // Outside the native tab container: top navigation, overscan margins
+        // and the bottom crawl share one palette and one gradient layer.
+        .background {
+            TVSportsTabCanvas(canvas: sportsCanvas, active: selectedTab == 0)
+        }
+        .toolbarBackground(selectedTab == 0 ? .hidden : .visible, for: .tabBar)
         // A tab changed is a tab's own screen showing.
         .onChange(of: selectedTab) { _, _ in tabBar.reset() }
         .ignoresSafeArea(.container, edges: .bottom)

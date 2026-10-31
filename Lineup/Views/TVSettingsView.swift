@@ -9,6 +9,8 @@ struct AccountView: View {
     @Binding var selectedTab: Int
     @Environment(SportsLibrary.self) private var library
     @Environment(MediaLibrary.self) private var media
+    @Environment(\.tvTabIsActive) private var tabIsActive
+    @StateObject private var browseRows = TVLibraryBrowseRows()
     @EnvironmentObject private var cloud: CloudSettingsSync
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var category: TVSettingsCategory
@@ -355,8 +357,13 @@ struct AccountView: View {
                 .disabled(!media.hasAnySource || media.isLoading)
             TVSettingsAction(symbol: "trash", title: "Clear Local Tracking",
                              detail: "Remove Continue Watching and local watched status from this Apple TV.", destructive: true) { clearingHistory = true }
-                .disabled(media.continueWatching.isEmpty && media.watchHistory.isEmpty)
+                .disabled(!hasLocalTrackingRecords)
         }
+    }
+
+    private var hasLocalTrackingRecords: Bool {
+        let snapshot = browseRows.snapshot(in: media, active: tabIsActive && category == .library)
+        return !snapshot.continuing.isEmpty || snapshot.hasHistory
     }
 
     private var sportsRows: some View {

@@ -5,6 +5,8 @@ import LineupMPVPlayback
 
 struct LiveView: View {
     @Environment(SportsLibrary.self) private var library
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.tvSportsCanvasState) private var rootCanvas
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
     @State private var soccerCompetition: String?
@@ -96,7 +98,8 @@ struct LiveView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
                 // The ticker belongs to the same full-height Sports layout.
-                LiveTicker(events: tickerEvents)
+                LiveTicker(events: tickerEvents, isActive: isActive && scenePhase == .active
+                    && fullScreen == nil && multiviewSession == nil)
                     .frame(height: LiveTicker.height)
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
@@ -186,8 +189,8 @@ struct LiveView: View {
                     secondaryGame: session.secondaryGame
                 )
             }
-            .task(id: isActive) {
-                guard isActive else { return }
+            .task(id: isActive && scenePhase == .active) {
+                guard isActive, scenePhase == .active else { return }
                 while !Task.isCancelled {
                     // Refresh on entry too, so returning to Sports does not
                     // leave an old score visible for another polling interval.
@@ -210,7 +213,10 @@ struct LiveView: View {
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         // Own one canvas outside the clipped content viewport so it reaches
         // behind both system navigation and the score ticker.
-        .background(LiveCanvas(spotlight: spotlight, events: events))
+        .background {
+            if let rootCanvas { TVSportsCanvasSource(spotlight: spotlight, events: events, canvas: rootCanvas, active: isActive) }
+            else { LiveCanvas(spotlight: spotlight, events: events) }
+        }
         .toolbarBackground(.hidden, for: .tabBar)
     }
 
