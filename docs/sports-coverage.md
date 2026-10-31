@@ -6,10 +6,14 @@ preferences, previews, and fullscreen playback. The playback engines are unchang
 
 ## Soccer
 
-The bundled directory contains 374 distinct clubs and national teams across 18
+The bundled directory contains 584 distinct clubs and national teams across 22
 competitions: Premier League, La Liga, Bundesliga, Serie A, Ligue 1, MLS, NWSL,
 Champions League, Europa League, Conference League, men's and women's World Cups,
 EURO, Copa América, Gold Cup, Africa Cup of Nations, Asian Cup, and Nations League.
+England's Carabao Cup and FA Cup and Spain's Copa del Rey and Supercopa de España
+are also included. The original 374 soccer identities, names, abbreviations,
+crests and competition memberships are retained. ESPN supplies no crest for
+some lower-division cup entrants; those use the existing team-initials fallback.
 Use the competition filter in Sports or Settings > My Teams. Follow identity is
 the ESPN team ID, so following a club once covers its domestic and cup games.
 Men's and women's national teams retain separate IDs.

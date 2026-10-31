@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
+CUPS = {"eng.league_cup": "3920", "eng.fa": "3918", "esp.copa_del_rey": "3951", "esp.super_cup": "8102"}
 
 
 class TeamDirectoryChecks(unittest.TestCase):
@@ -28,13 +29,19 @@ class TeamDirectoryChecks(unittest.TestCase):
         self.assertTrue(all(team["name"] and team["espnID"] for team in self.teams))
 
     def test_real_team_and_league_logos_on_both_platforms(self):
-        self.assertTrue(all(urlparse(team["logo"]).scheme == "https"
-                            and urlparse(team["logo"]).hostname == "a.espncdn.com" for team in self.teams))
+        for team in self.teams:
+            if not team['logo']:
+                self.assertEqual(team['league'], 'soccer')
+                self.assertTrue(set(team['competitions']).issubset(CUPS),
+                                'Only cup-only clubs without an upstream crest may use the initials fallback')
+            else:
+                self.assertEqual(urlparse(team['logo']).scheme, 'https')
+                self.assertEqual(urlparse(team['logo']).hostname, 'a.espncdn.com')
         for platform in ("Lineup", "iPhone"):
             for league in {team["league"] for team in self.teams}:
                 if league == 'soccer':
                     catalog = json.loads((ROOT / 'Lineup/Resources/SportsCompetitions.json').read_text(encoding='utf-8'))
-                    self.assertEqual(len(catalog['competitions']), 18)
+                    self.assertEqual(len(catalog['competitions']), 22)
                     self.assertTrue(all(urlparse(c['logo']).hostname == 'a.espncdn.com' for c in catalog['competitions']))
                     continue
                 asset = ROOT / platform / "Assets.xcassets" / f"League-{league}.imageset"
@@ -53,13 +60,16 @@ class TeamDirectoryChecks(unittest.TestCase):
 
     def test_soccer_competitions_share_ids_and_racing_marks_are_original(self):
         catalog = json.loads((ROOT / 'Lineup/Resources/SportsCompetitions.json').read_text(encoding='utf-8'))['competitions']
-        self.assertEqual(len({c['id'] for c in catalog}), 18)
-        self.assertEqual(len({c['feedID'] for c in catalog}), 18)
+        self.assertEqual(len({c['id'] for c in catalog}), 22)
+        self.assertEqual(len({c['feedID'] for c in catalog}), 22)
+        self.assertEqual({c['id']: c['feedID'] for c in catalog if c['id'] in CUPS}, CUPS)
         known = {c['id'] for c in catalog}
         for team in self.teams:
             if team['league'] == 'soccer':
                 self.assertTrue(team['competitions'])
                 self.assertTrue(set(team['competitions']).issubset(known))
+        for competition in CUPS:
+            self.assertTrue(any(competition in t.get('competitions', []) for t in self.teams))
         marks = json.loads((ROOT / 'Lineup/Resources/SportsArtworkSources.json').read_text())
         self.assertEqual(set(marks), {'f1', 'nascar'})
         self.assertEqual(urlparse(marks['nascar']['source']).hostname, 'rf.nascar.com')

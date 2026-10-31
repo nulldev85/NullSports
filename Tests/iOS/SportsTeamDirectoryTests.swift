@@ -20,10 +20,19 @@ final class SportsTeamDirectoryTests: XCTestCase {
         XCTAssertEqual(Set(college.compactMap(\.division)), ["FBS", "FCS"])
         XCTAssertEqual(Set(directory.teams.map(\.id)).count, directory.teams.count)
         XCTAssertGreaterThan(directory.teams(in: .soccer).count, 300)
-        XCTAssertTrue(directory.teams.allSatisfy { !$0.name.isEmpty && !$0.abbreviation.isEmpty && URL(string: $0.logo)?.scheme == "https" })
+        XCTAssertTrue(directory.teams.allSatisfy { !$0.name.isEmpty && !$0.abbreviation.isEmpty })
+        let cups: Set<String> = ["eng.league_cup", "eng.fa", "esp.copa_del_rey", "esp.super_cup"]
+        for team in directory.teams {
+            if team.logo.isEmpty {
+                XCTAssertEqual(team.league, .soccer)
+                XCTAssertFalse(team.competitions?.isEmpty ?? true)
+                XCTAssertTrue(Set(team.competitions ?? []).isSubset(of: cups),
+                              "Only cup-only clubs missing an ESPN crest may use the existing initials fallback")
+            } else { XCTAssertEqual(URL(string: team.logo)?.scheme, "https") }
+        }
         for league in SportsTeamDirectory.leagues {
             if league == .soccer {
-                XCTAssertEqual(SportsCompetitionCatalog.bundled.competitions.count, 18)
+                XCTAssertEqual(SportsCompetitionCatalog.bundled.competitions.count, 22)
                 XCTAssertTrue(SportsCompetitionCatalog.bundled.competitions.allSatisfy { URL(string: $0.logo)?.scheme == "https" })
                 continue // Soccer is a category; each actual competition supplies its own official logo.
             }
@@ -120,6 +129,10 @@ final class SportsTeamDirectoryTests: XCTestCase {
         XCTAssertTrue(library.isFollowing(game))
         game.competition = SportsCompetitionCatalog.bundled.competitions.first { $0.id == "uefa.champions" }
         XCTAssertTrue(library.isFollowing(game))
+        for slug in ["eng.league_cup", "eng.fa", "esp.copa_del_rey", "esp.super_cup"] {
+            game.competition = try XCTUnwrap(SportsCompetitionCatalog.bundled.competitions.first { $0.id == slug })
+            XCTAssertTrue(library.isFollowing(game), "A club's existing follow must apply to \(slug)")
+        }
         let changedDisplay = FollowedTeam(key: club.key, name: "Chelsea FC", abbreviation: "CFC", logo: club.logo)
         let restored = try JSONDecoder().decode(FollowedTeam.self, from: JSONEncoder().encode(changedDisplay))
         XCTAssertEqual(restored.key, club.key, "Saved identity must not be reconstructed from a changed display abbreviation")

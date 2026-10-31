@@ -1,4 +1,9 @@
 import XCTest
+import Observation
+#if os(iOS)
+import SwiftUI
+import UIKit
+#endif
 #if os(tvOS)
 @testable import Lineup
 #else
@@ -7,6 +12,202 @@ import XCTest
 
 @MainActor
 final class LibraryReliabilityTests: XCTestCase {
+    private func cachedFixture(itemCount: Int) throws -> (MediaServerProfile, UserDefaults, URL) {
+        let profile = MediaServerProfile(name: "Cached", serverURL: "https://cache.invalid", username: "viewer", userID: "viewer")
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "LibraryCacheResponsiveness.\(profile.id)"))
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        let root = MediaItem(id: "movies", name: "Cached Movies", type: "CollectionFolder", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil, serverID: profile.id)
+        let items = (0..<itemCount).map { index in
+            MediaItem(id: "film-\(index)", name: "Cached Film \(index)", type: "Movie", overview: "Cached metadata",
+                productionYear: 2026, primaryImageAspectRatio: nil, childCount: nil, serverID: profile.id)
+        }
+        let snapshot = MediaLibrary.LibrarySnapshot(roots: [root], collections: [], importedCatalogs: [],
+            catalogs: [MediaCatalog(root: root, items: items)], counts: nil, refreshedAt: Date(),
+            siloPlayback: nil, siloFavorites: nil)
+        let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Lineup-media-library-\(profile.id.uuidString).json")
+        try JSONEncoder().encode(snapshot).write(to: url, options: .atomic)
+        return (profile, defaults, url)
+    }
+
+    func testLargeLaunchCacheYieldsTheUIActorAndSettingsTitleDoesNotObserveItemMetadata() async throws {
+        let (profile, defaults, file) = try cachedFixture(itemCount: 30_000)
+        defer {
+            defaults.removePersistentDomain(forName: "LibraryCacheResponsiveness.\(profile.id)")
+            try? FileManager.default.removeItem(at: file)
+        }
+        let state = LibraryCacheHeartbeat()
+        let heartbeat = Task { @MainActor in
+            while !state.finished { state.count += 1; await Task.yield() }
+        }
+        let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""), trackingKey: { nil })
+        await library.restoreCachedLibrary()
+        state.finished = true
+        await heartbeat.value
+        XCTAssertGreaterThan(state.count, 0, "Reading/decoding a large Library must not hold up the app's root")
+        XCTAssertEqual(library.state(of: profile).catalogs.first?.items.count, 30_000)
+        XCTAssertEqual(library.heroCatalogTitle, "Cached Movies")
+        withObservationTracking {
+            XCTAssertEqual(library.heroCatalogTitle, "Cached Movies")
+        } onChange: {
+            MainActor.assumeIsolated { state.invalidated = true }
+        }
+        let heroState = LibraryCacheHeartbeat()
+        withObservationTracking {
+            XCTAssertEqual(library.heroCatalog?.items.count, 30_000)
+            XCTAssertEqual(library.heroCatalogChoices.first?.items.count, 30_000)
+            XCTAssertEqual(library.shelves.first?.items.count, 30_000)
+        } onChange: {
+            MainActor.assumeIsolated { heroState.invalidated = true }
+        }
+        library.setMetadataSource(.provider)
+        library.setMetadataSource(.provider, episodes: true)
+        XCTAssertFalse(state.invalidated, "Settings' shelf title must not depend on remapping item metadata")
+        XCTAssertFalse(heroState.invalidated, "Choosing the hero source must not observe/remap metadata for every item")
+        let featured = MediaHeroCatalogSelection.featuredItems(in: try XCTUnwrap(library.heroCatalog))
+        XCTAssertEqual(featured.map(\.id), (0..<10).map { "film-\($0)" })
+        XCTAssertEqual(library.heroCatalog?.title, library.heroCatalogTitle)
+    }
+
+    func testRemovingAProfileDuringCacheRestoreCannotRestoreItsShelves() async throws {
+        let (profile, defaults, file) = try cachedFixture(itemCount: 100)
+        defer {
+            defaults.removePersistentDomain(forName: "LibraryCacheResponsiveness.\(profile.id)")
+            try? FileManager.default.removeItem(at: file)
+        }
+        let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""), trackingKey: { nil })
+        library.remove(profile)
+        await library.restoreCachedLibrary()
+        XCTAssertTrue(library.profiles.isEmpty)
+        XCTAssertTrue(library.catalogs.isEmpty)
+        XCTAssertNil(library.servers[profile.id])
+    }
+
+    #if os(iOS)
+    func testRealSettingsRetainsItsScrollableListDuringPlaybackUpdatesWithALargeLibrary() async throws {
+        let (profile, defaults, file) = try cachedFixture(itemCount: 30_000)
+        defer {
+            defaults.removePersistentDomain(forName: "LibraryCacheResponsiveness.\(profile.id)")
+            try? FileManager.default.removeItem(at: file)
+        }
+        let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""), trackingKey: { nil },
+            serverClientFactory: { _ in throw URLError(.notConnectedToInternet) })
+        await media.restoreCachedLibrary()
+        let library = SportsLibrary(profileDefaults: defaults, automaticRefreshes: false)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: MainView(initialTab: .settings)
+            .environment(library).environment(media).environmentObject(CloudSettingsSync.shared)
+            .environment(\.scenePhase, .active).preferredColorScheme(.dark))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        func scroll(in view: UIView) -> UIScrollView? {
+            guard !view.isHidden, view.alpha > 0.01 else { return nil }
+            if let scroll = view as? UIScrollView, scroll.contentSize.height > scroll.bounds.height { return scroll }
+            return view.subviews.lazy.compactMap { scroll(in: $0) }.first
+        }
+        func navigationProbe(in view: UIView) -> MobileTabBarAppearance.Probe? {
+            if let probe = view as? MobileTabBarAppearance.Probe { return probe }
+            return view.subviews.lazy.compactMap { navigationProbe(in: $0) }.first
+        }
+        let deadline = Date().addingTimeInterval(5)
+        while (scroll(in: window) == nil || navigationProbe(in: window)?.navigation?.tabs == nil), Date() < deadline {
+            window.layoutIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let list = try XCTUnwrap(scroll(in: window))
+        list.setContentOffset(CGPoint(x: 0, y: 120), animated: false)
+        window.layoutIfNeeded()
+        let offset = list.contentOffset.y
+        let diagnostics = PlaybackDiagnostics.shared, wasEnabled = diagnostics.isEnabled
+        diagnostics.isEnabled = true
+        defer { diagnostics.isEnabled = wasEnabled }
+        for index in 0..<20 {
+            diagnostics.record("Settings responsiveness sample \(index)")
+            await Task.yield()
+            window.layoutIfNeeded()
+            XCTAssertTrue(scroll(in: window) === list, "Playback updates must not replace the Settings list")
+            XCTAssertEqual(list.contentOffset.y, offset, accuracy: 1, "Settings must not jump while the player publishes diagnostics")
+        }
+        let navigation = try XCTUnwrap(navigationProbe(in: window)?.navigation)
+        let tabs = try XCTUnwrap(navigation.tabs)
+        XCTAssertEqual(tabs.selectedIndex, navigation.order.firstIndex(of: .settings))
+        let previousGlass = UserDefaults.standard.object(forKey: MobileNavigationStyle.glassKey)
+        defer {
+            if let previousGlass { UserDefaults.standard.set(previousGlass, forKey: MobileNavigationStyle.glassKey) }
+            else { UserDefaults.standard.removeObject(forKey: MobileNavigationStyle.glassKey) }
+        }
+        // Sample the transition itself in the production tab container. An
+        // endpoint-only check misses a page that jumps and returns meanwhile.
+        for glass in [false, true] {
+            UserDefaults.standard.set(glass, forKey: MobileNavigationStyle.glassKey)
+            navigation.expand()
+            try await Task.sleep(for: .milliseconds(450))
+            window.layoutIfNeeded()
+            XCTAssertTrue(scroll(in: window) === list)
+            list.setContentOffset(CGPoint(x: 0, y: 180), animated: false)
+            let before = list.contentOffset.y
+            let viewport = list.convert(list.bounds, to: window)
+            navigation.scrollObservation.discoverScrollViews(from: list)
+            navigation.scrollObservation.receivePanInput(from: list, phase: .began, translation: .zero)
+            navigation.scrollObservation.receivePanInput(from: list, phase: .changed, translation: CGPoint(x: 0, y: -65))
+            var positions: [CGFloat] = []
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(16))
+                window.layoutIfNeeded()
+                positions.append(list.contentOffset.y)
+                XCTAssertTrue(scroll(in: window) === list, "Compacting navigation must retain the real Settings list")
+                if glass && MobileNavigationStyle.supportsGlass {
+                    let current = list.convert(list.bounds, to: window)
+                    XCTAssertEqual(current.minY, viewport.minY, accuracy: 1, "Glass compaction must retain the viewport origin")
+                    XCTAssertEqual(current.height, viewport.height, accuracy: 1, "Glass compaction must retain the viewport height")
+                }
+            }
+            XCTAssertTrue(navigation.isCompact, "An active Settings pan must exercise compact navigation; glass=\(glass)")
+            XCTAssertLessThanOrEqual(positions.map { abs($0 - before) }.max() ?? 0, 1,
+                "Settings must remain stable throughout compaction; glass=\(glass), before=\(before), positions=\(positions), insets=\(list.adjustedContentInset)")
+            if glass && MobileNavigationStyle.supportsGlass {
+                XCTAssertFalse(tabs.tabBar.isHidden, "Glass retains native layout space while compacted")
+                XCTAssertEqual(tabs.tabBar.alpha, 0, accuracy: 0.001)
+                XCTAssertFalse(tabs.tabBar.isUserInteractionEnabled)
+                XCTAssertTrue(tabs.tabBar.accessibilityElementsHidden)
+            }
+            navigation.scrollObservation.receivePanInput(from: list, phase: .ended, translation: CGPoint(x: 0, y: -65))
+            let compactOffset = list.contentOffset.y
+            navigation.expand()
+            var expandedPositions: [CGFloat] = []
+            for _ in 0..<30 {
+                try await Task.sleep(for: .milliseconds(16))
+                window.layoutIfNeeded()
+                expandedPositions.append(list.contentOffset.y)
+                XCTAssertTrue(scroll(in: window) === list, "Expanding navigation must retain the real Settings list")
+                if glass && MobileNavigationStyle.supportsGlass {
+                    let current = list.convert(list.bounds, to: window)
+                    XCTAssertEqual(current.minY, viewport.minY, accuracy: 1, "Glass expansion must retain the viewport origin")
+                    XCTAssertEqual(current.height, viewport.height, accuracy: 1, "Glass expansion must retain the viewport height")
+                }
+            }
+            XCTAssertFalse(navigation.isCompact)
+            XCTAssertLessThanOrEqual(expandedPositions.map { abs($0 - compactOffset) }.max() ?? 0, 1,
+                "Settings must remain stable throughout expansion; glass=\(glass), before=\(compactOffset), positions=\(expandedPositions), insets=\(list.adjustedContentInset)")
+            if glass && MobileNavigationStyle.supportsGlass {
+                XCTAssertEqual(tabs.tabBar.alpha, 1, accuracy: 0.001)
+                XCTAssertTrue(tabs.tabBar.isUserInteractionEnabled)
+                XCTAssertFalse(tabs.tabBar.accessibilityElementsHidden)
+            }
+        }
+        XCTAssertTrue(list.isScrollEnabled)
+        XCTAssertEqual(media.heroCatalogTitle, "Cached Movies")
+        let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        })
+        attachment.name = "Settings-large-library"; attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+    #endif
+
     private func fixture() throws -> (MediaLibrary, MediaServerProfile, UserDefaults, URLSession) {
         let profile = MediaServerProfile(name: "Test", serverURL: "https://library-review.test/base", username: "viewer", userID: "viewer")
         let defaults = UserDefaults(suiteName: "LibraryReliability." + UUID().uuidString)!
@@ -107,6 +308,13 @@ final class LibraryReliabilityTests: XCTestCase {
         XCTAssertNotNil(second.failure)
         XCTAssertEqual(LibraryReliabilityProtocol.requestCount, 1)
     }
+}
+
+@MainActor
+private final class LibraryCacheHeartbeat {
+    var finished = false
+    var count = 0
+    var invalidated = false
 }
 
 private final class LibraryReliabilityProtocol: URLProtocol, @unchecked Sendable {

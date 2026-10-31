@@ -420,7 +420,7 @@ struct LibraryHeroSettingsView: View {
     /// it groups them.
     private var groups: [ChoiceGroup] {
         var groups: [ChoiceGroup] = []
-        let shelves = media.catalogs.filter { !$0.items.isEmpty }.map { catalog in
+        let shelves = media.heroCatalogChoices.filter { !$0.items.isEmpty }.map { catalog in
             Choice(id: catalog.id, title: media.shelfTitle(catalog),
                    detail: [featured(catalog.items.count), media.serverName(for: catalog)]
                        .compactMap { $0 }.joined(separator: " · "),

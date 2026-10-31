@@ -16,13 +16,48 @@ struct PreparedLiveMatch: Codable, Sendable {
     let programs: [String: [CurrentProgram]]
     let categoryNames: [String: String]
 
+    /// Store the proof at the event's matching point, rather than duplicating
+    /// that channel's entire day of guide data for every saved event.
+    static func evidence(_ entries: [CurrentProgram], eventStart: Date, preparedAt: Date) -> [CurrentProgram] {
+        let point = max(eventStart, preparedAt)
+        return entries.filter { $0.start <= point && point < $0.end }
+    }
+
+    func compacted() -> Self {
+        .init(preparedAt: preparedAt, eventStart: eventStart, identity: identity, primary: primary,
+            alternatives: alternatives, programs: programs.mapValues {
+                Self.evidence($0, eventStart: eventStart, preparedAt: preparedAt)
+            }, categoryNames: categoryNames)
+    }
+
     static func identity(for game: SportsGame) -> [String] {
+        if game.league.isTennis, game.isEvent {
+            // The tournament's next court and round move throughout a live
+            // broadcast. They do not change which tournament the feed covers.
+            // Program expiry still bounds playback of this saved evidence.
+            return ["prepared-tennis-event-v1", game.id, game.league.rawValue,
+                    game.eventName ?? "", game.location ?? "", game.broadcast]
+        }
+        return previousPreparedIdentity(for: game)
+    }
+
+    static func previousPreparedIdentity(for game: SportsGame) -> [String] {
         ["prepared-v1", game.league.rawValue, game.awayTeam, game.homeTeam,
          game.awayAbbreviation, game.homeAbbreviation, game.broadcast,
          game.eventName ?? "", game.competition?.id ?? "", game.race?.kind ?? "",
          String(game.start.timeIntervalSince1970), game.venue ?? "", game.location ?? "",
          game.race?.eventID ?? "", game.race?.title ?? "", game.race?.circuit ?? "",
          game.league == .ncaaf && CollegeChannelMatcher.isDelayed(status: game.status) ? "delayed" : ""]
+    }
+
+    /// Upgrade only a previous proof of this exact saved tournament card.
+    /// Neither its preparation timestamp nor its program expiry is renewed.
+    func restored(for game: SportsGame, now: Date) -> Self? {
+        if isCurrent(identity: Self.identity(for: game), now: now) { return self }
+        guard game.league.isTennis, game.isEvent,
+              isCurrent(identity: Self.previousPreparedIdentity(for: game), now: now) else { return nil }
+        return .init(preparedAt: preparedAt, eventStart: eventStart, identity: Self.identity(for: game),
+            primary: primary, alternatives: alternatives, programs: programs, categoryNames: categoryNames)
     }
 
     /// The identity used by the existing on-disk match cache before prepared
@@ -125,6 +160,12 @@ struct PreparedLiveSnapshot: Codable, Sendable {
     let loadedLeagues: Set<String>
     let matches: [String: PreparedLiveMatch]
     var playlistSources: Data? = nil
+
+    func compactedForStorage() -> Self {
+        .init(version: version, connection: connection, savedAt: savedAt, dailyPreparedAt: dailyPreparedAt,
+            games: games, loadedLeagues: loadedLeagues, matches: matches.mapValues { $0.compacted() },
+            playlistSources: playlistSources)
+    }
 
     static func connection(for profile: XtreamProfile) -> [String] {
         [profile.id.uuidString, profile.serverURL, profile.username, profile.connectionKind ?? ""]

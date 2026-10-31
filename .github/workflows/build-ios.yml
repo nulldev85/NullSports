@@ -56,6 +56,7 @@ jobs:
       - name: Check shared sports logic
         run: |
           set -euo pipefail
+          python3 -B Tools/check-tv-sports-refresh.py --phone
           python3 -B Tests/TeamDirectoryChecks.py
           python3 -B Tests/SimulatorSelectionChecks.py
           swiftc Tests/iOS/PlaybackFixtureByteRange.swift Tests/PlaybackFixtureRangeChecks.swift -o /tmp/playback-fixture-range-checks
@@ -245,8 +246,30 @@ jobs:
           xcodebuild -project Lineup.xcodeproj -scheme LineupiOS \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD \
+            DEBUG_INFORMATION_FORMAT=dwarf-with-dsym \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' build/Build/Products/Release-iphoneos/Lineup.app/Info.plist)" = "$BUILD_NUMBER"
+      - name: Preserve matching symbols for device hang reports
+        run: |
+          set -euo pipefail
+          app="build/Build/Products/Release-iphoneos/Lineup.app"
+          symbols="$app.dSYM"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")
+          test -d "$symbols"
+          diff <(xcrun dwarfdump --uuid "$app/$executable" | awk '{print $2, $3}' | sort) \
+               <(xcrun dwarfdump --uuid "$symbols" | awk '{print $2, $3}' | sort)
+          mkdir -p device-symbols
+          cp -R "$symbols" device-symbols/
+          xcrun dwarfdump --uuid "$symbols" > device-symbols/binary-uuids.txt
+          printf '%s\n' "Commit: $GITHUB_SHA" "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            > device-symbols/build.txt
+      - name: Upload iPhone diagnostic symbols
+        uses: actions/upload-artifact@v6
+        with:
+          name: Lineup-iPhone-symbols-${{ github.run_number }}
+          path: device-symbols
+          if-no-files-found: error
+          retention-days: 30
       - name: Check metadata is bundled
         run: |
           set -euo pipefail

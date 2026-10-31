@@ -25,11 +25,19 @@ COMPETITIONS = [
     ("caf.nations", "Africa Cup of Nations", "AFCON"),
     ("afc.asian.cup", "AFC Asian Cup", "Asian Cup"),
     ("uefa.nations", "UEFA Nations League", "Nations League"),
+    ("eng.league_cup", "Carabao Cup", "Carabao Cup"),
+    ("eng.fa", "FA Cup", "FA Cup"),
+    ("esp.copa_del_rey", "Copa del Rey", "Copa del Rey"),
+    ("esp.super_cup", "Supercopa de España", "Supercopa"),
 ]
+CUP_IDS = {"eng.league_cup", "eng.fa", "esp.copa_del_rey", "esp.super_cup"}
 
 
 def refresh(cache_dir):
     cache_dir.mkdir(parents=True, exist_ok=True)
+    directory_path = ROOT / "Lineup/Resources/SportsTeams.json"
+    directory = json.loads(directory_path.read_text(encoding="utf-8"))
+    known_logos = {team['espnID']: team['logo'] for team in directory['teams'] if team['league'] == 'soccer'}
 
     def read(path, name):
         url = "https://site.api.espn.com/apis/site/v2/sports/" + path
@@ -62,8 +70,11 @@ def refresh(cache_dir):
             if not team.get("isActive", True) or team.get("isAllStar", False):
                 continue
             logo = next((x["href"] for x in team.get("logos", []) if x["href"].startswith("https://")), None)
-            if not logo:
+            logo = logo or known_logos.get(str(team['id']), '')
+            if not logo and league['id'] not in CUP_IDS:
                 raise ValueError(f"Missing official crest for {team['displayName']}")
+            # ESPN supplies no crest for some lower-division cup entrants.
+            # Retain those clubs with the app's existing initials fallback.
             item = clubs.setdefault(str(team["id"]), dict(league="soccer", espnID=str(team["id"]),
                 name=team["displayName"], abbreviation=team.get("abbreviation", ""), logo=logo,
                 division=None, competitions=[]))
@@ -74,8 +85,6 @@ def refresh(cache_dir):
     payload = dict(updatedAt=datetime.date.today().isoformat(), sources=sources, competitions=catalog)
     (ROOT / "Lineup/Resources/SportsCompetitions.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    directory_path = ROOT / "Lineup/Resources/SportsTeams.json"
-    directory = json.loads(directory_path.read_text(encoding="utf-8"))
     directory["teams"] = [t for t in directory["teams"] if t["league"] != "soccer"] + sorted(clubs.values(), key=lambda t: t["name"].casefold())
     directory["sources"] = list(dict.fromkeys(directory["sources"] + sources[1::2]))
     directory["updatedAt"] = payload["updatedAt"]

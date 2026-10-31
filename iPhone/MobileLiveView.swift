@@ -8,7 +8,7 @@ struct MobileLiveView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.verticalSizeClass) private var verticalSizeClass
-    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
+    @Environment(\.mobileUsesNativeTabBarLayout) private var usesNativeTabBarLayout
     @State private var league: SportsLeague?
     @State private var soccerCompetition: String?
     @State private var onlyFollowed = false
@@ -305,7 +305,7 @@ struct MobileLiveView: View {
             }
             .background(Color.black)
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
+            .toolbar(fillsScreen || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
             // Turning the phone needs no animation of its own: the rotation

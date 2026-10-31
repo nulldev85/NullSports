@@ -5,6 +5,8 @@ import LineupMPVPlayback
 
 struct LiveView: View {
     @Environment(SportsLibrary.self) private var library
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.tvSportsCanvasState) private var rootCanvas
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
     @State private var soccerCompetition: String?
@@ -43,6 +45,11 @@ struct LiveView: View {
     @State private var catchUpLookup: Task<Void, Never>?
     @State private var showingReplays = false
 
+    init(isActive: Bool, spotlight: LiveSpotlight = LiveSpotlight()) {
+        self.isActive = isActive
+        _spotlight = State(initialValue: spotlight)
+    }
+
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
     private var events: [SportsGame] {
@@ -57,7 +64,10 @@ struct LiveView: View {
     var body: some View {
         GeometryReader { container in
             VStack(spacing: 0) {
-                NavigationStack {
+                // Sports presents its destinations in their own covers; it
+                // has no pushed routes. An unused native navigation container
+                // paints a separate ground above the full-screen canvas.
+                Group {
                     LiveScreen(
                         events: events,
                         spotlight: spotlight,
@@ -80,7 +90,6 @@ struct LiveView: View {
                         onStopPreview: stopPreview
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(LiveCanvas(spotlight: spotlight, events: events))
                     // Hold Select on any game for its channel, wherever the
                     // game's card is.
                     .environment(\.liveChooseChannel, { chooseChannel(for: $0) })
@@ -88,13 +97,12 @@ struct LiveView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                // The ticker belongs to the full-height Live layout, outside
-                // NavigationStack's independently inset content area.
-                LiveTicker(events: tickerEvents)
+                // The ticker belongs to the same full-height Sports layout.
+                LiveTicker(events: tickerEvents, isActive: isActive && scenePhase == .active
+                    && fullScreen == nil && multiviewSession == nil)
                     .frame(height: LiveTicker.height)
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
-            .background(LineupStyle.background)
             .lineupFullScreenCover(item: $fullScreen) { item in
                 PlayerView(
                     urls: library.playbackURLs(for: item.stream),
@@ -181,13 +189,14 @@ struct LiveView: View {
                     secondaryGame: session.secondaryGame
                 )
             }
-            .task(id: isActive) {
-                guard isActive else { return }
+            .task(id: isActive && scenePhase == .active) {
+                guard isActive, scenePhase == .active else { return }
                 while !Task.isCancelled {
+                    // Refresh on entry too, so returning to Sports does not
+                    // leave an old score visible for another polling interval.
+                    library.refreshSchedule(showsLoading: false, includeTomorrow: false)
                     do { try await Task.sleep(for: .seconds(30)) }
                     catch { return }
-                    // Live scores need refreshing every 30s; tomorrow's slate does not.
-                    library.refreshSchedule(showsLoading: false, includeTomorrow: false)
                 }
             }
             .onChange(of: isActive) { _, active in
@@ -202,7 +211,13 @@ struct LiveView: View {
             .onDisappear { catchUpLookup?.cancel() }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-        .background(LineupStyle.background.ignoresSafeArea())
+        // Own one canvas outside the clipped content viewport so it reaches
+        // behind both system navigation and the score ticker.
+        .background {
+            if let rootCanvas { TVSportsCanvasSource(spotlight: spotlight, events: events, canvas: rootCanvas, active: isActive) }
+            else { LiveCanvas(spotlight: spotlight, events: events) }
+        }
+        .toolbarBackground(.hidden, for: .tabBar)
     }
 
     private func select(_ game: SportsGame) {

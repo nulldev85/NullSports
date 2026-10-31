@@ -15,6 +15,8 @@ SHARED = (
     "Lineup/Design/TitleArtwork.swift",
     "Lineup/Services/TitleLogoURLCache.swift",
     "Lineup/Services/PreparedLiveMatches.swift",
+    "Lineup/Services/LivePreparationWork.swift",
+    "Lineup/Services/GuideChannelList.swift",
     "Lineup/Services/XtreamDownload.swift",
     "Lineup/Models/LibraryCast.swift",
     "Lineup/Design/LineupPresentationStyle.swift",
@@ -85,6 +87,15 @@ def is_included(project, target, source):
 
 
 class SharedSourceMembershipChecks(unittest.TestCase):
+    def test_both_apps_compile_the_same_measured_progress_and_candidate_index(self):
+        project = (ROOT / "project.yml").read_text(encoding="utf-8")
+        for source in ("iPhone/MobileDataRefreshProgress.swift", "iPhone/MobileSportsMatching.swift"):
+            self.assertTrue((ROOT / source).is_file())
+            for target in ("Lineup", "LineupiOS"):
+                self.assertTrue(is_included(project, target, source), f"{target} must compile {source}")
+        self.assertFalse((ROOT / "Lineup/Store/DataRefreshProgress.swift").exists(),
+                         "Do not restore a second clock-estimated TV progress class")
+
     def test_search_genre_artwork_is_complete_on_both_platforms(self):
         source = (ROOT / "Lineup/Views/SearchViews.swift").read_text(encoding="utf-8")
         assets = re.findall(r'assetName: "(SearchGenre[^"]+)"', source)
@@ -118,7 +129,7 @@ class SharedSourceMembershipChecks(unittest.TestCase):
                        "iPhone/MobileAccentWheel.swift", "iPhone/MobileWelcomeSignalBackdrop.swift",
                        "iPhone/MobileIntegrationControls.swift", "iPhone/MobileLibraryDetailControls.swift",
                        "iPhone/MobileCastPortrait.swift", "iPhone/MobileIntegrationPalette.swift",
-                       "iPhone/MobileTitleArtwork.swift"):
+                       "iPhone/MobileTitleArtwork.swift", "iPhone/MobileCombinedCatalog.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOS", source))
             self.assertFalse(is_included(project, "Lineup", source))
@@ -132,7 +143,7 @@ class SharedSourceMembershipChecks(unittest.TestCase):
         self.assertTrue(is_included(project, "LineupiOSTests", "Tests/iOS/MobileSegmentAndFanartTests.swift"))
         for source in ("Tests/iOS/MobileEventChannelGroupingTests.swift", "Tests/iOS/MobilePlaybackPresentationTests.swift",
                        "Tests/iOS/MobileGuideCategoryVisibilityTests.swift", "Tests/iOS/MobileAccentWheelTests.swift",
-                       "Tests/iOS/StreamingServiceNavigationTests.swift"):
+                       "Tests/iOS/StreamingServiceNavigationTests.swift", "Tests/iOS/SportsRefreshRegressionTests.swift"):
             self.assertTrue((ROOT / source).is_file())
             self.assertTrue(is_included(project, "LineupiOSTests", source))
             self.assertFalse(is_included(project, "LineupTests", source))

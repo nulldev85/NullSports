@@ -5,6 +5,48 @@ import UIKit
 #endif
 
 #if os(tvOS)
+/// Continue Watching joins local history to series/catalog data. Cache that
+/// work by its actual observations, not by remote focus or playback animation.
+@MainActor
+final class TVLibraryBrowseRows: ObservableObject {
+    struct Snapshot {
+        var continuing: [LocalMediaPlayback] = []
+        var titles: [MediaItem] = []
+        var episodes: [MediaItem] = []
+        var hasHistory = false
+    }
+    @Published private(set) var revision = 0
+    private(set) var preparationCount = 0
+    private var value = Snapshot()
+    private var dirty = true
+    private var active = false
+    private weak var source: MediaLibrary?
+    private var observation = UUID()
+
+    func snapshot(in media: MediaLibrary, active: Bool) -> Snapshot {
+        self.active = active
+        if source !== media { source = media; dirty = true; value = Snapshot() }
+        guard active, dirty else { return value }
+        dirty = false
+        preparationCount += 1
+        let token = UUID()
+        observation = token
+        value = withObservationTracking {
+            let favorites = media.favoriteMedia
+            return Snapshot(continuing: Array(media.continueWatching.prefix(20)),
+                titles: favorites.filter { $0.type != "Episode" }, episodes: favorites.filter { $0.type == "Episode" },
+                hasHistory: !media.watchHistory.isEmpty)
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.observation == token else { return }
+                self.dirty = true
+                if self.active { self.revision &+= 1 }
+            }
+        }
+        return value
+    }
+}
+
 /// Owns the rapidly changing focus preview outside the catalog view tree. A
 /// remote move now redraws the two cinematic layers only; it does not ask
 /// every shelf and poster to recompute while focus is in motion.
@@ -14,6 +56,8 @@ final class TVMediaPreviewState: ObservableObject {
     private var details: [String: MediaItem] = [:]
     private var focusedPosterIDs: Set<String> = []
     private var detailLoad: Task<Void, Never>?
+
+    func suspend() { detailLoad?.cancel(); detailLoad = nil; focusedPosterIDs.removeAll() }
 
     func setInitial(_ initial: MediaItem?) {
         guard item == nil else { return }
@@ -36,7 +80,7 @@ final class TVMediaPreviewState: ObservableObject {
         // Back on the title already shown: whatever was about to replace it
         // is no longer wanted.
         detailLoad?.cancel()
-        guard item?.libraryKey != key else { return }
+        guard item?.libraryKey != key || details[key] == nil else { return }
         detailLoad = Task { @MainActor [weak self] in
             // A swipe crosses several titles in a fraction of a second, and
             // each one swapped the whole screen's artwork and words -- a
@@ -87,6 +131,7 @@ struct TVMediaLibraryCanvas: View {
 struct TVShelfPrefetchKey: Equatable {
     let index: Int
     let count: Int
+    var active = true
 }
 
 /// Where the Library's remote can be.
@@ -107,6 +152,28 @@ struct TVLibraryShelf: Identifiable {
     /// Continue Watching opens a show's page rather than its streams.
     let opensPages: Bool
     let catalog: MediaCatalog?
+}
+
+/// Focus changes must not allocate/hash every key in a 30,000-title shelf.
+struct TVLibraryContentsKey: Equatable {
+    let shelfID: String?
+    let count: Int
+    let first: String?
+    let last: String?
+    let focused: MediaItem?
+    let focusSlot: Int?
+    let continueIDs: [String]
+
+    init(shelf: TVLibraryShelf?, focus: TVLibraryFocus?) {
+        shelfID = shelf?.id
+        let items = shelf?.items ?? []
+        count = items.count
+        first = items.first?.libraryKey
+        last = items.last?.libraryKey
+        if case .card(let slot)? = focus, items.indices.contains(slot) { focused = items[slot]; focusSlot = slot }
+        else { focused = nil; focusSlot = nil }
+        continueIDs = shelfID == LibraryShelfOrder.continueWatching ? items.prefix(20).map(\.libraryKey) : []
+    }
 }
 
 /// The artwork plane behind both Library browsing and the selected-title page.

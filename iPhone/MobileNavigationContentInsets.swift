@@ -14,6 +14,12 @@ final class MobileNavigationContentInsets {
     private var entries: [ObjectIdentifier: Entry] = [:]
 
     func apply(to controller: UIViewController, above boundary: UIView, onLayout: (() -> Void)? = nil) {
+        guard let window = boundary.window else { return }
+        apply(to: controller, above: boundary.convert(boundary.bounds, to: window).minY, in: window, onLayout: onLayout)
+    }
+
+    func apply(to controller: UIViewController, above boundaryTop: CGFloat, in window: UIWindow,
+               onLayout: (() -> Void)? = nil) {
         // A NavigationStack can be hosted inside the tab's own controller.
         // Reserve space on its navigation container so pushed pages inherit
         // the same clearance without finding or modifying individual lists.
@@ -22,8 +28,7 @@ final class MobileNavigationContentInsets {
         // replaces that reservation; it must never inherit a second copy.
         let key = ObjectIdentifier(controller)
         let recipient = navigationContainer(in: controller) ?? controller
-        guard let view = recipient.viewIfLoaded, let window = view.window,
-              boundary.window === window, view.bounds.height > 0 else { return }
+        guard let view = recipient.viewIfLoaded, view.window === window, view.bounds.height > 0 else { return }
         if let previous = entries[key], previous.controller !== recipient {
             entries.removeValue(forKey: key)
             restore(previous)
@@ -49,12 +54,13 @@ final class MobileNavigationContentInsets {
             entry.originalBottom = current
         }
         let viewBottom = view.convert(view.bounds, to: window).maxY
-        let covered = max(0, viewBottom - boundary.convert(boundary.bounds, to: window).minY)
-        // Window protection (the home indicator) is already supplied by
-        // UIKit. Measure it independently of the inset we own to avoid
-        // feeding our previous adjustment back into the next measurement.
+        let covered = max(0, viewBottom - boundaryTop)
+        // Exclude our current reservation, while retaining the home indicator
+        // AND any native bar contribution. Glass keeps that native space even
+        // while faded; counting it twice would resize the list during collapse.
         let systemBottom = max(0, viewBottom - (window.bounds.maxY - window.safeAreaInsets.bottom))
-        let bottom = max(entry.originalBottom, covered - systemBottom)
+        let inheritedBottom = max(systemBottom, view.safeAreaInsets.bottom - current)
+        let bottom = max(entry.originalBottom, covered - inheritedBottom)
         entry.appliedBottom = bottom
         entries[key] = entry
         guard abs(current - bottom) > 0.5 else { return }

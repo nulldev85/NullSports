@@ -19,6 +19,10 @@ struct MainView: View {
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
     @AppStorage(MobileNavigationOrder.storageKey) private var savedTabOrder = MobileNavigationOrder.defaultValue
 
+    init(initialTab: MobileNavigationTab = .sports) {
+        _tab = State(initialValue: initialTab.rawValue)
+    }
+
     var body: some View {
         // Each tab's content is redrawn in a new accent, not the TabView: the
         // bar and the selected tab survive the change. The guide keeps its
@@ -64,8 +68,8 @@ struct MainView: View {
             // schedule publication every 30 seconds for no visible benefit.
             guard scenePhase == .active, tab == 0 || tab == 1 else { return }
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(30)) } catch { return }
                 library.refreshSchedule(showsLoading: false, includeTomorrow: false)
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
         }
     }
@@ -275,7 +279,7 @@ private struct MobilePreferredChannelsView: View {
 /// wrong rather than browsed, so they sit one tap in rather than inline.
 private struct MobileDiagnosticsView: View {
     @Environment(SportsLibrary.self) private var library
-    @ObservedObject var playbackDiagnostics: PlaybackDiagnostics
+    @ObservedObject private var playbackDiagnostics = PlaybackDiagnostics.shared
 
     var body: some View {
         Form {
@@ -737,7 +741,7 @@ private struct MobileLibrarySettingsView: View {
                     LibraryHeroSettingsView().environment(media)
                 } label: {
                     SettingsRow("Library Hero", symbol: "sparkles.rectangle.stack",
-                                value: media.heroCatalog?.title ?? "Choose")
+                                value: media.heroCatalogTitle ?? "Choose")
                 }
                 .disabled(!media.hasAnySource)
             } footer: {
@@ -797,7 +801,6 @@ struct MobileAccountView: View {
     /// Done in the picker, applied once it has gone: the change redraws this
     /// screen, and a sheet should not be torn down from under itself.
     @State private var pendingAccent: String?
-    @ObservedObject private var playbackDiagnostics = PlaybackDiagnostics.shared
 
     private var mediaValue: String {
         let count = media.profiles.count
@@ -848,7 +851,7 @@ struct MobileAccountView: View {
                     NavigationLink {
                         MobileLibrarySettingsView().environment(media)
                     } label: {
-                        SettingsRow("Library", symbol: "rectangle.stack", value: media.heroCatalog?.title)
+                        SettingsRow("Library", symbol: "rectangle.stack", value: media.heroCatalogTitle)
                     }
                     NavigationLink {
                         LibraryMetadataSettingsView().environment(media)
@@ -921,7 +924,7 @@ struct MobileAccountView: View {
                         }
                     }
                     NavigationLink {
-                        MobileDiagnosticsView(playbackDiagnostics: playbackDiagnostics)
+                        MobileDiagnosticsView()
                             .environment(library)
                     } label: {
                         SettingsRow("Diagnostics", symbol: "waveform.path.ecg")

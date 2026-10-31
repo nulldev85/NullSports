@@ -71,6 +71,11 @@ final class AetherPlaybackTests: XCTestCase {
         defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
         controller.isLive = false
         controller.start(urls: [url])
+        // Audio activation now yields the UI actor before opening a decoder.
+        // Capture the actual input once it exists, before delayed HTTP headers.
+        try await waitUntil("VLC input must open after audio activation", timeout: 5) {
+            controller.player.media != nil
+        }
         let input = try XCTUnwrap(controller.player.media)
         let sessionID = controller.subtitleSessionID
         // VLCKit replaces the Objective-C wrapper in its media-changed event.

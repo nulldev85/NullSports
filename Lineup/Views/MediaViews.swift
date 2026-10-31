@@ -692,6 +692,8 @@ struct MediaCatalogsScreen: View {
     #endif
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
+    @StateObject private var browseRows = TVLibraryBrowseRows()
+    @Environment(\.tvTabIsActive) private var tabIsActive
     @Environment(\.tvTabBar) private var tabBar
     @Environment(\.playMedia) private var playMedia
     /// Where the remote is: the hero's Play, or a card in the shelf row. The
@@ -709,12 +711,21 @@ struct MediaCatalogsScreen: View {
     @State private var lastFocusedCard: MediaItem?
     #endif
 
+    #if os(tvOS)
+    private var browseSnapshot: TVLibraryBrowseRows.Snapshot {
+        browseRows.snapshot(in: media, active: tabIsActive && isVisible && scenePhase == .active)
+    }
+    private var continueWatching: [LocalMediaPlayback] { browseSnapshot.continuing }
+    private var favoriteTitles: [MediaItem] { browseSnapshot.titles }
+    private var favoriteEpisodes: [MediaItem] { browseSnapshot.episodes }
+    #else
     private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
+    private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
+    private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
+    #endif
     /// The rows the Library comes with -- what is trending, the streaming
     /// services -- then every shelf.
     private var shownShelves: [MediaCatalog] { media.builtInShelves + catalogs }
-    private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
-    private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
     #if os(tvOS)
     /// The hero's first title, which is where the remote starts.
     private var defaultPreviewItem: MediaItem? {
@@ -1045,6 +1056,7 @@ struct MediaCatalogsScreen: View {
 
     #if os(tvOS)
     private func preview(_ item: MediaItem, when focused: Bool) {
+        guard !focused || (tabIsActive && scenePhase == .active) else { return }
         tvPreview.focus(item, focused: focused) { item in
             try? await media.details(of: item)
         }
@@ -1078,7 +1090,7 @@ struct MediaCatalogsScreen: View {
     }
 
     private var canRotateLibraryPreview: Bool {
-        isVisible && scenePhase == .active && !voiceOver
+        tabIsActive && isVisible && scenePhase == .active && !voiceOver
             && !searchPresented && submittedQuery.isEmpty
             && pushed == nil && heroPlayableItem == nil
             && (tvFocus == nil || tvFocus == .hero)
@@ -1120,7 +1132,7 @@ struct MediaCatalogsScreen: View {
     }
 
     private var heroItems: [MediaItem] {
-        media.heroCatalog.map { MediaHeroCatalogSelection.featuredItems(in: $0) } ?? []
+        media.heroCatalog.map { MediaHeroCatalogSelection.featuredItems(in: $0).map { media.displayItem($0) } } ?? []
     }
 
     private var heroItem: MediaItem? {
@@ -1179,14 +1191,17 @@ struct MediaCatalogsScreen: View {
         .onChange(of: shelves.count) { _, count in
             if shelfIndex >= count { shelfIndex = max(0, count - 1) }
         }
-        .task(id: TVShelfPrefetchKey(index: index, count: shelves.count)) {
+        .task(id: TVShelfPrefetchKey(index: index, count: shelves.count,
+                                    active: tabIsActive && isVisible && scenePhase == .active)) {
+            guard tabIsActive, isVisible, scenePhase == .active else { return }
             await prefetchShelves(around: index)
         }
-        .onChange(of: shelves.indices.contains(index) ? shelves[index].items.map(\.libraryKey) : []) { previous, current in
+        .onChange(of: TVLibraryContentsKey(shelf: shelves.indices.contains(index) ? shelves[index] : nil, focus: tvFocus)) { previous, current in
+            guard previous.focusSlot == current.focusSlot else { return }
             // A held menu may temporarily clear focus. Follow the same show's
             // new episode even if other Continue Watching cards reordered.
             if shelves.indices.contains(index), shelves[index].id == LibraryShelfOrder.continueWatching,
-               let old = lastFocusedCard, previous.contains(old.libraryKey), !current.contains(old.libraryKey),
+               let old = lastFocusedCard, previous.continueIDs.contains(old.libraryKey), !current.continueIDs.contains(old.libraryKey),
                let server = old.serverID {
                 let scope = LocalContinueWatchingDismissal(item: old, profileID: server)
                 if let slot = shelves[index].items.firstIndex(where: {
@@ -1198,6 +1213,13 @@ struct MediaCatalogsScreen: View {
                 }
             }
             tvFocusChanged(to: tvFocus)
+        }
+        .onChange(of: tabIsActive) { _, active in
+            if active { tvFocusChanged(to: tvFocus) } else { tvPreview.suspend() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, tabIsActive { tvFocusChanged(to: tvFocus) }
+            else { tvPreview.suspend() }
         }
     }
 
@@ -1214,8 +1236,8 @@ struct MediaCatalogsScreen: View {
     }
 
     /// The shelves either side of the one shown are fetched at once, so a
-    /// press up or down finds their posters made; the first screenful of
-    /// every other shelf follows when the network has had a moment.
+    /// press up or down finds their posters made; the next neighbours follow
+    /// when the network has had a moment.
     private func prefetchShelves(around index: Int) async {
         let shelves = tvShelves
         guard !shelves.isEmpty else { return }
@@ -1231,7 +1253,10 @@ struct MediaCatalogsScreen: View {
             fetch(shelf, Self.artWindow(around: shelfColumns[shelf.id] ?? 0))
         }
         do { try await Task.sleep(for: .seconds(1.5)) } catch { return }
-        for shelf in shelves { fetch(shelf, 0...7) }
+        for neighbour in [index + 2, index - 2] where shelves.indices.contains(neighbour) {
+            guard !Task.isCancelled else { return }
+            fetch(shelves[neighbour], 0...7)
+        }
     }
 
     /// A strip the width of the screen along the top of the shelf, there to be

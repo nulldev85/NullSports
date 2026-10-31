@@ -30,7 +30,7 @@ struct MobileGuideView: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
+    @Environment(\.mobileUsesNativeTabBarLayout) private var usesNativeTabBarLayout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
     @AppStorage(MobileGuideDefaultCategory.storageKey) private var defaultCategories = "{}"
@@ -129,19 +129,44 @@ struct MobileGuideView: View {
     /// A search looks through every channel, whatever the Guide is showing.
     private var searching: Bool { !query.isEmpty }
 
+    @State private var loadedChannels: [XtreamStream] = []
+    @State private var installedChannelRequest: ChannelRequest?
     private var channels: [XtreamStream] {
-        let found = library.guideStreams(categoryID: searching ? nil : filter.categoryID,
-                                          favoritesOnly: !searching && filter == .favorites,
-                                          query: query, recentsOnly: !searching && filter == .recents)
-        let listed = MobileGuideCategoryVisibility.filtered(found, hidden: hiddenCategoryIDs,
-            personalList: !searching && (filter == .favorites || filter == .recents), gamePicker: game != nil)
-        // Only when picking a channel for a game. The Guide's own ordering —
-        // favorites, then the provider's order — is left exactly as it was.
-        guard game != nil, let recommendedStreamID,
-              let index = listed.firstIndex(where: { $0.id == recommendedStreamID }) else { return listed }
-        var reordered = listed
-        reordered.insert(reordered.remove(at: index), at: 0)
-        return reordered
+        let request = channelRequest
+        guard let installed = installedChannelRequest, installed.library == request.library,
+              installed.revision == request.revision, installed.query == request.query else { return [] }
+        return loadedChannels
+    }
+    private struct ChannelRequest: Hashable {
+        let library: ObjectIdentifier
+        let revision: Int
+        let active: Bool
+        let query: GuideChannelList.Query
+    }
+    private var channelRequest: ChannelRequest {
+        ChannelRequest(library: ObjectIdentifier(library), revision: library.streamsRevision,
+            active: isActive && scenePhase == .active,
+            query: .init(categoryID: searching ? nil : filter.categoryID,
+                favoritesOnly: !searching && filter == .favorites,
+                recentsOnly: !searching && filter == .recents, text: query,
+                favorites: !searching && filter == .favorites ? library.favoriteStreamOrder : [],
+                recents: !searching && filter == .recents ? library.recentStreamOrder : [],
+                hiddenCategories: hiddenCategoryIDs, gamePicker: game != nil,
+                recommendedID: recommendedStreamID))
+    }
+    private func updateChannels() async {
+        let request = channelRequest
+        guard request.active else { return }
+        // A tab change should keep its rows/scroll position without sorting
+        // the same catalog again. The active flag controls cancellation only.
+        if let installed = installedChannelRequest,
+           installed.library == request.library, installed.revision == request.revision,
+           installed.query == request.query { return }
+        let streams = library.streams
+        let result = try? await GuideChannelList.load(streams, query: request.query)
+        guard !Task.isCancelled, channelRequest == request, let result else { return }
+        loadedChannels = result
+        installedChannelRequest = request
     }
     private var title: String {
         if game != nil { return "Choose a channel" }
@@ -159,6 +184,7 @@ struct MobileGuideView: View {
             guidePresentations
         }
         .mobileTabHome(.guide) { restoreDefaultCategoryOnEntry() }
+        .task(id: channelRequest) { await updateChannels() }
     }
 
     // Keep the view tree unchanged while giving Swift separate, bounded
@@ -191,6 +217,8 @@ struct MobileGuideView: View {
                     if library.providerRoot.enabledProfiles.isEmpty {
                         LineupUnavailableView("No enabled providers", systemImage: "tv",
                             description: Text("Enable a service in Settings → IPTV."))
+                    } else if channels.isEmpty && !library.streams.isEmpty && installedChannelRequest != channelRequest {
+                        ProgressView("Loading channels…").frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if channels.isEmpty && filter == .favorites && !searching {
                         LineupUnavailableView("No favorites", systemImage: "star",
                             description: Text("Touch and hold a channel to add it to your favorites, or pick All channels from the menu."))
@@ -340,7 +368,7 @@ struct MobileGuideView: View {
                 }
             }
             .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
-            .toolbar(fillsScreen || usesLineupNavigation ? .hidden : .visible, for: .tabBar)
+            .toolbar(fillsScreen || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
     }

@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-10-16",
+  "updatedAt": "2026-10-30",
   "sources": [
     "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard?limit=1",
     "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/teams?limit=1000",
@@ -36,7 +36,15 @@
     "https://site.api.espn.com/apis/site/v2/sports/soccer/afc.asian.cup/scoreboard?limit=1",
     "https://site.api.espn.com/apis/site/v2/sports/soccer/afc.asian.cup/teams?limit=1000",
     "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.nations/scoreboard?limit=1",
-    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.nations/teams?limit=1000"
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.nations/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.league_cup/scoreboard?limit=1",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.league_cup/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.fa/scoreboard?limit=1",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/eng.fa/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.copa_del_rey/scoreboard?limit=1",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.copa_del_rey/teams?limit=1000",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.super_cup/scoreboard?limit=1",
+    "https://site.api.espn.com/apis/site/v2/sports/soccer/esp.super_cup/teams?limit=1000"
   ],
   "competitions": [
     {
@@ -164,6 +172,34 @@
       "name": "UEFA Nations League",
       "shortName": "Nations League",
       "logo": "https://a.espncdn.com/i/leaguelogos/soccer/500/2395.png"
+    },
+    {
+      "id": "eng.league_cup",
+      "feedID": "3920",
+      "name": "Carabao Cup",
+      "shortName": "Carabao Cup",
+      "logo": "https://a.espncdn.com/i/leaguelogos/soccer/500/41.png"
+    },
+    {
+      "id": "eng.fa",
+      "feedID": "3918",
+      "name": "FA Cup",
+      "shortName": "FA Cup",
+      "logo": "https://a.espncdn.com/i/leaguelogos/soccer/500/40.png"
+    },
+    {
+      "id": "esp.copa_del_rey",
+      "feedID": "3951",
+      "name": "Copa del Rey",
+      "shortName": "Copa del Rey",
+      "logo": "https://a.espncdn.com/i/leaguelogos/soccer/500/80.png"
+    },
+    {
+      "id": "esp.super_cup",
+      "feedID": "8102",
+      "name": "Supercopa de España",
+      "shortName": "Supercopa",
+      "logo": "https://a.espncdn.com/i/leaguelogos/soccer/500/431.png"
     }
   ]
 }

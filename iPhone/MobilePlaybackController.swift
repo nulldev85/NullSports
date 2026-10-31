@@ -19,30 +19,16 @@ private func onMain(_ body: @escaping @MainActor () -> Void) {
 /// Switching it off waits for the sound to finish and can take a noticeable
 /// moment, so it is never done on the main thread -- it used to run there
 /// as the viewer left the Live tab. Switching it on waits for any switch-off
-/// still queued, so the two can never land out of order.
+/// still queued asynchronously, so the UI remains available and the two can
+/// never land out of order.
 enum MobileAudioSession {
-    private static let queue = DispatchQueue(label: "lineup.audio-session", qos: .userInitiated)
-    /// The players holding the session. With two on screen, one stopping
-    /// mustn't switch the sound off under the other.
-    @MainActor private static var holders = Set<ObjectIdentifier>()
-
-    @MainActor
-    static func activate(for holder: AnyObject) throws {
-        try queue.sync {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .moviePlayback)
-            try session.setActive(true)
-        }
-        holders.insert(ObjectIdentifier(holder))
-    }
-
-    @MainActor
-    static func deactivate(for holder: AnyObject) {
-        guard holders.remove(ObjectIdentifier(holder)) != nil, holders.isEmpty else { return }
-        queue.async {
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        }
-    }
+    @MainActor static let shared = MobileAudioSessionWork(activate: {
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playback, mode: .moviePlayback)
+        try session.setActive(true)
+    }, deactivate: {
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    })
 }
 
 /// Holds a screen's player, made once.
@@ -69,6 +55,7 @@ final class MobilePlaybackSlot: ObservableObject {
 @MainActor
 final class MobilePlaybackController: ObservableObject {
     private let defaults: UserDefaults
+    private let audioSession: MobileAudioSessionWork
     private var preference = MobilePlaybackPreference.automatic
     private var failedEngines: [URL: Set<MobileStreamEngine>] = [:]
     private var nativeCompatibilityFailures: Set<URL> = []
@@ -161,6 +148,9 @@ final class MobilePlaybackController: ObservableObject {
     private var noticeTask: Task<Void, Never>?
 
     private var monitor: Task<Void, Never>?
+    private var audioStart: Task<Void, Never>?
+    private var audioStartID = UUID()
+    private var audioReadyToOpen = false
     private(set) var isScrubbing = false
     private var resumeAfterScrubbing = false
     private var scrubDestination: Double?
@@ -389,8 +379,9 @@ final class MobilePlaybackController: ObservableObject {
         ]
     }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, audioSession: MobileAudioSessionWork? = nil) {
         self.defaults = defaults
+        self.audioSession = audioSession ?? MobileAudioSession.shared
         subtitlePreferences = MobileSubtitlePreferences(defaults: defaults)
         pipDelegate.controller = self
         // An AVPlayerLayer that still holds its player suspends decoding once
@@ -716,6 +707,7 @@ final class MobilePlaybackController: ObservableObject {
             view.removeEngineSurface()
             attachSystemLayer(to: view)
         }
+        if audioStart != nil || audioReadyToOpen { view.holdPicture(true) }
     }
 
     func detachVideo(_ view: MobileVideoHost) {
@@ -1044,14 +1036,53 @@ final class MobilePlaybackController: ObservableObject {
         // Keep a playback-confirmed live transport first. Fresh provider lists
         // still start HLS first, and Library ordering/PiP behavior is unchanged.
         candidates = MobileEngineSelection.ordered(urls, live: isLive)
-        do {
-            try MobileAudioSession.activate(for: self)
-        } catch {
-            self.error = "Audio could not start. Please try again."
-            loading = false
+        guard let first = candidates.first else {
+            openNext()
             return
         }
+        // Selection remains synchronous for labels/settings. Decoder startup
+        // waits asynchronously for audio, fenced against Stop or another tune.
+        if let selected = MobileEngineSelection.engine(for: first, preference: preference,
+                failed: failedEngines[first] ?? [], nativeFallback: nativeFallbackAllowed) {
+            engine = selected
+            nativeCompatibilityActive = preference == .native && selected == .aether
+                && !nativeCompatibilityFailures.contains(first)
+        }
+        loading = true
+        // Keep the previous renderer covered while audio activates. A surface
+        // attached during this wait inherits the same cover in attachVideo.
+        videoView?.holdPicture(true)
+        let request = UUID()
+        audioStartID = request
+        audioStart = Task { [weak self] in
+            guard let self, !Task.isCancelled, self.audioStartID == request else { return }
+            do {
+                try await StartupTrace.shared.measure("activate audio") {
+                    try await self.audioSession.activate(for: self)
+                }
+            } catch {
+                guard !Task.isCancelled, self.audioStartID == request else { return }
+                self.audioStart = nil
+                self.error = "Audio could not start. Please try again."
+                self.loading = false
+                self.videoView?.holdPicture(false)
+                return
+            }
+            guard !Task.isCancelled, self.audioStartID == request else { return }
+            self.audioStart = nil
+            self.audioReadyToOpen = true
+            self.openWhenAudioReady()
+        }
+    }
+
+    private func openWhenAudioReady() {
+        guard audioReadyToOpen, !suspended, !pausedByUser else { return }
+        audioReadyToOpen = false
         openNext()
+        startMonitoring()
+    }
+
+    private func startMonitoring() {
         monitor = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
@@ -1244,6 +1275,7 @@ final class MobilePlaybackController: ObservableObject {
 
     private func openAether(_ url: URL) {
         player.drawable = nil
+        let request = audioStartID
         do {
             let session: AetherPlaybackSession
             if let existing = aetherSession { session = existing }
@@ -1252,15 +1284,15 @@ final class MobilePlaybackController: ObservableObject {
                 session.startsPictureInPictureAutomatically = allowsPictureInPicture
             }
             session.onPictureInPictureChange = { [weak self] active in
-                guard let self, self.engine == .aether else { return }
+                guard let self, self.engine == .aether, self.audioStartID == request else { return }
                 self.pictureInPictureChanged(active: active)
             }
             session.onPictureInPictureClosed = { [weak self] in
-                guard let self, self.engine == .aether else { return }
+                guard let self, self.engine == .aether, self.audioStartID == request else { return }
                 self.pictureInPictureClosed()
             }
             session.onPictureInPictureTransportChange = { [weak self] playing in
-                guard let self, self.engine == .aether else { return }
+                guard let self, self.engine == .aether, self.audioStartID == request else { return }
                 self.pausedByUser = !playing
                 self.refreshIsPlaying()
             }
@@ -1628,6 +1660,10 @@ final class MobilePlaybackController: ObservableObject {
         } else if !pausedByUser, let since = liveHoldSince {
             liveHeldSeconds += Date().timeIntervalSince(since)
             liveHoldSince = nil
+        }
+        if audioStart != nil || audioReadyToOpen {
+            if !pausedByUser { openWhenAudioReady() }
+            return
         }
         if pausedByUser {
             switch engine {
@@ -2253,6 +2289,11 @@ final class MobilePlaybackController: ObservableObject {
             suspended = false
         case .keepPlaying:
             suspended = false
+            if audioStart != nil || audioReadyToOpen {
+                shouldResume = false
+                openWhenAudioReady()
+                return
+            }
             // Nothing to resume once the session is over: playing an empty
             // player only held the screen awake with nothing on it.
             guard monitor != nil else { break }
@@ -2661,6 +2702,10 @@ final class MobilePlaybackController: ObservableObject {
     // MARK: - Teardown
 
     func stop() {
+        audioStartID = UUID()
+        audioStart?.cancel()
+        audioStart = nil
+        audioReadyToOpen = false
         siloSidecarRestore?.cancel(); siloSidecarRestore = nil; pendingSiloSidecars = []
         nativeMediaInfo.reset()
         mediaInfo = PlaybackMediaInfo()
@@ -2689,6 +2734,7 @@ final class MobilePlaybackController: ObservableObject {
         suspended = false
         shouldResume = false
         isPlaying = false
+        loading = false
         resetSubtitles()
         // The recording goes with the stream that played it. The channel's
         // source stays: it describes the channel, not what was open on it.
@@ -2701,7 +2747,7 @@ final class MobilePlaybackController: ObservableObject {
         liveHeldSeconds = 0
         recordingElapsed = 0
         UIApplication.shared.isIdleTimerDisabled = false
-        MobileAudioSession.deactivate(for: self)
+        audioSession.deactivate(for: self)
     }
 
     func shutdown() {

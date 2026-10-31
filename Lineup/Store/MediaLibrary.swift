@@ -54,6 +54,7 @@ final class MediaLibrary {
     /// to that server.
     private(set) var profiles: [MediaServerProfile] = []
     private(set) var servers: [UUID: MediaServerState] = [:]
+    private(set) var isRestoringCache = false
     /// MDBList shelves belong to the Library rather than to any one server:
     /// each list is matched against every server's titles together.
     private(set) var mdbListShelves: [MediaCatalog] = []
@@ -328,7 +329,7 @@ final class MediaLibrary {
     /// A successful Library is restored before the network is touched on the
     /// next launch. The refresh still runs, but it replaces a useful screen
     /// instead of a spinner.
-    private struct LibrarySnapshot: Codable, Sendable {
+    struct LibrarySnapshot: Codable, Sendable {
         let roots: [MediaItem]
         let collections: [MediaItem]
         let importedCatalogs: [MediaItem]
@@ -337,10 +338,26 @@ final class MediaLibrary {
         let refreshedAt: Date
         let siloPlayback: [LocalMediaPlayback]?
         let siloFavorites: [MediaItem]?
+
+        nonisolated func scoped(to profile: MediaServerProfile) -> Self {
+            func mark(_ items: [MediaItem]) -> [MediaItem] {
+                items.map { $0.serverID == nil ? $0.servedBy(profile.id) : $0 }
+            }
+            return Self(roots: mark(roots), collections: mark(collections), importedCatalogs: mark(importedCatalogs),
+                catalogs: catalogs.map { MediaCatalog(root: $0.root, items: mark($0.items)) },
+                counts: counts, refreshedAt: refreshedAt,
+                siloPlayback: siloPlayback?.filter { $0.profileID == profile.id },
+                siloFavorites: siloFavorites?.map { $0.servedBy(profile.id) })
+        }
     }
     private var nativeSiloRecords: [UUID: [LocalMediaPlayback]] = [:]
     private var nativeSiloFavorites: [UUID: [MediaItem]] = [:]
-    @ObservationIgnored private var snapshotWrites: [UUID: Task<Void, Never>] = [:]
+    private struct LibraryWrite: Sendable {
+        let snapshot: LibrarySnapshot
+        let url: URL
+    }
+    @ObservationIgnored private var snapshotWrites = LatestSnapshotQueue<UUID, LibraryWrite>()
+    @ObservationIgnored private var cacheRestoreTask: Task<Void, Never>?
     private struct CachedDetail {
         let item: MediaItem
         let storedAt: Date
@@ -426,14 +443,8 @@ final class MediaLibrary {
         shelfNames = defaults.dictionary(forKey: shelfNamesKey) as? [String: String] ?? [:]
         restoreStreamingSnapshot()
         restoreCatalogSnapshot()
-        let listsRestored = restoreMDBListSnapshot()
-        let formerActive = formerActiveServer()
-        for profile in profiles {
-            restoreLibrarySnapshot(for: profile, adoptingLists: !listsRestored && profile.id == formerActive)
-        }
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
-        heroListCatalog = restoreHeroList()
         for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
         }
@@ -450,6 +461,7 @@ final class MediaLibrary {
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshTracking() }
             })
+        startRestoringCaches()
     }
 
     var hasProfile: Bool { !profiles.isEmpty }
@@ -499,7 +511,7 @@ final class MediaLibrary {
 
     var lastRefreshedAt: Date? { profiles.compactMap { servers[$0.id]?.refreshedAt }.max() }
     var isConnected: Bool { profiles.contains { servers[$0.id]?.isConnected == true } }
-    var isLoading: Bool { isAddingServer || profiles.contains { servers[$0.id]?.isLoading == true } }
+    var isLoading: Bool { isRestoringCache || isAddingServer || profiles.contains { servers[$0.id]?.isLoading == true } }
 
     /// Every server's last attempt failed: there is nothing fresh to show.
     var loadFailed: Bool {
@@ -590,26 +602,44 @@ final class MediaLibrary {
     }
 
     /// Every row on the Media Servers tab.
-    var shelves: [MediaCatalog] { catalogs }
+    var shelves: [MediaCatalog] { sourceCatalogs }
 
     /// The shelves a viewer can take away: every one, and the Streaming
     /// Services row while it is up.
-    var removableShelves: [MediaCatalog] { builtInShelves + catalogs }
+    var removableShelves: [MediaCatalog] { builtInShelves + sourceCatalogs }
 
     /// A missing or removed choice falls back to the first populated shelf.
     /// That keeps the hub useful immediately while leaving the actual saved
     /// choice untouched until the viewer deliberately picks one.
     var heroCatalog: MediaCatalog? {
+        let sources = sourceCatalogs
         if let list = heroListCatalog, list.id == selectedHeroCatalogID, !list.items.isEmpty,
-           !catalogs.contains(where: { $0.id == list.id && !$0.items.isEmpty }) {
+           !sources.contains(where: { $0.id == list.id && !$0.items.isEmpty }) {
             return list
         }
-        return MediaHeroCatalogSelection.resolve(catalogs, selectedID: selectedHeroCatalogID)
+        // The hero draws ten titles. Return its source unchanged so rendering
+        // a slide/Settings choice never remaps a 30,000-title shelf first.
+        // Hero views resolve metadata after selecting their bounded items.
+        return MediaHeroCatalogSelection.resolve(sources, selectedID: selectedHeroCatalogID)
             ?? trendingShelves.first
     }
 
+    /// Settings needs the shelf name, not metadata copies of every film and
+    /// episode across the Library. Shelf roots are not metadata-remapped.
+    var heroCatalogTitle: String? {
+        let sources = sourceCatalogs
+        if let list = heroListCatalog, list.id == selectedHeroCatalogID, !list.items.isEmpty,
+           !sources.contains(where: { $0.id == list.id && !$0.items.isEmpty }) { return list.title }
+        return MediaHeroCatalogSelection.resolve(sources, selectedID: selectedHeroCatalogID)?.title
+            ?? trendingShelves.first?.title
+    }
+
+    /// Settings lists shelf names/counts and keeps the original choice.
+    /// Rendering that list does not need metadata for any of its titles.
+    var heroCatalogChoices: [MediaCatalog] { sourceCatalogs }
+
     func selectHeroCatalog(_ catalog: MediaCatalog) {
-        guard catalogs.contains(where: { $0.id == catalog.id }) else { return }
+        guard sourceCatalogs.contains(where: { $0.id == catalog.id }) else { return }
         selectedHeroCatalogID = catalog.id
         saveHeroCatalogID(catalog.id)
         forgetHeroList()
@@ -777,8 +807,7 @@ final class MediaLibrary {
         if shelfChoices.removeValue(forKey: profile.id.uuidString) != nil {
             defaults.set(try? JSONEncoder().encode(shelfChoices), forKey: shelvesKey)
         }
-        let pendingSnapshot = snapshotWrites.removeValue(forKey: profile.id)
-        pendingSnapshot?.cancel()
+        let pendingSnapshot = snapshotWrites.discard(key: profile.id)
         let snapshotFile = Self.snapshotURL(profileID: profile.id)
         Task.detached {
             await pendingSnapshot?.value
@@ -840,7 +869,9 @@ final class MediaLibrary {
     /// Fresh shelves from each of `targets` at once, then the shelves and
     /// catalogs that are drawn from them.
     private func reload(servers targets: [MediaServerProfile]) async {
-        guard !targets.isEmpty else { return }
+        await restoreCachedLibrary()
+        let currentTargets = targets.filter { contains($0) }
+        guard !Task.isCancelled, !currentTargets.isEmpty else { return }
         // A reload is a fresh look at every server's titles; within it, the
         // MDBList shelves and the Streaming Services row share one fetch.
         inventoryMemo = nil
@@ -848,7 +879,7 @@ final class MediaLibrary {
         inventoryLoad = nil
         inventoryGeneration = UUID()
         await withTaskGroup(of: Void.self) { group in
-            for profile in targets {
+            for profile in currentTargets {
                 group.addTask { await self.loadServer(profile) }
             }
         }
@@ -856,7 +887,7 @@ final class MediaLibrary {
         // every server's titles, and the addon catalogs a request per enabled
         // catalog. The shelves should not wait behind either.
         await loadMDBListShelves()
-        await loadAddonCatalogs(on: targets)
+        await loadAddonCatalogs(on: currentTargets)
         refreshHeroList()
         refreshStreamingServicesIfNeeded()
     }
@@ -1488,6 +1519,7 @@ final class MediaLibrary {
     /// The saved lists, each matched against every connected server's titles
     /// at once. A list that does not answer keeps the shelf it had.
     private func loadMDBListShelves() async {
+        await restoreCachedLibrary()
         let selected = savedMDBListShelfIDs()
         guard !selected.isEmpty, let apiKey = MDBListKeychainStore.apiKey() else {
             if !mdbListShelves.isEmpty {
@@ -2511,16 +2543,22 @@ final class MediaLibrary {
 
     private func reconcileSeriesPositions(for profile: MediaServerProfile) async {
         let generation = playbackGeneration
-        let series = catalogs.flatMap(\.items).filter { $0.isSeries && $0.serverID == profile.id }
-        let records: [(seriesID: String, record: LocalMediaPlayback)] = localPlayback.compactMap { record in
-            guard record.profileID == profile.id, record.item.type == "Episode" else { return nil }
-            if let seriesID = record.item.seriesID { return (seriesID, record) }
-            guard let name = record.item.seriesName,
-                  let matched = series.first(where: {
-                      $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
-                  }) else { return nil }
-            return (matched.id, record)
-        }
+        let sources = sourceCatalogs, history = localPlayback
+        let records: [(seriesID: String, record: LocalMediaPlayback)] = await Task.detached(priority: .utility) {
+            // Legacy history keeps the provider's series name. This lookup
+            // needs its original titles/IDs, not metadata for every shelf.
+            let series = sources.flatMap(\.items).filter { $0.isSeries && $0.serverID == profile.id }
+            return history.compactMap { record -> (seriesID: String, record: LocalMediaPlayback)? in
+                guard record.profileID == profile.id, record.item.type == "Episode" else { return nil }
+                if let seriesID = record.item.seriesID { return (seriesID, record) }
+                guard let name = record.item.seriesName,
+                      let matched = series.first(where: {
+                          $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+                      }) else { return nil }
+                return (matched.id, record)
+            }
+        }.value
+        guard !Task.isCancelled, generation == playbackGeneration, contains(profile) else { return }
         let grouped = Dictionary(grouping: records) { $0.seriesID }
         guard let source = try? client(for: profile) else { return }
         for (seriesID, entries) in grouped {
@@ -2815,39 +2853,35 @@ final class MediaLibrary {
             counts: state.counts, refreshedAt: state.refreshedAt ?? Date(),
             siloPlayback: nativeSiloRecords[profile.id], siloFavorites: nativeSiloFavorites[profile.id])
         let url = Self.snapshotURL(profileID: profile.id)
-        let prior = snapshotWrites[profile.id]
-        snapshotWrites[profile.id] = Task.detached(priority: .utility) {
-            await prior?.value
-            guard !Task.isCancelled, let data = try? JSONEncoder().encode(snapshot), !Task.isCancelled else { return }
-            try? data.write(to: url, options: .atomic)
+        _ = snapshotWrites.submit(key: profile.id, value: LibraryWrite(snapshot: snapshot, url: url)) { request in
+            await Task.detached(priority: .utility) {
+                guard let data = try? JSONEncoder().encode(request.snapshot) else { return }
+                try? data.write(to: request.url, options: .atomic)
+            }.value
         }
     }
 
     /// Disk decoding is dramatically cheaper than repeating several server
     /// requests, and it happens once per server at launch.
-    private func restoreLibrarySnapshot(for profile: MediaServerProfile, adoptingLists: Bool) {
+    private func installLibrarySnapshot(_ snapshot: LibrarySnapshot, for profile: MediaServerProfile, adoptingLists: Bool) {
+        guard contains(profile), state(of: profile).refreshedAt == nil,
+              !state(of: profile).isLoaded else { return }
         var state = servers[profile.id] ?? MediaServerState()
         defer { servers[profile.id] = state }
-        let url = Self.snapshotURL(profileID: profile.id)
-        guard let data = try? Data(contentsOf: url),
-              let snapshot = try? JSONDecoder().decode(LibrarySnapshot.self, from: data) else { return }
-        // Written before items carried their server, a snapshot's items are
-        // given it here.
-        let mark = { (items: [MediaItem]) in
-            items.map { $0.serverID == nil ? $0.servedBy(profile.id) : $0 }
-        }
-        state.roots = mark(snapshot.roots)
-        state.collections = mark(snapshot.collections)
-        state.importedCatalogs = mark(snapshot.importedCatalogs)
+        // Item scoping/migration was already done with decoding off the UI
+        // actor. Only the small shelf-root list needs its legacy IDs here.
+        state.roots = snapshot.roots
+        state.collections = snapshot.collections
+        state.importedCatalogs = snapshot.importedCatalogs
         state.catalogs = snapshot.catalogs.filter { !Self.isMDBListShelfID($0.root.id) }.map { shelf in
             MediaCatalog(root: shelf.root.serverID == nil ? shelf.root.servedBy(profile.id) : shelf.root,
-                         items: mark(shelf.items))
+                         items: shelf.items)
         }
         state.counts = snapshot.counts
         state.refreshedAt = snapshot.refreshedAt
         if profile.brand == .silo {
-            nativeSiloRecords[profile.id] = snapshot.siloPlayback?.filter { $0.profileID == profile.id }
-            nativeSiloFavorites[profile.id] = snapshot.siloFavorites?.map { $0.servedBy(profile.id) }
+            nativeSiloRecords[profile.id] = snapshot.siloPlayback
+            nativeSiloFavorites[profile.id] = snapshot.siloFavorites
         }
         state.loadFailed = false
         // MDBList shelves used to be saved with the server that was active,
@@ -2856,7 +2890,7 @@ final class MediaLibrary {
         if adoptingLists {
             let lists = snapshot.catalogs.filter { Self.isMDBListShelfID($0.root.id) }
             if !lists.isEmpty {
-                mdbListShelves = lists.map { MediaCatalog(root: $0.root, items: mark($0.items)) }
+                mdbListShelves = lists
                 persistMDBListSnapshot()
             }
         }
@@ -2881,11 +2915,52 @@ final class MediaLibrary {
         }
     }
 
-    private func restoreMDBListSnapshot() -> Bool {
-        guard let data = try? Data(contentsOf: Self.mdbListSnapshotURL),
-              let shelves = try? JSONDecoder().decode([MediaCatalog].self, from: data) else { return false }
-        mdbListShelves = shelves
-        return true
+    /// Restore the large disk snapshots without holding up the app's root
+    /// initializer. Network reloads join this task before publishing fresh data.
+    private func startRestoringCaches() {
+        let savedProfiles = profiles, formerActive = formerActiveServer()
+        isRestoringCache = !savedProfiles.isEmpty
+        let savedLists = savedMDBListShelves(), savedHeroSource = defaults.data(forKey: heroSourceKey)
+        let hasHero = defaults.object(forKey: heroSourceKey) != nil
+        let worker = Task.detached(priority: .userInitiated) {
+            let decoder = JSONDecoder()
+            let lists = (try? Data(contentsOf: Self.mdbListSnapshotURL))
+                .flatMap { try? decoder.decode([MediaCatalog].self, from: $0) }
+            let servers = savedProfiles.compactMap { profile -> (MediaServerProfile, LibrarySnapshot)? in
+                guard let data = try? Data(contentsOf: Self.snapshotURL(profileID: profile.id)),
+                      let snapshot = try? decoder.decode(LibrarySnapshot.self, from: data) else { return nil }
+                return (profile, snapshot.scoped(to: profile))
+            }
+            let hero = hasHero ? (try? Data(contentsOf: Self.heroListURL))
+                .flatMap { try? decoder.decode(MediaCatalog.self, from: $0) } : nil
+            return (lists, servers, hero)
+        }
+        cacheRestoreTask = Task { [weak self] in
+            let (lists, servers, hero) = await worker.value
+            guard let self else { return }
+            let canRestoreLists = self.savedMDBListShelves() == savedLists && self.mdbListShelves.isEmpty
+            if canRestoreLists, let lists {
+                let available = Set(self.profiles.map(\.id))
+                self.mdbListShelves = lists.map { shelf in
+                    MediaCatalog(root: shelf.root, items: shelf.items.filter {
+                        $0.serverID == nil || available.contains($0.serverID!)
+                    })
+                }
+            }
+            for (profile, snapshot) in servers {
+                self.installLibrarySnapshot(snapshot, for: profile,
+                    adoptingLists: canRestoreLists && lists == nil && profile.id == formerActive)
+            }
+            if self.defaults.data(forKey: self.heroSourceKey) == savedHeroSource, self.heroListCatalog == nil {
+                self.heroListCatalog = hero
+            }
+            self.cacheRestoreTask = nil
+            self.isRestoringCache = false
+        }
+    }
+
+    func restoreCachedLibrary() async {
+        await cacheRestoreTask?.value
     }
 
     // MARK: - Search
@@ -2982,7 +3057,7 @@ final class MediaLibrary {
         guard let profile = profile(for: root) else { return }
         let shelfRoot = root.servedBy(profile.id)
         let shelfID = MediaCatalog.id(for: shelfRoot)
-        guard !catalogs.contains(where: { $0.id == shelfID }) else { return }
+        guard !sourceCatalogs.contains(where: { $0.id == shelfID }) else { return }
         var loaded: [MediaItem] = []
         do {
             loaded = try await client(for: profile).items(userID: profile.userID, parent: root,
@@ -2992,7 +3067,7 @@ final class MediaLibrary {
         } catch {
             if !Self.isCancellation(error) { report(error, from: profile) }
         }
-        guard !catalogs.contains(where: { $0.id == shelfID }) else { return }
+        guard !sourceCatalogs.contains(where: { $0.id == shelfID }) else { return }
         update(profile) { $0.catalogs.append(MediaCatalog(root: shelfRoot, items: loaded)) }
         saveShelfIDs(for: profile)
         persistLibrarySnapshot(for: profile)
@@ -3041,7 +3116,7 @@ final class MediaLibrary {
     }
 
     private func unshelved(_ items: [MediaItem]) -> [MediaItem] {
-        let shelved = Set(catalogs.map(\.id))
+        let shelved = Set(sourceCatalogs.map(\.id))
         return items.filter { !shelved.contains(MediaCatalog.id(for: $0)) }
     }
 
@@ -4283,6 +4358,7 @@ final class MediaLibrary {
     }
 
     func restoreCloudSettings() async {
+        await restoreCachedLibrary()
         isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         guard let data = defaults.data(forKey: profilesKey),
               let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) else { return }
@@ -4294,7 +4370,13 @@ final class MediaLibrary {
         }
         let arriving = saved.filter { !known.contains($0.id) }
         profiles = saved
-        for profile in arriving { restoreLibrarySnapshot(for: profile, adoptingLists: false) }
+        for profile in arriving {
+            let snapshot = await Task.detached(priority: .userInitiated) { () -> LibrarySnapshot? in
+                guard let data = try? Data(contentsOf: Self.snapshotURL(profileID: profile.id)) else { return nil }
+                return try? JSONDecoder().decode(LibrarySnapshot.self, from: data).scoped(to: profile)
+            }.value
+            if let snapshot { installLibrarySnapshot(snapshot, for: profile, adoptingLists: false) }
+        }
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
@@ -4855,7 +4937,7 @@ extension MediaLibrary {
             rows.append(LibraryRow(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
                                    detail: nil, symbol: "heart.text.square", brand: nil))
         }
-        for catalog in catalogs {
+        for catalog in sourceCatalogs {
             let symbol: String
             if Self.isMDBListShelfID(catalog.id) { symbol = "list.star" }
             else if ProviderItem(id: catalog.root.id) != nil { symbol = "tv" }
