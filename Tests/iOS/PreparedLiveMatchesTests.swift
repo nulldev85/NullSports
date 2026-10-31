@@ -7,6 +7,83 @@ import XCTest
 
 @MainActor
 final class PreparedLiveMatchesTests: XCTestCase {
+    func testOngoingCricketRestoresPlayableFeedsAfterItsFirstDay() async throws {
+        let now = Date()
+        let f = try fixture(league: .cricket, gameStart: now.addingTimeInterval(-2 * 86_400))
+        defer { f.cleanUp() }
+        XCTAssertTrue(f.game.isRelevant(to: Calendar.current.startOfDay(for: now), now: now))
+        let library = f.library()
+        let restored = await library.restorePreparedMatches(now: now)
+        XCTAssertTrue(restored)
+        XCTAssertFalse(library.automaticMatchingReady)
+        XCTAssertEqual(library.games(for: .cricket).map(\.id), [f.game.id])
+        XCTAssertTrue(library.eventChannelsReady(for: f.game))
+        XCTAssertEqual(library.preferredChannel(for: f.game), .play(streamID: 1, source: .verified))
+        XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 1)
+        let alternatives = await library.eventChannels(for: f.game)
+        XCTAssertEqual(alternatives.map(\.id), [1, 2], "Verified alternatives survive the same multi-day restore")
+        XCTAssertFalse(game(start: now.addingTimeInterval(-2 * 86_400)).isRelevant(to: Calendar.current.startOfDay(for: now), now: now),
+            "Other sports retain the overnight cutoff")
+        let expired = game(start: now.addingTimeInterval(-6 * 86_400), league: .cricket)
+        XCTAssertFalse(expired.isRelevant(to: Calendar.current.startOfDay(for: now), now: now))
+    }
+
+    func testCompletedUnmatchedCricketDoesNotReenterSyncDuringRefresh() async throws {
+        let f = try fixture(league: .cricket, gameStart: Date().addingTimeInterval(-2 * 86_400))
+        defer { f.cleanUp() }
+        let empty = PreparedLiveMatch(preparedAt: Date(), eventStart: f.game.start,
+            identity: PreparedLiveMatch.identity(for: f.game), primary: nil, alternatives: [], programs: [:], categoryNames: [:])
+        let saved = PreparedLiveSnapshot(version: PreparedLiveSnapshot.version,
+            connection: PreparedLiveSnapshot.connection(for: f.profile), savedAt: Date(), dailyPreparedAt: Date(),
+            games: ["cricket": [f.game]], loadedLeagues: ["cricket"], matches: [f.game.id: empty])
+        PreparedLiveStore.write(saved, profileID: f.profile.id, directory: f.directory)
+        let gate = PreparedCatalogGate()
+        let library = SportsLibrary(profileDefaults: f.defaults,
+            credentials: .init(password: { _ in "test-only-secret" }, save: { _, _ in }, delete: { _ in }),
+            preparedCacheDirectory: f.directory, automaticRefreshes: false,
+            scheduleCacheLocation: f.directory.appendingPathComponent("schedule.json"),
+            scheduleFetcher: { _ in
+                await gate.wait()
+                return .init(games: [:], loadedLeagues: [], errorMessage: "Offline")
+            })
+        let restored = await library.restorePreparedMatches()
+        XCTAssertTrue(restored)
+        XCTAssertEqual(library.preferredChannel(for: f.game), .pick)
+        library.refreshSchedule(showsLoading: true)
+        XCTAssertTrue(library.channelsAreSyncing)
+        XCTAssertEqual(library.preferredChannel(for: f.game), .pick,
+            "A settled match with no verified feed opens the picker while refresh runs")
+        await gate.release()
+    }
+
+    func testFirstScheduleRequestShowsLoadingUntilItHasActuallyAnswered() async throws {
+        for succeeds in [false, true] {
+            let f = try fixture()
+            defer { f.cleanUp() }
+            let gate = PreparedCatalogGate()
+            let library = SportsLibrary(profileDefaults: f.defaults,
+                credentials: .init(password: { _ in "test-only-secret" }, save: { _, _ in }, delete: { _ in }),
+                preparedCacheDirectory: f.directory, automaticRefreshes: false,
+                scheduleCacheLocation: f.directory.appendingPathComponent("schedule.json"),
+                scheduleFetcher: { _ in
+                    await gate.wait()
+                    return .init(games: succeeds ? [.cricket: []] : [:], loadedLeagues: succeeds ? [.cricket] : [],
+                        errorMessage: succeeds ? nil : "Cricket schedule unavailable.")
+                })
+            XCTAssertTrue(library.scheduleIsLoading(for: .cricket), "Before the first response the schedule has not failed")
+            library.refreshSchedule(showsLoading: false)
+            XCTAssertTrue(library.isScheduleLoading)
+            XCTAssertTrue(library.scheduleIsLoading(for: .cricket))
+            XCTAssertNil(library.scheduleErrorMessage)
+            await gate.release()
+            let deadline = Date().addingTimeInterval(5)
+            while library.isScheduleLoading, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+            XCTAssertFalse(library.scheduleIsLoading(for: .cricket))
+            XCTAssertEqual(library.scheduleAvailable(for: .cricket), succeeds)
+            XCTAssertEqual(library.scheduleErrorMessage == nil, succeeds)
+        }
+    }
+
     func testFreshHockeyScoresPublishWhileChannelPreparationIsBlocked() async throws {
         let f = try fixture(league: .nhl)
         defer { f.cleanUp() }
@@ -74,25 +151,29 @@ final class PreparedLiveMatchesTests: XCTestCase {
 
     private func game(start: Date = Date().addingTimeInterval(-600), broadcast: String = "ABC",
                       state: String = "in", score: String = "10", league: SportsLeague = .nba) -> SportsGame {
-        SportsGame(id: "prepared-game", league: league, start: start,
-            awayTeam: league == .nhl ? "Columbus Blue Jackets" : "Orlando Magic",
-            homeTeam: league == .nhl ? "Carolina Hurricanes" : "Miami Heat",
-            awayAbbreviation: league == .nhl ? "CBJ" : "ORL", homeAbbreviation: league == .nhl ? "CAR" : "MIA",
+        var result = SportsGame(id: "prepared-game", league: league, start: start,
+            awayTeam: league == .cricket ? "India A" : (league == .nhl ? "Columbus Blue Jackets" : "Orlando Magic"),
+            homeTeam: league == .cricket ? "New Zealand A" : (league == .nhl ? "Carolina Hurricanes" : "Miami Heat"),
+            awayAbbreviation: league == .cricket ? "IND-A" : (league == .nhl ? "CBJ" : "ORL"),
+            homeAbbreviation: league == .cricket ? "NZ-A" : (league == .nhl ? "CAR" : "MIA"),
             awayLogo: "", homeLogo: "", awayScore: score, homeScore: "12", awayColor: nil, homeColor: nil,
             awayRecord: nil, homeRecord: nil, venue: nil, location: nil, status: "Live", state: state,
             broadcast: broadcast, eventName: nil)
+        if league == .cricket { result.cricket = .init(end: start.addingTimeInterval(5 * 86_400), format: "Test") }
+        return result
     }
 
     private func fixture(preparedAt: Date = Date().addingTimeInterval(-30),
-                         programEnd: Date = Date().addingTimeInterval(3600), league: SportsLeague = .nba) throws -> Fixture {
+                         programEnd: Date = Date().addingTimeInterval(3600), league: SportsLeague = .nba,
+                         gameStart: Date = Date().addingTimeInterval(-600)) throws -> Fixture {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("PreparedLiveTests-\(UUID())")
         let suite = "PreparedLiveTests.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         let profile = XtreamProfile(name: "Test lineup", serverURL: "https://prepared.invalid", username: "viewer")
         defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.profiles")
         defaults.set(profile.id.uuidString, forKey: "NullSports.activeProfile")
-        let event = game(broadcast: league == .nhl ? "ESPN+" : "ABC", league: league)
-        let names = league == .nhl
+        let event = game(start: gameStart, broadcast: league == .cricket ? "Willow" : (league == .nhl ? "ESPN+" : "ABC"), league: league)
+        let names = league == .cricket ? ["UK: Sky Sports Main Event 4K", "UK: Sky Sports Main Event FHD"] : league == .nhl
             ? ["US: NHL Columbus Blue Jackets vs Carolina Hurricanes 4K", "US: NHL Columbus Blue Jackets vs Carolina Hurricanes FHD"]
             : ["US: ABC Miami 4K", "US: ABC Miami FHD"]
         let streams = names.enumerated().map { offset, name in
@@ -100,7 +181,7 @@ final class PreparedLiveMatchesTests: XCTestCase {
                 streamIcon: nil, epgChannelID: "event", categoryID: "sports")
         }
         let programs = ["event": [CurrentProgram(channelID: "event",
-            title: league == .nhl ? "NHL Hockey: Columbus Blue Jackets at Carolina Hurricanes" : "NBA Basketball: Orlando Magic at Miami Heat", detail: "",
+            title: league == .cricket ? "India A vs New Zealand A" : (league == .nhl ? "NHL Hockey: Columbus Blue Jackets at Carolina Hurricanes" : "NBA Basketball: Orlando Magic at Miami Heat"), detail: "",
             start: Date().addingTimeInterval(-1200), end: programEnd)]]
         let alternatives = SportsLibrary.matchingEventChannels(for: event, candidates: streams,
             programs: programs, categories: [.init(categoryID: "sports", categoryName: "Sports")], now: Date())

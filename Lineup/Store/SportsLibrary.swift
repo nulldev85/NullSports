@@ -149,6 +149,7 @@ final class SportsLibrary {
     private(set) var scheduleLoadedLeagues: Set<SportsLeague> = []
     private(set) var scheduleErrorMessage: String?
     private(set) var isScheduleLoading = false
+    private var didAttemptSchedule = false
     private(set) var isLoading = false
     private(set) var isGuideLoading = false
     var errorMessage: String?
@@ -695,7 +696,7 @@ final class SportsLibrary {
                 let today = Calendar.current.startOfDay(for: now)
                 gamesByLeague = Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
                     (league, (cached.games[league.rawValue] ?? []).filter { game in
-                        game.start >= today || (game.isLive && now.timeIntervalSince(game.start) < 12 * 60 * 60)
+                        game.isRelevant(to: today, now: now)
                     })
                 })
                 scheduleLoadedLeagues = Set(cached.games.keys.compactMap(SportsLeague.init(rawValue:)))
@@ -892,7 +893,7 @@ final class SportsLibrary {
         preparedPlaylistURLs = restored.1
         let today = Calendar.current.startOfDay(for: now)
         let games = saved.games.mapValues { $0.filter {
-            ($0.isLive || $0.isUpcoming) && ($0.start >= today || now.timeIntervalSince($0.start) < 12 * 60 * 60)
+            ($0.isLive || $0.isUpcoming) && $0.isRelevant(to: today, now: now)
         } }
         let savedGames = Dictionary(games.values.joined().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let matches = Dictionary(saved.matches.compactMap { id, match -> (String, PreparedLiveMatch)? in
@@ -1634,7 +1635,7 @@ final class SportsLibrary {
             // Yesterday's preparation includes today's upcoming slate. Keep
             // it and ongoing overnight games while fetching the new day.
             gamesByLeague = gamesByLeague.mapValues { $0.filter {
-                $0.start >= today || ($0.isLive && Date().timeIntervalSince($0.start) < 12 * 60 * 60)
+                $0.isRelevant(to: today, now: Date())
             } }
             scheduleValidatedLeagues = []
             let identities = matchIdentities(now: Date())
@@ -1654,7 +1655,7 @@ final class SportsLibrary {
         let profileID = activeProfile?.id
         let requestGeneration = providerGeneration
         scheduleRefreshInFlight = true
-        if showsLoading { isScheduleLoading = true }
+        isScheduleLoading = showsLoading || scheduleLoadedLeagues.isEmpty
         let fetchesTomorrow = includeTomorrow
             || tomorrowScheduleUpdatedAt == nil
             || Date().timeIntervalSince(tomorrowScheduleUpdatedAt!) >= tomorrowScheduleLifetime
@@ -1667,12 +1668,13 @@ final class SportsLibrary {
             defer {
                 if self.providerGeneration == requestGeneration {
                     self.scheduleRefreshInFlight = false
-                    if showsLoading { self.isScheduleLoading = false }
+                    self.isScheduleLoading = false
                 }
             }
             guard self.providerGeneration == requestGeneration, self.activeProfile?.id == profileID else { return }
             // A response started yesterday cannot repopulate today's slate.
             guard Calendar.current.isDate(today, inSameDayAs: Date()) else { return }
+            self.didAttemptSchedule = true
             // Failed or partial fetches must remain eligible for the next poll.
             // A successful empty slate still has all leagues marked as loaded.
             if fetchesTomorrow {
@@ -1765,6 +1767,15 @@ final class SportsLibrary {
             }.value
         }
         persistPreparedMatches()
+    }
+
+    /// An unanswered first request is loading, not a failed schedule. Cached
+    /// league data stays visible while refreshes happen behind it.
+    func scheduleIsLoading(for league: SportsLeague?) -> Bool {
+        #if os(iOS)
+        if let combinedRoot { return combinedRoot.scheduleIsLoading(for: league) }
+        #endif
+        return !scheduleAvailable(for: league) && (!didAttemptSchedule || scheduleRefreshInFlight)
     }
 
     func scheduleAvailable(for league: SportsLeague?) -> Bool {
@@ -2011,7 +2022,7 @@ final class SportsLibrary {
         let day = Calendar.current.startOfDay(for: now)
         return gamesByLeague.values.flatMap { $0 }.reduce(into: [:]) { result, game in
             guard game.isLive || game.isUpcoming,
-                  game.start >= day || (game.isLive && now.timeIntervalSince(game.start) < 12 * 60 * 60) else { return }
+                  game.isRelevant(to: day, now: now) else { return }
             result[game.id] = Self.matchIdentity(game)
         }
     }
@@ -4638,6 +4649,7 @@ final class SportsLibrary {
         scheduleSnapshotAt = nil
         scheduleErrorMessage = nil
         isScheduleLoading = false
+        didAttemptSchedule = false
         isGuideLoading = false
         isLoading = false
         guideUpdatedAt = nil

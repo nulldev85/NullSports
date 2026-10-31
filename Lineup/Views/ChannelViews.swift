@@ -78,7 +78,7 @@ struct LiveView: View {
                         previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
                         multiviewPrimaryID: multiviewPrimary?.id,
                         multiviewTitle: multiviewPrimary?.name,
-                        isScheduleLoading: library.isLoading || library.isScheduleLoading,
+                        isScheduleLoading: library.isLoading || library.scheduleIsLoading(for: selectedLeague),
                         isScheduleAvailable: library.scheduleAvailable(for: selectedLeague),
                         scheduleErrorMessage: library.scheduleErrorMessage,
                         onPlay: select,

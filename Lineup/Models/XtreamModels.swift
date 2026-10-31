@@ -261,6 +261,15 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
         return start > Date()
     }
 
+    /// Keep a multi-day Cricket match while its scheduled window is active.
+    /// The overnight allowance for other sports remains bounded to twelve hours.
+    func isRelevant(to day: Date, now: Date) -> Bool {
+        if start >= day { return true }
+        guard isLive else { return false }
+        if league == .cricket, let cricket { return now < cricket.end }
+        return now.timeIntervalSince(start) < 12 * 60 * 60
+    }
+
     /// Between the two sides: a team plays at another's ground, a tennis
     /// player plays against someone.
     var sidesWord: String { league.isTennis || league == .soccer || league == .cricket ? "vs" : "at" }
@@ -548,7 +557,7 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
             return text.has(Self.nascarWords, Self.nascarPhrases)
         case .cricket:
             return !text.words.isDisjoint(with: Self.cricketWords)
-                || (text.words.contains("hundred") && text.value.contains("the hundred"))
+                || Self.cricketPhrases.contains { $0.words.allSatisfy(text.words.contains) && text.value.contains($0.text) }
         default:
             return text.words.contains(rawValue)
                 || text.has(Self.teamWords[self] ?? [], Self.teamPhrases[self] ?? [])
@@ -583,7 +592,11 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     private static let f1Words = words(f1Terms)
     private static let f1Phrases = phrases(f1Terms)
     private static let cricketWords = words(cricketTerms)
-    private static let cricketTerms = ["cricket", "ipl", "bbl", "psl", "cpl", "ilt20", "sa20", "willow", "t20", "odi", "the hundred"]
+    private static let cricketPhrases = phrases(cricketTerms)
+    // These are candidate broadcasters only; exact current-match evidence is
+    // still required before any one of their channels can play a Cricket game.
+    private static let cricketTerms = ["cricket", "ipl", "bbl", "wbbl", "wpl", "psl", "cpl", "ilt20", "sa20", "willow", "t20", "odi", "the hundred",
+        "espn", "espn2", "espn3", "tsn", "supersport", "sky sports", "sky sport", "tnt sports", "star sports", "sony sports", "fox sports", "ptv sports", "astro cricket"]
     private static let nascarWords = words(nascarTerms)
     private static let nascarPhrases = phrases(nascarTerms)
     private static let teamWords: [SportsLeague: Set<String>] = teamTerms.mapValues { words($0) }

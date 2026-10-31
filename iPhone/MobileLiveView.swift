@@ -655,12 +655,17 @@ struct MobileLiveView: View {
                                detail: day.formatted(.dateTime.month(.abbreviated).day()),
                                games: dayGames)
                 }
-                if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
+                if slate.all.isEmpty && library.scheduleIsLoading(for: league) {
+                    ProgressView("Loading games?")
+                        .font(.inter(.subheadline)).foregroundStyle(LineupStyle.secondary)
+                        .frame(maxWidth: .infinity).padding(.top, 40)
+                        .accessibilityIdentifier("LiveScheduleLoading")
+                } else if slate.all.isEmpty && onlyFollowed {
                     LineupUnavailableView("Nothing for your teams",
                         systemImage: "star",
                         description: Text("None of the teams you follow are playing in this range. Tap My Teams again to see everything."))
                         .padding(.top, 40)
-                } else if slate.all.isEmpty && !library.isScheduleLoading {
+                } else if slate.all.isEmpty {
                     LineupUnavailableView(
                         library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
                         systemImage: "sportscourt",

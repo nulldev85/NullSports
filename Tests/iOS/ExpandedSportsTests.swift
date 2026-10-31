@@ -81,6 +81,8 @@ final class ExpandedSportsTests: XCTestCase {
                 programs: ["cricket": [entry]], categories: [], now: now).map(\.id)
         }
         XCTAssertEqual(channels(["Willow HD"]), [0], "A day-three guide slot is valid despite the original match start")
+        XCTAssertEqual(channels(["Sky Sports Main Event HD"], title: "India A v New Zealand A"), [0])
+        XCTAssertTrue(channels(["Sky Sports Main Event HD"], title: "England v Australia").isEmpty)
         XCTAssertEqual(channels(["Cricket India A vs New Zealand A"], title: "Cricket"), [0])
         XCTAssertTrue(channels(["Willow HD"], title: "India vs New Zealand").isEmpty)
         XCTAssertTrue(channels(["Willow HD"], title: "India Women vs New Zealand Women").isEmpty)
@@ -90,7 +92,7 @@ final class ExpandedSportsTests: XCTestCase {
     }
 
     func testCricketDiscoveryUsesWholeWordsAndCompetitionNames() {
-        for name in ["UK: Sky Sports Cricket HD", "US: WILLOW FHD", "IPL 02", "BBL", "PSL", "CPL", "ILT20", "SA20", "T20", "ODI", "The Hundred"] {
+        for name in ["UK: Sky Sports Cricket HD", "US: WILLOW FHD", "IPL 02", "BBL", "PSL", "CPL", "ILT20", "SA20", "T20", "ODI", "The Hundred", "WBBL", "WPL", "Sky Sports Main Event", "Sony Sports Ten 1", "TNT Sports 1", "SuperSport", "ESPN"] {
             XCTAssertTrue(SportsLeague.cricket.matches(name), name)
         }
         for name in ["Willowbrook Movies", "Display Channel", "ODISEA", "The Hundredth Episode", "NBA TV"] {
