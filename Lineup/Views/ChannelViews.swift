@@ -62,7 +62,10 @@ struct LiveView: View {
     var body: some View {
         GeometryReader { container in
             VStack(spacing: 0) {
-                NavigationStack {
+                // Sports presents its destinations in their own covers; it
+                // has no pushed routes. An unused native navigation container
+                // paints a separate ground above the full-screen canvas.
+                Group {
                     LiveScreen(
                         events: events,
                         spotlight: spotlight,
@@ -92,13 +95,11 @@ struct LiveView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                // The ticker belongs to the full-height Live layout, outside
-                // NavigationStack's independently inset content area.
+                // The ticker belongs to the same full-height Sports layout.
                 LiveTicker(events: tickerEvents)
                     .frame(height: LiveTicker.height)
             }
             .frame(width: container.size.width, height: container.size.height, alignment: .top)
-            .background(LineupStyle.background)
             .lineupFullScreenCover(item: $fullScreen) { item in
                 PlayerView(
                     urls: library.playbackURLs(for: item.stream),
@@ -207,8 +208,8 @@ struct LiveView: View {
             .onDisappear { catchUpLookup?.cancel() }
         }
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-        // Own one canvas outside the NavigationStack's clipped viewport.
-        // It can reach behind both system navigation and the score ticker.
+        // Own one canvas outside the clipped content viewport so it reaches
+        // behind both system navigation and the score ticker.
         .background(LiveCanvas(spotlight: spotlight, events: events))
         .toolbarBackground(.hidden, for: .tabBar)
     }

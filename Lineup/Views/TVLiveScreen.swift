@@ -134,10 +134,8 @@ struct LiveScreen: View {
         }
         .padding(.horizontal, LiveMetrics.margin)
         .padding(.top, 8)
-        // The navigation stack insets its content by the safe area again,
-        // which pushed the stage and the board in from the crawl's edge. The
-        // screen keeps its own margins instead. Only the sides: below, the
-        // inset is what keeps the board above the crawl.
+        // The screen and score crawl use the same explicit side margins.
+        // Keep vertical layout bounded above the crawl.
         .ignoresSafeArea(.container, edges: .horizontal)
         .onExitCommand { if previewStream != nil { onStopPreview() } }
     }

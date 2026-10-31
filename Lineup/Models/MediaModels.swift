@@ -1151,8 +1151,8 @@ enum MediaHeroCatalogSelection {
 
     static func featuredItems(in catalog: MediaCatalog, limit: Int = 10) -> [MediaItem] {
         guard limit > 0 else { return [] }
-        let presentable = catalog.items.filter { $0.hasDetailPage || $0.isPlayable }
-        return Array((presentable.isEmpty ? catalog.items : presentable).prefix(limit))
+        let presentable = Array(catalog.items.lazy.filter { $0.hasDetailPage || $0.isPlayable }.prefix(limit))
+        return presentable.isEmpty ? Array(catalog.items.prefix(limit)) : presentable
     }
 }
 

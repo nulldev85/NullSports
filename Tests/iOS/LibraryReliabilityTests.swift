@@ -53,9 +53,19 @@ final class LibraryReliabilityTests: XCTestCase {
         } onChange: {
             MainActor.assumeIsolated { state.invalidated = true }
         }
+        let heroState = LibraryCacheHeartbeat()
+        withObservationTracking {
+            XCTAssertEqual(library.heroCatalog?.items.count, 30_000)
+            XCTAssertEqual(library.heroCatalogChoices.first?.items.count, 30_000)
+        } onChange: {
+            MainActor.assumeIsolated { heroState.invalidated = true }
+        }
         library.setMetadataSource(.provider)
         library.setMetadataSource(.provider, episodes: true)
         XCTAssertFalse(state.invalidated, "Settings' shelf title must not depend on remapping item metadata")
+        XCTAssertFalse(heroState.invalidated, "Choosing the hero source must not observe/remap metadata for every item")
+        let featured = MediaHeroCatalogSelection.featuredItems(in: try XCTUnwrap(library.heroCatalog))
+        XCTAssertEqual(featured.map(\.id), (0..<10).map { "film-\($0)" })
         XCTAssertEqual(library.heroCatalog?.title, library.heroCatalogTitle)
     }
 
@@ -88,7 +98,8 @@ final class LibraryReliabilityTests: XCTestCase {
         let previous = scene.windows.first { $0.isKeyWindow }
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: MainView(initialTab: .settings)
-            .environment(library).environment(media).environmentObject(CloudSettingsSync.shared).preferredColorScheme(.dark))
+            .environment(library).environment(media).environmentObject(CloudSettingsSync.shared)
+            .environment(\.scenePhase, .active).preferredColorScheme(.dark))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previous?.makeKey() }
         func scroll(in view: UIView) -> UIScrollView? {
@@ -147,7 +158,7 @@ final class LibraryReliabilityTests: XCTestCase {
                 positions.append(list.contentOffset.y)
                 XCTAssertTrue(scroll(in: window) === list, "Compacting navigation must retain the real Settings list")
             }
-            XCTAssertTrue(navigation.isCompact)
+            XCTAssertTrue(navigation.isCompact, "An active Settings pan must exercise compact navigation; glass=\(glass)")
             XCTAssertLessThanOrEqual(positions.map { abs($0 - before) }.max() ?? 0, 1,
                 "Settings must remain stable throughout the transition, not just after it settles")
             navigation.scrollObservation.receivePanInput(from: list, phase: .ended, translation: CGPoint(x: 0, y: -65))

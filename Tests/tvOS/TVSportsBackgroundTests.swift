@@ -122,6 +122,7 @@ final class TVSportsBackgroundTests: XCTestCase {
             let until = Date().addingTimeInterval(5)
             var image: UIImage?
             var matches = false
+            var sampledPixels: [SIMD3<Double>] = []
             while !matches, Date() < until {
                 window.layoutIfNeeded()
                 let rendered = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
@@ -130,11 +131,12 @@ final class TVSportsBackgroundTests: XCTestCase {
                 let pixels = try [0.015, 0.5, 0.985].map {
                     try sample(rendered, x: 0.008, y: $0)
                 }
+                sampledPixels = pixels
                 matches = pixels.allSatisfy { redDominates ? $0.x > $0.z + 0.015 : $0.z > $0.x + 0.015 }
                 image = rendered
                 if !matches { try await Task.sleep(for: .milliseconds(20)) }
             }
-            XCTAssertTrue(matches, "The same team wash must cover the tab-bar, content and bottom screen edges")
+            XCTAssertTrue(matches, "Team wash must cover tab-bar, content and bottom screen edges: \(event.id), \(sampledPixels)")
             if let image { attach(image, name: "TV-Sports-full-screen-\(event.id)") }
         }
     }

@@ -64,7 +64,7 @@ def main():
             assert count == 1
             match_model.write_text(text, encoding="utf-8")
         if args.phone:
-            for name in ("iPhone/MobileCombinedCatalog.swift", "Lineup/Services/ExpandedSportsChannelMatcher.swift",
+            for name in ("iPhone/MobileCombinedCatalog.swift", "iPhone/MobileAudioSessionWork.swift", "Lineup/Services/ExpandedSportsChannelMatcher.swift",
                          "Lineup/Services/EventChannelEvidence.swift", "Lineup/Services/ChannelLanguage.swift"):
                 shutil.copyfile(ROOT / name, source / Path(name).name)
             expanded = (ROOT / "Lineup/Services/ExpandedSportsScheduleClient.swift").read_text(encoding="utf-8")
@@ -96,6 +96,7 @@ def main():
             regression = (ROOT / "Tests/iOS/SportsRefreshRegressionTests.swift").read_text(encoding="utf-8")
             (tests / "SportsRefreshRegressionTests.swift").write_text(
                 regression.replace("@testable import LineupiOS", "@testable import Lineup"), encoding="utf-8")
+            shutil.copyfile(ROOT / "Tests/iOS/AudioSessionResponsivenessTests.swift", tests / "AudioSessionResponsivenessTests.swift")
         # A macOS host can import SwiftUI, but these Foundation checks do not
         # load the app's theme. Omit only the UI import/property from its copy.
         models = source / "XtreamModels.swift"

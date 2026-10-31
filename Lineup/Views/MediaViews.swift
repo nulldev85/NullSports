@@ -1120,7 +1120,7 @@ struct MediaCatalogsScreen: View {
     }
 
     private var heroItems: [MediaItem] {
-        media.heroCatalog.map { MediaHeroCatalogSelection.featuredItems(in: $0) } ?? []
+        media.heroCatalog.map { MediaHeroCatalogSelection.featuredItems(in: $0).map { media.displayItem($0) } } ?? []
     }
 
     private var heroItem: MediaItem? {

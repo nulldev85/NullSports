@@ -79,6 +79,47 @@ updates. It samples scroll position during both solid/glass compact transitions,
 instead of checking only the settled endpoint. No speculative navigation or
 playback-engine rewrite was made without a reproduced cause.
 
+## Follow-up after native verification and renewed full-scope request
+
+Both iPhone 979 and TV 719 compiled their Release apps at `ff984f6`, but native
+tests blocked publication. The iPhone suite ran 789 tests with one existing
+skip and two failed assertions in the new Settings case: compact state never
+became active. Its test window had not supplied an active scene, so production
+correctly disabled its scroll observer. The fixture now supplies `.active`, as
+the existing navigation integration test does; all transition/offset assertions
+remain. TV 719 ran 304 tests; both failures were the new full-screen color checks.
+Its screenshots show a neutral canvas: the layout still had an inner solid
+background covering the newly moved canvas. That remaining fill is removed;
+Sports' unused NavigationStack is also removed (all its destinations use their
+own covers) so it cannot draw another ground over the canvas. The same
+top/center/bottom pixel checks and screenshots remain enabled.
+
+Further source inspection found two additional UI-thread work paths:
+
+- Audio activation used `queue.sync` from the UI actor, waiting for both earlier
+  audio deactivation and hardware/category changes. It now awaits a serial
+  hardware coordinator. Starting a stream returns immediately to UI work;
+  engine selection, URLs, buffers and quality policy are unchanged. Stop/new
+  selections invalidate pending startup, and old failures cannot remove a new
+  audio lease. A pending user Pause or background suspension is honored before
+  opening a decoder. Aether PiP callbacks are also fenced to the current request.
+  Synthetic blocked-hardware tests exercise ordering, replacement, failures and
+  cleanup locally. Replaying the former `queue.sync` pattern fails the same
+  UI-availability test after a deliberately blocked three-second hardware call;
+  the real asynchronous implementation passes. This is a controlled host replay,
+  not a physical-phone timing. Native tests additionally verify no late decoder after Stop
+  or Pause. Launch Timing records actual audio activation duration.
+- The Library hero still metadata-remapped the entire chosen shelf before
+  selecting ten featured titles. The hero now returns its original source;
+  visible hero views select the ten titles lazily, then resolve metadata for
+  those titles. The hero settings picker also uses original names/counts and
+  validates selection without remapping every shelf. Large-library observation
+  coverage verifies these source reads do not depend on item metadata choices.
+
+These are confirmed source paths and controlled regressions, not a claim that
+the historical device report has identified either as its sole cause. Current
+Apple SDK/native tests and physical-device behavior still require verification.
+
 ## Full-screen Apple TV Sports canvas
 
 The focused team-color canvas now belongs to the outside of the Sports layout,
@@ -110,8 +151,9 @@ future upstream completeness or a particular IPTV provider's live pictures.
 
 ## Verification
 
-- The Foundation preflight runs 29 actual XCTest cases locally: 13 expanded
-  sports cases, 12 phone refresh/Guide cases and 4 existing TV work-policy cases.
+- The Foundation preflight runs 32 actual XCTest cases locally: 13 expanded
+  sports cases, 12 phone refresh/Guide cases, 3 blocked-audio-work cases and
+  4 existing TV work-policy cases.
   The host harness includes actual bundled directories and captured ESPN JSON.
 - A 30,000-channel query completed in about 0.082 seconds on the Linux host
   while its UI actor ran 794 heartbeat iterations. This establishes that this

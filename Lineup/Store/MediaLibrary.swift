@@ -617,11 +617,11 @@ final class MediaLibrary {
            !sources.contains(where: { $0.id == list.id && !$0.items.isEmpty }) {
             return list
         }
-        guard let selected = MediaHeroCatalogSelection.resolve(sources, selectedID: selectedHeroCatalogID) else {
-            return trendingShelves.first
-        }
-        guard metadataSource != .provider || episodeDataSource != .provider else { return selected }
-        return MediaCatalog(root: selected.root, items: selected.items.map { displayItem($0) })
+        // The hero draws ten titles. Return its source unchanged so rendering
+        // a slide/Settings choice never remaps a 30,000-title shelf first.
+        // Hero views resolve metadata after selecting their bounded items.
+        return MediaHeroCatalogSelection.resolve(sources, selectedID: selectedHeroCatalogID)
+            ?? trendingShelves.first
     }
 
     /// Settings needs the shelf name, not metadata copies of every film and
@@ -634,8 +634,12 @@ final class MediaLibrary {
             ?? trendingShelves.first?.title
     }
 
+    /// Settings lists shelf names/counts and keeps the original choice.
+    /// Rendering that list does not need metadata for any of its titles.
+    var heroCatalogChoices: [MediaCatalog] { sourceCatalogs }
+
     func selectHeroCatalog(_ catalog: MediaCatalog) {
-        guard catalogs.contains(where: { $0.id == catalog.id }) else { return }
+        guard sourceCatalogs.contains(where: { $0.id == catalog.id }) else { return }
         selectedHeroCatalogID = catalog.id
         saveHeroCatalogID(catalog.id)
         forgetHeroList()
