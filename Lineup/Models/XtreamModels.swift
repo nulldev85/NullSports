@@ -225,6 +225,7 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
     var homeTeamID: String? = nil
     var soccer: SoccerScore? = nil
     var race: RacingSession? = nil
+    var cricket: CricketMatch? = nil
 
     // How long a game can run before an unchanged status is stale rather than late.
     static let longestPlausibleGame: TimeInterval = 6 * 60 * 60
@@ -262,8 +263,8 @@ struct SportsGame: Codable, Identifiable, Hashable, Sendable {
 
     /// Between the two sides: a team plays at another's ground, a tennis
     /// player plays against someone.
-    var sidesWord: String { league.isTennis || league == .soccer ? "vs" : "at" }
-    var sidesSymbol: String { league.isTennis || league == .soccer ? "vs" : "@" }
+    var sidesWord: String { league.isTennis || league == .soccer || league == .cricket ? "vs" : "at" }
+    var sidesSymbol: String { league.isTennis || league == .soccer || league == .cricket ? "vs" : "@" }
     /// "Bruins at Rangers", "Jannik Sinner vs Carlos Alcaraz", or an
     /// event's own name.
     var matchupLine: String {

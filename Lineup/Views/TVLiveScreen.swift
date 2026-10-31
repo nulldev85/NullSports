@@ -524,15 +524,22 @@ struct LiveSlate: View {
     }
 
     @ViewBuilder private var center: some View {
-        if game.isLive && !game.awayScore.isEmpty && !game.homeScore.isEmpty {
+        if game.isLive && ((!game.awayScore.isEmpty && !game.homeScore.isEmpty)
+            || (game.league == .cricket && (!game.awayScore.isEmpty || !game.homeScore.isEmpty))) {
             let lead = liveLeader(game)
             VStack(spacing: 22) {
                 HStack(alignment: .center, spacing: 22) {
-                    Text(game.awayScore)
-                        .foregroundStyle(lead == .home ? LivePalette.secondary : LivePalette.text)
+                    Group {
+                        if game.league == .cricket { CricketScoreView(score: game.awayScore, size: 64) }
+                        else { Text(game.awayScore) }
+                    }
+                    .foregroundStyle(lead == .home ? LivePalette.secondary : LivePalette.text)
                     Capsule().fill(LivePalette.secondary.opacity(0.55)).frame(width: 24, height: 5)
-                    Text(game.homeScore)
-                        .foregroundStyle(lead == .away ? LivePalette.secondary : LivePalette.text)
+                    Group {
+                        if game.league == .cricket { CricketScoreView(score: game.homeScore, size: 64) }
+                        else { Text(game.homeScore) }
+                    }
+                    .foregroundStyle(lead == .away ? LivePalette.secondary : LivePalette.text)
                 }
                 .font(.interDigits(104, .bold))
                 .lineLimit(1).minimumScaleFactor(0.5)
@@ -1134,6 +1141,8 @@ struct LiveTeamRow: View {
             if game.isLive, let sets = game.tennis {
                 TennisSetColumns(score: sets, isAway: isAway, size: 22,
                                  primary: LivePalette.text, secondary: LivePalette.secondary)
+            } else if game.isLive, game.league == .cricket {
+                CricketScoreView(score: score, size: 24)
             } else if game.isLive, !score.isEmpty {
                 Text(score).font(.interDigits(24, .bold))
                     .foregroundStyle(dim ? LivePalette.secondary : LivePalette.text)
@@ -1698,7 +1707,7 @@ struct LiveMatchupListRow: View {
 enum LiveLead { case away, home, level }
 
 func liveLeader(_ game: SportsGame) -> LiveLead {
-    guard game.isLive, let away = Int(game.awayScore), let home = Int(game.homeScore),
+    guard game.isLive, game.league != .cricket, let away = Int(game.awayScore), let home = Int(game.homeScore),
           away != home else { return .level }
     return away > home ? .away : .home
 }

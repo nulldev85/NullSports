@@ -6,6 +6,89 @@ import XCTest
 #endif
 
 final class ExpandedSportsTests: XCTestCase {
+    func testCapturedCricketFeedPreservesRealSidesScoresAndMultiDayStatus() throws {
+        let games = try CricketScheduleClient.decode(fixture("cricket-schedule"))
+        XCTAssertEqual(games.count, 6)
+        let test = try XCTUnwrap(games.first { $0.id == "cricket-1552530" })
+        XCTAssertEqual(test.awayTeam, "India A")
+        XCTAssertEqual(test.homeTeam, "New Zealand A")
+        XCTAssertEqual(test.awayScore, "333/8 (99 ov)")
+        XCTAssertEqual(test.homeScore, "")
+        XCTAssertEqual(test.cricket?.format, "Test")
+        XCTAssertTrue(test.status.contains("Day 2"))
+        XCTAssertEqual(test.state, "in")
+        XCTAssertTrue(test.isLive, "An ongoing Test from an earlier day must enter the Live list")
+        XCTAssertEqual(test.matchupLine, "India A vs New Zealand A")
+        XCTAssertNotNil(test.cricket?.end)
+        XCTAssertTrue(try XCTUnwrap(test.cricket?.end) > test.start.addingTimeInterval(3 * 86_400))
+        XCTAssertEqual(test.awayTeamID, "1781")
+        XCTAssertTrue(test.awayLogo.hasPrefix("https://a.espncdn.com/"))
+        let stumps = try XCTUnwrap(games.first { $0.id == "cricket-1544871" })
+        XCTAssertTrue(stumps.status.contains("Stumps"))
+        XCTAssertEqual(games.filter { $0.homeTeam.contains("Women") }.count, 2)
+        let result = try XCTUnwrap(games.first { $0.id == "cricket-1550719" })
+        XCTAssertEqual(result.state, "post")
+        XCTAssertTrue(result.status.contains("won by 3 wkts"))
+        XCTAssertEqual(CricketMatch.runs(result.homeScore), "331/7")
+        XCTAssertEqual(CricketMatch.overs(result.homeScore), "48.3/50 ov, target 326")
+        XCTAssertEqual(CricketMatch.runs("245 & 170/2 (35.1 ov, target 170)"), "245 & 170/2")
+        XCTAssertEqual(try JSONDecoder().decode(SportsGame.self, from: JSONEncoder().encode(test)), test)
+    }
+
+    func testCricketRejectsMalformedFeedsAndAcceptsSuccessfulEmptyDays() throws {
+        XCTAssertThrowsError(try CricketScheduleClient.decode(Data("{\"error\":\"outage\"}".utf8)))
+        XCTAssertEqual(try CricketScheduleClient.decode(Data("{\"sports\":[{\"slug\":\"cricket\",\"leagues\":[]}]}".utf8)), [])
+        XCTAssertThrowsError(try CricketScheduleClient.decode(Data("{\"sports\":[{\"slug\":\"soccer\",\"leagues\":[]}]}".utf8)))
+    }
+
+    func testCricketRequestsAreCachedDeduplicatedAndKeepTestsFromPreviousDays() async throws {
+        let fixture = try fixture("cricket-schedule")
+        let source = CricketFixtureTransport(data: fixture)
+        let start = try XCTUnwrap(SportsScheduleClient.parseDate("2026-10-31T07:00Z"))
+        let end = try XCTUnwrap(SportsScheduleClient.parseDate("2026-11-02T08:00Z"))
+        let client = CricketScheduleClient(now: { start }, transport: { try await source.load($0) })
+        async let first = client.games(from: start, to: end)
+        async let second = client.games(from: start, to: end)
+        let (a, b) = await (first, second)
+        XCTAssertEqual(a.loadedLeagues, [.cricket])
+        XCTAssertNil(a.errorMessage)
+        XCTAssertEqual(a.games[.cricket]?.count, 6, "Repeated daily appearances must remain one match")
+        XCTAssertEqual(a.games, b.games)
+        XCTAssertTrue(a.games[.cricket]?.contains { $0.id == "cricket-1552530" && $0.start < start } == true)
+        let requests = await source.requests
+        XCTAssertEqual(Set(requests).count, requests.count, "Concurrent refreshes share each daily request")
+        XCTAssertTrue(requests.allSatisfy { $0.host == "site.web.api.espn.com" && $0.query?.contains("sport=cricket") == true })
+        let failed = CricketScheduleClient(transport: { _ in throw URLError(.notConnectedToInternet) })
+        let failure = await failed.games(from: start, to: end)
+        XCTAssertTrue(failure.loadedLeagues.isEmpty)
+        XCTAssertTrue(failure.games.isEmpty, "A failed request cannot erase a previous good slate")
+        XCTAssertNotNil(failure.errorMessage)
+    }
+
+    func testCricketProductionMatchingHandlesLaterTestDaysAndRejectsOtherSquads() throws {
+        let games = try CricketScheduleClient.decode(fixture("cricket-schedule"))
+        let game = try XCTUnwrap(games.first { $0.id == "cricket-1552530" })
+        let now = game.start.addingTimeInterval(2 * 86_400)
+        let listing = CurrentProgram(channelID: "cricket", title: "Live Cricket: India A vs New Zealand A", detail: "",
+            start: now.addingTimeInterval(-3600), end: now.addingTimeInterval(10800))
+        func channels(_ names: [String], title: String? = nil) -> [Int] {
+            let streams = names.enumerated().map { index, name in
+                XtreamStream(num: index, name: name, streamType: "live", streamID: index,
+                    streamIcon: nil, epgChannelID: "cricket", categoryID: nil)
+            }
+            let entry = title.map { CurrentProgram(channelID: "cricket", title: $0, detail: "", start: listing.start, end: listing.end) } ?? listing
+            return SportsLibrary.matchingEventChannels(for: game, candidates: streams,
+                programs: ["cricket": [entry]], categories: [], now: now).map(\.id)
+        }
+        XCTAssertEqual(channels(["Willow HD"]), [0], "A day-three guide slot is valid despite the original match start")
+        XCTAssertEqual(channels(["Cricket India A vs New Zealand A"], title: "Cricket"), [0])
+        XCTAssertTrue(channels(["Willow HD"], title: "India vs New Zealand").isEmpty)
+        XCTAssertTrue(channels(["Willow HD"], title: "India Women vs New Zealand Women").isEmpty)
+        XCTAssertTrue(channels(["Cricket T20 India A vs New Zealand A"]).isEmpty)
+        XCTAssertTrue(channels(["Willow HD"], title: "India A vs New Zealand A Highlights").isEmpty)
+        XCTAssertTrue(channels(["Cricket India Women vs New Zealand Women"]).isEmpty)
+    }
+
     func testCricketDiscoveryUsesWholeWordsAndCompetitionNames() {
         for name in ["UK: Sky Sports Cricket HD", "US: WILLOW FHD", "IPL 02", "BBL", "PSL", "CPL", "ILT20", "SA20", "T20", "ODI", "The Hundred"] {
             XCTAssertTrue(SportsLeague.cricket.matches(name), name)
@@ -337,4 +420,11 @@ private actor FixtureTransport {
         if url.path.contains("racing/f1") { return f1 }
         return url.path.contains("soccer/all/") ? (capped ?? soccer) : soccer
     }
+}
+
+private actor CricketFixtureTransport {
+    let data: Data
+    private(set) var requests: [URL] = []
+    init(data: Data) { self.data = data }
+    func load(_ url: URL) -> Data { requests.append(url); return data }
 }

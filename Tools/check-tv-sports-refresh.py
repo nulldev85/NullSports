@@ -22,6 +22,7 @@ SOURCES = (
     "Lineup/Services/LivePreparationWork.swift",
     "Lineup/Services/GuideChannelList.swift",
     "Lineup/Models/XtreamModels.swift", "Lineup/Models/SportsExpansionModels.swift",
+    "Lineup/Models/CricketMatch.swift",
     "Lineup/Models/CatchUp.swift", "Lineup/Models/LiveEventChannel.swift",
     "Lineup/Services/TeamChannelPreferences.swift", "Lineup/Services/FollowedTeams.swift",
     "Lineup/Services/SportsTeamDirectory.swift", "Lineup/Services/ProfessionalChannelMatcher.swift",
@@ -66,11 +67,16 @@ def main():
             match_model.write_text(text, encoding="utf-8")
         if args.phone:
             for name in ("iPhone/MobileCombinedCatalog.swift", "iPhone/MobileAudioSessionWork.swift", "Lineup/Services/ExpandedSportsChannelMatcher.swift",
-                         "Lineup/Services/EventChannelEvidence.swift", "Lineup/Services/ChannelLanguage.swift"):
+                         "Lineup/Services/EventChannelEvidence.swift", "Lineup/Services/ChannelLanguage.swift",
+                         "Lineup/Services/CricketChannelMatcher.swift"):
                 shutil.copyfile(ROOT / name, source / Path(name).name)
             expanded = (ROOT / "Lineup/Services/ExpandedSportsScheduleClient.swift").read_text(encoding="utf-8")
             (source / "ExpandedSportsScheduleClient.swift").write_text(
                 expanded.replace("import Foundation", "import Foundation\n#if canImport(FoundationNetworking)\nimport FoundationNetworking\n#endif", 1),
+                encoding="utf-8")
+            cricket = (ROOT / "Lineup/Services/CricketScheduleClient.swift").read_text(encoding="utf-8")
+            (source / "CricketScheduleClient.swift").write_text(
+                cricket.replace("import Foundation", "import Foundation\n#if canImport(FoundationNetworking)\nimport FoundationNetworking\n#endif", 1),
                 encoding="utf-8")
             schedule = (ROOT / "Lineup/Services/SportsScheduleClient.swift").read_text(encoding="utf-8")
             snapshot = re.search(r"(?ms)^    struct Snapshot: Sendable \{.*?^    }", schedule)[0]

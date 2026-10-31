@@ -26,8 +26,9 @@ struct SportsScheduleClient: Sendable {
         let racingEnd = Calendar.current.date(byAdding: .day, value: 14, to: start) ?? end
         async let todaySnapshot = snapshot(for: today)
         async let expanded = ExpandedSportsScheduleClient.shared.games(from: start, to: end, racingTo: racingEnd)
+        async let cricket = CricketScheduleClient.shared.games(from: start, to: end)
         guard includeTomorrow else {
-            return Self.merging(await expanded, into: Self.adding(await tennis, to: await todaySnapshot))
+            return Self.merging(await cricket, into: Self.merging(await expanded, into: Self.adding(await tennis, to: await todaySnapshot)))
         }
 
         async let tomorrowSnapshot = snapshot(for: tomorrow)
@@ -38,16 +39,16 @@ struct SportsScheduleClient: Sendable {
             merged[league] = Dictionary(grouping: games, by: \.id).values.compactMap { $0.first }.sorted { $0.start < $1.start }
         }
         let errors = [first.errorMessage, second.errorMessage].compactMap { $0 }
-        return Self.merging(await expanded, into: Self.adding(await tennis, to: Snapshot(
+        return Self.merging(await cricket, into: Self.merging(await expanded, into: Self.adding(await tennis, to: Snapshot(
             games: merged,
             loadedLeagues: first.loadedLeagues.intersection(second.loadedLeagues),
             errorMessage: errors.isEmpty ? nil : Array(Set(errors)).sorted().joined(separator: " ")
-        )))
+        ))))
     }
 
     /// The leagues with a feed of their own rather than a place in the
     /// combined schedule.
-    private static let ownFeeds: Set<SportsLeague> = [.ufc, .atp, .wta, .soccer, .f1, .nascar]
+    private static let ownFeeds: Set<SportsLeague> = [.ufc, .atp, .wta, .soccer, .f1, .nascar, .cricket]
 
     private static func merging(_ extra: Snapshot, into base: Snapshot) -> Snapshot {
         var games = base.games

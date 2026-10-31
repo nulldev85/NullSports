@@ -1175,6 +1175,8 @@ private struct MobileMatchupRow: View {
             Spacer(minLength: 3)
             if game.isLive, let sets = game.tennis {
                 TennisSetColumns(score: sets, isAway: isAway, size: 17)
+            } else if game.isLive, game.league == .cricket {
+                CricketScoreView(score: score, size: 18)
             } else if game.isLive {
                 Text(score).font(.interDigits(.title3, .bold))
             }

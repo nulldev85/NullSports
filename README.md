@@ -175,7 +175,11 @@ rubber-banding while preserving vertical pull-to-refresh. Account displays the
 installed version/build so an older IPA can be distinguished from a new build.
 The EPG remains progress-fill-only, with no triangle or vertical time marker.
 
-Cricket channel discovery recognizes Cricket, competition tags, and Willow.
-Cricket fixtures use the shared schedule service's `cricket` league key and
-existing schema 2 game fields; the service must supply that key for fixtures
-to appear. Scores retain runs, wickets, and overs as supplied by the service.
+Cricket uses ESPN's daily Cricket header feed for international and domestic
+fixtures, including women's competitions. It runs alongside the other sports
+feeds and does not depend on adding Cricket to the VPS schedule service.
+The client preserves innings, wickets, overs, sessions, rain delays and results,
+keeps ongoing multi-day Tests, and requires both teams in current guide evidence
+or a dedicated event feed before selecting a channel. Broadcaster names alone
+never authorize playback. Coverage is limited to fixtures published by the feed;
+stream availability still depends on the viewer's provider.

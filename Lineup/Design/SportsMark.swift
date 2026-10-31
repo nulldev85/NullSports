@@ -9,7 +9,9 @@ struct SportsMark: View {
 
     var body: some View {
         Group {
-            if let competition {
+            if league == .cricket {
+                Image(systemName: "figure.cricket").resizable().scaledToFit().foregroundStyle(league.color)
+            } else if let competition {
                 LineupArtView(url: URL(string: competition.logo), width: size) { image in
                     if let image { image.resizable().scaledToFit() }
                     else { Image(systemName: "soccerball").resizable().scaledToFit().foregroundStyle(LineupStyle.secondary) }

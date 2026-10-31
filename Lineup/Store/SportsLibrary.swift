@@ -1604,7 +1604,7 @@ final class SportsLibrary {
         let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }.filter(isListed)
         return games
             .filter {
-                $0.start >= today && $0.start < tomorrow
+                (($0.start >= today && $0.start < tomorrow) || ($0.league == .cricket && $0.isLive))
                     && ($0.isLive || $0.state == "post")
                     && !$0.awayScore.isEmpty && !$0.homeScore.isEmpty
             }
@@ -2197,6 +2197,7 @@ final class SportsLibrary {
 
     nonisolated private static func prepared(_ game: SportsGame) -> ProfessionalChannelMatcher.PreparedGame {
         if game.league == .soccer { return ExpandedSportsChannelMatcher.soccer(game) }
+        if game.league == .cricket { return CricketChannelMatcher.prepare(game) }
         return ProfessionalChannelMatcher.prepare(
             .init(away: game.awayTeam, home: game.homeTeam,
                   awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
@@ -2218,6 +2219,9 @@ final class SportsLibrary {
         }
         if game.league == .soccer {
             return ExpandedSportsChannelMatcher.soccerScore(channel: channel, prepared: preparedGame, game: game, now: now)
+        }
+        if game.league == .cricket {
+            return CricketChannelMatcher.score(channel: channel, prepared: preparedGame, game: game, now: now)
         }
         if game.league.isRacing {
             return ExpandedSportsChannelMatcher.racingScore(channel: channel, game: game, now: now)
@@ -2517,6 +2521,10 @@ final class SportsLibrary {
                 channel: channel, listings: entries, now: now)
         }
         guard let evidence = score(listings, prepared: preparedChannel) else { return nil }
+        if game.league == .cricket {
+            let context = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(stream.name + " " + category))
+            guard CricketChannelMatcher.allowsContext(context, game: game) else { return nil }
+        }
         if game.league == .soccer {
             let women = ["fifa.wwc", "usa.nwsl"].contains(game.competition?.id ?? "")
             guard EventChannelEvidence.allowsSoccerContext(stream.name + " " + category, women: women) else { return nil }

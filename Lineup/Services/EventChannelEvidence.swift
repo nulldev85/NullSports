@@ -32,7 +32,7 @@ enum EventChannelEvidence {
         ("nba", ["nba"]), ("wnba", ["wnba"]), ("nfl", ["nfl"]), ("nhl", ["nhl"]), ("mlb", ["mlb"]),
         ("ncaaf", ["ncaaf"]), ("cfb", ["ncaaf"]), ("college football", ["ncaaf"]), ("ncaa football", ["ncaaf"]),
         ("ncaab", ["ncaab"]), ("college basketball", ["ncaab"]), ("ncaa basketball", ["ncaab"]),
-        ("soccer", ["soccer"]),
+        ("soccer", ["soccer"]), ("cricket", ["cricket"]),
         ("premier league", ["soccer"]), ("epl", ["soccer"]), ("la liga", ["soccer"]),
         ("bundesliga", ["soccer"]), ("serie a", ["soccer"]), ("mls", ["soccer"]), ("nwsl", ["soccer"]),
         ("f1", ["f1"]), ("formula 1", ["f1"]), ("formula one", ["f1"]), ("nascar", ["nascar"]),
@@ -56,7 +56,8 @@ enum EventChannelEvidence {
         "atp": ["tennis", "atp", "atp tennis", "atp tour tennis", "center court live", "centre court live"],
         "wta": ["tennis", "wta", "wta tennis", "wta tour tennis", "center court live", "centre court live"],
         "f1": ["f1", "formula 1", "formula one", "formula 1 racing", "motorsport", "motor racing", "auto racing"],
-        "nascar": ["nascar", "nascar cup series", "cup series", "motorsport", "motor racing", "auto racing"]
+        "nascar": ["nascar", "nascar cup series", "cup series", "motorsport", "motor racing", "auto racing"],
+        "cricket": ["cricket", "test cricket", "odi cricket", "t20 cricket", "ipl", "bbl", "psl", "cpl", "ilt20", "sa20", "the hundred"]
     ]
 
     static func isGenericTitle(_ title: String, league: String) -> Bool {

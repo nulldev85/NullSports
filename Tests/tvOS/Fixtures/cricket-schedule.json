@@ -1,0 +1,322 @@
+{
+  "sports": [
+    {
+      "slug": "cricket",
+      "leagues": [
+        {
+          "id": "24805",
+          "name": "India A tour of New Zealand 2026/27",
+          "abbreviation": "India A in New Zealand 2026-27",
+          "events": [
+            {
+              "id": "1552530",
+              "date": "2026-10-30T22:00:00Z",
+              "endDate": "2026-11-03T23:59:00Z",
+              "timeValid": true,
+              "status": "in",
+              "summary": "Live",
+              "fullStatus": {
+                "session": "Day 2  Session 1",
+                "summary": "NZ A won toss & fielded",
+                "type": {
+                  "id": "0",
+                  "state": "in",
+                  "description": "Live",
+                  "detail": "Live",
+                  "shortDetail": "Live"
+                }
+              },
+              "location": "Hagley Oval, Christchurch",
+              "class": {
+                "internationalClassId": "0",
+                "generalClassId": "4",
+                "generalClassCard": "First-class",
+                "name": "First-class matches",
+                "eventType": "Test"
+              },
+              "competitors": [
+                {
+                  "id": "2540",
+                  "displayName": "New Zealand A",
+                  "homeAway": "home",
+                  "abbreviation": "NZ-A",
+                  "score": "",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/2540.png",
+                  "color": ""
+                },
+                {
+                  "id": "1781",
+                  "displayName": "India A",
+                  "homeAway": "away",
+                  "abbreviation": "IND-A",
+                  "score": "333/8 (99 ov)",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/1781.png",
+                  "color": ""
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "8043",
+          "name": "Sheffield Shield",
+          "abbreviation": "Sheff Shield",
+          "events": [
+            {
+              "id": "1544871",
+              "date": "2026-10-29T23:30:00Z",
+              "endDate": "2026-11-02T23:59:00Z",
+              "timeValid": true,
+              "status": "in",
+              "summary": "Stumps",
+              "fullStatus": {
+                "session": "Day 2",
+                "summary": "NSW trail by 253 runs",
+                "type": {
+                  "id": "112",
+                  "state": "in",
+                  "description": "Stumps",
+                  "detail": "Live",
+                  "shortDetail": "Live"
+                }
+              },
+              "location": "Bellerive Oval, Hobart",
+              "class": {
+                "internationalClassId": "0",
+                "generalClassId": "4",
+                "generalClassCard": "First-class",
+                "name": "First-class matches",
+                "eventType": "Test"
+              },
+              "competitors": [
+                {
+                  "id": "560",
+                  "displayName": "Tasmania",
+                  "homeAway": "home",
+                  "abbreviation": "TAS",
+                  "score": "427",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/560.png",
+                  "color": "#2fa305"
+                },
+                {
+                  "id": "387",
+                  "displayName": "New South Wales",
+                  "homeAway": "away",
+                  "abbreviation": "NSW",
+                  "score": "174/8 (60 ov)",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/387.png",
+                  "color": "#0bd1f9"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "21284",
+          "name": "Women's Big Bash League",
+          "abbreviation": "WBBL",
+          "events": [
+            {
+              "id": "1543947",
+              "date": "2026-10-31T04:40:00Z",
+              "endDate": "2026-10-31T23:59:00Z",
+              "timeValid": true,
+              "status": "post",
+              "summary": "Result",
+              "fullStatus": {
+                "summary": "Strikers won by 21 runs",
+                "type": {
+                  "id": "1",
+                  "state": "post",
+                  "description": "Result",
+                  "detail": "Final",
+                  "shortDetail": "Final"
+                }
+              },
+              "location": "Karen Rolton Oval, Adelaide",
+              "class": {
+                "internationalClassId": "0",
+                "generalClassId": "17",
+                "generalClassCard": "Women's T20",
+                "name": "",
+                "eventType": ""
+              },
+              "competitors": [
+                {
+                  "id": "896431",
+                  "displayName": "Adelaide Strikers Women",
+                  "homeAway": "home",
+                  "abbreviation": "AS-W",
+                  "score": "185/2",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/896431.png",
+                  "color": "#0a81ff"
+                },
+                {
+                  "id": "896399",
+                  "displayName": "Melbourne Stars Women",
+                  "homeAway": "away",
+                  "abbreviation": "MS-W",
+                  "score": "164/7 (20 ov, target 186)",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/896399.png",
+                  "color": "#1f9707"
+                }
+              ]
+            },
+            {
+              "id": "1543948",
+              "date": "2026-10-31T08:10:00Z",
+              "endDate": "2026-10-31T23:59:00Z",
+              "timeValid": true,
+              "status": "post",
+              "summary": "Result",
+              "fullStatus": {
+                "summary": "Scorchers won by 9 wkts (39b rem)",
+                "type": {
+                  "id": "1",
+                  "state": "post",
+                  "description": "Result",
+                  "detail": "Final",
+                  "shortDetail": "Final"
+                }
+              },
+              "location": "W.A.C.A. Ground, Perth",
+              "class": {
+                "internationalClassId": "0",
+                "generalClassId": "17",
+                "generalClassCard": "Women's T20",
+                "name": "",
+                "eventType": ""
+              },
+              "competitors": [
+                {
+                  "id": "896405",
+                  "displayName": "Perth Scorchers Women",
+                  "homeAway": "home",
+                  "abbreviation": "PS-W",
+                  "score": "138/1 (13.3/20 ov, target 137)",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/896405.png",
+                  "color": "#f27107"
+                },
+                {
+                  "id": "896407",
+                  "displayName": "Melbourne Renegades Women",
+                  "homeAway": "away",
+                  "abbreviation": "MR-W",
+                  "score": "136/6",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/896407.png",
+                  "color": "#e20808"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "1550706",
+          "name": "Pakistan ODI Tri-Series",
+          "abbreviation": "Pakistan ODI Tri-Series",
+          "events": [
+            {
+              "id": "1550719",
+              "date": "2026-10-31T08:00:00Z",
+              "endDate": "2026-11-01T23:59:00Z",
+              "timeValid": true,
+              "status": "post",
+              "summary": "Result",
+              "fullStatus": {
+                "summary": "Pakistan won by 3 wkts (9b rem)",
+                "type": {
+                  "id": "1",
+                  "state": "post",
+                  "description": "Result",
+                  "detail": "Final",
+                  "shortDetail": "Final"
+                }
+              },
+              "location": "Gaddafi Stadium, Lahore",
+              "class": {
+                "internationalClassId": "2",
+                "generalClassId": "5",
+                "generalClassCard": "ODI",
+                "name": "One-Day Internationals",
+                "eventType": "ODI"
+              },
+              "competitors": [
+                {
+                  "id": "7",
+                  "displayName": "Pakistan",
+                  "homeAway": "home",
+                  "abbreviation": "PAK",
+                  "score": "331/7 (48.3/50 ov, target 326)",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/7.png",
+                  "color": "#07df52"
+                },
+                {
+                  "id": "8",
+                  "displayName": "Sri Lanka",
+                  "homeAway": "away",
+                  "abbreviation": "SL",
+                  "score": "325/8",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/8.png",
+                  "color": "#203d89"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "1559944",
+          "name": "NCL GT20 Canada 2026/27",
+          "abbreviation": "",
+          "events": [
+            {
+              "id": "1559966",
+              "date": "2026-10-31T23:00:00Z",
+              "endDate": "2026-11-02T23:59:00Z",
+              "timeValid": true,
+              "status": "pre",
+              "summary": "Scheduled",
+              "fullStatus": {
+                "summary": "Starts at 19:00 local time",
+                "type": {
+                  "id": "0",
+                  "state": "pre",
+                  "description": "Scheduled",
+                  "detail": "Scheduled",
+                  "shortDetail": "Scheduled"
+                }
+              },
+              "location": "Arnos Vale Ground, Kingstown, St Vincent",
+              "class": {
+                "internationalClassId": "0",
+                "generalClassId": "13",
+                "generalClassCard": "Other T20",
+                "name": "Other Twenty20 matches",
+                "eventType": "T20"
+              },
+              "competitors": [
+                {
+                  "id": "1559947",
+                  "displayName": "Brampton Blazers",
+                  "homeAway": "home",
+                  "abbreviation": "BRB",
+                  "score": "",
+                  "logo": "",
+                  "color": ""
+                },
+                {
+                  "id": "1559949",
+                  "displayName": "Mississauga Skyhawks",
+                  "homeAway": "away",
+                  "abbreviation": "MIS",
+                  "score": "",
+                  "logo": "https://a.espncdn.com/i/teamlogos/cricket/500/1559949.png",
+                  "color": ""
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
