@@ -35,6 +35,7 @@ extension SportsGame {
         case .nba: return .summary(sport: "basketball", league: "nba")
         case .nhl: return .summary(sport: "hockey", league: "nhl")
         case .mlb: return .summary(sport: "baseball", league: "mlb")
+        case .cricket: return nil
         // ESPN files a match under its competition: "eng.1", "uefa.champions".
         case .soccer: return competition.map { GameStatsSource.summary(sport: "soccer", league: $0.id) }
         case .atp, .wta:

@@ -11,7 +11,7 @@ final class LeagueMatchingTests: XCTestCase {
         let value = text.lowercased()
         let words = Set(value.components(separatedBy: CharacterSet.alphanumerics.inverted))
         switch league {
-        case .soccer, .f1, .nascar:
+        case .soccer, .f1, .nascar, .cricket:
             XCTFail("New sports have no legacy matching policy; their fixture and safety checks live in ExpandedSportsTests")
             return false
         case .ncaaf:

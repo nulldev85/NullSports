@@ -1734,6 +1734,7 @@ func liveStartWord(_ league: SportsLeague) -> String {
     case .soccer: "KICKOFF"
     case .f1: "LIGHTS OUT"
     case .nascar: "GREEN FLAG"
+    case .cricket: "FIRST BALL"
     }
 }
 
@@ -1974,6 +1975,7 @@ func sportsSymbol(_ league: SportsLeague) -> String {
     case .atp, .wta: "tennisball.fill"
     case .soccer: "soccerball"
     case .f1, .nascar: "flag.checkered"
+    case .cricket: "figure.cricket"
     }
 }
 
@@ -1993,7 +1995,10 @@ struct LeagueLogo: View {
         Group {
             // ESPN has no league mark for these: UFC, the NCAA's and the
             // tennis tours' come with the app.
-            if league == .soccer || league.isRacing {
+            if league == .cricket {
+                Image(systemName: sportsSymbol(league)).resizable().scaledToFit()
+                    .padding(size * 0.12).foregroundStyle(league.color)
+            } else if league == .soccer || league.isRacing {
                 SportsMark(league: league, size: size)
             } else if league == .ufc || league == .ncaaf || league.isTennis {
                 Image("League-\(league.rawValue)").resizable().scaledToFit()

@@ -136,7 +136,7 @@ enum ProfessionalChannelMatcher {
         // a current listing identifying different coverage.
         let generic: Set<String> = ["", "live", "tba", "to be announced", "no information", "no guide information",
             "no program information", "baseball", "mlb baseball", "basketball", "nba basketball",
-            "football", "nfl football", "hockey", "nhl hockey"]
+            "football", "nfl football", "hockey", "nhl hockey", "cricket"]
         let guideSilent = current.allSatisfy { generic.contains($0.title) && $0.detail.isEmpty }
 
         // A channel named for this matchup exists to carry this one game, so it

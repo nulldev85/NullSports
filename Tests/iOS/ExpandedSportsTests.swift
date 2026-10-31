@@ -6,6 +6,52 @@ import XCTest
 #endif
 
 final class ExpandedSportsTests: XCTestCase {
+    func testCricketDiscoveryUsesWholeWordsAndCompetitionNames() {
+        for name in ["UK: Sky Sports Cricket HD", "US: WILLOW FHD", "IPL 02", "BBL", "PSL", "CPL", "ILT20", "SA20", "T20", "ODI", "The Hundred"] {
+            XCTAssertTrue(SportsLeague.cricket.matches(name), name)
+        }
+        for name in ["Willowbrook Movies", "Display Channel", "ODISEA", "The Hundredth Episode", "NBA TV"] {
+            XCTAssertFalse(SportsLeague.cricket.matches(name), name)
+        }
+    }
+
+    func testCricketDecodesScoresAndWaitsForConfirmedPlay() throws {
+        let payload: [String: Any] = [
+            "id": "cricket-123", "league": "cricket",
+            "start": Date().addingTimeInterval(-3600).timeIntervalSinceReferenceDate,
+            "awayTeam": "India", "homeTeam": "Australia",
+            "awayAbbreviation": "IND", "homeAbbreviation": "AUS",
+            "awayLogo": "", "homeLogo": "", "awayScore": "185/4 (20)", "homeScore": "142/6 (17.2)",
+            "status": "Delayed", "state": "pre", "broadcast": "Willow"
+        ]
+        let game = try JSONDecoder().decode(SportsGame.self, from: JSONSerialization.data(withJSONObject: payload))
+        XCTAssertEqual(game.league, .cricket)
+        XCTAssertEqual(game.awayScore, "185/4 (20)")
+        XCTAssertEqual(game.homeScore, "142/6 (17.2)")
+        XCTAssertFalse(game.isLive, "A delayed match cannot become live just because its scheduled time passed")
+        XCTAssertTrue(game.isUpcoming)
+        XCTAssertEqual(SportsLeague.cricket.shortName, "Cricket")
+    }
+
+    func testCricketPlaybackRequiresBothTeamsAndCurrentCoverage() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let game = ProfessionalChannelMatcher.Matchup(away: "India", home: "Australia",
+            awayAbbreviation: "IND", homeAbbreviation: "AUS", start: start, isLive: true)
+        func score(_ channel: String, title: String? = nil) -> Int? {
+            let listings = title.map { [ProfessionalChannelMatcher.Listing(title: $0, detail: "",
+                start: start, end: start.addingTimeInterval(14400))] } ?? []
+            return ProfessionalChannelMatcher.score(channel: channel, listings: listings, game: game,
+                now: start.addingTimeInterval(3600))
+        }
+        XCTAssertNil(score("Willow"))
+        XCTAssertNil(score("Cricket India"))
+        XCTAssertNotNil(score("Cricket IND vs AUS"))
+        XCTAssertNotNil(score("Cricket India vs Australia", title: "Cricket"))
+        XCTAssertNotNil(score("Willow", title: "India vs Australia"))
+        XCTAssertNil(score("Willow", title: "India vs Australia Highlights"))
+        XCTAssertNil(score("Cricket India vs Australia", title: "England vs Pakistan"))
+    }
+
     func testRequestedDomesticCupsDecodeRealFixturesAndKeepStrictMatchEvidence() throws {
         for slug in ["eng.league_cup", "eng.fa", "esp.copa_del_rey", "esp.super_cup"] {
             let data = try fixture("soccer-\(slug)")

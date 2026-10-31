@@ -254,6 +254,7 @@ extension SportsLeague {
         case .soccer: ["#FFFFFF", "#111111"]
         case .f1: ["#E10600"]
         case .nascar: ["#FFD100", "#E4002B", "#007AC2"]
+        case .cricket: ["#3DDC84", "#FFFFFF"]
         }
     }
 }

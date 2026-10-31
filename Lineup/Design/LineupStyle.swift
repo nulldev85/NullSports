@@ -554,6 +554,7 @@ enum LineupStyle {
         case .soccer: return leagues.football
         case .f1: return leagues.combat
         case .nascar: return leagues.college
+        case .cricket: return leagues.baseball
         }
     }
 }

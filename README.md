@@ -3,8 +3,8 @@
 Lineup is a quiet living-room client for Apple TV and iPhone, covering the two
 things a lineup means: the games on now, and the library you browse.
 
-**Live** organizes an Xtream provider's channels around the NFL, NBA, NHL, MLB
-and college football rather than dropping everything into one enormous grid, and
+**Live** organizes an Xtream provider's channels around the NFL, NBA, NHL, MLB,
+college football, and Cricket rather than dropping everything into one enormous grid, and
 matches each game to the channel actually carrying it. **Guide** is the full
 channel list with search and favorites. **Library** combines Jellyfin, Emby,
 Plex and native Silo servers, including Nullfin catalogs and streams from addons
@@ -174,3 +174,8 @@ scrollers from adding duplicate navigation insets, and disables horizontal
 rubber-banding while preserving vertical pull-to-refresh. Account displays the
 installed version/build so an older IPA can be distinguished from a new build.
 The EPG remains progress-fill-only, with no triangle or vertical time marker.
+
+Cricket channel discovery recognizes Cricket, competition tags, and Willow.
+Cricket fixtures use the shared schedule service's `cricket` league key and
+existing schema 2 game fields; the service must supply that key for fixtures
+to appear. Scores retain runs, wickets, and overs as supplied by the service.

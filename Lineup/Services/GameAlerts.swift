@@ -96,7 +96,7 @@ enum GameAlertRules {
         case .nfl, .ncaaf: return period >= 4 && late && margin <= 8
         case .nhl: return period >= 3 && (moment.clockSeconds.map { $0 <= 10 * 60 } ?? false) && margin <= 1
         case .mlb: return period >= 8 && margin <= 2
-        case .ufc, .atp, .wta, .soccer, .f1, .nascar: return false
+        case .ufc, .atp, .wta, .soccer, .f1, .nascar, .cricket: return false
         }
     }
 

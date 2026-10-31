@@ -478,15 +478,15 @@ struct XtreamEnvelope: Codable {
 }
 
 enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
-    case nfl, nba, nhl, mlb, ncaaf, ufc, atp, wta, soccer, f1, nascar
+    case nfl, nba, nhl, mlb, ncaaf, ufc, atp, wta, soccer, f1, nascar, cricket
 
     var id: String { rawValue }
-    var shortName: String { self == .soccer ? "Soccer" : rawValue.uppercased() }
+    var shortName: String { self == .soccer ? "Soccer" : (self == .cricket ? "Cricket" : rawValue.uppercased()) }
     /// The men's tour and the women's: one sport, two tabs, each under its
     /// own tour's mark the way every other league is under its own.
     var isTennis: Bool { self == .atp || self == .wta }
     var isRacing: Bool { self == .f1 || self == .nascar }
-    var requiresConfirmedLiveState: Bool { isTennis || isRacing || self == .soccer }
+    var requiresConfirmedLiveState: Bool { isTennis || isRacing || self == .soccer || self == .cricket }
     var fullName: String {
         switch self {
         case .nfl: "Football"
@@ -500,6 +500,7 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
         case .soccer: "Soccer"
         case .f1: "Formula 1"
         case .nascar: "NASCAR Cup Series"
+        case .cricket: "Cricket"
         }
     }
     /// The theme owns the set. These were five literals mixed against one
@@ -544,6 +545,9 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
             return text.has(Self.f1Words, Self.f1Phrases)
         case .nascar:
             return text.has(Self.nascarWords, Self.nascarPhrases)
+        case .cricket:
+            return !text.words.isDisjoint(with: Self.cricketWords)
+                || (text.words.contains("hundred") && text.value.contains("the hundred"))
         default:
             return text.words.contains(rawValue)
                 || text.has(Self.teamWords[self] ?? [], Self.teamPhrases[self] ?? [])
@@ -577,6 +581,8 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     private static let soccerPhrases = phrases(soccerCatalogTerms)
     private static let f1Words = words(f1Terms)
     private static let f1Phrases = phrases(f1Terms)
+    private static let cricketWords = words(cricketTerms)
+    private static let cricketTerms = ["cricket", "ipl", "bbl", "psl", "cpl", "ilt20", "sa20", "willow", "t20", "odi", "the hundred"]
     private static let nascarWords = words(nascarTerms)
     private static let nascarPhrases = phrases(nascarTerms)
     private static let teamWords: [SportsLeague: Set<String>] = teamTerms.mapValues { words($0) }
