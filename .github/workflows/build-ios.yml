@@ -58,6 +58,7 @@ jobs:
           python3 -B Tools/check-tv-sports-refresh.py --phone
           python3 -B Tests/TeamDirectoryChecks.py
           python3 -B Tests/SimulatorSelectionChecks.py
+          python3 -B Tests/IOSSimulatorFrontendChecks.py
           python3 -B Tests/IOSLaunchChecks.py
           swiftc Tests/iOS/PlaybackFixtureByteRange.swift Tests/PlaybackFixtureRangeChecks.swift -o /tmp/playback-fixture-range-checks
           /tmp/playback-fixture-range-checks
@@ -250,7 +251,7 @@ jobs:
           echo "LINEUP_STARTUP_DEVICE=$device" >> "$GITHUB_ENV"
           xcrun simctl boot "$device"
           xcrun simctl bootstatus "$device" -b
-          open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$device"
+          python3 -B Tools/open-ios-simulator.py --device "$device"
       - name: Build standalone Release simulator app
         id: build-startup
         timeout-minutes: 45
