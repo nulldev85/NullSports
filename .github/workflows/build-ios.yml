@@ -227,6 +227,7 @@ jobs:
         run: |
           brew install xcodegen
           xcodegen generate
+          xcrun swiftc Tools/check-ios-launch-screen.swift -o /tmp/lineup-launch-screen-check
       - name: Create startup simulator
         timeout-minutes: 5
         run: |
@@ -253,7 +254,8 @@ jobs:
           set -euo pipefail
           app="build-launch/Build/Products/Release-iphonesimulator/Lineup.app"
           xcrun simctl install "$LINEUP_STARTUP_DEVICE" "$app"
-          python3 -B Tools/check-ios-launch.py --device "$LINEUP_STARTUP_DEVICE" --app "$app" --output launch-diagnostics
+          python3 -B Tools/check-ios-launch.py --device "$LINEUP_STARTUP_DEVICE" --app "$app" \
+            --screen-checker /tmp/lineup-launch-screen-check --output launch-diagnostics
       - name: Upload iPhone launch diagnostics
         if: always()
         uses: actions/upload-artifact@v6
