@@ -257,6 +257,16 @@ final class ExpandedSportsTests: XCTestCase {
         XCTAssertTrue(channels(["Cricket T20 India A vs New Zealand A"]).isEmpty)
         XCTAssertTrue(channels(["Willow HD"], title: "India A vs New Zealand A Highlights").isEmpty)
         XCTAssertTrue(channels(["Cricket India Women vs New Zealand Women"]).isEmpty)
+        // Providers rarely name both sides. A dedicated cricket channel whose
+        // current slot names one side, or only the sport, still carries it.
+        XCTAssertEqual(channels(["Willow HD"], title: "Live Cricket"), [0])
+        XCTAssertEqual(channels(["UK: Sky Sports Cricket HD"], title: "Cricket: India A Tour"), [0])
+        XCTAssertEqual(channels(["Sky Sports Main Event HD"], title: "Live Cricket: India A"), [0])
+        XCTAssertTrue(channels(["Sky Sports Main Event HD"], title: "Live Cricket").isEmpty,
+            "A general channel needs this game's side, not only the sport")
+        XCTAssertTrue(channels(["Willow HD"], title: "Live Cricket: India A v England Lions").isEmpty,
+            "A slot naming another matchup is not this game")
+        XCTAssertTrue(channels(["Willow HD"], title: "Premier League Football").isEmpty)
     }
 
     func testCricketDiscoveryUsesWholeWordsAndCompetitionNames() {

@@ -95,6 +95,9 @@ enum CricketChannelMatcher {
         func hasBothSides(_ text: String, _ sides: ProfessionalChannelMatcher.PreparedGame) -> Bool {
             sides.away.contains(where: text.contains) && sides.home.contains(where: text.contains)
         }
+        // Dedicated cricket channels and cricket programmes are few; scoring
+        // decides which game, if any, each one is showing.
+        func cricket(_ text: String) -> Bool { dedicatedTags.contains(where: text.contains) }
         var guideEvidence: [String: Bool] = [:]
         var result: [XtreamStream] = []
         for stream in streams {
@@ -103,7 +106,7 @@ enum CricketChannelMatcher {
             guard !["radio", "radio_streams", "movie", "series", "episode", "video", "vod"]
                 .contains(stream.streamType?.lowercased() ?? "") else { continue }
             let name = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(stream.name))
-            if targets.contains(where: { hasBothSides(name, $0.sides) }) { result.append(stream); continue }
+            if cricket(name) || targets.contains(where: { hasBothSides(name, $0.sides) }) { result.append(stream); continue }
             let key = stream.epgChannelID ?? ""
             if guideEvidence[key] == nil {
                 var found = false
@@ -112,13 +115,21 @@ enum CricketChannelMatcher {
                     let relevant = targets.filter { entry.start <= $0.point && $0.point < entry.end }
                     guard !relevant.isEmpty else { continue }
                     let text = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(entry.title + " " + entry.detail))
-                    if relevant.contains(where: { hasBothSides(text, $0.sides) }) { found = true; break }
+                    if cricket(text) || relevant.contains(where: { hasBothSides(text, $0.sides) }) { found = true; break }
                 }
                 guideEvidence[key] = found
             }
             if guideEvidence[key] == true { result.append(stream) }
         }
         return result
+    }
+
+    /// Words that make a channel, or a programme, cricket coverage.
+    private static let dedicatedTags = [" cricket ", " willow "]
+
+    /// "India v Pakistan" names a matchup; "Live Cricket" does not.
+    private static func namesMatchup(_ text: String) -> Bool {
+        [" v ", " vs ", " versus "].contains(where: text.contains)
     }
 
     static func prepare(_ game: SportsGame) -> ProfessionalChannelMatcher.PreparedGame {
@@ -153,21 +164,21 @@ enum CricketChannelMatcher {
                       prepared: ProfessionalChannelMatcher.PreparedGame, game: SportsGame, now: Date) -> Int? {
         let sides = teams(game)
         guard channel.eligible, allowsContext(channel.padded, game: game, sides: sides) else { return nil }
-        func identifies(_ text: String) -> Bool {
-            func side(_ aliases: [String], _ team: Team) -> Bool {
-                return aliases.contains { alias in
-                    guard text.contains(alias) else { return false }
-                    if !team.squad.isEmpty, team.bases.contains(alias.trimmingCharacters(in: .whitespaces)) {
-                        let context = text + channel.padded
-                        if team.squad == "women" { return womensContext(context) }
-                        return squadSuffixes.contains { tag, squad in
-                            squad == team.squad && context.contains(" " + tag + " ")
-                        }
+        func side(_ text: String, _ aliases: [String], _ team: Team) -> Bool {
+            aliases.contains { alias in
+                guard text.contains(alias) else { return false }
+                if !team.squad.isEmpty, team.bases.contains(alias.trimmingCharacters(in: .whitespaces)) {
+                    let context = text + channel.padded
+                    if team.squad == "women" { return womensContext(context) }
+                    return squadSuffixes.contains { tag, squad in
+                        squad == team.squad && context.contains(" " + tag + " ")
                     }
-                    return true
                 }
+                return true
             }
-            return allowsContext(text, game: game, sides: sides) && side(prepared.away, sides[0]) && side(prepared.home, sides[1])
+        }
+        func identifies(_ text: String) -> Bool {
+            allowsContext(text, game: game, sides: sides) && side(text, prepared.away, sides[0]) && side(text, prepared.home, sides[1])
         }
         func archive(_ text: String) -> Bool {
             [" replay ", " highlights ", " classic ", " recap ", " preview ", " review ", " pre match ", " post match "]
@@ -182,6 +193,29 @@ enum CricketChannelMatcher {
             EventChannelEvidence.isGenericTitle($0.title, league: "cricket") && $0.detail.isEmpty
         }
         if !archive(channel.padded), identifies(channel.padded), confirms || silent { return 400 }
-        return confirms ? 300 : nil
+        if confirms { return 300 }
+        // Providers' guides seldom name both sides. On a cricket channel, or
+        // under a cricket programme, accept a current slot that names one of
+        // this game's sides, or only the sport or this game's competition,
+        // as long as it names no other matchup. Weaker than a named match.
+        guard !archive(channel.padded) else { return nil }
+        let dedicated = dedicatedTags.contains(where: channel.padded.contains)
+        let competitions = [game.competition?.name, game.competition?.shortName].compactMap { $0 }
+            .map { ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize($0)) }
+            .filter { $0.count > 4 }
+        let usable = current.filter { !archive($0.text) && allowsContext($0.text, game: game, sides: sides) && !namesMatchup($0.text) }
+        guard usable.count == current.count else { return nil }
+        let oneSide = usable.contains { entry in
+            (dedicated || dedicatedTags.contains(where: entry.text.contains))
+                && (side(entry.text, prepared.away, sides[0]) || side(entry.text, prepared.home, sides[1]))
+        }
+        if oneSide { return 250 }
+        guard dedicated else { return nil }
+        let general = usable.allSatisfy { entry in
+            EventChannelEvidence.isGenericTitle(entry.title, league: "cricket")
+                || dedicatedTags.contains(where: entry.text.contains)
+                || competitions.contains(where: entry.text.contains)
+        }
+        return general ? 150 : nil
     }
 }
