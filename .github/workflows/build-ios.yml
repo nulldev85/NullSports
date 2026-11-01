@@ -22,9 +22,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/iphone' }}
 
 jobs:
-  # The simulator tests and the release build don't depend on each other, so
-  # they run side by side on two runners instead of one after the other. Every
-  # check and test still runs; only the waiting goes.
+  # Tests, standalone Release startup and IPA packaging have separate budgets.
+  # Publication waits for every required check.
   test:
     runs-on: xcode-27
     timeout-minutes: 45
@@ -142,23 +141,6 @@ jobs:
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
             -parallel-testing-enabled NO \
             -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
-          # XCTest host execution does not establish a standalone optimized
-          # app can cold-start with an existing user's Sports cache.
-          xcodebuild build -project Lineup.xcodeproj -scheme LineupiOS \
-            -configuration Release -destination "platform=iOS Simulator,id=$device" \
-            -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
-          app="build-tests/Build/Products/Release-iphonesimulator/Lineup.app"
-          xcrun simctl uninstall "$device" com.nulldev85.NullSports.iOS
-          xcrun simctl install "$device" "$app"
-          python3 -B Tools/check-ios-launch.py --device "$device" --app "$app" --output launch-diagnostics
-      - name: Upload iPhone launch diagnostics
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: Lineup-iPhone-launch-diagnostics
-          path: launch-diagnostics
-          if-no-files-found: ignore
-          retention-days: 7
       - name: Export navigation preview screenshots
         if: always()
         run: |
@@ -220,6 +202,71 @@ jobs:
           python3 -B Tests/AetherBundleChecks.py
           python3 Tools/check-aether-bundle.py "$app"
 
+
+  startup:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone' }}
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v5
+      - name: Configure Library metadata services
+        env:
+          LINEUP_TMDB_TOKEN: ${{ secrets.LINEUP_TMDB_TOKEN }}
+          LINEUP_TVDB_API_KEY: ${{ secrets.LINEUP_TVDB_API_KEY }}
+          LINEUP_OPENSUBTITLES_API_KEY: ${{ secrets.LINEUP_OPENSUBTITLES_API_KEY }}
+          LINEUP_FANART_API_KEY: ${{ secrets.LINEUP_FANART_API_KEY }}
+        run: |
+          python3 -B Tools/configure-metadata.py
+          python3 -B Tools/check-metadata-bundle.py Lineup/Resources --require-online-subtitles --require-fanart --require-tmdb
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "27.0"
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Create startup simulator
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          configuration=$(xcrun simctl list --json | python3 -B Tools/select-ios-simulator.py)
+          IFS=$'\t' read -r device_type runtime <<< "$configuration"
+          device=$(xcrun simctl create "Lineup-Startup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$device_type" "$runtime")
+          echo "LINEUP_STARTUP_DEVICE=$device" >> "$GITHUB_ENV"
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+      - name: Build standalone Release simulator app
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          # Release defaults to all simulator architectures. Only the selected
+          # simulator's native architecture is needed for this executable check.
+          xcodebuild build -project Lineup.xcodeproj -scheme LineupiOS \
+            -configuration Release -destination "platform=iOS Simulator,id=$LINEUP_STARTUP_DEVICE" \
+            -derivedDataPath build-launch ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+      - name: Check cached Sports launch and relaunch
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          app="build-launch/Build/Products/Release-iphonesimulator/Lineup.app"
+          xcrun simctl install "$LINEUP_STARTUP_DEVICE" "$app"
+          python3 -B Tools/check-ios-launch.py --device "$LINEUP_STARTUP_DEVICE" --app "$app" --output launch-diagnostics
+      - name: Upload iPhone launch diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: Lineup-iPhone-launch-diagnostics
+          path: launch-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove startup simulator
+        if: ${{ always() && env.LINEUP_STARTUP_DEVICE != '' }}
+        run: |
+          xcrun simctl shutdown "$LINEUP_STARTUP_DEVICE" >/dev/null 2>&1 || true
+          xcrun simctl delete "$LINEUP_STARTUP_DEVICE"
 
   package:
     # Packaging an installable build is for the shipping branches and for
@@ -346,7 +393,7 @@ jobs:
   # it was when one job did both in turn. The candidate is renamed, not
   # rebuilt, so what is published is exactly what the package job built.
   publish:
-    needs: [test, package]
+    needs: [test, startup, package]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

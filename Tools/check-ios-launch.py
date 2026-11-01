@@ -50,8 +50,8 @@ def seed_sports(container, bundle, now):
     schedule.write_text(json.dumps({"savedAt": swift_now, "games": {"cricket": games}}), encoding="utf-8")
 
 
-def simctl(*args):
-    return subprocess.check_output(["xcrun", "simctl", *args], text=True, stderr=subprocess.STDOUT)
+def simctl(*args, timeout=45):
+    return subprocess.check_output(["xcrun", "simctl", *args], text=True, stderr=subprocess.STDOUT, timeout=timeout)
 
 
 def check_launch(device, bundle, output, label):
@@ -89,9 +89,9 @@ def main():
         check_launch(args.device, bundle, args.output, "relaunch")
     finally:
         try:
-            log = simctl("spawn", args.device, "log", "show", "--last", "2m", "--predicate", 'process == "Lineup"')
+            log = simctl("spawn", args.device, "log", "show", "--last", "2m", "--predicate", 'process == "Lineup"', timeout=15)
             (args.output / "app.log").write_text(log, encoding="utf-8")
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
         for report in (Path.home() / "Library/Logs/DiagnosticReports").glob("Lineup*.ips"):
             shutil.copyfile(report, args.output / report.name)
