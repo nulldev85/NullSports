@@ -8,13 +8,21 @@ import XCTest
 @MainActor
 final class PreparedLiveMatchesTests: XCTestCase {
     func testInitialCricketPreparationFindsFeedsWithoutAnySportLabels() async throws {
+        try await checkInitialCricketPreparation(unrelatedChannels: 0)
+    }
+
+    func testCricketStartupPreparesLargeProviderWithoutBlockingTheUIActor() async throws {
+        try await checkInitialCricketPreparation(unrelatedChannels: 30_000)
+    }
+
+    private func checkInitialCricketPreparation(unrelatedChannels: Int) async throws {
         let f = try fixture(league: .cricket, gameStart: Date().addingTimeInterval(-2 * 86_400))
         defer { f.cleanUp() }
         let snapshot = PreparedLiveSnapshot(version: PreparedLiveSnapshot.version,
             connection: PreparedLiveSnapshot.connection(for: f.profile), savedAt: Date(), dailyPreparedAt: nil,
             games: ["cricket": [f.game]], loadedLeagues: ["cricket"], matches: [:])
         PreparedLiveStore.write(snapshot, profileID: f.profile.id, directory: f.directory)
-        let streams = ["AU: Event 01 FHD", "AU: Event 02 HD"].enumerated().map { index, name in
+        var streams = ["AU: Event 01 FHD", "AU: Event 02 HD"].enumerated().map { index, name in
             XtreamStream(num: index, name: name, streamType: "live", streamID: index + 1,
                 streamIcon: nil, epgChannelID: "event", categoryID: "sports")
         }
@@ -24,7 +32,14 @@ final class PreparedLiveMatchesTests: XCTestCase {
         formatter.dateFormat = "yyyyMMddHHmmss Z"
         let start = formatter.string(from: Date().addingTimeInterval(-1800))
         let end = formatter.string(from: Date().addingTimeInterval(7200))
-        let xml = "<tv><programme channel=\"event\" start=\"\(start)\" stop=\"\(end)\"><title>India A v New Zealand A</title></programme></tv>"
+        streams += (0..<unrelatedChannels).map { index in
+            XtreamStream(num: index + 3, name: "Event \(index + 3)", streamType: "live", streamID: index + 3,
+                streamIcon: nil, epgChannelID: "news-\(index % 5_000)", categoryID: "sports")
+        }
+        let unrelated = (0..<min(unrelatedChannels, 5_000)).map { index in
+            "<programme channel=\"news-\(index)\" start=\"\(start)\" stop=\"\(end)\"><title>New: City Stories</title><desc>Neighbours return as a family moves home.</desc></programme>"
+        }.joined()
+        let xml = "<tv><programme channel=\"event\" start=\"\(start)\" stop=\"\(end)\"><title>India A v New Zealand A</title></programme>\(unrelated)</tv>"
         let scenario = PreparedRefreshScenario(
             categories: try JSONEncoder().encode([XtreamCategory(categoryID: "sports", categoryName: "Sports")]),
             streams: try JSONEncoder().encode(streams), guide: Data(xml.utf8), onGuide: {})
@@ -37,7 +52,18 @@ final class PreparedLiveMatchesTests: XCTestCase {
         let library = f.library(session: session)
         _ = await library.restorePreparedMatches()
         XCTAssertFalse(SportsLeague.cricket.matches("AU: Event 01 FHD India A v New Zealand A"))
+        var heartbeats = 0
+        let heartbeat = Task { @MainActor in
+            while !Task.isCancelled {
+                heartbeats += 1
+                do { try await Task.sleep(for: .milliseconds(10)) } catch { return }
+            }
+        }
+        defer { heartbeat.cancel() }
         await library.reload()
+        heartbeat.cancel()
+        await heartbeat.value
+        XCTAssertGreaterThan(heartbeats, 0, "Provider preparation must leave the UI actor available")
         XCTAssertTrue(library.eventChannelsReady(for: f.game))
         XCTAssertEqual(library.preferredChannel(for: f.game), .play(streamID: 1, source: .verified))
         let alternatives = await library.eventChannels(for: f.game)

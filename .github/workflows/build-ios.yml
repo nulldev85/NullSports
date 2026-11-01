@@ -59,6 +59,7 @@ jobs:
           python3 -B Tools/check-tv-sports-refresh.py --phone
           python3 -B Tests/TeamDirectoryChecks.py
           python3 -B Tests/SimulatorSelectionChecks.py
+          python3 -B Tests/IOSLaunchChecks.py
           swiftc Tests/iOS/PlaybackFixtureByteRange.swift Tests/PlaybackFixtureRangeChecks.swift -o /tmp/playback-fixture-range-checks
           /tmp/playback-fixture-range-checks
           swiftc Lineup/Services/CollegeChannelMatcher.swift Tests/CollegeChannelMatcherChecks.swift -o /tmp/matcher-checks
@@ -141,6 +142,23 @@ jobs:
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
             -parallel-testing-enabled NO \
             -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+          # XCTest host execution does not establish a standalone optimized
+          # app can cold-start with an existing user's Sports cache.
+          xcodebuild build -project Lineup.xcodeproj -scheme LineupiOS \
+            -configuration Release -destination "platform=iOS Simulator,id=$device" \
+            -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+          app="build-tests/Build/Products/Release-iphonesimulator/Lineup.app"
+          xcrun simctl uninstall "$device" com.nulldev85.NullSports.iOS
+          xcrun simctl install "$device" "$app"
+          python3 -B Tools/check-ios-launch.py --device "$device" --app "$app" --output launch-diagnostics
+      - name: Upload iPhone launch diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: Lineup-iPhone-launch-diagnostics
+          path: launch-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Export navigation preview screenshots
         if: always()
         run: |

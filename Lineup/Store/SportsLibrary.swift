@@ -2802,9 +2802,15 @@ final class SportsLibrary {
                     // A guide for a channel outside these pools cannot be read
                     // by a professional score. Keep all raw listings for the
                     // Guide/college.
-                    let channels = try leagues.values.flatMap { $0 }.map { stream -> MobileSportsCandidateIndex.Channel in
-                        try Task.checkCancellation()
-                        return .init(id: stream.id, name: preparedChannel(stream).padded, guideID: stream.epgChannelID ?? "")
+                    var channels: [MobileSportsCandidateIndex.Channel] = []
+                    var indexedIDs: Set<Int> = []
+                    for pool in leagues.values {
+                        for stream in pool {
+                            try Task.checkCancellation()
+                            guard indexedIDs.insert(stream.id).inserted else { continue }
+                            channels.append(.init(id: stream.id, name: preparedChannel(stream).padded,
+                                guideID: stream.epgChannelID ?? ""))
+                        }
                     }
                     let aliases = games.filter { $0.league != .ncaaf }.flatMap { game in
                         let prepared = Self.prepared(game)

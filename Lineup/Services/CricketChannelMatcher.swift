@@ -84,20 +84,16 @@ enum CricketChannelMatcher {
     /// A provider can label a feed "Sheffield Shield 02" and its guide "NSW v
     /// TAS", without ever writing "Cricket". Find possible team evidence across
     /// the live catalog before the full scorer decides whether it is this game.
-    /// Only guide slots covering a requested match point are normalized, once
-    /// per shared guide ID. This does not rescan entire days for every match.
+    /// Both sides must occur in the same name or current programme. First
+    /// words such as "new" (New Zealand) and "as" (AS-W) otherwise admit most
+    /// of an unrelated guide into the much larger prepared-listing cache.
     static func candidates(in streams: [XtreamStream], programs: [String: [CurrentProgram]],
                            games: [SportsGame], now: Date, deadline: TimeInterval? = nil) throws -> [XtreamStream] {
         let games = games.filter { $0.league == .cricket && ($0.isLive || $0.isUpcoming) }
-        let aliases = games.flatMap { game -> [String] in
-            let prepared = prepare(game)
-            return prepared.away + prepared.home
-        }
-        let words = Set(aliases.compactMap { $0.split(separator: " ").first.map(String.init) })
-        guard !words.isEmpty else { return [] }
-        let points = Set(games.map { $0.isLive ? now : $0.start })
-        func hasTeamWord(_ value: String) -> Bool {
-            ProfessionalChannelMatcher.normalize(value).split(separator: " ").contains { words.contains(String($0)) }
+        let targets = games.map { (sides: prepare($0), point: $0.isLive ? now : $0.start) }
+        guard !targets.isEmpty else { return [] }
+        func hasBothSides(_ text: String, _ sides: ProfessionalChannelMatcher.PreparedGame) -> Bool {
+            sides.away.contains(where: text.contains) && sides.home.contains(where: text.contains)
         }
         var guideEvidence: [String: Bool] = [:]
         var result: [XtreamStream] = []
@@ -106,14 +102,17 @@ enum CricketChannelMatcher {
             if let deadline, ProcessInfo.processInfo.systemUptime >= deadline { throw CancellationError() }
             guard !["radio", "radio_streams", "movie", "series", "episode", "video", "vod"]
                 .contains(stream.streamType?.lowercased() ?? "") else { continue }
-            if hasTeamWord(stream.name) { result.append(stream); continue }
+            let name = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(stream.name))
+            if targets.contains(where: { hasBothSides(name, $0.sides) }) { result.append(stream); continue }
             let key = stream.epgChannelID ?? ""
             if guideEvidence[key] == nil {
                 var found = false
                 for entry in programs[key] ?? [] {
                     try Task.checkCancellation()
-                    guard points.contains(where: { entry.start <= $0 && $0 < entry.end }) else { continue }
-                    if hasTeamWord(entry.title + " " + entry.detail) { found = true; break }
+                    let relevant = targets.filter { entry.start <= $0.point && $0.point < entry.end }
+                    guard !relevant.isEmpty else { continue }
+                    let text = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(entry.title + " " + entry.detail))
+                    if relevant.contains(where: { hasBothSides(text, $0.sides) }) { found = true; break }
                 }
                 guideEvidence[key] = found
             }

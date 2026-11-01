@@ -6,6 +6,43 @@ import XCTest
 #endif
 
 final class ExpandedSportsTests: XCTestCase {
+    func testCricketDiscoveryDoesNotPrepareThirtyThousandUnrelatedNewAndAsListings() throws {
+        let captured = try CricketScheduleClient.decode(fixture("cricket-schedule"))
+        let test = try XCTUnwrap(captured.first { $0.id == "cricket-1552530" })
+        let now = test.start.addingTimeInterval(2 * 86_400)
+        let original = try XCTUnwrap(captured.first { $0.awayTeam.contains("Women") })
+        var data = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+        data["state"] = "in"
+        data["start"] = now.addingTimeInterval(-600).timeIntervalSinceReferenceDate
+        let women = try JSONDecoder().decode(SportsGame.self, from: JSONSerialization.data(withJSONObject: data))
+        var streams = (0..<30_000).map { id in
+            XtreamStream(num: id, name: "Event \(id)", streamType: "live", streamID: id,
+                streamIcon: nil, epgChannelID: "guide-\(id % 5_000)", categoryID: nil)
+        }
+        var programs: [String: [CurrentProgram]] = [:]
+        for id in 0..<5_000 {
+            let key = "guide-\(id)"
+            programs[key] = [.init(channelID: key, title: "New: City Stories", detail: "Neighbours return as a family moves home.",
+                start: now.addingTimeInterval(-3600), end: now.addingTimeInterval(3600)),
+                .init(channelID: key, title: "India A v New Zealand A", detail: "",
+                    start: now.addingTimeInterval(7200), end: now.addingTimeInterval(14_400))]
+        }
+        for (id, game) in [(30_000, test), (30_001, women)] {
+            let key = "match-\(id)"
+            streams.append(.init(num: id, name: "Event \(id)", streamType: "live", streamID: id,
+                streamIcon: nil, epgChannelID: key, categoryID: nil))
+            programs[key] = [.init(channelID: key, title: "\(game.awayTeam) v \(game.homeTeam)", detail: "",
+                start: now.addingTimeInterval(-3600), end: now.addingTimeInterval(3600))]
+        }
+        let pool = try CricketChannelMatcher.candidates(in: streams, programs: programs, games: [test, women], now: now)
+        XCTAssertEqual(pool.map(\.id), [30_000, 30_001],
+            "Common words and later guide slots must not inflate the prepared channel/guide cache")
+        for (expected, game) in [(30_000, test), (30_001, women)] {
+            XCTAssertEqual(SportsLibrary.matchingEventChannels(for: game, candidates: pool,
+                programs: programs, categories: [], now: now).map(\.id), [expected])
+        }
+    }
+
     func testCricketSquadAliasesKeepSeniorAYouthAndWomenSeparate() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         func game(_ away: String, _ home: String, _ awayCode: String, _ homeCode: String) -> SportsGame {
