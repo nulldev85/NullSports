@@ -1,17 +1,29 @@
 import SwiftUI
 
-/// Channel/favorite publications refresh the catalog; unrelated sports-store
-/// publications and the search field's draft do not invalidate the results.
+/// Match publications can update suggestions; unchanged feed IDs, catalog and
+/// favorites do not rebuild the search index or disturb the field's draft.
 struct MobileChannelPicker: View {
     let library: SportsLibrary
     let game: SportsGame
     let onPick: (XtreamStream) -> Void
     @StateObject private var search = MobileChannelSearch()
     @State private var reloadTask: Task<Void, Never>?
+    @State private var catalogVersion: CatalogVersion?
 
-    private func reloadChannels() {
-        let preferred = [library.verifiedStream(for: game)].compactMap { $0 }
-            + library.tennisCoverage(for: game)
+    private struct CatalogVersion: Equatable {
+        let revision: Int
+        let preferred: [Int]
+        let favorites: [Int]
+    }
+
+    private func reloadChannels() async {
+        let matches = await library.eventChannels(for: game)
+        guard !Task.isCancelled else { return }
+        let preferred = matches.map(\.stream) + library.tennisCoverage(for: game)
+        let version = CatalogVersion(revision: library.streamsRevision,
+            preferred: preferred.map(\.id), favorites: library.favoriteStreamOrder)
+        guard version != catalogVersion else { return }
+        catalogVersion = version
         // Resolve favorites in the background index instead of walking the
         // full guide on the main actor, with a favorite-array scan per channel.
         search.update(channels: library.streams, preferred: preferred, favoriteOrder: library.favoriteStreamOrder)
@@ -23,7 +35,7 @@ struct MobileChannelPicker: View {
             // Published emits before the new catalog/favorites are stored.
             await Task.yield()
             guard !Task.isCancelled else { return }
-            reloadChannels()
+            await reloadChannels()
         }
     }
 
@@ -33,8 +45,9 @@ struct MobileChannelPicker: View {
             onPick: onPick)
             .presentationDetents([.large])
             .presentationBackground(LineupPresentationStyle.ground)
-            .task { reloadChannels() }
+            .task { scheduleReload() }
             .onChange(of: library.streamsRevision) { scheduleReload() }
+            .onChange(of: library.eventChannelsInputs) { scheduleReload() }
             .onChange(of: library.favoriteStreamOrder) { scheduleReload() }
             .onDisappear { reloadTask?.cancel(); search.cancel() }
     }
@@ -56,6 +69,12 @@ struct MobileChannelPickerContent: View {
                 LineupPresentationStyle.ground.ignoresSafeArea()
                 VStack(spacing: 0) {
                     header
+                    if !page.loading && page.query.isEmpty && page.suggested.isEmpty {
+                        Text("No channel matched this game. Search your provider's channels below.")
+                            .font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 20).padding(.bottom, 10)
+                    }
                     MobileChannelSearchField(search: search, automaticallyFocus: automaticallyFocusSearch)
                     MobileChannelResults(search: search, matchup: "\(game.awayTeam) versus \(game.homeTeam)", onPick: onPick)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)

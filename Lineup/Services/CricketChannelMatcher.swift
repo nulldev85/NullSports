@@ -4,6 +4,48 @@ import Foundation
 /// all play on the same day. A broadcaster name alone never selects a game.
 enum CricketChannelMatcher {
     private static let qualifiers = ["a", "women", "womens", "w", "u19", "u19s", "u 19", "under 19", "under 19s", "19", "19s", "u23", "under 23", "emerging"]
+
+    /// A provider can label a feed "Sheffield Shield 02" and its guide "NSW v
+    /// TAS", without ever writing "Cricket". Find possible team evidence across
+    /// the live catalog before the full scorer decides whether it is this game.
+    /// Only guide slots covering a requested match point are normalized, once
+    /// per shared guide ID. This does not rescan entire days for every match.
+    static func candidates(in streams: [XtreamStream], programs: [String: [CurrentProgram]],
+                           games: [SportsGame], now: Date, deadline: TimeInterval? = nil) throws -> [XtreamStream] {
+        let games = games.filter { $0.league == .cricket && ($0.isLive || $0.isUpcoming) }
+        let aliases = games.flatMap { game -> [String] in
+            let prepared = prepare(game)
+            return prepared.away + prepared.home
+        }
+        let words = Set(aliases.compactMap { $0.split(separator: " ").first.map(String.init) })
+        guard !words.isEmpty else { return [] }
+        let points = Set(games.map { $0.isLive ? now : $0.start })
+        func hasTeamWord(_ value: String) -> Bool {
+            ProfessionalChannelMatcher.normalize(value).split(separator: " ").contains { words.contains(String($0)) }
+        }
+        var guideEvidence: [String: Bool] = [:]
+        var result: [XtreamStream] = []
+        for stream in streams {
+            try Task.checkCancellation()
+            if let deadline, ProcessInfo.processInfo.systemUptime >= deadline { throw CancellationError() }
+            guard !["radio", "radio_streams", "movie", "series", "episode", "video", "vod"]
+                .contains(stream.streamType?.lowercased() ?? "") else { continue }
+            if hasTeamWord(stream.name) { result.append(stream); continue }
+            let key = stream.epgChannelID ?? ""
+            if guideEvidence[key] == nil {
+                var found = false
+                for entry in programs[key] ?? [] {
+                    try Task.checkCancellation()
+                    guard points.contains(where: { entry.start <= $0 && $0 < entry.end }) else { continue }
+                    if hasTeamWord(entry.title + " " + entry.detail) { found = true; break }
+                }
+                guideEvidence[key] = found
+            }
+            if guideEvidence[key] == true { result.append(stream) }
+        }
+        return result
+    }
+
     static func prepare(_ game: SportsGame) -> ProfessionalChannelMatcher.PreparedGame {
         func aliases(_ name: String, _ code: String) -> [String] {
             Array(Set([name, code].map(ProfessionalChannelMatcher.normalize).filter { $0.count >= 2 }))

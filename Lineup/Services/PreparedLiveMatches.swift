@@ -38,7 +38,8 @@ struct PreparedLiveMatch: Codable, Sendable {
             return ["prepared-tennis-event-v1", game.id, game.league.rawValue,
                     game.eventName ?? "", game.location ?? "", game.broadcast]
         }
-        return previousPreparedIdentity(for: game)
+        let previous = previousPreparedIdentity(for: game)
+        return game.league == .cricket ? previous + ["cricket-catalog-candidates-v2"] : previous
     }
 
     static func previousPreparedIdentity(for game: SportsGame) -> [String] {
@@ -50,12 +51,15 @@ struct PreparedLiveMatch: Codable, Sendable {
          game.league == .ncaaf && CollegeChannelMatcher.isDelayed(status: game.status) ? "delayed" : ""]
     }
 
-    /// Upgrade only a previous proof of this exact saved tournament card.
-    /// Neither its preparation timestamp nor its program expiry is renewed.
+    /// Upgrade a previous proof without renewing its timestamp or guide expiry.
+    /// Old empty Cricket results need the broader catalog search instead.
     func restored(for game: SportsGame, now: Date) -> Self? {
         if isCurrent(identity: Self.identity(for: game), now: now) { return self }
-        guard game.league.isTennis, game.isEvent,
-              isCurrent(identity: Self.previousPreparedIdentity(for: game), now: now) else { return nil }
+        // Preserve an existing verified Cricket feed, but retire empty results
+        // from discovery that only inspected the narrow sport-labelled pool.
+        let canUpgrade = (game.league.isTennis && game.isEvent)
+            || (game.league == .cricket && (primary != nil || alternatives.contains { !$0.sharedCoverage }))
+        guard canUpgrade, isCurrent(identity: Self.previousPreparedIdentity(for: game), now: now) else { return nil }
         return .init(preparedAt: preparedAt, eventStart: eventStart, identity: Self.identity(for: game),
             primary: primary, alternatives: alternatives, programs: programs, categoryNames: categoryNames)
     }

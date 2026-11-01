@@ -7,6 +7,59 @@ import XCTest
 
 @MainActor
 final class PreparedLiveMatchesTests: XCTestCase {
+    func testInitialCricketPreparationFindsFeedsWithoutAnySportLabels() async throws {
+        let f = try fixture(league: .cricket, gameStart: Date().addingTimeInterval(-2 * 86_400))
+        defer { f.cleanUp() }
+        let snapshot = PreparedLiveSnapshot(version: PreparedLiveSnapshot.version,
+            connection: PreparedLiveSnapshot.connection(for: f.profile), savedAt: Date(), dailyPreparedAt: nil,
+            games: ["cricket": [f.game]], loadedLeagues: ["cricket"], matches: [:])
+        PreparedLiveStore.write(snapshot, profileID: f.profile.id, directory: f.directory)
+        let streams = ["AU: Event 01 FHD", "AU: Event 02 HD"].enumerated().map { index, name in
+            XtreamStream(num: index, name: name, streamType: "live", streamID: index + 1,
+                streamIcon: nil, epgChannelID: "event", categoryID: "sports")
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMddHHmmss Z"
+        let start = formatter.string(from: Date().addingTimeInterval(-1800))
+        let end = formatter.string(from: Date().addingTimeInterval(7200))
+        let xml = "<tv><programme channel=\"event\" start=\"\(start)\" stop=\"\(end)\"><title>India A v New Zealand A</title></programme></tv>"
+        let scenario = PreparedRefreshScenario(
+            categories: try JSONEncoder().encode([XtreamCategory(categoryID: "sports", categoryName: "Sports")]),
+            streams: try JSONEncoder().encode(streams), guide: Data(xml.utf8), onGuide: {})
+        scenario.release()
+        PreparedRefreshProtocol.scenario = scenario
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PreparedRefreshProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel(); PreparedRefreshProtocol.scenario = nil }
+        let library = f.library(session: session)
+        _ = await library.restorePreparedMatches()
+        XCTAssertFalse(SportsLeague.cricket.matches("AU: Event 01 FHD India A v New Zealand A"))
+        await library.reload()
+        XCTAssertTrue(library.eventChannelsReady(for: f.game))
+        XCTAssertEqual(library.preferredChannel(for: f.game), .play(streamID: 1, source: .verified))
+        let alternatives = await library.eventChannels(for: f.game)
+        XCTAssertEqual(alternatives.map(\.id), [1, 2])
+    }
+
+    func testCricketDiscoveryPolicyRetriesOldEmptyResultsAndPreservesVerifiedPlayback() throws {
+        let f = try fixture(league: .cricket)
+        defer { f.cleanUp() }
+        let oldIdentity = PreparedLiveMatch.previousPreparedIdentity(for: f.game)
+        let empty = PreparedLiveMatch(preparedAt: f.match.preparedAt, eventStart: f.game.start,
+            identity: oldIdentity, primary: nil, alternatives: [], programs: [:], categoryNames: [:])
+        XCTAssertNil(empty.restored(for: f.game, now: Date()))
+        let proven = PreparedLiveMatch(preparedAt: f.match.preparedAt, eventStart: f.game.start,
+            identity: oldIdentity, primary: f.match.primary, alternatives: f.match.alternatives,
+            programs: f.match.programs, categoryNames: f.match.categoryNames)
+        let restored = try XCTUnwrap(proven.restored(for: f.game, now: Date()))
+        XCTAssertEqual(restored.identity, PreparedLiveMatch.identity(for: f.game))
+        XCTAssertEqual(restored.preparedAt, proven.preparedAt, "Migration does not extend the evidence lifetime")
+        XCTAssertEqual(restored.playbackCandidates(for: f.game, now: Date()).map(\.id), [1, 2])
+    }
+
     func testOngoingCricketRestoresPlayableFeedsAfterItsFirstDay() async throws {
         let f = try fixture(league: .cricket, gameStart: Date().addingTimeInterval(-2 * 86_400))
         defer { f.cleanUp() }

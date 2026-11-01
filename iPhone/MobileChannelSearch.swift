@@ -79,7 +79,7 @@ final class MobileChannelSearch: ObservableObject {
                 guard !Task.isCancelled else { return nil }
                 var seen: Set<Int> = []
                 var suggested: [XtreamStream] = []
-                for id in preferred.map(\.id) + favoriteOrder {
+                for id in preferred.map(\.id) {
                     guard !Task.isCancelled else { return nil }
                     if let stream = byID[id], seen.insert(id).inserted { suggested.append(stream) }
                     if suggested.count == 6 { break }

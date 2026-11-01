@@ -656,7 +656,7 @@ struct MobileLiveView: View {
                                games: dayGames)
                 }
                 if slate.all.isEmpty && library.scheduleIsLoading(for: league) {
-                    ProgressView("Loading games?")
+                    ProgressView("Loading games…")
                         .font(.inter(.subheadline)).foregroundStyle(LineupStyle.secondary)
                         .frame(maxWidth: .infinity).padding(.top, 40)
                         .accessibilityIdentifier("LiveScheduleLoading")

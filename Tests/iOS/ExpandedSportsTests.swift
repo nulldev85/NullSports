@@ -6,6 +6,31 @@ import XCTest
 #endif
 
 final class ExpandedSportsTests: XCTestCase {
+    func testCricketDiscoveryFindsNSWTasmaniaAcrossUnlabelledLiveChannels() throws {
+        let game = try XCTUnwrap(CricketScheduleClient.decode(fixture("cricket-schedule")).first { $0.id == "cricket-1544871" })
+        let now = game.start.addingTimeInterval(2 * 86_400)
+        func stream(_ id: Int, _ name: String, guide: String? = nil, type: String = "live") -> XtreamStream {
+            .init(num: id, name: name, streamType: type, streamID: id, streamIcon: nil, epgChannelID: guide, categoryID: nil)
+        }
+        let channels = [stream(1, "AU: Event 01 FHD", guide: "match"), stream(2, "AU: Event 02 HD", guide: "match"),
+            stream(3, "AU: NSW v TAS FHD"), stream(4, "AU: Event 04", guide: "other"),
+            stream(5, "CA | Fresno | NBC", guide: "other"), stream(6, "NSW v TAS Replay"),
+            stream(7, "AU: Event 07", guide: "expired"), stream(8, "Radio", guide: "match", type: "radio"),
+            stream(9, "AU: Event 09", guide: "later"), stream(10, "NSW Women v TAS Women")]
+        func listing(_ title: String, from: TimeInterval = -3600, to: TimeInterval = 7200) -> CurrentProgram {
+            .init(channelID: "match", title: title, detail: "", start: now.addingTimeInterval(from), end: now.addingTimeInterval(to))
+        }
+        let programs = ["match": [listing("Sheffield Shield: NSW v TAS")], "other": [listing("Queensland v Victoria")],
+            "expired": [listing("NSW v TAS", from: -7200, to: -1)],
+            "later": [listing("NSW v TAS", from: 3600)]]
+        XCTAssertFalse(SportsLeague.cricket.matches("AU: Event 01 FHD Sheffield Shield: NSW v TAS"),
+            "This fixture must exercise a channel outside the old sport-labelled pool")
+        let pool = try CricketChannelMatcher.candidates(in: channels, programs: programs, games: [game], now: now)
+        XCTAssertEqual(Set(pool.map(\.id)), [1, 2, 3, 6, 10])
+        let matches = SportsLibrary.matchingEventChannels(for: game, candidates: pool, programs: programs, categories: [], now: now)
+        XCTAssertEqual(Set(matches.map(\.id)), [1, 2, 3], "Replays and other squads still fail the complete matcher")
+    }
+
     func testCapturedCricketFeedPreservesRealSidesScoresAndMultiDayStatus() throws {
         let games = try CricketScheduleClient.decode(fixture("cricket-schedule"))
         XCTAssertEqual(games.count, 6)

@@ -4,6 +4,17 @@ import Combine
 
 @MainActor
 final class ChannelSearchTests: XCTestCase {
+    func testUnrelatedFavoritesRemainInAllChannelsWithoutBecomingGameSuggestions() async throws {
+        let search = MobileChannelSearch()
+        defer { search.cancel() }
+        let channels = try [channel(1, "CA | Fresno | NBC KSEE", number: 1), channel(2, "CA | Fresno | FOX KMPH", number: 2)]
+        search.update(channels: channels, preferred: [], favoriteOrder: [1, 2])
+        try await settle { !search.loading }
+        XCTAssertTrue(search.page.suggested.isEmpty, "Favorites do not establish that a channel carries the selected game")
+        XCTAssertEqual(search.results.map(\.id), [1, 2])
+        XCTAssertEqual(search.page.favoriteIDs, [1, 2], "Favorites retain their stars in the full catalog")
+    }
+
     func testSearchBuildsProviderOrderAndLatestQueryWinsWhileClearRestoresSuggestions() async throws {
         let search = MobileChannelSearch()
         defer { search.cancel() }
@@ -50,8 +61,8 @@ final class ChannelSearchTests: XCTestCase {
         }
         search.update(channels: channels, preferred: [channels[10], channels[10]], favoriteOrder: [20, 999_999, 30])
         try await settle { !search.loading }
-        XCTAssertEqual(search.page.suggested.map(\.id), [10, 20, 30])
-        XCTAssertEqual(search.results.count, channels.count - 3)
+        XCTAssertEqual(search.page.suggested.map(\.id), [10])
+        XCTAssertEqual(search.results.count, channels.count - 1)
         let originalPage = search.page.id
         var publications = 0
         let subscription = search.$page.dropFirst().sink { _ in publications += 1 }
@@ -66,8 +77,8 @@ final class ChannelSearchTests: XCTestCase {
         XCTAssertEqual(publications, 1)
         search.search("   ")
         try await settle { search.page.query.isEmpty }
-        XCTAssertEqual(search.page.suggested.map(\.id), [10, 20, 30])
-        XCTAssertEqual(search.results.count, channels.count - 3)
+        XCTAssertEqual(search.page.suggested.map(\.id), [10])
+        XCTAssertEqual(search.results.count, channels.count - 1)
     }
 
     func testSuggestionsCannotIncludeRadioStaleIDsOrDuplicateProviderRows() async throws {

@@ -1863,7 +1863,7 @@ final class SportsLibrary {
         let now = Date()
         eventChannelCache = eventChannelCache.filter { $0.value.expires > now }
         if let cached = eventChannelCache[cacheKey] { return cached.channels }
-        var candidates = game.league == .ncaaf ? streams : streams(for: game.league)
+        var candidates = [.ncaaf, .cricket].contains(game.league) ? streams : streams(for: game.league)
         #if os(iOS)
         if combinedRoot != nil {
             candidates = candidates.filter { combinedSources[$0.id]?.library.automaticMatchingReady == true }
@@ -1883,8 +1883,12 @@ final class SportsLibrary {
         let board = current.league.isTennis && current.isEvent
             ? Self.tournamentBoard(SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }) : []
         let work = Task.detached(priority: .userInitiated) {
-            Self.matchingEventChannels(for: current, candidates: candidates, programs: programs,
-                categories: groups, board: board, now: Date(), deadline: deadline)
+            let now = Date()
+            let pool = current.league == .cricket
+                ? (try? CricketChannelMatcher.candidates(in: candidates, programs: programs, games: [current], now: now, deadline: deadline)) ?? []
+                : candidates
+            return Self.matchingEventChannels(for: current, candidates: pool, programs: programs,
+                categories: groups, board: board, now: now, deadline: deadline)
         }
         let result = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
         guard !Task.isCancelled, activeProfile?.id == profile, indexGeneration == generation,
@@ -2682,7 +2686,7 @@ final class SportsLibrary {
         defer { progress.finish(matchingWork) }
         let profileID = activeProfile?.id
         let sourceGeneration = indexGeneration
-        let leagues = leagueStreamCache
+        let indexedLeagues = leagueStreamCache
         let trace = StartupTrace.shared
         let listings = programsByChannel
         // College event channels may have neither a league token nor a network
@@ -2707,6 +2711,11 @@ final class SportsLibrary {
         }
         let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
+            var leagues = indexedLeagues
+            if allGames.contains(where: { $0.league == .cricket }) {
+                leagues[.cricket] = try CricketChannelMatcher.candidates(in: currentStreams,
+                    programs: listings, games: allGames, now: now)
+            }
             // Timed in two halves. The detail above counts only the league
             // buckets, and four rounds of tuning went into the half they
             // describe while the other half -- college, which casts its net
@@ -3026,7 +3035,7 @@ final class SportsLibrary {
         defer { mobileSportsWork.finish(.matching, id: workID) }
         #endif
         guard let result = try? await trace.measure("match games to channels",
-            detail: "\(games.count) games, \(leagues.values.map(\.count).reduce(0, +)) league candidates", {
+            detail: "\(games.count) games, \(indexedLeagues.values.map(\.count).reduce(0, +)) indexed league candidates", {
                 try await worker.value
             }) else {
             trace.note("matching superseded", "obsolete work stopped")
@@ -3125,12 +3134,20 @@ final class SportsLibrary {
         let programs = programsByChannel, groups = categories
         let board = Self.tournamentBoard(allGames)
         let names = Dictionary(groups.map { ($0.id, $0.matchingName) }, uniquingKeysWith: { first, _ in first })
+        let rawStreams = streams
+        let cricketWorker = Task.detached(priority: .userInitiated) {
+            (try? CricketChannelMatcher.candidates(in: rawStreams, programs: programs, games: live, now: now)) ?? []
+        }
+        let cricketCandidates = await withTaskCancellationHandler {
+            await cricketWorker.value
+        } onCancel: { cricketWorker.cancel() }
         for (offset, game) in live.enumerated() {
             progress.advance(work, completed: offset, total: live.count)
             guard !Task.isCancelled, providerGeneration == provider, indexGeneration == index,
                   streamsRevision == channelRevision, guideRevision == listingRevision,
                   sportsIndexReady else { return }
-            let candidates = game.league == .ncaaf ? streams : (leagueStreamCache[game.league] ?? [])
+            let candidates = game.league == .cricket ? cricketCandidates
+                : (game.league == .ncaaf ? streams : (leagueStreamCache[game.league] ?? []))
             let worker = Task.detached(priority: .userInitiated) {
                 Self.matchingEventChannels(for: game, candidates: candidates, programs: programs,
                     categories: groups, board: board, now: now)
