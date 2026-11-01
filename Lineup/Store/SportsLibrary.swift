@@ -1682,26 +1682,10 @@ final class SportsLibrary {
                     && snapshot.loadedLeagues == Set(SportsLeague.allCases)
                 self.tomorrowScheduleUpdatedAt = succeeded ? Date() : nil
             }
-            if !snapshot.loadedLeagues.isEmpty {
+            if !snapshot.loadedLeagues.union(snapshot.partialLeagues).isEmpty {
                 let previousGames = self.gamesByLeague
-                let tomorrowStart = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
                 let update = await Task.detached(priority: .utility) {
-                    var games = previousGames
-                    for league in snapshot.loadedLeagues {
-                        let fresh = snapshot.games[league] ?? []
-                        if fetchesTomorrow {
-                            games[league] = fresh
-                        } else {
-                            // This fetch only covers today; keep the tomorrow games
-                            // already on hand instead of discarding them.
-                            // A game the fetch did bring is never kept twice: a
-                            // tennis tournament's card moves to tomorrow and back.
-                            let freshIDs = Set(fresh.map(\.id))
-                            let keptTomorrow = (previousGames[league] ?? [])
-                                .filter { $0.start >= tomorrowStart && !freshIDs.contains($0.id) }
-                            games[league] = (fresh + keptTomorrow).sorted { $0.start < $1.start }
-                        }
-                    }
+                    let games = snapshot.mergingGames(into: previousGames, includeTomorrow: fetchesTomorrow, today: today)
                     return (games, games != previousGames,
                             Self.matchingInputs(games) != Self.matchingInputs(previousGames))
                 }.value
@@ -1709,7 +1693,8 @@ final class SportsLibrary {
                       Calendar.current.isDate(today, inSameDayAs: Date()) else { return }
                 if update.1 {
                     self.gamesByLeague = update.0
-                    self.persistSchedule(loadedLeagues: self.scheduleLoadedLeagues.union(snapshot.loadedLeagues))
+                    let partialWithGames = snapshot.partialLeagues.filter { !(update.0[$0] ?? []).isEmpty }
+                    self.persistSchedule(loadedLeagues: self.scheduleLoadedLeagues.union(snapshot.loadedLeagues).union(partialWithGames))
                 }
                 self.scheduleLoadedLeagues.formUnion(snapshot.loadedLeagues)
                 self.scheduleSnapshotAt = Date()
@@ -1779,7 +1764,7 @@ final class SportsLibrary {
     }
 
     func scheduleAvailable(for league: SportsLeague?) -> Bool {
-        if let league { return scheduleLoadedLeagues.contains(league) }
+        if let league { return scheduleLoadedLeagues.contains(league) || !(gamesByLeague[league] ?? []).isEmpty }
         return Set(SportsLeague.allCases).isSubset(of: scheduleLoadedLeagues)
     }
 

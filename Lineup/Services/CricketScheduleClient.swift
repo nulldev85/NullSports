@@ -32,25 +32,34 @@ actor CricketScheduleClient {
         // so a New Zealand morning and a late Caribbean match both survive;
         // actual timestamps below decide which local window they belong to.
         let dates = Self.feedDates(from: start.addingTimeInterval(-86_400), to: end.addingTimeInterval(86_400))
-        do {
-            let games = try await withThrowingTaskGroup(of: [SportsGame].self) { group in
-                for day in dates { group.addTask { try await self.day(day) } }
-                var games: [SportsGame] = []
-                for try await slate in group { games += slate }
-                return games
+        let slates = await withTaskGroup(of: (String, [SportsGame]?).self) { group in
+            for date in dates {
+                group.addTask {
+                    do { return (date, try await self.day(date)) }
+                    catch { return (date, nil) }
+                }
             }
-            var unique: [String: SportsGame] = [:]
-            for game in games where game.start < end {
+            var result: [String: [SportsGame]] = [:]
+            for await (date, games) in group { if let games { result[date] = games } }
+            return result
+        }
+        guard !slates.isEmpty else {
+            return .init(games: [:], loadedLeagues: [], errorMessage: "Cricket schedule unavailable.")
+        }
+        var unique: [String: SportsGame] = [:]
+        // Prefer the later day's appearance of a multi-day Test, independent
+        // of network completion order.
+        for date in slates.keys.sorted() {
+            for game in slates[date] ?? [] where game.start < end {
                 guard game.start >= start || (game.cricket?.end ?? game.start) > start else { continue }
                 unique[game.id] = game
             }
-            return .init(games: [.cricket: unique.values.sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start }],
-                         loadedLeagues: [.cricket], errorMessage: nil)
-        } catch {
-            // Leave last-good fixtures in the library. An outage is never an
-            // empty successful slate, and never takes other sports with it.
-            return .init(games: [:], loadedLeagues: [], errorMessage: "Cricket schedule unavailable.")
         }
+        let complete = slates.count == dates.count
+        return .init(games: [.cricket: unique.values.sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start }],
+                     loadedLeagues: complete ? [.cricket] : [],
+                     errorMessage: complete ? nil : "Some Cricket fixtures could not be refreshed.",
+                     partialLeagues: complete ? [] : [.cricket])
     }
 
     private func day(_ day: String) async throws -> [SportsGame] {

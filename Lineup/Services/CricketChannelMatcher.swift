@@ -3,7 +3,83 @@ import Foundation
 /// Full team names and codes matter here: India, India A and India Women can
 /// all play on the same day. A broadcaster name alone never selects a game.
 enum CricketChannelMatcher {
-    private static let qualifiers = ["a", "women", "womens", "w", "u19", "u19s", "u 19", "under 19", "under 19s", "19", "19s", "u23", "under 23", "emerging"]
+    private static let squadSuffixes: [(String, String)] = [
+        ("women s", "women"), ("women", "women"), ("womens", "women"), ("w", "women"),
+        ("under 19s", "u19"), ("under 19", "u19"), ("u 19", "u19"), ("u19s", "u19"), ("u19", "u19"),
+        ("under 23", "u23"), ("u 23", "u23"), ("u23", "u23"), ("emerging", "emerging"), ("a", "a")
+    ]
+    private static let countryCodes: [String: [String]] = [
+        "new zealand": ["nz", "nzl"], "south africa": ["sa", "rsa"],
+        "sri lanka": ["sl", "sri"], "west indies": ["wi", "win"],
+        "india": ["ind"], "australia": ["aus"], "england": ["eng"],
+        "pakistan": ["pak"], "bangladesh": ["ban", "bang"], "afghanistan": ["afg"],
+        "ireland": ["ire"], "zimbabwe": ["zim"], "scotland": ["sco"],
+        "netherlands": ["ned", "neth"], "united arab emirates": ["uae"]
+    ]
+
+    private struct Team {
+        let squad: String
+        let bases: [String]
+        let aliases: [String]
+
+        init(_ name: String, _ code: String) {
+            let originalCode = ProfessionalChannelMatcher.normalize(code)
+            func split(_ raw: String) -> (String, String) {
+                let value = ProfessionalChannelMatcher.normalize(raw)
+                for (suffix, squad) in squadSuffixes where value.hasSuffix(" " + suffix) {
+                    return (String(value.dropLast(suffix.count + 1)), squad)
+                }
+                return (value, "")
+            }
+            let (name, nameSquad) = split(name)
+            var (code, codeSquad) = split(code)
+            if codeSquad.isEmpty, !nameSquad.isEmpty {
+                let compact = squadSuffixes.filter { $0.1 == nameSquad && !$0.0.contains(" ") }.map(\.0)
+                    + (nameSquad == "u19" ? ["19", "19s"] : [])
+                if let suffix = compact.first(where: { code.hasSuffix($0) && code.count > $0.count + 1 }) {
+                    code = String(code.dropLast(suffix.count))
+                    codeSquad = nameSquad
+                }
+            }
+            let squad = nameSquad.isEmpty ? codeSquad : nameSquad
+            self.squad = squad
+            // Explicit country codes, never fuzzy prefixes: India A must not
+            // acquire India's senior alias. Domestic sides retain feed codes.
+            let bases = Array(Set(([name, code] + (countryCodes[name] ?? [])).filter { $0.count >= 2 })).sorted()
+            self.bases = bases
+            let suffixes = squadSuffixes.filter { $0.1 == squad }.map(\.0)
+            var values = bases.flatMap { base in
+                squad.isEmpty ? [base] : suffixes.map { base + " " + $0 }
+            }
+            // Provider guide codes also commonly omit the hyphen in IND-A,
+            // NZ-A or AS-W. Keep that spelling qualified as the same squad.
+            if !squad.isEmpty, !code.isEmpty {
+                values += suffixes.filter { !$0.contains(" ") }.map { code + $0 }
+                if originalCode != code { values.append(originalCode) }
+            }
+            // Competition titles can supply Women/U19 instead of repeating
+            // the qualifier on each side. Bare aliases require that context.
+            if ["women", "u19", "u23", "emerging"].contains(squad) { values += bases }
+            aliases = Array(Set(values)).sorted().map(ProfessionalChannelMatcher.pad)
+        }
+
+        func conflicts(_ text: String) -> Bool {
+            for base in bases {
+                for (suffix, kind) in squadSuffixes where kind != squad {
+                    if text.contains(" " + base + " " + suffix + " ") { return true }
+                }
+            }
+            return false
+        }
+    }
+
+    private static func teams(_ game: SportsGame) -> [Team] {
+        [Team(game.awayTeam, game.awayAbbreviation), Team(game.homeTeam, game.homeAbbreviation)]
+    }
+
+    private static func womensContext(_ text: String) -> Bool {
+        [" women ", " womens ", " women s ", " wbbl ", " wpl "].contains(where: text.contains)
+    }
 
     /// A provider can label a feed "Sheffield Shield 02" and its guide "NSW v
     /// TAS", without ever writing "Cricket". Find possible team evidence across
@@ -47,49 +123,52 @@ enum CricketChannelMatcher {
     }
 
     static func prepare(_ game: SportsGame) -> ProfessionalChannelMatcher.PreparedGame {
-        func aliases(_ name: String, _ code: String) -> [String] {
-            Array(Set([name, code].map(ProfessionalChannelMatcher.normalize).filter { $0.count >= 2 }))
-                .map(ProfessionalChannelMatcher.pad)
-        }
-        return .init(away: aliases(game.awayTeam, game.awayAbbreviation),
-                     home: aliases(game.homeTeam, game.homeAbbreviation), start: game.start, isLive: game.isLive)
+        let sides = teams(game)
+        return .init(away: sides[0].aliases, home: sides[1].aliases, start: game.start, isLive: game.isLive)
     }
 
     static func allowsContext(_ text: String, game: SportsGame) -> Bool {
+        allowsContext(text, game: game, sides: teams(game))
+    }
+
+    private static func allowsContext(_ text: String, game: SportsGame, sides: [Team]) -> Bool {
         let format = game.cricket?.format.lowercased() ?? ""
         for (tag, kind) in [("test", "test"), ("t20", "t20"), ("odi", "odi")] {
             if !format.isEmpty && text.contains(" " + tag + " ") && format != kind { return false }
         }
-        let expected = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(game.awayTeam + " " + game.homeTeam))
-        let women = [" women ", " womens "].contains(where: expected.contains)
-        if [" women ", " womens "].contains(where: text.contains) && !women { return false }
-        let aliases = prepare(game)
-        for alias in aliases.away + aliases.home {
-            if qualifiers.contains(where: { text.contains(alias + $0 + " ") }) { return false }
+        if womensContext(text) && !sides.allSatisfy({ $0.squad == "women" }) { return false }
+        if sides.allSatisfy({ $0.squad == "women" }) {
+            if [" men ", " mens ", " men s "].contains(where: text.contains) { return false }
+            if [" bbl ", " ipl "].contains(where: text.contains), !womensContext(text) { return false }
+        }
+        for side in sides where side.conflicts(text) { return false }
+        // A match number or a score of 19 is not an age category. Only
+        // explicit U19/Under-19 wording can qualify the whole programme.
+        for (tag, squad) in squadSuffixes where squad == "u19" || squad == "u23" || squad == "emerging" {
+            if text.contains(" " + tag + " ") && !sides.allSatisfy({ $0.squad == squad }) { return false }
         }
         return true
     }
 
     static func score(channel: ProfessionalChannelMatcher.PreparedChannel,
                       prepared: ProfessionalChannelMatcher.PreparedGame, game: SportsGame, now: Date) -> Int? {
-        guard channel.eligible, allowsContext(channel.padded, game: game) else { return nil }
-        let expected = ProfessionalChannelMatcher.pad(ProfessionalChannelMatcher.normalize(game.awayTeam + " " + game.homeTeam))
+        let sides = teams(game)
+        guard channel.eligible, allowsContext(channel.padded, game: game, sides: sides) else { return nil }
         func identifies(_ text: String) -> Bool {
-            let women = [" women ", " womens "].contains(where: expected.contains)
-            if [" women ", " womens "].contains(where: text.contains) && !women { return false }
-            for tag in qualifiers where !["a", "w", "women", "womens"].contains(tag) {
-                let token = ProfessionalChannelMatcher.pad(tag)
-                if text.contains(token) && !expected.contains(token) { return false }
-            }
-            func side(_ aliases: [String]) -> Bool {
-                aliases.contains { alias in
+            func side(_ aliases: [String], _ team: Team) -> Bool {
+                return aliases.contains { alias in
                     guard text.contains(alias) else { return false }
-                    // "India" inside "India A" is a different side. Codes
-                    // such as IND-A and ST-W normalize to the same suffixes.
-                    return !qualifiers.contains { tag in text.contains(alias + tag + " ") }
+                    if !team.squad.isEmpty, team.bases.contains(alias.trimmingCharacters(in: .whitespaces)) {
+                        let context = text + channel.padded
+                        if team.squad == "women" { return womensContext(context) }
+                        return squadSuffixes.contains { tag, squad in
+                            squad == team.squad && context.contains(" " + tag + " ")
+                        }
+                    }
+                    return true
                 }
             }
-            return allowsContext(text, game: game) && side(prepared.away) && side(prepared.home)
+            return allowsContext(text, game: game, sides: sides) && side(prepared.away, sides[0]) && side(prepared.home, sides[1])
         }
         func archive(_ text: String) -> Bool {
             [" replay ", " highlights ", " classic ", " recap ", " preview ", " review ", " pre match ", " post match "]

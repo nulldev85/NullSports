@@ -5,6 +5,24 @@ struct SportsScheduleClient: Sendable {
         let games: [SportsLeague: [SportsGame]]
         let loadedLeagues: Set<SportsLeague>
         let errorMessage: String?
+        var partialLeagues: Set<SportsLeague> = []
+
+        /// A partial response can update known fixtures, but cannot prove that
+        /// omitted fixtures were cancelled. Complete responses may replace.
+        func mergingGames(into previous: [SportsLeague: [SportsGame]], includeTomorrow: Bool,
+                          today: Date) -> [SportsLeague: [SportsGame]] {
+            var result = previous
+            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
+            for league in loadedLeagues.union(partialLeagues) {
+                let fresh = games[league] ?? []
+                let ids = Set(fresh.map(\.id))
+                let kept = (previous[league] ?? []).filter {
+                    !ids.contains($0.id) && (partialLeagues.contains(league) || (!includeTomorrow && $0.start >= tomorrow))
+                }
+                result[league] = (fresh + kept).sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start }
+            }
+            return result
+        }
     }
 
     // `includeTomorrow` lets a frequent, light-weight caller (e.g. a live-score poll)
@@ -55,7 +73,9 @@ struct SportsScheduleClient: Sendable {
         for (league, slate) in extra.games { games[league] = slate }
         let errors = [base.errorMessage, extra.errorMessage].compactMap { $0 }
         return .init(games: games, loadedLeagues: base.loadedLeagues.union(extra.loadedLeagues),
-                     errorMessage: errors.isEmpty ? nil : errors.joined(separator: " "))
+                     errorMessage: errors.isEmpty ? nil : errors.joined(separator: " "),
+                     partialLeagues: base.partialLeagues.union(extra.partialLeagues)
+                        .subtracting(base.loadedLeagues.union(extra.loadedLeagues)))
     }
 
     private static func adding(_ tennis: Result<[SportsGame], Error>, to snapshot: Snapshot) -> Snapshot {
@@ -71,7 +91,8 @@ struct SportsScheduleClient: Sendable {
             errors.append("Tennis schedule unavailable.")
         }
         return Snapshot(games: games, loadedLeagues: loaded,
-                        errorMessage: errors.isEmpty ? nil : errors.joined(separator: " "))
+                        errorMessage: errors.isEmpty ? nil : errors.joined(separator: " "),
+                        partialLeagues: snapshot.partialLeagues.subtracting(loaded))
     }
 
     private func snapshot(for day: String) async -> Snapshot {

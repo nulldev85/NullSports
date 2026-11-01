@@ -160,6 +160,27 @@ final class SportsRefreshRegressionTests: XCTestCase {
         XCTAssertEqual(builds, channels.count)
     }
 
+    func testGuideSearchFindsTheCurrentProgrammeWithoutChangingVisibilityPolicy() async throws {
+        let squadSearch = ChannelSearchText.Query("India A")
+        XCTAssertTrue(squadSearch.matches("", programme: ChannelSearchText.fold("India A v New Zealand A")))
+        XCTAssertFalse(squadSearch.matches("", programme: ChannelSearchText.fold("India Australia")),
+            "The A squad marker is a word, not the start of Australia")
+        let now = Date()
+        let streams = (1...3).map { id in
+            XtreamStream(num: id, name: "Event \(id)", streamType: "live", streamID: id,
+                streamIcon: nil, epgChannelID: "event\(id)", categoryID: id == 3 ? "hidden" : "sports")
+        }
+        let programs = Dictionary(uniqueKeysWithValues: streams.map { stream in
+            (stream.epgChannelID!, [CurrentProgram(channelID: stream.epgChannelID!, title: "Tasmania v New South Wales", detail: "Shield",
+                start: now.addingTimeInterval(stream.id == 2 ? 60 : -60), end: now.addingTimeInterval(3600))])
+        })
+        let query = GuideChannelList.Query(text: "New South Wales vs Tasmania", hiddenCategories: ["hidden"])
+        let found = try await GuideChannelList.load(streams, query: query, programs: programs, at: now)
+        XCTAssertEqual(found.map(\.id), [1], "Future listings and hidden categories remain excluded")
+        let names = try await GuideChannelList.load(streams, query: .init(text: "Event 2"), programs: programs, at: now)
+        XCTAssertEqual(names.map(\.id), [2])
+    }
+
     func testGuideQueriesPreserveOrderingVisibilityAndRecommendedChannels() async throws {
         let streams = (1...6).map { id in
             XtreamStream(num: id == 2 ? 1 : id, name: id == 1 ? "Zulu Sports" : "Alpha Sports \(id)",

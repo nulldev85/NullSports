@@ -39,7 +39,7 @@ struct PreparedLiveMatch: Codable, Sendable {
                     game.eventName ?? "", game.location ?? "", game.broadcast]
         }
         let previous = previousPreparedIdentity(for: game)
-        return game.league == .cricket ? previous + ["cricket-catalog-candidates-v2"] : previous
+        return game.league == .cricket ? previous + ["cricket-squad-aliases-v3"] : previous
     }
 
     static func previousPreparedIdentity(for game: SportsGame) -> [String] {
@@ -55,11 +55,13 @@ struct PreparedLiveMatch: Codable, Sendable {
     /// Old empty Cricket results need the broader catalog search instead.
     func restored(for game: SportsGame, now: Date) -> Self? {
         if isCurrent(identity: Self.identity(for: game), now: now) { return self }
-        // Preserve an existing verified Cricket feed, but retire empty results
-        // from discovery that only inspected the narrow sport-labelled pool.
+        // Preserve existing verified feeds, but retry empty results after a
+        // Cricket discovery/identity policy change.
         let canUpgrade = (game.league.isTennis && game.isEvent)
             || (game.league == .cricket && (primary != nil || alternatives.contains { !$0.sharedCoverage }))
-        guard canUpgrade, isCurrent(identity: Self.previousPreparedIdentity(for: game), now: now) else { return nil }
+        let previous = Self.previousPreparedIdentity(for: game)
+        let identities = game.league == .cricket ? [previous, previous + ["cricket-catalog-candidates-v2"]] : [previous]
+        guard canUpgrade, identities.contains(where: { isCurrent(identity: $0, now: now) }) else { return nil }
         return .init(preparedAt: preparedAt, eventStart: eventStart, identity: Self.identity(for: game),
             primary: primary, alternatives: alternatives, programs: programs, categoryNames: categoryNames)
     }

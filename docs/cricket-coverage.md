@@ -1,0 +1,15 @@
+# Cricket coverage and playback matching
+
+Cricket uses ESPN's Cricket header scoreboard directly. International and domestic events keep their source event/team IDs, complete innings strings, format, and session/status wording. Tests remain relevant beyond their first day, through their supplied end time. An ongoing Test can be at stumps or delayed; an ongoing fixture does not establish that a provider is broadcasting it now.
+
+Daily requests are independent and coalesced. A failed date no longer discards the successful dates. Partial responses update known fixtures by ID and retain previously cached fixtures from the missing dates. They report an incomplete refresh and remain eligible for retry. A complete empty response can clear fixtures; an outage cannot.
+
+Channel discovery scans the live catalog for team evidence even when the provider does not label a channel Cricket. Playback matching then requires both sides in a current programme or an explicit event channel with no conflicting guide. Broadcasters alone, other opponents/squads, expired listings, highlights and replays do not prove coverage. Later-day Test listings use the current programme slot rather than the original match start.
+
+India, India A, India Women and India U19 remain different sides. Aliases cover explicit country codes and compact qualified codes such as INDA/NZA and ASW/MSW. Women's and youth competition labels can supply the qualifier when the programme omits it from individual team names. A match number or score of 19 is not a global U19 marker. Older cached empty Cricket results are retired after this policy update; existing verified proof keeps its original expiry.
+
+On iPhone, the match picker and TV Guide search channel names and the programme covering the requested time. Search accepts either team order and preserves an A/W token as a word. It ignores past/future programmes at the current time. Guide retains its hidden-category policy; the game picker exposes the live catalog. Manual search is discovery, not verification that a stream carries the match.
+
+Manual match selection uses the same provider URL construction as Guide playback. No Cricket-specific codec, buffer or decoder changes were justified by the available evidence. The reported Meteor channel failure cannot be reproduced without the actual channel and player error; a successful build or matching fixture test does not demonstrate that every provider stream loads.
+
+Regression coverage includes captured ESPN fixtures, later-day Test restore/playback, the raw-catalog preparation pipeline, squad/code/competition aliases, match-number handling, partial-date refresh and saved-feed retention, current-programme search, unrelated favorites, and the existing 30,000-channel search/rendering checks. Apple SDK tests and app builds run in GitHub Actions.

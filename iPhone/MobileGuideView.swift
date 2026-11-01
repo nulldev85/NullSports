@@ -140,11 +140,15 @@ struct MobileGuideView: View {
     private struct ChannelRequest: Hashable {
         let library: ObjectIdentifier
         let revision: Int
+        let guideRevision: Int
+        let minute: Int
         let active: Bool
         let query: GuideChannelList.Query
     }
     private var channelRequest: ChannelRequest {
         ChannelRequest(library: ObjectIdentifier(library), revision: library.streamsRevision,
+            guideRevision: searching ? library.guideRevision : 0,
+            minute: searching ? Int(clock.date.timeIntervalSince1970 / 60) : 0,
             active: isActive && scenePhase == .active,
             query: .init(categoryID: searching ? nil : filter.categoryID,
                 favoritesOnly: !searching && filter == .favorites,
@@ -161,9 +165,11 @@ struct MobileGuideView: View {
         // the same catalog again. The active flag controls cancellation only.
         if let installed = installedChannelRequest,
            installed.library == request.library, installed.revision == request.revision,
+           installed.guideRevision == request.guideRevision, installed.minute == request.minute,
            installed.query == request.query { return }
         let streams = library.streams
-        let result = try? await GuideChannelList.load(streams, query: request.query)
+        let result = try? await GuideChannelList.load(streams, query: request.query,
+            programs: searching ? library.programsByChannel : [:], at: clock.date)
         guard !Task.isCancelled, channelRequest == request, let result else { return }
         loadedChannels = result
         installedChannelRequest = request

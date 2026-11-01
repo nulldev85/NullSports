@@ -47,17 +47,54 @@ final class PreparedLiveMatchesTests: XCTestCase {
     func testCricketDiscoveryPolicyRetriesOldEmptyResultsAndPreservesVerifiedPlayback() throws {
         let f = try fixture(league: .cricket)
         defer { f.cleanUp() }
-        let oldIdentity = PreparedLiveMatch.previousPreparedIdentity(for: f.game)
-        let empty = PreparedLiveMatch(preparedAt: f.match.preparedAt, eventStart: f.game.start,
-            identity: oldIdentity, primary: nil, alternatives: [], programs: [:], categoryNames: [:])
-        XCTAssertNil(empty.restored(for: f.game, now: Date()))
-        let proven = PreparedLiveMatch(preparedAt: f.match.preparedAt, eventStart: f.game.start,
-            identity: oldIdentity, primary: f.match.primary, alternatives: f.match.alternatives,
-            programs: f.match.programs, categoryNames: f.match.categoryNames)
-        let restored = try XCTUnwrap(proven.restored(for: f.game, now: Date()))
-        XCTAssertEqual(restored.identity, PreparedLiveMatch.identity(for: f.game))
-        XCTAssertEqual(restored.preparedAt, proven.preparedAt, "Migration does not extend the evidence lifetime")
-        XCTAssertEqual(restored.playbackCandidates(for: f.game, now: Date()).map(\.id), [1, 2])
+        let previous = PreparedLiveMatch.previousPreparedIdentity(for: f.game)
+        for oldIdentity in [previous, previous + ["cricket-catalog-candidates-v2"]] {
+            let empty = PreparedLiveMatch(preparedAt: f.match.preparedAt, eventStart: f.game.start,
+                identity: oldIdentity, primary: nil, alternatives: [], programs: [:], categoryNames: [:])
+            XCTAssertNil(empty.restored(for: f.game, now: Date()))
+            let proven = PreparedLiveMatch(preparedAt: f.match.preparedAt, eventStart: f.game.start,
+                identity: oldIdentity, primary: f.match.primary, alternatives: f.match.alternatives,
+                programs: f.match.programs, categoryNames: f.match.categoryNames)
+            let restored = try XCTUnwrap(proven.restored(for: f.game, now: Date()))
+            XCTAssertEqual(restored.identity, PreparedLiveMatch.identity(for: f.game))
+            XCTAssertEqual(restored.preparedAt, proven.preparedAt, "Migration does not extend the evidence lifetime")
+            XCTAssertEqual(restored.playbackCandidates(for: f.game, now: Date()).map(\.id), [1, 2])
+        }
+    }
+
+    func testPartialCricketRefreshAddsKnownFixturesAndKeepsSavedPlayback() async throws {
+        let f = try fixture(league: .cricket)
+        defer { f.cleanUp() }
+        let newGame = game(id: "new-cricket-game", league: .cricket)
+        let snapshot = SportsScheduleClient.Snapshot(games: [.cricket: [newGame]], loadedLeagues: [],
+            errorMessage: "One Cricket date failed", partialLeagues: [.cricket])
+        let library = SportsLibrary(profileDefaults: f.defaults,
+            credentials: .init(password: { _ in "test-only-secret" }, save: { _, _ in }, delete: { _ in }),
+            preparedCacheDirectory: f.directory, automaticRefreshes: false,
+            scheduleCacheLocation: f.directory.appendingPathComponent("schedule.json"),
+            scheduleFetcher: { _ in snapshot })
+        _ = await library.restorePreparedMatches()
+        let started = PreparedCatalogGate(), release = PreparedCatalogGate()
+        let maintenance = library.schedulePreparation.request(force: false) { _ in
+            await started.release()
+            await release.wait()
+        }
+        defer {
+            library.schedulePreparation.cancel()
+            Task { await release.release() }
+        }
+        await started.wait()
+        library.refreshSchedule(showsLoading: true)
+        let deadline = Date().addingTimeInterval(5)
+        while library.isScheduleLoading, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(Set(library.games(for: .cricket).map(\.id)), [f.game.id, newGame.id])
+        XCTAssertTrue(library.scheduleAvailable(for: .cricket))
+        XCTAssertNotNil(library.scheduleErrorMessage)
+        XCTAssertEqual(library.preparedPlaybackStream(for: f.game)?.id, 1,
+            "A failed neighboring date must not withdraw an already verified feed")
+        library.schedulePreparation.cancel()
+        await release.release()
+        await maintenance.value
     }
 
     func testOngoingCricketRestoresPlayableFeedsAfterItsFirstDay() async throws {
@@ -204,9 +241,9 @@ final class PreparedLiveMatchesTests: XCTestCase {
         }
     }
 
-    private func game(start: Date = Date().addingTimeInterval(-600), broadcast: String = "ABC",
+    private func game(id: String = "prepared-game", start: Date = Date().addingTimeInterval(-600), broadcast: String = "ABC",
                       state: String = "in", score: String = "10", league: SportsLeague = .nba) -> SportsGame {
-        var result = SportsGame(id: "prepared-game", league: league, start: start,
+        var result = SportsGame(id: id, league: league, start: start,
             awayTeam: league == .cricket ? "India A" : (league == .nhl ? "Columbus Blue Jackets" : "Orlando Magic"),
             homeTeam: league == .cricket ? "New Zealand A" : (league == .nhl ? "Carolina Hurricanes" : "Miami Heat"),
             awayAbbreviation: league == .cricket ? "IND-A" : (league == .nhl ? "CBJ" : "ORL"),

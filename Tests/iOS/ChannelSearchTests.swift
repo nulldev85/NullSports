@@ -4,6 +4,36 @@ import Combine
 
 @MainActor
 final class ChannelSearchTests: XCTestCase {
+    func testSearchFindsCurrentProgrammeTeamsInEitherOrderAndRefreshesGuideEvidence() async throws {
+        let search = MobileChannelSearch()
+        defer { search.cancel() }
+        let now = Date()
+        let stream = XtreamStream(num: 1, name: "AU: Event 01 FHD", streamType: "live", streamID: 1,
+            streamIcon: nil, epgChannelID: "event", categoryID: "sports")
+        func entry(_ title: String, start: TimeInterval, end: TimeInterval) -> CurrentProgram {
+            .init(channelID: "event", title: title, detail: "Sheffield Shield", start: now.addingTimeInterval(start), end: now.addingTimeInterval(end))
+        }
+        let programmes = ["event": [entry("Queensland v Victoria", start: -7200, end: -1),
+            entry("New South Wales v Tasmania", start: -1, end: 3600),
+            entry("India A v New Zealand A", start: 3600, end: 7200)]]
+        search.update(channels: [stream], preferred: [], favoriteOrder: [], programs: programmes, at: now)
+        search.search("Tasmania vs New South Wales")
+        try await settle { search.page.query == "Tasmania vs New South Wales" && !search.loading }
+        XCTAssertEqual(search.results.map(\.id), [1])
+        for query in ["Queensland", "India A"] {
+            search.search(query)
+            try await settle { search.page.query == query }
+            XCTAssertTrue(search.results.isEmpty, "Past and future programmes are not current coverage")
+        }
+        search.update(channels: [stream], preferred: [], favoriteOrder: [], programs: programmes,
+            at: now.addingTimeInterval(4000))
+        try await settle { !search.loading }
+        XCTAssertEqual(search.results.map(\.id), [1], "A guide/time update must rebuild the current programme index")
+        search.search("AU Event")
+        try await settle { search.page.query == "AU Event" }
+        XCTAssertEqual(search.results.map(\.id), [1], "Channel-name searches still work")
+    }
+
     func testUnrelatedFavoritesRemainInAllChannelsWithoutBecomingGameSuggestions() async throws {
         let search = MobileChannelSearch()
         defer { search.cancel() }

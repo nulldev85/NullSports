@@ -4,6 +4,7 @@ import Combine
 private struct MobileChannelIndexEntry: Sendable {
     let stream: XtreamStream
     let name: String
+    let programme: String
 }
 
 private struct MobileChannelIndex: Sendable {
@@ -49,7 +50,8 @@ final class MobileChannelSearch: ObservableObject {
     private var catalogTask: Task<Void, Never>?
     private var queryTask: Task<Void, Never>?
 
-    func update(channels: [XtreamStream], preferred: [XtreamStream], favoriteOrder: [Int]) {
+    func update(channels: [XtreamStream], preferred: [XtreamStream], favoriteOrder: [Int],
+                programs: [String: [CurrentProgram]] = [:], at point: Date = Date()) {
         catalogTask?.cancel()
         queryTask?.cancel()
         request = UUID()
@@ -61,14 +63,17 @@ final class MobileChannelSearch: ObservableObject {
                 var entries: [MobileChannelIndexEntry] = []
                 entries.reserveCapacity(channels.count)
                 var byID: [Int: XtreamStream] = [:]
+                var guideText: [String: String] = [:]
                 byID.reserveCapacity(channels.count)
                 for stream in channels {
                     guard !Task.isCancelled else { return nil }
                     guard !["radio", "radio_streams"].contains(stream.streamType?.lowercased() ?? ""),
                           byID[stream.id] == nil else { continue }
                     byID[stream.id] = stream
+                    let key = stream.epgChannelID ?? ""
+                    if guideText[key] == nil { guideText[key] = ChannelSearchText.programme(programs[key] ?? [], at: point) }
                     entries.append(.init(stream: stream,
-                        name: stream.name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)))
+                        name: ChannelSearchText.fold(stream.name), programme: guideText[key] ?? ""))
                 }
                 entries.sort {
                     if ($0.stream.num ?? Int.max) != ($1.stream.num ?? Int.max) {
@@ -107,15 +112,14 @@ final class MobileChannelSearch: ObservableObject {
             guard !Task.isCancelled else { return }
             let work = Task.detached(priority: .userInitiated) { () -> MobileChannelSearchPage? in
                 let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-                let term = trimmed
-                    .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                let term = ChannelSearchText.Query(trimmed)
                 let suggested = term.isEmpty ? index.suggested : []
                 let excluded = Set(suggested.map(\.id))
                 var matches: [XtreamStream] = []
                 matches.reserveCapacity(index.entries.count)
                 for entry in index.entries {
                     guard !Task.isCancelled else { return nil }
-                    if term.isEmpty ? !excluded.contains(entry.stream.id) : entry.name.contains(term) {
+                    if term.isEmpty ? !excluded.contains(entry.stream.id) : term.matches(entry.name, programme: entry.programme) {
                         matches.append(entry.stream)
                     }
                 }

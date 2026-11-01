@@ -6,6 +6,88 @@ import XCTest
 #endif
 
 final class ExpandedSportsTests: XCTestCase {
+    func testCricketSquadAliasesKeepSeniorAYouthAndWomenSeparate() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func game(_ away: String, _ home: String, _ awayCode: String, _ homeCode: String) -> SportsGame {
+            var result = SportsGame(id: "squad", league: .cricket, start: now.addingTimeInterval(-600),
+                awayTeam: away, homeTeam: home, awayAbbreviation: awayCode, homeAbbreviation: homeCode,
+                awayLogo: "", homeLogo: "", awayScore: "", homeScore: "", awayColor: nil, homeColor: nil,
+                awayRecord: nil, homeRecord: nil, venue: nil, location: nil, status: "Live", state: "in",
+                broadcast: "", eventName: nil)
+            result.cricket = .init(end: now.addingTimeInterval(14_400), format: "T20")
+            return result
+        }
+        func matches(_ game: SportsGame, _ title: String, channel: String = "Event 01") throws -> Bool {
+            let stream = XtreamStream(num: 1, name: channel, streamType: "live", streamID: 1,
+                streamIcon: nil, epgChannelID: "event", categoryID: nil)
+            let programs = ["event": [CurrentProgram(channelID: "event", title: title, detail: "",
+                start: now.addingTimeInterval(-300), end: now.addingTimeInterval(3600))]]
+            let candidates = try CricketChannelMatcher.candidates(in: [stream], programs: programs, games: [game], now: now)
+            return !SportsLibrary.matchingEventChannels(for: game, candidates: candidates,
+                programs: programs, categories: [], now: now).isEmpty
+        }
+        let senior = game("India", "New Zealand", "IND", "NZ")
+        let a = game("India A", "New Zealand A", "IND-A", "NZ-A")
+        let youth = game("India Under-19s", "New Zealand Under-19s", "IND19", "NZ19")
+        for title in ["India vs New Zealand - Match 19", "T20: NZL v IND", "India v New Zealand - 19 overs"] {
+            XCTAssertTrue(try matches(senior, title), title)
+            XCTAssertFalse(try matches(a, title), title)
+            XCTAssertFalse(try matches(youth, title), title)
+        }
+        for title in ["India A v New Zealand A", "IND-A v NZ-A", "INDA v NZA"] {
+            XCTAssertTrue(try matches(a, title), title)
+            XCTAssertFalse(try matches(senior, title), title)
+            XCTAssertFalse(try matches(youth, title), title)
+        }
+        for title in ["India Under 19 v New Zealand U19", "IND U19 v NZ U19", "IND19 v NZ19", "U19 World Cup: India v New Zealand"] {
+            XCTAssertTrue(try matches(youth, title), title)
+            XCTAssertFalse(try matches(senior, title), title)
+            XCTAssertFalse(try matches(a, title), title)
+        }
+        XCTAssertFalse(try matches(a, "India an v New Zealand"), "A misspelling must not collapse squad identity")
+        XCTAssertFalse(try matches(senior, "India Women v New Zealand Women"))
+        XCTAssertFalse(try matches(senior, "IND-W v NZ-W"))
+        XCTAssertFalse(try matches(senior, "India v New Zealand", channel: "WPL Event 01"))
+        XCTAssertFalse(try matches(a, "India A v New Zealand A Highlights"))
+
+        let women = game("Adelaide Strikers Women", "Melbourne Stars Women", "AS-W", "MS-W")
+        for title in ["WBBL: Adelaide Strikers v Melbourne Stars", "Adelaide Strikers Women vs Melbourne Stars Women",
+                      "AS-W v MS-W", "ASW v MSW"] {
+            XCTAssertTrue(try matches(women, title), title)
+        }
+        XCTAssertTrue(try matches(women, "Adelaide Strikers v Melbourne Stars", channel: "WBBL Event 01"))
+        XCTAssertFalse(try matches(women, "BBL: Adelaide Strikers v Melbourne Stars"), "Short names need women's context")
+        XCTAssertFalse(try matches(women, "Men's BBL: Adelaide Strikers v Melbourne Stars", channel: "WBBL Event 01"))
+        XCTAssertFalse(try matches(women, "WBBL: Adelaide Strikers v Sydney Sixers"))
+    }
+
+    func testCricketPartialDateFailurePublishesKnownFixturesWithoutErasingUnknownDays() async throws {
+        let data = try fixture("cricket-schedule")
+        let start = try XCTUnwrap(SportsScheduleClient.parseDate("2026-10-31T07:00Z"))
+        let end = try XCTUnwrap(SportsScheduleClient.parseDate("2026-11-02T08:00Z"))
+        let client = CricketScheduleClient(now: { start }, transport: { url in
+            if url.query?.contains("dates=20261030") == true { throw URLError(.timedOut) }
+            return data
+        })
+        let partial = await client.games(from: start, to: end)
+        XCTAssertEqual(partial.games[.cricket]?.count, 6)
+        XCTAssertEqual(partial.partialLeagues, [.cricket])
+        XCTAssertTrue(partial.loadedLeagues.isEmpty, "An incomplete slate must remain eligible for refresh")
+        XCTAssertNotNil(partial.errorMessage)
+
+        let games = try CricketScheduleClient.decode(data)
+        let known = try XCTUnwrap(games.first)
+        let limited = SportsScheduleClient.Snapshot(games: [.cricket: [known]], loadedLeagues: [],
+            errorMessage: "One day failed", partialLeagues: [.cricket])
+        let merged = limited.mergingGames(into: [.cricket: games], includeTomorrow: true, today: start)
+        XCTAssertEqual(Set(merged[.cricket, default: []].map(\.id)), Set(games.map(\.id)))
+        XCTAssertEqual(merged[.cricket]?.count, games.count, "Updated fixtures must not be duplicated")
+        let complete = SportsScheduleClient.Snapshot(games: [.cricket: []], loadedLeagues: [.cricket], errorMessage: nil)
+        XCTAssertEqual(complete.mergingGames(into: merged, includeTomorrow: true, today: start)[.cricket], [])
+        let outage = SportsScheduleClient.Snapshot(games: [:], loadedLeagues: [], errorMessage: "Offline")
+        XCTAssertEqual(outage.mergingGames(into: merged, includeTomorrow: true, today: start), merged)
+    }
+
     func testCricketDiscoveryFindsNSWTasmaniaAcrossUnlabelledLiveChannels() throws {
         let game = try XCTUnwrap(CricketScheduleClient.decode(fixture("cricket-schedule")).first { $0.id == "cricket-1544871" })
         let now = game.start.addingTimeInterval(2 * 86_400)

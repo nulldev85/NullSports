@@ -12,6 +12,8 @@ struct MobileChannelPicker: View {
 
     private struct CatalogVersion: Equatable {
         let revision: Int
+        let guideRevision: Int
+        let minute: Int
         let preferred: [Int]
         let favorites: [Int]
     }
@@ -20,13 +22,16 @@ struct MobileChannelPicker: View {
         let matches = await library.eventChannels(for: game)
         guard !Task.isCancelled else { return }
         let preferred = matches.map(\.stream) + library.tennisCoverage(for: game)
-        let version = CatalogVersion(revision: library.streamsRevision,
+        let point = game.isLive ? Date() : game.start
+        let version = CatalogVersion(revision: library.streamsRevision, guideRevision: library.guideRevision,
+            minute: Int(point.timeIntervalSince1970 / 60),
             preferred: preferred.map(\.id), favorites: library.favoriteStreamOrder)
         guard version != catalogVersion else { return }
         catalogVersion = version
         // Resolve favorites in the background index instead of walking the
         // full guide on the main actor, with a favorite-array scan per channel.
-        search.update(channels: library.streams, preferred: preferred, favoriteOrder: library.favoriteStreamOrder)
+        search.update(channels: library.streams, preferred: preferred, favoriteOrder: library.favoriteStreamOrder,
+            programs: library.programsByChannel, at: point)
     }
 
     private func scheduleReload() {
@@ -70,7 +75,7 @@ struct MobileChannelPickerContent: View {
                 VStack(spacing: 0) {
                     header
                     if !page.loading && page.query.isEmpty && page.suggested.isEmpty {
-                        Text("No channel matched this game. Search your provider's channels below.")
+                        Text("No channel matched this game. Search channel names or programme titles below.")
                             .font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 20).padding(.bottom, 10)

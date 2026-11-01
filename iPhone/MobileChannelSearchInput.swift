@@ -17,7 +17,7 @@ struct MobileChannelSearchInput: UIViewRepresentable {
         field.font = UIFontMetrics(forTextStyle: .body).scaledFont(for: roundedUIFont(17, .regular))
         field.adjustsFontForContentSizeCategory = true
         field.textColor = UIColor(LineupStyle.lightPurple)
-        field.attributedPlaceholder = NSAttributedString(string: "Search channels", attributes: [
+        field.attributedPlaceholder = NSAttributedString(string: "Search channels or programmes", attributes: [
             .foregroundColor: UIColor(LineupStyle.lightPurple.opacity(0.55))
         ])
         field.autocapitalizationType = .none
@@ -27,7 +27,7 @@ struct MobileChannelSearchInput: UIViewRepresentable {
         field.clearButtonMode = .always
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        field.accessibilityLabel = "Search channels"
+        field.accessibilityLabel = "Search channels or programmes"
         field.accessibilityIdentifier = "ChooseAnotherChannelSearch"
         field.delegate = context.coordinator
         field.addTarget(context.coordinator, action: #selector(Coordinator.edited(_:)), for: .editingChanged)
