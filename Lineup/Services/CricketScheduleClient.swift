@@ -7,6 +7,9 @@ actor CricketScheduleClient {
     static let shared = CricketScheduleClient()
     typealias Transport = @Sendable (URL) async throws -> Data
     private struct Cached { let games: [SportsGame]; let until: Date }
+    // Swift 6.4 can destroy a group early when a child returns a String tuple
+    // from do/catch under -O (swiftlang/swift#93208). Use a named result.
+    private struct DayResult: Sendable { let date: String; let games: [SportsGame]? }
     private var cache: [String: Cached] = [:]
     private var pending: [String: Task<[SportsGame], Error>] = [:]
     private let transport: Transport
@@ -32,15 +35,15 @@ actor CricketScheduleClient {
         // so a New Zealand morning and a late Caribbean match both survive;
         // actual timestamps below decide which local window they belong to.
         let dates = Self.feedDates(from: start.addingTimeInterval(-86_400), to: end.addingTimeInterval(86_400))
-        let slates = await withTaskGroup(of: (String, [SportsGame]?).self) { group in
+        let slates = await withTaskGroup(of: DayResult.self) { group in
             for date in dates {
                 group.addTask {
-                    do { return (date, try await self.day(date)) }
-                    catch { return (date, nil) }
+                    let games = try? await self.day(date)
+                    return DayResult(date: date, games: games)
                 }
             }
             var result: [String: [SportsGame]] = [:]
-            for await (date, games) in group { if let games { result[date] = games } }
+            for await slate in group { if let games = slate.games { result[slate.date] = games } }
             return result
         }
         guard !slates.isEmpty else {

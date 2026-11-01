@@ -35,6 +35,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--swift", default=shutil.which("swift"))
     parser.add_argument("--phone", action="store_true", help="Also run iPhone catalog, tennis and persistence regressions")
+    parser.add_argument("--configuration", choices=("debug", "release"), default="debug")
+    parser.add_argument("--filter", help="Run a matching Swift test suite or test")
     parser.add_argument("--identity-from", type=Path, help="Replay the tennis regression with a previous identity policy")
     args = parser.parse_args()
     if not args.swift:
@@ -131,8 +133,11 @@ let package = Package(name: "LineupTVRefreshChecks", platforms: [.macOS(.v13)], 
 ''', encoding="utf-8")
         env = os.environ.copy()
         env["SWIFTPM_BUILD_PARALLELISM"] = "2"
-        subprocess.run([args.swift, "test", "--package-path", str(package), "--jobs", "2"],
-                       env=env, check=True)
+        command = [args.swift, "test", "--package-path", str(package), "--jobs", "2",
+                   "--configuration", args.configuration]
+        if args.filter:
+            command += ["--filter", args.filter]
+        subprocess.run(command, env=env, check=True)
 
 
 if __name__ == "__main__":

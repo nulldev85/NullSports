@@ -6,6 +6,30 @@ import XCTest
 #endif
 
 final class ExpandedSportsTests: XCTestCase {
+    func testCricketFastChildrenAllFinishBeforeTheScheduleReturns() async throws {
+        let start = try XCTUnwrap(SportsScheduleClient.parseDate("2026-10-31T07:00Z"))
+        let end = start.addingTimeInterval(2 * 86_400)
+        let dates = Set(CricketScheduleClient.feedDates(from: start.addingTimeInterval(-86_400),
+                                                       to: end.addingTimeInterval(86_400)))
+        let empty = Data("{\"sports\":[{\"slug\":\"cricket\",\"leagues\":[]}]}".utf8)
+        for _ in 0..<12 {
+            let completed = CricketFixtureTransport(data: empty)
+            let client = CricketScheduleClient(now: { start }, transport: { url in
+                try await Task.sleep(for: .milliseconds(2))
+                return await completed.load(url)
+            })
+            let snapshot = await client.games(from: start, to: end)
+            let requests = await completed.requests
+            let returnedDates = Set(requests.compactMap { url in
+                URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "dates" }?.value
+            })
+            XCTAssertEqual(returnedDates, dates, "No child may outlive the group returning its schedule")
+            XCTAssertEqual(requests.count, dates.count)
+            XCTAssertEqual(snapshot.loadedLeagues, [.cricket], "Every successful empty day must still be collected")
+            XCTAssertNil(snapshot.errorMessage)
+        }
+    }
+
     func testCricketDiscoveryDoesNotPrepareThirtyThousandUnrelatedNewAndAsListings() throws {
         let captured = try CricketScheduleClient.decode(fixture("cricket-schedule"))
         let test = try XCTUnwrap(captured.first { $0.id == "cricket-1552530" })

@@ -90,6 +90,29 @@ def capture_abort_backtrace(device, bundle, output):
             handle.write("\nDebugger replay did not finish: " + str(error) + "\n")
 
 
+def capture_screens(device, output, label):
+    screenshot = output / (label + ".png")
+    try:
+        simctl("io", device, "screenshot", str(screenshot))
+        return [screenshot]
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        detail = str(error) + "\n" + str(error.output or "")
+        (output / (label + "-screenshot-error.txt")).write_text(detail, encoding="utf-8")
+        # Multi-display iPhones require an explicit display. simctl reports
+        # the available IDs; capture each so the visible Sports panel can be
+        # verified without assuming a particular fold state or display ID.
+        displays = list(dict.fromkeys(re.findall(r"--display=(\d+)\b", str(error.output or ""))))
+    screenshots = []
+    for display in displays:
+        screenshot = output / (label + "-display-" + display + ".png")
+        try:
+            simctl("io", device, "screenshot", "--display=" + display, str(screenshot))
+            screenshots.append(screenshot)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            screenshot.with_suffix(".error.txt").write_text(str(error) + "\n" + str(error.output or ""), encoding="utf-8")
+    return screenshots
+
+
 def check_launch(device, bundle, executable, screen_checker, output, label):
     launch = simctl("launch", "--terminate-running-process",
                     "--stdout=" + str(output / (label + "-stdout.log")),
@@ -103,22 +126,23 @@ def check_launch(device, bundle, executable, screen_checker, output, label):
     (output / (label + "-processes.txt")).write_text(processes, encoding="utf-8")
     # Preserve the screen even on a failed check: Home and a visible app are
     # useful evidence when diagnosing termination versus a bad process probe.
-    screenshot = output / (label + ".png")
-    screenshot_error = None
-    try:
-        simctl("io", device, "screenshot", str(screenshot))
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-        screenshot_error = error
-        (output / (label + "-screenshot-error.txt")).write_text(str(error) + "\n" + str(error.output or ""), encoding="utf-8")
+    screenshots = capture_screens(device, output, label)
     if not is_running(processes, executable, pid):
         raise RuntimeError(f"{label}: app PID {pid} exited after launch")
-    if screenshot_error is not None:
-        raise RuntimeError(f"{label}: could not capture the Sports screen") from screenshot_error
-    screen = subprocess.run([str(screen_checker), str(screenshot)], text=True,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
-    (output / (label + "-screen.txt")).write_text(screen.stdout, encoding="utf-8")
-    if screen.returncode != 0:
+    if not screenshots:
+        raise RuntimeError(f"{label}: could not capture the Sports screen")
+    visible = False
+    for screenshot in screenshots:
+        screen = subprocess.run([str(screen_checker), str(screenshot)], text=True,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+        screenshot.with_name(screenshot.stem + "-screen.txt").write_text(screen.stdout, encoding="utf-8")
+        if screen.returncode == 0:
+            visible = True
+            break
+    if not visible:
         raise RuntimeError(f"{label}: the Sports screen was not visible after launch")
+    if not is_running(process_record(pid), executable, pid):
+        raise RuntimeError(f"{label}: app PID {pid} exited during screen verification")
     simctl("terminate", device, bundle)
     print(f"{label}: Release app PID {pid} remained alive after launch.")
 

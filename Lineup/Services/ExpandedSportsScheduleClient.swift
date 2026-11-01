@@ -7,6 +7,12 @@ actor ExpandedSportsScheduleClient {
     static let shared = ExpandedSportsScheduleClient()
     typealias Transport = @Sendable (URL) async throws -> Data
     private struct Feed: Sendable { let games: [SportsGame]; let count: Int }
+    // Keep the league key out of an async do/catch tuple result: Swift's
+    // optimized task closures can lose it (swiftlang/swift#92698, #93208).
+    private struct LeagueResult: Sendable {
+        let league: SportsLeague
+        let result: Result<[SportsGame], Error>
+    }
     private struct Cached { let feed: Feed; let until: Date }
     private let competitions: [SportsCompetition]
     private let transport: Transport
@@ -37,9 +43,10 @@ actor ExpandedSportsScheduleClient {
         // then filter actual UTC timestamps; overseas and midnight games survive.
         let lookback = start.addingTimeInterval(-12 * 60 * 60)
         let dates = Self.feedDates(from: lookback, to: end)
-        return await withTaskGroup(of: (SportsLeague, Result<[SportsGame], Error>).self) { group in
+        return await withTaskGroup(of: LeagueResult.self) { group in
             for league in [SportsLeague.soccer, .f1, .nascar] {
                 group.addTask {
+                    let result: Result<[SportsGame], Error>
                     do {
                         let sportEnd = league.isRacing ? max(end, racingTo ?? end) : end
                         var games: [SportsGame] = []
@@ -63,17 +70,18 @@ actor ExpandedSportsScheduleClient {
                             $0.start < sportEnd && ($0.start >= start || ($0.state == "in" && $0.start >= lookback))
                         }, by: \.id)
                             .values.compactMap(\.first).sorted { $0.start == $1.start ? $0.id < $1.id : $0.start < $1.start }
-                        return (league, .success(unique))
-                    } catch { return (league, .failure(error)) }
+                        result = .success(unique)
+                    } catch { result = .failure(error) }
+                    return LeagueResult(league: league, result: result)
                 }
             }
             var games: [SportsLeague: [SportsGame]] = [:]
             var loaded: Set<SportsLeague> = []
             var failed: [String] = []
-            for await (league, result) in group {
-                switch result {
-                case .success(let slate): games[league] = slate; loaded.insert(league)
-                case .failure: failed.append(league.shortName)
+            for await answer in group {
+                switch answer.result {
+                case .success(let slate): games[answer.league] = slate; loaded.insert(answer.league)
+                case .failure: failed.append(answer.league.shortName)
                 }
             }
             return .init(games: games, loadedLeagues: loaded,

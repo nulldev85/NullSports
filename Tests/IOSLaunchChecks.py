@@ -88,6 +88,41 @@ class IOSLaunchChecks(unittest.TestCase):
                 self.assertIn("__cxa_pure_virtual", " ".join(debugger.call_args.args[0]))
                 self.assertIn("did not finish", (Path(directory) / "abort-backtrace.txt").read_text())
 
+    def testMultipleDisplaysAreCapturedExplicitlyAndOneMustShowSports(self):
+        error = subprocess.CalledProcessError(22, "screenshot", output="Cannot choose between 2 displays.\n--display=3 LCD-1\n--display=1 LCD")
+        with tempfile.TemporaryDirectory(prefix="lineup-launch-test-") as directory:
+            with patch.object(launch, "simctl", side_effect=["com.example.Lineup: 123", error, "", "", ""]) as simctl, \
+                 patch.object(launch, "process_record", return_value="123 S /tmp/Lineup.app/Lineup"), \
+                 patch.object(launch.time, "sleep"), patch.object(launch.subprocess, "run", side_effect=[
+                     subprocess.CompletedProcess([], 1, stdout="Home"),
+                     subprocess.CompletedProcess([], 0, stdout="All Sports")]):
+                launch.check_launch("simulator", "com.example.Lineup", Path("/tmp/Lineup.app/Lineup"),
+                                    Path("screen-checker"), Path(directory), "cached")
+                self.assertIn("--display=3", simctl.call_args_list[2].args)
+                self.assertIn("--display=1", simctl.call_args_list[3].args)
+                self.assertEqual((Path(directory) / "cached-display-1-screen.txt").read_text(), "All Sports")
+
+    def testMultipleHomeScreensStillFail(self):
+        error = subprocess.CalledProcessError(22, "screenshot", output="--display=3\n--display=1")
+        with tempfile.TemporaryDirectory(prefix="lineup-launch-test-") as directory:
+            with patch.object(launch, "simctl", side_effect=["com.example.Lineup: 123", error, "", ""]), \
+                 patch.object(launch, "process_record", return_value="123 S /tmp/Lineup.app/Lineup"), \
+                 patch.object(launch.time, "sleep"), patch.object(launch.subprocess, "run",
+                     return_value=subprocess.CompletedProcess([], 1, stdout="Home")):
+                with self.assertRaisesRegex(RuntimeError, "Sports screen was not visible"):
+                    launch.check_launch("simulator", "com.example.Lineup", Path("/tmp/Lineup.app/Lineup"),
+                                        Path("screen-checker"), Path(directory), "cached")
+
+    def testAnAppThatExitsDuringScreenVerificationCannotPass(self):
+        with tempfile.TemporaryDirectory(prefix="lineup-launch-test-") as directory:
+            with patch.object(launch, "simctl", return_value="com.example.Lineup: 123"), \
+                 patch.object(launch, "process_record", side_effect=["123 S /tmp/Lineup.app/Lineup", ""]), \
+                 patch.object(launch.time, "sleep"), patch.object(launch.subprocess, "run",
+                     return_value=subprocess.CompletedProcess([], 0, stdout="All Sports")):
+                with self.assertRaisesRegex(RuntimeError, "exited during screen verification"):
+                    launch.check_launch("simulator", "com.example.Lineup", Path("/tmp/Lineup.app/Lineup"),
+                                        Path("screen-checker"), Path(directory), "cached")
+
     def workflow_jobs(self):
         workflow = (Path(__file__).parents[1] / ".github/workflows/build-ios.yml").read_text(encoding="utf-8")
         return dict(re.findall(r"(?ms)^  ([a-z][\w-]*):\s*\n(.*?)(?=^  [a-z][\w-]*:|\Z)", workflow.split("jobs:\n", 1)[1]))
