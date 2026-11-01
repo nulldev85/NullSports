@@ -206,7 +206,8 @@ jobs:
   startup:
     if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone' }}
     runs-on: xcode-27
-    timeout-minutes: 45
+    # Allow a cold optimized dependency build plus simulator/cache setup.
+    timeout-minutes: 70
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
@@ -228,6 +229,16 @@ jobs:
           brew install xcodegen
           xcodegen generate
           xcrun swiftc Tools/check-ios-launch-screen.swift -o /tmp/lineup-launch-screen-check
+      - name: Restore startup build cache
+        id: restore-startup
+        uses: actions/cache/restore@v4
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          path: build-launch
+          key: ios-startup-v1-${{ runner.os }}-${{ runner.arch }}-xcode27-${{ hashFiles('project.yml') }}-${{ hashFiles('Lineup/**/*.swift', 'iPhone/**/*.swift', 'AetherPlayback/**/*.swift', 'MPVPlayback/**/*.swift') }}
+          restore-keys: |
+            ios-startup-v1-${{ runner.os }}-${{ runner.arch }}-xcode27-${{ hashFiles('project.yml') }}-
       - name: Create startup simulator
         timeout-minutes: 5
         run: |
@@ -239,7 +250,8 @@ jobs:
           xcrun simctl boot "$device"
           xcrun simctl bootstatus "$device" -b
       - name: Build standalone Release simulator app
-        timeout-minutes: 30
+        id: build-startup
+        timeout-minutes: 45
         run: |
           set -euo pipefail
           # Release defaults to all simulator architectures. Only the selected
@@ -248,6 +260,16 @@ jobs:
             -configuration Release -destination "platform=iOS Simulator,id=$LINEUP_STARTUP_DEVICE" \
             -derivedDataPath build-launch ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+      # Save successful compilation before checking launch: a runtime failure
+      # must not throw away the expensive dependency build for the next fix.
+      - name: Save startup build cache
+        if: ${{ steps.build-startup.outcome == 'success' && steps.restore-startup.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        timeout-minutes: 5
+        continue-on-error: true
+        with:
+          path: build-launch
+          key: ${{ steps.restore-startup.outputs.cache-primary-key }}
       - name: Check cached Sports launch and relaunch
         timeout-minutes: 3
         run: |
