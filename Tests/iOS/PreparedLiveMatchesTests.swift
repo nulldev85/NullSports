@@ -8,9 +8,11 @@ import XCTest
 @MainActor
 final class PreparedLiveMatchesTests: XCTestCase {
     func testOngoingCricketRestoresPlayableFeedsAfterItsFirstDay() async throws {
-        let now = Date()
-        let f = try fixture(league: .cricket, gameStart: now.addingTimeInterval(-2 * 86_400))
+        let f = try fixture(league: .cricket, gameStart: Date().addingTimeInterval(-2 * 86_400))
         defer { f.cleanUp() }
+        // Read after the fixture is saved: a snapshot written after the supplied
+        // clock is deliberately rejected as future-dated by the cache policy.
+        let now = Date()
         XCTAssertTrue(f.game.isRelevant(to: Calendar.current.startOfDay(for: now), now: now))
         let library = f.library()
         let restored = await library.restorePreparedMatches(now: now)
