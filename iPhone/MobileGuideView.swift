@@ -131,6 +131,7 @@ struct MobileGuideView: View {
 
     @State private var loadedChannels: [XtreamStream] = []
     @State private var installedChannelRequest: ChannelRequest?
+    @State private var channelSearchDate = Date()
     private var channels: [XtreamStream] {
         let request = channelRequest
         guard let installed = installedChannelRequest, installed.library == request.library,
@@ -148,7 +149,7 @@ struct MobileGuideView: View {
     private var channelRequest: ChannelRequest {
         ChannelRequest(library: ObjectIdentifier(library), revision: library.streamsRevision,
             guideRevision: searching ? library.guideRevision : 0,
-            minute: searching ? Int(clock.date.timeIntervalSince1970 / 60) : 0,
+            minute: searching ? Int(channelSearchDate.timeIntervalSince1970 / 60) : 0,
             active: isActive && scenePhase == .active,
             query: .init(categoryID: searching ? nil : filter.categoryID,
                 favoritesOnly: !searching && filter == .favorites,
@@ -169,7 +170,7 @@ struct MobileGuideView: View {
            installed.query == request.query { return }
         let streams = library.streams
         let result = try? await GuideChannelList.load(streams, query: request.query,
-            programs: searching ? library.programsByChannel : [:], at: clock.date)
+            programs: searching ? library.programsByChannel : [:], at: channelSearchDate)
         guard !Task.isCancelled, channelRequest == request, let result else { return }
         loadedChannels = result
         installedChannelRequest = request
@@ -190,7 +191,23 @@ struct MobileGuideView: View {
             guidePresentations
         }
         .mobileTabHome(.guide) { restoreDefaultCategoryOnEntry() }
+        .background { channelSearchClock }
         .task(id: channelRequest) { await updateChannels() }
+    }
+
+    /// Search also needs time updates when its result is empty and the grid's
+    /// TimelineView is absent. The scoped clock only runs for visible search.
+    @ViewBuilder private var channelSearchClock: some View {
+        if searching && isActive && scenePhase == .active && !fillsScreen {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                Color.clear.onChange(of: context.date, initial: true) { _, date in
+                    channelSearchDate = date
+                }
+            }
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
     }
 
     // Keep the view tree unchanged while giving Swift separate, bounded
