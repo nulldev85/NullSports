@@ -250,7 +250,7 @@ jobs:
           echo "LINEUP_STARTUP_DEVICE=$device" >> "$GITHUB_ENV"
           xcrun simctl boot "$device"
           xcrun simctl bootstatus "$device" -b
-          open -a Simulator --args -CurrentDeviceUDID "$device"
+          open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$device"
       - name: Build standalone Release simulator app
         id: build-startup
         timeout-minutes: 45
