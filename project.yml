@@ -319,9 +319,15 @@ targets:
         # Swift. See iPhone/LineupVLCBridge.h. iPhone only: tvOS links TVVLCKit
         # and has neither Picture in Picture nor a reason to tap frames.
         SWIFT_OBJC_BRIDGING_HEADER: iPhone/LineupVLCBridge.h
+        # CI's targeted Release tests can import the app without enabling
+        # testability or rebuilding every third-party decoder package.
+        LINEUP_RELEASE_TESTABILITY: NO
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_ENTITLEMENTS: iPhone/LineupiOS.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: LineupAppIcon
+      configs:
+        Release:
+          ENABLE_TESTABILITY: "$(LINEUP_RELEASE_TESTABILITY)"
     scheme:
       testTargets:
         - LineupiOSTests

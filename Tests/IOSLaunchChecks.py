@@ -59,6 +59,35 @@ class IOSLaunchChecks(unittest.TestCase):
                                         Path("screen-checker"), Path(directory), "cached")
                 screen.assert_not_called()
 
+    def testScreenshotFailureCannotHideAnExitedProcess(self):
+        error = subprocess.CalledProcessError(22, "screenshot", output="No framebuffer")
+        with tempfile.TemporaryDirectory(prefix="lineup-launch-test-") as directory:
+            with patch.object(launch, "simctl", side_effect=["com.example.Lineup: 123", error]), \
+                 patch.object(launch, "process_record", return_value=""), patch.object(launch.time, "sleep"):
+                with self.assertRaisesRegex(RuntimeError, "exited after launch"):
+                    launch.check_launch("simulator", "com.example.Lineup", Path("/tmp/Lineup.app/Lineup"),
+                                        Path("screen-checker"), Path(directory), "cached")
+                self.assertIn("No framebuffer", (Path(directory) / "cached-screenshot-error.txt").read_text())
+
+    def testLiveProcessWithoutAScreenshotStillCannotPass(self):
+        error = subprocess.CalledProcessError(22, "screenshot", output="No framebuffer")
+        with tempfile.TemporaryDirectory(prefix="lineup-launch-test-") as directory:
+            with patch.object(launch, "simctl", side_effect=["com.example.Lineup: 123", error]), \
+                 patch.object(launch, "process_record", return_value="123 S /tmp/Lineup.app/Lineup"), \
+                 patch.object(launch.time, "sleep"):
+                with self.assertRaisesRegex(RuntimeError, "could not capture the Sports screen"):
+                    launch.check_launch("simulator", "com.example.Lineup", Path("/tmp/Lineup.app/Lineup"),
+                                        Path("screen-checker"), Path(directory), "cached")
+
+    def testDebuggerReplayIsBoundedAndPreservesItsOutputOnTimeout(self):
+        with tempfile.TemporaryDirectory(prefix="lineup-launch-test-") as directory:
+            with patch.object(launch, "simctl", return_value="com.example.Lineup: 123"), \
+                 patch.object(launch.subprocess, "run", side_effect=subprocess.TimeoutExpired("lldb", 35)) as debugger:
+                launch.capture_abort_backtrace("simulator", "com.example.Lineup", Path(directory))
+                self.assertEqual(debugger.call_args.kwargs["timeout"], 35)
+                self.assertIn("__cxa_pure_virtual", " ".join(debugger.call_args.args[0]))
+                self.assertIn("did not finish", (Path(directory) / "abort-backtrace.txt").read_text())
+
     def workflow_jobs(self):
         workflow = (Path(__file__).parents[1] / ".github/workflows/build-ios.yml").read_text(encoding="utf-8")
         return dict(re.findall(r"(?ms)^  ([a-z][\w-]*):\s*\n(.*?)(?=^  [a-z][\w-]*:|\Z)", workflow.split("jobs:\n", 1)[1]))

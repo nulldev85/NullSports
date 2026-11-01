@@ -19,7 +19,7 @@ permissions:
 # someone is waiting on.
 concurrency:
   group: build-ios-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/iphone' }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/iphone' }}
 
 jobs:
   # Tests, standalone Release startup and IPA packaging have separate budgets.
@@ -206,8 +206,8 @@ jobs:
   startup:
     if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone' }}
     runs-on: xcode-27
-    # Allow a cold optimized dependency build plus simulator/cache setup.
-    timeout-minutes: 70
+    # Allow the cold build, optimized lifecycle tests and simulator/cache setup.
+    timeout-minutes: 90
     steps:
       - name: Checkout source
         uses: actions/checkout@v5
@@ -239,6 +239,7 @@ jobs:
           key: ios-startup-v1-${{ runner.os }}-${{ runner.arch }}-xcode27-${{ hashFiles('project.yml') }}-${{ hashFiles('Lineup/**/*.swift', 'iPhone/**/*.swift', 'AetherPlayback/**/*.swift', 'MPVPlayback/**/*.swift') }}
           restore-keys: |
             ios-startup-v1-${{ runner.os }}-${{ runner.arch }}-xcode27-${{ hashFiles('project.yml') }}-
+            ios-startup-v1-${{ runner.os }}-${{ runner.arch }}-xcode27-
       - name: Create startup simulator
         timeout-minutes: 5
         run: |
@@ -249,6 +250,7 @@ jobs:
           echo "LINEUP_STARTUP_DEVICE=$device" >> "$GITHUB_ENV"
           xcrun simctl boot "$device"
           xcrun simctl bootstatus "$device" -b
+          open -a Simulator --args -CurrentDeviceUDID "$device"
       - name: Build standalone Release simulator app
         id: build-startup
         timeout-minutes: 45
@@ -278,6 +280,20 @@ jobs:
           xcrun simctl install "$LINEUP_STARTUP_DEVICE" "$app"
           python3 -B Tools/check-ios-launch.py --device "$LINEUP_STARTUP_DEVICE" --app "$app" \
             --screen-checker /tmp/lineup-launch-screen-check --output launch-diagnostics
+      - name: Check optimized player initialization and lifecycle
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          # Also exercise real native player allocation in Release, so avoiding
+          # idle startup work cannot simply move a failure to first playback.
+          xcodebuild test -project Lineup.xcodeproj -scheme LineupiOS \
+            -configuration Release -destination "platform=iOS Simulator,id=$LINEUP_STARTUP_DEVICE" \
+            -derivedDataPath build-launch -parallel-testing-enabled NO \
+            -only-testing:LineupiOSTests/PlaybackLifecycleTests \
+            -only-testing:LineupiOSTests/VLCFrameTapTests \
+            -resultBundlePath launch-diagnostics/player-lifecycle.xcresult \
+            ONLY_ACTIVE_ARCH=YES LINEUP_RELEASE_TESTABILITY=YES CODE_SIGNING_ALLOWED=NO \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
       - name: Upload iPhone launch diagnostics
         if: always()
         uses: actions/upload-artifact@v6

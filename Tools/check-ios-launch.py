@@ -68,6 +68,28 @@ def process_record(pid):
         return error.output or ""
 
 
+def capture_abort_backtrace(device, bundle, output):
+    """Diagnostic replay only; it can never turn a failed launch into a pass."""
+    path = output / "abort-backtrace.txt"
+    try:
+        launch = simctl("launch", "--terminate-running-process", "--wait-for-debugger",
+                        "--stdout=" + str(output / "debugger-stdout.log"),
+                        "--stderr=" + str(output / "debugger-stderr.log"), device, bundle)
+        match = re.search(r":\s*(\d+)\s*$", launch)
+        if not match:
+            raise RuntimeError("No debugger replay PID: " + launch)
+        with path.open("w", encoding="utf-8") as handle:
+            subprocess.run(["xcrun", "lldb", "--batch", "-p", match[1],
+                            "-o", "breakpoint set -n __cxa_pure_virtual",
+                            "-o", "process handle -s true -n true -p true SIGABRT",
+                            "-o", "continue", "-o", "thread backtrace all",
+                            "-o", "process detach"], text=True, stdout=handle,
+                           stderr=subprocess.STDOUT, timeout=35)
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write("\nDebugger replay did not finish: " + str(error) + "\n")
+
+
 def check_launch(device, bundle, executable, screen_checker, output, label):
     launch = simctl("launch", "--terminate-running-process",
                     "--stdout=" + str(output / (label + "-stdout.log")),
@@ -82,9 +104,16 @@ def check_launch(device, bundle, executable, screen_checker, output, label):
     # Preserve the screen even on a failed check: Home and a visible app are
     # useful evidence when diagnosing termination versus a bad process probe.
     screenshot = output / (label + ".png")
-    simctl("io", device, "screenshot", str(screenshot))
+    screenshot_error = None
+    try:
+        simctl("io", device, "screenshot", str(screenshot))
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        screenshot_error = error
+        (output / (label + "-screenshot-error.txt")).write_text(str(error) + "\n" + str(error.output or ""), encoding="utf-8")
     if not is_running(processes, executable, pid):
         raise RuntimeError(f"{label}: app PID {pid} exited after launch")
+    if screenshot_error is not None:
+        raise RuntimeError(f"{label}: could not capture the Sports screen") from screenshot_error
     screen = subprocess.run([str(screen_checker), str(screenshot)], text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
     (output / (label + "-screen.txt")).write_text(screen.stdout, encoding="utf-8")
@@ -117,6 +146,9 @@ def main():
     try:
         check_launch(args.device, bundle, executable, args.screen_checker, args.output, "cached-cricket")
         check_launch(args.device, bundle, executable, args.screen_checker, args.output, "relaunch")
+    except (RuntimeError, subprocess.SubprocessError):
+        capture_abort_backtrace(args.device, bundle, args.output)
+        raise
     finally:
         try:
             log = simctl("spawn", args.device, "log", "show", "--last", "2m", "--predicate", 'process == "Lineup"', timeout=15)

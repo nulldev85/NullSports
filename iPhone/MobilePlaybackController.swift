@@ -47,7 +47,7 @@ final class MobilePlaybackSlot: ObservableObject {
 /// One stream, one controller, two possible engines.
 ///
 /// `MobilePlaybackController` is the only playback object the iPhone views know
-/// about. It owns both engines for the lifetime of a session and runs exactly
+/// about. It retains each engine once requested and runs exactly
 /// one of them at a time — see `MobileStreamEngine`. Switching engines happens
 /// only when a candidate URL fails and the next one needs a different player, so
 /// resizing, expanding, collapsing, rotating, or entering Picture in Picture
@@ -64,12 +64,23 @@ final class MobilePlaybackController: ObservableObject {
     private var sourceIsRecording = false
     private(set) var aetherSession: AetherPlaybackSession?
     private(set) var mpvSession: MPVPlaybackSession?
-    /// VLCKit. Still the engine for transport streams and anything AVPlayer
-    /// refuses, and still the object the surface tests reach for.
-    let player = VLCMediaPlayer()
-    /// AVPlayer. Drives Picture in Picture and keeps audio alive in the
-    /// background. One instance per controller, reused across channel changes.
-    let systemPlayer = AVPlayer()
+    // Sports and Guide own idle controllers before any stream is selected.
+    // Keep native player construction out of tab setup, and never construct
+    // an unused engine merely to stop, mute or inspect it.
+    private(set) var existingVLCPlayer: VLCMediaPlayer?
+    private(set) var existingSystemPlayer: AVPlayer?
+    var player: VLCMediaPlayer {
+        if let existingVLCPlayer { return existingVLCPlayer }
+        let created = VLCMediaPlayer()
+        existingVLCPlayer = created
+        return created
+    }
+    var systemPlayer: AVPlayer {
+        if let existingSystemPlayer { return existingSystemPlayer }
+        let created = AVPlayer()
+        existingSystemPlayer = created
+        return created
+    }
 
     @Published var isPlaying = false { didSet { reportLibraryTracking() } }
     var libraryTrackingEvent: ((LibraryPlaybackSample) -> Void)?
@@ -244,7 +255,7 @@ final class MobilePlaybackController: ObservableObject {
     var holdsQualityDown = false {
         didSet {
             guard holdsQualityDown != oldValue else { return }
-            applyQualityCeiling(to: systemPlayer.currentItem)
+            applyQualityCeiling(to: existingSystemPlayer?.currentItem)
             diag.record(holdsQualityDown ? "running hot: quality held down while muted" : "quality ceiling lifted")
         }
     }
@@ -340,7 +351,7 @@ final class MobilePlaybackController: ObservableObject {
     /// itself playing, with audio, while its layer has never produced a frame.
     var diagnosticsSnapshot: [(label: String, value: String)] {
         let layer = videoView?.playerLayer
-        let item = systemPlayer.currentItem
+        let item = existingSystemPlayer?.currentItem
         return [
             ("engine", engine.rawValue),
             ("PiP renderer", engine == .aether ? aetherSession?.pictureInPictureRoute ?? "preparing" : engine.title),
@@ -353,9 +364,9 @@ final class MobilePlaybackController: ObservableObject {
             ("layer ready", layer.map { $0.isReadyForDisplay ? "YES" : "NO" } ?? "—"),
             ("item status", item.map { ["unknown", "readyToPlay", "failed"][min(max($0.status.rawValue, 0), 2)] } ?? "—"),
             ("item error", item?.error.map { "\($0.localizedDescription)" } ?? "—"),
-            ("player error", systemPlayer.error.map { "\($0.localizedDescription)" } ?? "—"),
-            ("rate", String(format: "%.2f", systemPlayer.rate)),
-            ("timeControl", ["paused", "waitingToPlay", "playing"][min(max(systemPlayer.timeControlStatus.rawValue, 0), 2)]),
+            ("player error", existingSystemPlayer?.error.map { "\($0.localizedDescription)" } ?? "—"),
+            ("rate", String(format: "%.2f", existingSystemPlayer?.rate ?? 0)),
+            ("timeControl", ["paused", "waitingToPlay", "playing"][min(max(existingSystemPlayer?.timeControlStatus.rawValue ?? 0, 0), 2)]),
             ("likelyToKeepUp", item.map { $0.isPlaybackLikelyToKeepUp ? "yes" : "no" } ?? "—"),
             ("presentationSize", item.map { "\(Int($0.presentationSize.width))x\(Int($0.presentationSize.height))" } ?? "—"),
             // The decisive one for a stream that plays audio with a black
@@ -365,10 +376,10 @@ final class MobilePlaybackController: ObservableObject {
                 let video = i.tracks.filter { $0.assetTrack?.mediaType == .video }
                 return "\(video.count) enabled=\(video.filter(\.isEnabled).count)"
             } ?? "—"),
-            ("vlc playing", player.isPlaying ? "yes" : "no"),
-            ("vlc videoOut", player.hasVideoOut ? "yes" : "no"),
+            ("vlc playing", existingVLCPlayer?.isPlaying == true ? "yes" : "no"),
+            ("vlc videoOut", existingVLCPlayer?.hasVideoOut == true ? "yes" : "no"),
             ("pip possible", pictureInPicturePossible ? "yes" : "no"),
-            ("libvlc handle", libVLCHandle == nil ? "UNAVAILABLE" : "ok"),
+            ("libvlc handle", existingVLCPlayer.flatMap { VLCFrameTap.handle(for: $0) } == nil ? "UNAVAILABLE" : "ok"),
             ("frame api", VLCFrameTap.videoCallbackAPIIsLinked ? "linked" : "MISSING"),
             ("start together", startGateOpen ? "open"
                 : "holding sound" + (heldSoundSince.map { String(format: " %.1fs", ProcessInfo.processInfo.systemUptime - $0) } ?? "")),
@@ -407,7 +418,7 @@ final class MobilePlaybackController: ObservableObject {
         lifecycleNotifications.forEach { NotificationCenter.default.removeObserver($0) }
         // Its last release tears VLC down, which is not for the main thread:
         // each new preview replaces the controller that showed the last one.
-        VLCPlayerDisposal.release(player)
+        if let existingVLCPlayer { VLCPlayerDisposal.release(existingVLCPlayer) }
     }
 
     /// "1080p", "720p", etc., derived from the source video track. Nil until the
@@ -691,17 +702,17 @@ final class MobilePlaybackController: ObservableObject {
         videoView = view
         switch engine {
         case .aether:
-            player.drawable = nil
+            existingVLCPlayer?.drawable = nil
             view.removePlayerLayer()
             if let surface = aetherSession?.surface { view.installEngineSurface(surface) }
         case .mpv:
-            player.drawable = nil
+            existingVLCPlayer?.drawable = nil
             view.removePlayerLayer()
             if let surface = mpvSession?.surface { view.installEngineSurface(surface) }
         case .vlc:
             view.removeEngineSurface()
             view.removePlayerLayer()
-            if (player.drawable as? UIView) !== view { player.drawable = view }
+            if let player = existingVLCPlayer, (player.drawable as? UIView) !== view { player.drawable = view }
             startWhenVideoIsReady()
         case .system:
             view.removeEngineSurface()
@@ -722,7 +733,7 @@ final class MobilePlaybackController: ObservableObject {
             videoView = nil
             return
         }
-        player.drawable = nil
+        existingVLCPlayer?.drawable = nil
         view.removePlayerLayer()
         videoView = nil
         // A layout change big enough for SwiftUI to rebuild the video surface
@@ -747,7 +758,7 @@ final class MobilePlaybackController: ObservableObject {
     /// rides on it. Re-attaching an existing layer is a no-op, which is what
     /// keeps expand/collapse and rotation from restarting the stream.
     private func attachSystemLayer(to view: MobileVideoHost) {
-        player.drawable = nil
+        existingVLCPlayer?.drawable = nil
         let existed = view.playerLayer != nil
         let layer = view.installPlayerLayer(for: systemPlayer, reusing: pipController?.playerLayer)
         view.holdPicture(!startGateOpen)
@@ -903,10 +914,10 @@ final class MobilePlaybackController: ObservableObject {
         case .aether: aetherSession?.isMuted = audioMuted
         case .mpv: mpvSession?.isMuted = audioMuted
         case .system:
-            systemPlayer.isMuted = audioMuted
+            existingSystemPlayer?.isMuted = audioMuted
             if systemPlayer.currentItem?.status == .readyToPlay { loading = false }
         case .vlc:
-            player.audio?.isMuted = audioMuted
+            existingVLCPlayer?.audio?.isMuted = audioMuted
         }
         videoView?.holdPicture(false)
         notePresentedVideo()
@@ -927,8 +938,8 @@ final class MobilePlaybackController: ObservableObject {
     /// The sound as the viewer has it, once the start gate has let it out.
     private func applyMute() {
         guard startGateOpen else { return }
-        systemPlayer.isMuted = audioMuted
-        player.audio?.isMuted = audioMuted
+        existingSystemPlayer?.isMuted = audioMuted
+        existingVLCPlayer?.audio?.isMuted = audioMuted
         aetherSession?.isMuted = audioMuted
         mpvSession?.isMuted = audioMuted
     }
@@ -940,15 +951,15 @@ final class MobilePlaybackController: ObservableObject {
         releaseGateOutput()
         heldSoundSince = nil
         startGateOpen = true
-        systemPlayer.isMuted = audioMuted
-        player.audio?.isMuted = audioMuted
+        existingSystemPlayer?.isMuted = audioMuted
+        existingVLCPlayer?.audio?.isMuted = audioMuted
         aetherSession?.isMuted = audioMuted
         mpvSession?.isMuted = audioMuted
         videoView?.holdPicture(false)
     }
 
     private func releaseGateOutput() {
-        if let output = gateOutput, let item = systemPlayer.currentItem,
+        if let output = gateOutput, let item = existingSystemPlayer?.currentItem,
            item.outputs.contains(where: { $0 === output }) {
             item.remove(output)
         }
@@ -987,7 +998,7 @@ final class MobilePlaybackController: ObservableObject {
         switch engine {
         case .aether: aetherSession?.pause()
         case .mpv: mpvSession?.pause()
-        case .system: systemPlayer.pause()
+        case .system: existingSystemPlayer?.pause()
         case .vlc: player.pause()
         }
         refreshIsPlaying()
@@ -1232,7 +1243,7 @@ final class MobilePlaybackController: ObservableObject {
         mpvSession?.stop()
         videoView?.removeEngineSurface()
         pictureInPicturePossible = false
-        player.stop()
+        existingVLCPlayer?.stop()
         resetSubtitles()
         if !siloCaptions.isEmpty {
             pendingSiloSidecars = siloCaptions
@@ -1274,7 +1285,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func openAether(_ url: URL) {
-        player.drawable = nil
+        existingVLCPlayer?.drawable = nil
         let request = audioStartID
         do {
             let session: AetherPlaybackSession
@@ -1316,7 +1327,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func openMPV(_ url: URL) {
-        player.drawable = nil
+        existingVLCPlayer?.drawable = nil
         do {
             let session: MPVPlaybackSession
             if let existing = mpvSession { session = existing }
@@ -1624,8 +1635,8 @@ final class MobilePlaybackController: ObservableObject {
         systemObservers.removeAll()
         systemNotifications.forEach { NotificationCenter.default.removeObserver($0) }
         systemNotifications.removeAll()
-        systemPlayer.pause()
-        systemPlayer.replaceCurrentItem(with: nil)
+        existingSystemPlayer?.pause()
+        existingSystemPlayer?.replaceCurrentItem(with: nil)
         systemSubtitleGroup = nil
         systemSubtitleOptions.removeAll()
         systemAudioGroup = nil
@@ -1669,7 +1680,7 @@ final class MobilePlaybackController: ObservableObject {
             switch engine {
             case .aether: aetherSession?.pause()
             case .vlc: player.pause()
-            case .system: systemPlayer.pause()
+            case .system: existingSystemPlayer?.pause()
             case .mpv: mpvSession?.pause()
             }
             // A channel the provider records picks up from here, however
@@ -1737,8 +1748,8 @@ final class MobilePlaybackController: ObservableObject {
         let droppedWhilePlaying = isLive && engine == .vlc && health.stall == .failed
             && player.state != .error && health.hasShownPicture
         let neverPlayed = !health.hasShownPicture
-        player.stop()
-        systemPlayer.pause()
+        existingVLCPlayer?.stop()
+        existingSystemPlayer?.pause()
         aetherSession?.stop()
         isPlaying = false
         // A title goes back to where it was, not to its beginning:
@@ -1806,8 +1817,8 @@ final class MobilePlaybackController: ObservableObject {
 
     private var activeEngineIsPlaying: Bool {
         switch engine {
-        case .vlc: player.isPlaying
-        case .system: systemPlayer.timeControlStatus == .playing
+        case .vlc: existingVLCPlayer?.isPlaying == true
+        case .system: existingSystemPlayer?.timeControlStatus == .playing
         case .aether: aetherSession?.isPlaying == true
         case .mpv: mpvSession?.isPlaying == true
         }
@@ -2073,14 +2084,14 @@ final class MobilePlaybackController: ObservableObject {
         subtitleSessionID = UUID()
         explicitSubtitleChoice = false
         subtitleDelaySeconds = 0
-        player.currentVideoSubTitleDelay = 0
+        existingVLCPlayer?.currentVideoSubTitleDelay = 0
         for file in onlineSubtitleFiles { try? FileManager.default.removeItem(at: file) }
         onlineSubtitleFiles.removeAll()
         subtitleTracks = [.off]
         selectedSubtitleID = PlaybackSubtitleTrack.off.id
         systemSubtitleGroup = nil
         systemSubtitleOptions.removeAll()
-        systemPlayer.appliesMediaSelectionCriteriaAutomatically = true
+        existingSystemPlayer?.appliesMediaSelectionCriteriaAutomatically = true
         subtitleLanguages.removeAll()
         audioTracks = []
         selectedAudioID = nil
@@ -2266,8 +2277,8 @@ final class MobilePlaybackController: ObservableObject {
         case .pause:
             suspended = true
             shouldResume = !pausedByUser && (isPlaying || loading)
-            player.pause()
-            systemPlayer.pause()
+            existingVLCPlayer?.pause()
+            existingSystemPlayer?.pause()
             aetherSession?.pause()
             mpvSession?.pause()
             isPlaying = false
@@ -2723,8 +2734,8 @@ final class MobilePlaybackController: ObservableObject {
         pausedByUser = false
         waitingForVideo = false
         waitingSince = nil
-        player.stop()
-        player.media = nil
+        existingVLCPlayer?.stop()
+        existingVLCPlayer?.media = nil
         aetherSession?.stop()
         mpvSession?.stop()
         pictureInPictureActive = false
@@ -2775,7 +2786,7 @@ final class MobilePlaybackController: ObservableObject {
         // player still drawing into the old one. The slow parts of letting go
         // -- the audio session, VLC's own teardown -- happen off the main
         // thread instead.
-        player.drawable = nil
+        existingVLCPlayer?.drawable = nil
         videoView = nil
     }
 }
@@ -2848,7 +2859,7 @@ extension MobilePlaybackController {
         switch engine {
         case .aether: aetherSession?.pause()
         case .vlc: if player.isPlaying { player.pause() }
-        case .system: systemPlayer.pause()
+        case .system: existingSystemPlayer?.pause()
         case .mpv: mpvSession?.pause()
         }
         videoViewForExit?.freezePicture()
