@@ -127,6 +127,17 @@ enum CricketChannelMatcher {
     /// Words that make a channel, or a programme, cricket coverage.
     private static let dedicatedTags = [" cricket ", " willow "]
 
+    /// "Cricket 01", "UK: Cricket Event 3 FHD" or "Cricket PPV": a numbered
+    /// slot a provider fills for an event and leaves blank otherwise. Only
+    /// a programme naming this game's side can put a game on one.
+    private static func isEventSlot(_ padded: String) -> Bool {
+        if [" event ", " events ", " ppv ", " backup "].contains(where: padded.contains) { return true }
+        let filler: Set<String> = ["hd", "fhd", "uhd", "sd", "4k", "hevc", "raw", "live"]
+        let words = padded.split(separator: " ").map(String.init)
+        let rest = words.filter { !filler.contains($0) && $0.count > 2 && Int($0) == nil }
+        return words.contains { Int($0) != nil } && rest == ["cricket"]
+    }
+
     /// "India v Pakistan" names a matchup; "Live Cricket" does not.
     private static func namesMatchup(_ text: String) -> Bool {
         [" v ", " vs ", " versus "].contains(where: text.contains)
@@ -210,7 +221,10 @@ enum CricketChannelMatcher {
                 && (side(entry.text, prepared.away, sides[0]) || side(entry.text, prepared.home, sides[1]))
         }
         if oneSide { return 250 }
-        guard dedicated else { return nil }
+        // The sport alone is enough only on a real cricket network that has
+        // a current programme: an empty guide or a numbered event slot is
+        // usually a blank placeholder that never opens.
+        guard dedicated, !usable.isEmpty, !isEventSlot(channel.padded) else { return nil }
         let general = usable.allSatisfy { entry in
             EventChannelEvidence.isGenericTitle(entry.title, league: "cricket")
                 || dedicatedTags.contains(where: entry.text.contains)

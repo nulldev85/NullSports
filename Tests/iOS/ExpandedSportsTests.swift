@@ -267,6 +267,17 @@ final class ExpandedSportsTests: XCTestCase {
         XCTAssertTrue(channels(["Willow HD"], title: "Live Cricket: India A v England Lions").isEmpty,
             "A slot naming another matchup is not this game")
         XCTAssertTrue(channels(["Willow HD"], title: "Premier League Football").isEmpty)
+        // Numbered event slots and channels without a current programme are
+        // usually blank placeholders; the sport alone cannot put a game there.
+        for slot in ["Cricket 01", "UK: Cricket 03 FHD", "Cricket Event 2", "Cricket PPV"] {
+            XCTAssertTrue(channels([slot], title: "Live Cricket").isEmpty, slot)
+        }
+        XCTAssertEqual(channels(["Cricket 01"], title: "Live Cricket: India A"), [0],
+            "A slot whose programme names this game's side still carries it")
+        let silent = XtreamStream(num: 0, name: "US: WILLOW FHD", streamType: "live", streamID: 0,
+            streamIcon: nil, epgChannelID: nil, categoryID: nil)
+        XCTAssertTrue(SportsLibrary.matchingEventChannels(for: game, candidates: [silent], programs: [:],
+            categories: [], now: now).isEmpty, "A cricket channel with no guide at all does not prove coverage")
     }
 
     func testCricketDiscoveryUsesWholeWordsAndCompetitionNames() {

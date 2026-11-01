@@ -39,7 +39,7 @@ struct PreparedLiveMatch: Codable, Sendable {
                     game.eventName ?? "", game.location ?? "", game.broadcast]
         }
         let previous = previousPreparedIdentity(for: game)
-        return game.league == .cricket ? previous + ["cricket-dedicated-channels-v4"] : previous
+        return game.league == .cricket ? previous + ["cricket-live-networks-v5"] : previous
     }
 
     static func previousPreparedIdentity(for game: SportsGame) -> [String] {
