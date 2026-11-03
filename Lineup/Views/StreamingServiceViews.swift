@@ -3,14 +3,27 @@ import Observation
 
 // MARK: - The poster
 
-/// A service's poster on the Streaming Services row: its official mark on the
-/// Library's flat grey, sized the way a title's name sits on a poster.
+/// A service's poster on the Streaming Services row: its official mark on
+/// its own colour, and behind it the titles it has on that the viewer can
+/// play, each drifting slowly across the card and giving way to the next.
+/// Until any of that art is in hand, or where there is none, the card is
+/// the flat colour and the mark alone.
 struct StreamingServicePoster: View {
+    @Environment(MediaLibrary.self) private var media
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
+    #if os(tvOS)
+    @Environment(\.lineupTVSelectableFocused) private var focused
+    #endif
     let service: StreamingService
 
-    /// Each service as a flat card in its own colour, the way the rest of
-    /// the app's panels are flat: no gradient, no glow, the logo clean on
-    /// it in the one colour the service sets it in on that ground.
+    @State private var reel = StreamingPosterReel()
+    /// Which of the reel's pictures is up, and the picture itself once made.
+    @State private var current = 0
+    @State private var loaded: StreamingPosterPicture?
+
+    /// Each service as a card in its own colour, the logo on it in the one
+    /// colour the service sets it in on that ground.
     private enum LogoInk { case white, black, original }
 
     private struct Brand {
@@ -55,28 +68,239 @@ struct StreamingServicePoster: View {
         }
     }
 
+    /// How long each title holds before the next fades in, and how long the
+    /// fade takes.
+    private static let dwell: Double = 6
+    private static let fade: Double = 1.2
+
+    /// The phone moves every poster on screen. The television moves only the
+    /// one in focus, so a row of them is calm until one is chosen; the rest
+    /// hold their picture still.
+    private var moves: Bool {
+        #if os(tvOS)
+        !reduceMotion && focused
+        #else
+        !reduceMotion
+        #endif
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let brand = Self.brand(service.id)
+            let urls = reel.urls(for: service, in: media)
+            let pixels = Self.pixels(for: proxy.size, scale: displayScale)
+            let index = urls.isEmpty ? 0 : current % urls.count
+            // Asked of the cache here as well as kept, so a poster scrolled
+            // back into view draws its picture in its first frame.
+            let url = urls.isEmpty ? nil : urls[index]
+            let image = loaded.flatMap { $0.url == url ? $0.image : nil } ?? LineupArt.ready(url, pixels: pixels)
+            let hasArt = image != nil
             ZStack {
                 brand.fill
-                if UIImage(named: service.logoAsset) != nil {
-                    logo(brand.ink)
-                        .scaledToFit()
-                        .frame(maxWidth: proxy.size.width * 0.7, maxHeight: proxy.size.height * 0.24)
-                } else {
-                    // A mark not yet in the catalog: its name, set plainly.
-                    Text(service.name)
-                        .font(.inter(proxy.size.width * 0.12, .heavy))
-                        .foregroundStyle(brand.ink == .black ? Color.black : Color.white)
-                        .multilineTextAlignment(.center)
-                        .minimumScaleFactor(0.6)
-                        .padding(.horizontal, proxy.size.width * 0.1)
+                if let image {
+                    StreamingPosterFrame(image: image, size: proxy.size, moving: moves,
+                                         direction: index.isMultiple(of: 2) ? 1 : -1,
+                                         span: Self.dwell + Self.fade * 2)
+                        .id(index)
+                        .transition(.opacity)
+                    // The service's colour rises from the foot of the card
+                    // so its mark always sits on its own ground.
+                    LinearGradient(stops: [
+                        .init(color: .black.opacity(0.05), location: 0),
+                        .init(color: brand.fill.opacity(0), location: 0.34),
+                        .init(color: brand.fill.opacity(0.82), location: 0.66),
+                        .init(color: brand.fill, location: 0.88)
+                    ], startPoint: .top, endPoint: .bottom)
+                    .transition(.opacity)
                 }
+                mark(brand, in: proxy.size, hasArt: hasArt)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+            .task(id: ReelKey(urls: urls, pixels: pixels, moving: moves)) {
+                await run(urls, pixels: pixels, moving: moves)
+            }
         }
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(service.name)
+    }
+
+    @ViewBuilder
+    private func mark(_ brand: Brand, in size: CGSize, hasArt: Bool) -> some View {
+        Group {
+            if UIImage(named: service.logoAsset) != nil {
+                logo(brand.ink)
+                    .scaledToFit()
+                    .frame(maxWidth: size.width * (hasArt ? 0.62 : 0.7),
+                           maxHeight: size.height * (hasArt ? 0.17 : 0.24))
+            } else {
+                // A mark not yet in the catalog: its name, set plainly.
+                Text(service.name)
+                    .font(.inter(size.width * 0.12, .heavy))
+                    .foregroundStyle(brand.ink == .black ? Color.black : Color.white)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.6)
+                    .padding(.horizontal, size.width * 0.1)
+            }
+        }
+        // Centred on the flat card; settled into the foot once there is art.
+        .padding(.bottom, hasArt ? size.height * 0.1 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: hasArt ? .bottom : .center)
+    }
+
+    private struct ReelKey: Equatable {
+        let urls: [URL]
+        let pixels: Int
+        let moving: Bool
+    }
+
+    /// Shows the first picture that can be had, then, while the poster
+    /// moves, the next one every few seconds. A picture the server will not
+    /// give is passed over; with none at all, the card stays flat.
+    private func run(_ urls: [URL], pixels: Int, moving: Bool) async {
+        guard !urls.isEmpty, pixels > 0 else { return }
+        let start = current % urls.count
+        if let held = LineupArt.ready(urls[start], pixels: pixels) {
+            // Already made: drawn as it is, with nothing to fade in.
+            if loaded?.url != urls[start] { loaded = StreamingPosterPicture(url: urls[start], image: held) }
+        } else {
+            guard let first = await nextPicture(in: urls, from: start, pixels: pixels) else { return }
+            if Task.isCancelled { return }
+            withAnimation(.easeOut(duration: 0.6)) {
+                current = first.index
+                loaded = first.picture
+            }
+        }
+        guard moving, urls.count > 1 else { return }
+        #if os(tvOS)
+        try? await Task.sleep(for: .seconds(Self.dwell))
+        #else
+        // The posters in a row are set off from one another, so they never
+        // all change at once.
+        let order = StreamingService.all.firstIndex(where: { $0.id == service.id }) ?? 0
+        let stagger = Double(order % 4) * (Self.dwell / 4)
+        try? await Task.sleep(for: .seconds(Self.dwell + stagger))
+        #endif
+        while !Task.isCancelled {
+            let after = (current + 1) % urls.count
+            guard let next = await nextPicture(in: urls, from: after, pixels: pixels) else { return }
+            if Task.isCancelled { return }
+            withAnimation(.easeInOut(duration: Self.fade)) {
+                current = next.index
+                loaded = next.picture
+            }
+            try? await Task.sleep(for: .seconds(Self.dwell + Self.fade))
+        }
+    }
+
+    /// The first picture, from `start` on round the reel, that loads.
+    private func nextPicture(in urls: [URL], from start: Int, pixels: Int) async
+        -> (index: Int, picture: StreamingPosterPicture)? {
+        for step in 0..<urls.count {
+            let index = (start + step) % urls.count
+            if let image = await LineupArt.load(urls[index], pixels: pixels) {
+                return (index, StreamingPosterPicture(url: urls[index], image: image))
+            }
+            if Task.isCancelled { return nil }
+        }
+        return nil
+    }
+
+    /// Wide art fills the card's height and runs well past its sides, so it
+    /// is made at that width. Capped at one and a half times the card's
+    /// points: the picture is always moving and under the service's colour,
+    /// and a row of them must not crowd the rest of the Library's art out of
+    /// the cache.
+    private static func pixels(for size: CGSize, scale: CGFloat) -> Int {
+        // Before the card is laid out there is nothing to size the art to.
+        guard size.width >= 1, size.height >= 1 else { return 0 }
+        let points = max(size.width, size.height * 16 / 9) * StreamingPosterFrame.zoom
+        let raw = points * min(max(scale, 1), 1.5)
+        // In steps, so a card a point wider or narrower finds the same one.
+        return max(128, Int((raw / 64).rounded(.up)) * 64)
+    }
+}
+
+/// A picture on a service's poster, and the address it came from.
+private struct StreamingPosterPicture {
+    let url: URL
+    let image: UIImage
+}
+
+/// One title's art on a service's poster: filling the card, and while the
+/// poster moves, gliding slowly from one side towards the other as it eases
+/// back from a slight zoom.
+private struct StreamingPosterFrame: View {
+    static let zoom: CGFloat = 1.08
+
+    let image: UIImage
+    let size: CGSize
+    let moving: Bool
+    /// Which way it travels: alternate titles go opposite ways.
+    let direction: CGFloat
+    let span: Double
+
+    @State private var travelled = false
+
+    var body: some View {
+        let fill = Self.fillSize(image.size, in: size)
+        // How far it can travel and still cover the card all the way across.
+        let room = max(0, (fill.width - size.width) / 2)
+        let reach = min(room * 0.6, size.width * 0.45)
+        Image(uiImage: image)
+            .resizable()
+            .interpolation(.medium)
+            .frame(width: fill.width, height: fill.height)
+            .scaleEffect(travelled ? 1 : Self.zoom)
+            .offset(x: (travelled ? -reach : reach) * direction)
+            .frame(width: size.width, height: size.height)
+            .onAppear { start() }
+            .onChange(of: moving) { _, _ in start() }
+            .accessibilityHidden(true)
+    }
+
+    private func start() {
+        guard moving, !travelled else { return }
+        withAnimation(.linear(duration: span)) { travelled = true }
+    }
+
+    /// The smallest size of the picture, kept to its own shape, that still
+    /// covers the card when zoomed out to its resting scale.
+    private static func fillSize(_ picture: CGSize, in card: CGSize) -> CGSize {
+        guard picture.width > 0, picture.height > 0 else { return card }
+        let scale = max(card.width / picture.width, card.height / picture.height)
+        return CGSize(width: picture.width * scale, height: picture.height * scale)
+    }
+}
+
+/// The pictures a service's poster runs through: the art of the titles it
+/// has on that the viewer can play, its most popular first. Worked out once
+/// for each change of the row, rather than on every redraw.
+private final class StreamingPosterReel {
+    static let length = 5
+
+    private var key = ""
+    private var held: [URL] = []
+
+    func urls(for service: StreamingService, in media: MediaLibrary) -> [URL] {
+        let key = service.id + "|" + media.streamingMemoKey
+        if key == self.key { return held }
+        let titles = media.streamingTitles(for: service)
+        let ranked = StreamingSort.popular.sorted(titles.movies + titles.shows)
+        var seen = Set<URL>()
+        var urls: [URL] = []
+        for title in ranked {
+            // A title's wide art first, which has room to travel and carries
+            // no lettering of its own to crowd the mark; its poster where it
+            // has none.
+            guard let url = media.backdropURL(for: title.item) ?? media.imageURL(for: title.item),
+                  seen.insert(url).inserted else { continue }
+            urls.append(url)
+            if urls.count == Self.length { break }
+        }
+        self.key = key
+        held = urls
+        return urls
     }
 }
 
