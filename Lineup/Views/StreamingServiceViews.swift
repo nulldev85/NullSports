@@ -225,6 +225,7 @@ struct StreamingServicePoster: View {
 /// The pictures a service's poster runs through: the art of the titles it
 /// has on that the viewer can play, its most popular first. Worked out once
 /// for each change of the row, rather than on every redraw.
+@MainActor
 private final class StreamingPosterReel {
     static let length = 5
 
