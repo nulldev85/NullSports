@@ -93,16 +93,17 @@ struct StreamingServicePoster: View {
             // Asked of the cache here as well as kept, so a poster scrolled
             // back into view draws its picture in its first frame.
             let url = urls.isEmpty ? nil : urls[index]
-            let image = loaded.flatMap { $0.url == url ? $0.image : nil } ?? LineupArt.ready(url, pixels: pixels)
-            let hasArt = image != nil
+            let picture = loaded.flatMap { $0.url == url ? $0 : nil }
+                ?? url.flatMap { url in LineupArt.ready(url, pixels: pixels).map { StreamingPosterPicture(url: url, image: $0) } }
+            let hasArt = picture != nil
             ZStack {
                 brand.fill
-                if let image {
-                    StreamingPosterFrame(image: image, size: proxy.size, moving: moves,
-                                         direction: index.isMultiple(of: 2) ? 1 : -1,
-                                         span: Self.dwell + Self.fade * 2)
-                        .id(index)
-                        .transition(.opacity)
+                // Always there, so the layers it draws with -- and the
+                // drift they are part way through -- live as long as the card.
+                StreamingPosterArt(picture: picture, direction: index.isMultiple(of: 2) ? 1 : -1,
+                                   moving: moves, span: Self.dwell + Self.fade * 2, fade: Self.fade)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                if hasArt {
                     // The service's colour rises from the foot of the card
                     // so its mark always sits on its own ground.
                     LinearGradient(stops: [
@@ -214,62 +215,10 @@ struct StreamingServicePoster: View {
     private static func pixels(for size: CGSize, scale: CGFloat) -> Int {
         // Before the card is laid out there is nothing to size the art to.
         guard size.width >= 1, size.height >= 1 else { return 0 }
-        let points = max(size.width, size.height * 16 / 9) * StreamingPosterFrame.zoom
+        let points = max(size.width, size.height * 16 / 9) * StreamingPosterDrift.zoom
         let raw = points * min(max(scale, 1), 1.5)
         // In steps, so a card a point wider or narrower finds the same one.
         return max(128, Int((raw / 64).rounded(.up)) * 64)
-    }
-}
-
-/// A picture on a service's poster, and the address it came from.
-private struct StreamingPosterPicture {
-    let url: URL
-    let image: UIImage
-}
-
-/// One title's art on a service's poster: filling the card, and while the
-/// poster moves, gliding slowly from one side towards the other as it eases
-/// back from a slight zoom.
-private struct StreamingPosterFrame: View {
-    static let zoom: CGFloat = 1.08
-
-    let image: UIImage
-    let size: CGSize
-    let moving: Bool
-    /// Which way it travels: alternate titles go opposite ways.
-    let direction: CGFloat
-    let span: Double
-
-    @State private var travelled = false
-
-    var body: some View {
-        let fill = Self.fillSize(image.size, in: size)
-        // How far it can travel and still cover the card all the way across.
-        let room = max(0, (fill.width - size.width) / 2)
-        let reach = min(room * 0.6, size.width * 0.45)
-        Image(uiImage: image)
-            .resizable()
-            .interpolation(.medium)
-            .frame(width: fill.width, height: fill.height)
-            .scaleEffect(travelled ? 1 : Self.zoom)
-            .offset(x: (travelled ? -reach : reach) * direction)
-            .frame(width: size.width, height: size.height)
-            .onAppear { start() }
-            .onChange(of: moving) { _, _ in start() }
-            .accessibilityHidden(true)
-    }
-
-    private func start() {
-        guard moving, !travelled else { return }
-        withAnimation(.linear(duration: span)) { travelled = true }
-    }
-
-    /// The smallest size of the picture, kept to its own shape, that still
-    /// covers the card when zoomed out to its resting scale.
-    private static func fillSize(_ picture: CGSize, in card: CGSize) -> CGSize {
-        guard picture.width > 0, picture.height > 0 else { return card }
-        let scale = max(card.width / picture.width, card.height / picture.height)
-        return CGSize(width: picture.width * scale, height: picture.height * scale)
     }
 }
 
