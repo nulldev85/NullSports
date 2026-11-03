@@ -43,4 +43,37 @@ final class StreamingPosterDriftTests: XCTestCase {
         let other = StreamingPosterDrift(picture: picture, card: card, direction: -1)
         XCTAssertEqual(one.offset(at: 0.2), -other.offset(at: 0.2), accuracy: 0.001)
     }
+
+    /// Every poster keeps one beat: which title is up, and since when,
+    /// follows from the time alone, so a poster rebuilt mid-way is where it
+    /// would have been.
+    @MainActor
+    func testPostersChangeOnTheSharedBeat() {
+        let interval = StreamingServicePoster.interval
+        let first = StreamingPosterSchedule(order: 0)
+        let now: CFTimeInterval = 1000
+        let tick = first.nextTick(after: now, anchor: 0)
+        XCTAssertGreaterThan(tick, now)
+        XCTAssertLessThanOrEqual(tick - now, interval)
+        XCTAssertEqual(first.target(at: tick, count: 5, after: nil), (first.index(at: now, count: 5) + 1) % 5)
+        XCTAssertEqual(first.began(at: tick + interval / 2) ?? -1, tick, accuracy: 0.0001)
+        XCTAssertEqual(first.index(at: now, count: 5), first.index(at: now + 0.5, count: 5))
+    }
+
+    @MainActor
+    func testNeighbouringServicesChangeAQuarterBeatApart() {
+        let interval = StreamingServicePoster.interval
+        let ticks = (0..<4).map { StreamingPosterSchedule(order: $0).nextTick(after: 1000, anchor: 0) }
+        XCTAssertEqual(Set(ticks.map { Int(($0 * 1000).rounded()) }).count, 4)
+        XCTAssertEqual(StreamingPosterSchedule(order: 1).offset - StreamingPosterSchedule(order: 0).offset,
+                       interval / 4, accuracy: 0.0001)
+    }
+
+    /// A title is up for less time than one way of its drift takes, so it is
+    /// still moving when the next fades in over it.
+    @MainActor
+    func testAPictureIsStillMovingWhenTheNextArrives() {
+        XCTAssertGreaterThanOrEqual(StreamingServicePoster.span,
+                                    StreamingServicePoster.interval + StreamingServicePoster.fade)
+    }
 }

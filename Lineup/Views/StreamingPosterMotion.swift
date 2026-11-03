@@ -69,49 +69,59 @@ struct StreamingPosterDrift: Equatable {
 /// each crossfade is one animation handed to the render server, which plays
 /// it at the display's rate whatever the app is doing: a Library scrolling,
 /// a shelf of artwork decoding, a page being built. SwiftUI only says which
-/// picture is up and whether it should be moving.
+/// picture is up, since when, and whether it should be moving.
 struct StreamingPosterArt: UIViewRepresentable {
     let picture: StreamingPosterPicture?
-    let direction: CGFloat
-    let moving: Bool
-    /// How long the drift of one title lasts.
+    let motion: StreamingPosterCanvas.Motion
+    /// How long one way of a drift takes.
     let span: Double
     /// How long a new title takes to fade in over the last.
     let fade: Double
 
     func makeUIView(context: Context) -> StreamingPosterCanvas {
-        let canvas = StreamingPosterCanvas(frame: .zero)
-        canvas.span = span
-        canvas.setMotionEnabled(moving)
-        canvas.show(picture, direction: direction, fade: 0)
+        let canvas = StreamingPosterCanvas(span: span, motion: motion)
+        canvas.show(picture, fade: 0)
         return canvas
     }
 
     func updateUIView(_ canvas: StreamingPosterCanvas, context: Context) {
-        canvas.span = span
-        canvas.setMotionEnabled(moving)
+        canvas.setMotion(motion)
         // A change made inside `withAnimation` fades; any other is a cut.
-        canvas.show(picture, direction: direction, fade: context.transaction.animation == nil ? 0 : fade)
-    }
-
-    static func dismantleUIView(_ canvas: StreamingPosterCanvas, coordinator: ()) {
-        canvas.setMotionEnabled(false)
+        canvas.show(picture, fade: context.transaction.animation == nil ? 0 : fade)
     }
 }
 
-/// A picture on a service's poster, and the address it came from.
+/// A picture on a service's poster: where it came from, its place in the
+/// reel, and when its drift began, on the device's clock (nil for now).
 struct StreamingPosterPicture {
     let url: URL
     let image: UIImage
+    let index: Int
+    let began: CFTimeInterval?
+
+    func began(_ time: CFTimeInterval?) -> StreamingPosterPicture {
+        StreamingPosterPicture(url: url, image: image, index: index, began: time)
+    }
 }
 
-/// The layers behind `StreamingPosterArt`. The picture on show moves under
-/// one animation for its whole drift; a new one is laid over it and faded
-/// in, and the old one goes once it is covered. Stopped -- out of the
-/// window, the app in the background, Reduce Motion, or on the television a
-/// poster out of focus -- the picture holds exactly where it was and carries
-/// on from there.
+/// The layers behind `StreamingPosterArt`.
+///
+/// Each picture is two layers: an outer one that fades, and the art inside
+/// it that drifts. The drift is a single animation that runs to the far side
+/// and eases back, over and over, so a picture never comes to rest while it
+/// is up -- whether the next title is late or there is no next title. On the
+/// television a poster out of focus freezes its art exactly where it was,
+/// and the fade, on the outer layer, is never caught by that.
 final class StreamingPosterCanvas: UIView {
+    enum Motion: Equatable {
+        /// Drifting, and changing title on the beat.
+        case running
+        /// Held exactly where it is, ready to carry on.
+        case paused
+        /// Reduce Motion: the art still, at its middle.
+        case still
+    }
+
     private static let driftKey = "streaming-poster-drift"
     private static let fadeKey = "streaming-poster-fade"
 
@@ -121,91 +131,54 @@ final class StreamingPosterCanvas: UIView {
     private static let frameRate = CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60)
 
     private final class Shown {
-        let layer = CALayer()
+        let frame = CALayer()
+        let art = CALayer()
         let url: URL
         let image: UIImage
-        let direction: CGFloat
         var drift: StreamingPosterDrift
-        /// How far along its drift it was when it last stopped, and when it
-        /// last started again.
-        var progress: CGFloat = 0
-        var startedAt: CFTimeInterval?
 
-        init(_ picture: StreamingPosterPicture, direction: CGFloat, card: CGSize) {
+        init(_ picture: StreamingPosterPicture, card: CGSize) {
             url = picture.url
             image = picture.image
-            self.direction = direction
-            drift = StreamingPosterDrift(picture: picture.image.size, card: card, direction: direction)
+            // Alternate titles travel opposite ways.
+            drift = StreamingPosterDrift(picture: picture.image.size, card: card,
+                                         direction: picture.index.isMultiple(of: 2) ? 1 : -1)
         }
+
+        var direction: CGFloat { drift.direction }
     }
 
-    var span: Double = 8.4
+    private let span: Double
+    private var motion: Motion
     private var shown: Shown?
     private var leaving: [CALayer] = []
-    private var motionEnabled = false
-    private var applicationActive = UIApplication.shared.applicationState != .background
     private var laidOutSize: CGSize = .zero
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        configure()
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        configure()
-    }
-
-    private func configure() {
+    init(span: Double, motion: Motion) {
+        self.span = span
+        self.motion = motion
+        super.init(frame: .zero)
         backgroundColor = .clear
         isUserInteractionEnabled = false
         accessibilityElementsHidden = true
         layer.masksToBounds = true
-        NotificationCenter.default.addObserver(self, selector: #selector(applicationWillResignActive),
-            name: UIApplication.willResignActiveNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(applicationDidBecomeActive),
-            name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
-
-    @objc private func applicationWillResignActive() {
-        applicationActive = false
-        updateRunning()
-    }
-
-    @objc private func applicationDidBecomeActive() {
-        applicationActive = true
-        updateRunning()
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        updateRunning()
-    }
-
-    private var shouldRun: Bool { motionEnabled && applicationActive && window != nil }
-
-    func setMotionEnabled(_ enabled: Bool) {
-        guard enabled != motionEnabled else { return }
-        motionEnabled = enabled
-        updateRunning()
-    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     // MARK: Pictures
 
-    func show(_ picture: StreamingPosterPicture?, direction: CGFloat, fade: Double) {
-        if let shown, let picture, shown.url == picture.url, shown.image === picture.image { return }
+    func show(_ picture: StreamingPosterPicture?, fade: Double) {
+        // The same picture is the same picture, however it was handed over.
+        if shown?.url == picture?.url { return }
         guard let picture else {
             clear()
             return
         }
-        let next = Shown(picture, direction: direction, card: bounds.size)
-        next.layer.contents = picture.image.cgImage
-        next.layer.contentsGravity = .resize
-        // Decoded at about the size it is drawn, so plain linear filtering
-        // is all the scaling it needs.
-        next.layer.allowsEdgeAntialiasing = false
+        let next = Shown(picture, card: bounds.size)
+        next.art.contents = picture.image.cgImage
+        next.art.contentsGravity = .resize
+        next.art.allowsEdgeAntialiasing = false
         let previous = shown
         shown = next
         // The very first picture comes up out of the flat card a little
@@ -214,8 +187,10 @@ final class StreamingPosterCanvas: UIView {
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        place(next)
-        layer.addSublayer(next.layer)
+        next.frame.addSublayer(next.art)
+        layer.addSublayer(next.frame)
+        size(next)
+        startDrift(next, began: picture.began ?? CACurrentMediaTime())
         if fade > 0 {
             let fadeIn = CABasicAnimation(keyPath: "opacity")
             fadeIn.fromValue = 0
@@ -223,7 +198,7 @@ final class StreamingPosterCanvas: UIView {
             fadeIn.duration = fade
             fadeIn.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             fadeIn.preferredFrameRateRange = Self.frameRate
-            next.layer.add(fadeIn, forKey: Self.fadeKey)
+            next.frame.add(fadeIn, forKey: Self.fadeKey)
         }
         CATransaction.commit()
 
@@ -231,25 +206,24 @@ final class StreamingPosterCanvas: UIView {
         // covered, then goes. Only one is ever left behind.
         leaving.forEach { $0.removeFromSuperlayer() }
         leaving.removeAll()
-        if let previous {
-            if fade > 0 {
-                leaving.append(previous.layer)
-                let layer = previous.layer
-                DispatchQueue.main.asyncAfter(deadline: .now() + fade) { [weak self] in
-                    guard let self, let index = self.leaving.firstIndex(where: { $0 === layer }) else { return }
-                    layer.removeFromSuperlayer()
-                    self.leaving.remove(at: index)
-                }
-            } else {
-                previous.layer.removeFromSuperlayer()
-            }
+        guard let previous else { return }
+        guard fade > 0 else {
+            previous.frame.removeFromSuperlayer()
+            return
+        }
+        let old = previous.frame
+        leaving.append(old)
+        DispatchQueue.main.asyncAfter(deadline: .now() + fade) { [weak self] in
+            guard let self, let index = self.leaving.firstIndex(where: { $0 === old }) else { return }
+            old.removeFromSuperlayer()
+            self.leaving.remove(at: index)
         }
     }
 
     private func clear() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        shown?.layer.removeFromSuperlayer()
+        shown?.frame.removeFromSuperlayer()
         leaving.forEach { $0.removeFromSuperlayer() }
         CATransaction.commit()
         shown = nil
@@ -263,69 +237,100 @@ final class StreamingPosterCanvas: UIView {
         guard bounds.size != laidOutSize else { return }
         laidOutSize = bounds.size
         guard let shown else { return }
-        // A card of a new size gets the drift worked out afresh, from where
-        // the picture had got to.
-        let now = CACurrentMediaTime()
-        shown.progress = progress(of: shown, at: now)
-        if shown.startedAt != nil { shown.startedAt = now }
+        // A card of a new size gets its drift worked out afresh, keeping the
+        // time it began, so it carries on from the same moment.
+        let began = shown.art.animation(forKey: Self.driftKey)?.beginTime
         shown.drift = StreamingPosterDrift(picture: shown.image.size, card: bounds.size, direction: shown.direction)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        place(shown)
+        size(shown)
+        if let began {
+            shown.art.removeAnimation(forKey: Self.driftKey)
+            addDrift(to: shown, localBegin: began)
+        } else {
+            settle(shown)
+        }
         CATransaction.commit()
     }
 
-    /// Sizes and centres a picture, sets it where its drift has got to, and
-    /// sends it on from there if the canvas is running.
-    private func place(_ shown: Shown) {
-        let layer = shown.layer
-        layer.bounds = CGRect(origin: .zero, size: shown.drift.fill)
-        layer.position = CGPoint(x: bounds.midX, y: bounds.midY)
-        let now = CACurrentMediaTime()
-        if shouldRun {
-            if shown.startedAt == nil { shown.startedAt = now }
-            run(shown, from: progress(of: shown, at: now), at: now)
-        } else {
-            shown.progress = progress(of: shown, at: now)
-            shown.startedAt = nil
-            layer.removeAnimation(forKey: Self.driftKey)
-            layer.transform = shown.drift.transform(at: shown.progress)
-        }
+    private func size(_ shown: Shown) {
+        shown.frame.frame = bounds
+        shown.art.bounds = CGRect(origin: .zero, size: shown.drift.fill)
+        shown.art.position = CGPoint(x: bounds.midX, y: bounds.midY)
     }
 
     // MARK: Motion
 
-    private func updateRunning() {
+    func setMotion(_ motion: Motion) {
+        guard motion != self.motion else { return }
+        self.motion = motion
         guard let shown else { return }
-        let running = shown.startedAt != nil
-        guard running != shouldRun else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        place(shown)
+        switch motion {
+        case .still:
+            shown.art.removeAnimation(forKey: Self.driftKey)
+            resume(shown.art)
+            settle(shown)
+        case .running:
+            if shown.art.animation(forKey: Self.driftKey) == nil { startDrift(shown, began: CACurrentMediaTime()) }
+            resume(shown.art)
+        case .paused:
+            if shown.art.animation(forKey: Self.driftKey) == nil { startDrift(shown, began: CACurrentMediaTime()) }
+            pause(shown.art)
+        }
         CATransaction.commit()
     }
 
-    private func progress(of shown: Shown, at now: CFTimeInterval) -> CGFloat {
-        guard let startedAt = shown.startedAt, span > 0 else { return shown.progress }
-        return min(1, shown.progress + CGFloat((now - startedAt) / span))
+    /// Sets a new picture moving from `began`, a time on the device's clock,
+    /// or holds it there.
+    private func startDrift(_ shown: Shown, began: CFTimeInterval) {
+        guard motion != .still else {
+            settle(shown)
+            return
+        }
+        addDrift(to: shown, localBegin: shown.art.convertTime(began, from: nil))
+        if motion == .paused { pause(shown.art) }
     }
 
-    /// One animation for the rest of the drift. Its model value is the end,
-    /// so a drift that finishes simply rests there.
-    private func run(_ shown: Shown, from progress: CGFloat, at now: CFTimeInterval) {
-        let layer = shown.layer
-        layer.removeAnimation(forKey: Self.driftKey)
-        shown.progress = progress
-        shown.startedAt = now
-        layer.transform = shown.drift.transform(at: 1)
-        let remaining = Double(1 - progress) * span
-        guard remaining > 0.01 else { return }
+    private func settle(_ shown: Shown) {
+        shown.art.transform = shown.drift.transform(at: 0.5)
+    }
+
+    /// To the far side and back, eased at each end, for as long as the
+    /// picture is up. Never removed on completion: it has none, and keeping
+    /// it is what carries it through the app going to the background.
+    private func addDrift(to shown: Shown, localBegin: CFTimeInterval) {
         let drift = CABasicAnimation(keyPath: "transform")
-        drift.fromValue = shown.drift.transform(at: progress)
+        drift.fromValue = shown.drift.transform(at: 0)
         drift.toValue = shown.drift.transform(at: 1)
-        drift.duration = remaining
-        drift.timingFunction = CAMediaTimingFunction(name: .linear)
+        drift.duration = span
+        drift.autoreverses = true
+        drift.repeatCount = .infinity
+        drift.beginTime = localBegin
+        drift.fillMode = .both
+        drift.isRemovedOnCompletion = false
+        drift.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         drift.preferredFrameRateRange = Self.frameRate
-        layer.add(drift, forKey: Self.driftKey)
+        shown.art.transform = shown.drift.transform(at: 0)
+        shown.art.add(drift, forKey: Self.driftKey)
+    }
+
+    /// Stops a layer's own clock where it is.
+    private func pause(_ layer: CALayer) {
+        guard layer.speed != 0 else { return }
+        let now = layer.convertTime(CACurrentMediaTime(), from: nil)
+        layer.speed = 0
+        layer.timeOffset = now
+    }
+
+    /// Starts it again from exactly where it stopped.
+    private func resume(_ layer: CALayer) {
+        guard layer.speed == 0 else { return }
+        let stopped = layer.timeOffset
+        layer.speed = 1
+        layer.timeOffset = 0
+        layer.beginTime = 0
+        layer.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) - stopped
     }
 }
