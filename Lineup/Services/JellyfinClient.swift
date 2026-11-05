@@ -69,6 +69,24 @@ struct JellyfinClient: Sendable {
         return response.items
     }
 
+    /// The libraries a server marks as holding collections. An AIOStreams
+    /// server marks each catalog of collections this way -- film series,
+    /// streaming services, its own picks -- so their collections can be
+    /// listed one library at a time instead of by asking for everything.
+    func collectionLibraryIDs(userID: String) async throws -> [String] {
+        struct Library: Decodable {
+            let id: String
+            let collectionType: String?
+            enum CodingKeys: String, CodingKey { case id = "Id", collectionType = "CollectionType" }
+        }
+        struct Libraries: Decodable {
+            let items: [Library]
+            enum CodingKeys: String, CodingKey { case items = "Items" }
+        }
+        let response: Libraries = try await send(try request(path: "users/\(userID)/views"))
+        return response.items.filter { $0.collectionType?.lowercased() == "boxsets" }.map(\.id)
+    }
+
     // Everything a shelf card, a show page and an episode card between them need.
     // Asked for once, so no screen has to go back for a second round.
     static let fields = "Overview,Genres,OfficialRating,CommunityRating,CriticRating,"

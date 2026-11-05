@@ -915,15 +915,20 @@ final class MediaLibrary {
             // library's.
             let known = Set(loaded.map(\.id))
             let oldState = state(of: profile)
-            // An AIOStreams server lists its collections in a Collections
-            // library of their own, opened like any other; asking it for every
-            // collection at once is asking it for every catalog.
+            // Asking an AIOStreams server for every collection at once is asking
+            // it for every catalog. Its collections are in libraries of their
+            // own, so it is asked for those libraries' first pages only, and a
+            // collection's titles wait until it is opened.
             let crawlable = await crawls(profile)
-            let loadedCollections = (crawlable
-                ? ((try? await source.allCollections(
+            let gathered: [MediaItem]?
+            if crawlable {
+                gathered = try? await source.allCollections(
                     userID: profile.userID, pageSize: MediaServerQuery.collectionPage,
-                    maxPages: MediaServerQuery.collectionPages)) ?? oldState.collections)
-                : [])
+                    maxPages: MediaServerQuery.collectionPages)
+            } else {
+                gathered = await collectionsByLibrary(on: source, userID: profile.userID)
+            }
+            let loadedCollections = (gathered ?? oldState.collections)
                 .filter { !known.contains($0.id) }
                 .map { $0.servedBy(profile.id) }
             let selectedRoots = selectedShelfRoots(from: loaded + loadedCollections, profileID: profile.id)
@@ -3540,6 +3545,25 @@ final class MediaLibrary {
               let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
               url.host != nil else { return nil }
         return url
+    }
+
+    /// The collections in a server's Collections libraries, a page of each,
+    /// for a server that cannot be asked for all of them at once. Nil when
+    /// none of it answered, so the row keeps what it had.
+    private func collectionsByLibrary(on source: any MediaServerClient, userID: String) async -> [MediaItem]? {
+        guard let jellyfin = source as? JellyfinClient,
+              let libraries = try? await jellyfin.collectionLibraryIDs(userID: userID) else { return nil }
+        guard !libraries.isEmpty else { return [] }
+        var collections: [MediaItem] = []
+        var seen: Set<String> = []
+        var answered = false
+        for library in libraries {
+            guard let page = try? await source.items(userID: userID, parentID: library, sortBy: "SortName",
+                                                     limit: MediaServerQuery.libraryCollectionPage) else { continue }
+            answered = true
+            for item in page where seen.insert(item.id).inserted { collections.append(item) }
+        }
+        return answered ? collections : nil
     }
 
     /// Whether a server can be asked for everything it holds at once.
