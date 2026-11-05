@@ -144,18 +144,14 @@ func liveHeadline(_ game: SportsGame) -> String {
     return "\(game.awayAbbreviation) \(game.sidesSymbol) \(game.homeAbbreviation)"
 }
 
-/// A steady broadcast-red core with a slow halo around it. The core never
-/// blinks or changes size, so it remains a crisp status mark; only the light
-/// it casts breathes. That reads as an illuminated indicator rather than a
-/// generic animated circle.
 /// On air, as a small red dot.
 ///
-/// It was a glossy bead -- a gradient, a rim, a glow and a halo -- which at
-/// these sizes read as a smudge of red rather than a mark. Flat and smaller,
-/// its edge stays crisp from across a room, and a slow breath is what says
-/// *now*: a still dot is a bullet point.
+/// Still. It breathed, from phase to phase, and a breathing dot is a frame
+/// drawn on the main thread for every live programme on screen for as long
+/// as the screen is up -- a dozen of them down the Guide at once, all the
+/// time the viewer was moving through it. The red and the word beside it
+/// already say *now*.
 struct PulsingLiveDot: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let size: CGFloat
 
     /// Three quarters of what each caller asked for: every live dot in the
@@ -163,27 +159,7 @@ struct PulsingLiveDot: View {
     private var diameter: CGFloat { (size * 0.72).rounded() }
 
     var body: some View {
-        Group {
-            if reduceMotion {
-                dot(opacity: 1)
-            } else {
-                // Breathing from phase to phase, which the animation system
-                // runs. A clock redrew every dot on screen twenty times a
-                // second for as long as a game was on, and that was work the
-                // main thread had in hand when the viewer changed tabs. A
-                // repeating animation is no answer either: it takes hold of
-                // any move the dot makes while it runs, which left the dot
-                // drifting after the panel holding it slid in. A phase
-                // animator animates only what its phases change.
-                dot(opacity: 1)
-                    .phaseAnimator([false, true]) { dot, dimmed in
-                        dot.opacity(dimmed ? 0.45 : 1)
-                    } animation: { _ in
-                        .easeInOut(duration: 1.1)
-                    }
-            }
-        }
-        .accessibilityHidden(true)
+        dot(opacity: 1).accessibilityHidden(true)
     }
 
     private func dot(opacity: Double) -> some View {
