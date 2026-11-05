@@ -221,6 +221,12 @@ final class MediaLibrary {
     /// can keep separate places without surprising one another.
     private(set) var localPlayback: [LocalMediaPlayback] = []
     private(set) var localTrackingEnabled = true
+    /// Progress shared with the viewer's Jellyfin, Emby and AIOStreams
+    /// servers: Lineup tells the server what is playing and where, as every
+    /// Jellyfin app does, and takes in what was watched elsewhere.
+    private(set) var serverTrackingEnabled = true
+    /// What each playback session has told its server so far.
+    @ObservationIgnored private var serverReports: [UUID: ServerPlaybackReport] = [:]
     private(set) var mdbListTrackingEnabled = false
     let mdbListTracking: MDBListTrackingService
     @ObservationIgnored private let trackingKey: () -> String?
@@ -412,6 +418,7 @@ final class MediaLibrary {
         self.trackingKey = trackingKey
         mdbListTracking = MDBListTrackingService(defaults: defaults, session: trackingSession)
         localTrackingEnabled = defaults.object(forKey: LibraryTrackingPreferences.localKey) as? Bool ?? true
+        serverTrackingEnabled = defaults.object(forKey: LibraryTrackingPreferences.serverKey) as? Bool ?? true
         mdbListTrackingEnabled = defaults.bool(forKey: LibraryTrackingPreferences.mdbKey)
         self.metadataCredentials = metadataCredentials
         self.metadataResolver = metadataResolver ?? LibraryMetadataResolver(credentials: metadataCredentials)
@@ -1007,6 +1014,8 @@ final class MediaLibrary {
             }
             if let shelfFailure, !Self.isCancellation(shelfFailure) { report(shelfFailure, from: profile) }
             persistLibrarySnapshot(for: profile)
+            // What was watched in other apps, into Continue Watching.
+            Task { [weak self] in await self?.importServerProgress(for: profile) }
             // Counting what an AIOStreams server holds is fetching all of it.
             if crawlable {
                 Task { [weak self] in
@@ -1926,7 +1935,9 @@ final class MediaLibrary {
         return Double(ticks) / 10_000_000 * percent / 100
     }
 
-    func beginPlaybackSession(for item: MediaItem, id: UUID, startsOver: Bool = false, nativeSilo: SiloPlaybackSession? = nil) {
+    func beginPlaybackSession(for item: MediaItem, id: UUID, startsOver: Bool = false,
+                              nativeSilo: SiloPlaybackSession? = nil, mediaSourceID: String? = nil) {
+        if nativeSilo == nil { beginServerReport(for: item, id: id, mediaSourceID: mediaSourceID) }
         if let nativeSilo {
             siloPlaybackSessions[id] = nativeSilo
             nativeSilo.retryAllowed = { [weak self, weak nativeSilo] in
@@ -1949,6 +1960,7 @@ final class MediaLibrary {
             mdbPlaybackSessions[id]?.presentationEnded = true
             return
         }
+        finishServerReport(id)
         finishMDBPlayback(id)
         playbackSessions[id] = nil
         endSiloPlayback(id)
@@ -2193,6 +2205,7 @@ final class MediaLibrary {
         let acceptsMDB = mdbListTrackingEnabled && sessionID.flatMap({ mdbPlaybackSessions[$0] }).map({
             !$0.closed && $0.item.serverID == profileID && Self.samePlaybackItem($0.item, item)
         }) == true
+        if let sessionID { finishServerReport(sessionID, completed: true) }
         guard acceptsLocal || acceptsMDB else { return }
         if let sessionID { finishMDBPlayback(sessionID, completed: true) }
         // A remote session may outlive the local completion threshold or a
@@ -5270,6 +5283,17 @@ extension MediaLibrary {
         if mdbListTrackingEnabled, let id = trackingAccountID { return LibraryTrackingPreferences.cacheKey(id) }
         return nil
     }
+    func setServerTrackingEnabled(_ enabled: Bool) {
+        guard serverTrackingEnabled != enabled else { return }
+        serverTrackingEnabled = enabled
+        defaults.set(enabled, forKey: LibraryTrackingPreferences.serverKey)
+        if enabled {
+            for profile in profiles { Task { [weak self] in await self?.importServerProgress(for: profile) } }
+        } else {
+            for id in Array(serverReports.keys) { finishServerReport(id) }
+        }
+    }
+
     func setLocalTrackingEnabled(_ enabled: Bool) {
         guard localTrackingEnabled != enabled else { return }
         flushLocalPlayback()
@@ -5359,6 +5383,7 @@ extension MediaLibrary {
 
     func reportTrackingSample(_ sample: LibraryPlaybackSample, for item: MediaItem, sessionID: UUID) {
         guard siloPlaybackSessions[sessionID]?.isReplanning != true else { return }
+        reportToServer(sample, sessionID: sessionID)
         if sample.duration.isFinite, sample.duration > 0, sample.position.isFinite, sample.position >= 0 {
             siloPlaybackSessions[sessionID]?.sample(position: sample.position, paused: !sample.playing)
         }
@@ -5375,6 +5400,7 @@ extension MediaLibrary {
             trackPlayback(of: item, position: sample.position, duration: sample.duration, sessionID: sessionID)
         }
         if state.presentationEnded, !sample.pictureInPicture {
+            finishServerReport(sessionID)
             finishMDBPlayback(sessionID)
             flushLocalPlayback()
             playbackSessions[sessionID] = nil
@@ -5640,5 +5666,136 @@ extension MediaLibrary {
         return target.tvdbSeason != nil && target.tvdbEpisode != nil && target.tvdbSeries != nil
             && episode.parentIndexNumber == target.tvdbSeason && episode.indexNumber == target.tvdbEpisode
             && LibraryMetadataIdentity.ids(series)["tvdb"] == target.tvdbSeries
+    }
+}
+
+// MARK: - Progress kept with the server
+
+/// One playback session's account with its Jellyfin, Emby or AIOStreams
+/// server: what it has said, and when.
+private struct ServerPlaybackReport {
+    let profileID: UUID
+    let itemID: String
+    let mediaSourceID: String?
+    let playSessionID = UUID().uuidString
+    var started = false
+    var paused = false
+    var positionTicks: Int64 = 0
+    var durationTicks: Int64 = 0
+    var lastSent = Date.distantPast
+}
+
+extension MediaLibrary {
+    /// How often a playing title's position goes to its server.
+    static let serverProgressInterval: TimeInterval = 10
+
+    /// A session on a server that keeps progress for its apps. Titles from
+    /// the IPTV provider, Plex and Silo keep their own and are left out.
+    fileprivate func beginServerReport(for item: MediaItem, id: UUID, mediaSourceID: String?) {
+        guard serverTrackingEnabled, serverReports[id] == nil, ProviderItem(id: item.id) == nil,
+              ["Movie", "Episode", "Video"].contains(item.type),
+              let profile = profile(for: item), (try? client(for: profile)) is JellyfinClient else { return }
+        serverReports[id] = ServerPlaybackReport(profileID: profile.id, itemID: item.id, mediaSourceID: mediaSourceID)
+    }
+
+    /// Started on the first sample, then where it is every ten seconds and
+    /// at once on a pause or a resume.
+    fileprivate func reportToServer(_ sample: LibraryPlaybackSample, sessionID: UUID) {
+        guard var report = serverReports[sessionID], sample.position.isFinite, sample.position >= 0 else { return }
+        report.positionTicks = Int64(sample.position * 10_000_000)
+        if sample.duration.isFinite, sample.duration > 0 { report.durationTicks = Int64(sample.duration * 10_000_000) }
+        let paused = !sample.playing
+        let now = Date()
+        let send: (JellyfinClient, JellyfinClient.PlaybackReport) async throws -> Void
+        let event: String?
+        if !report.started {
+            guard sample.playing else { serverReports[sessionID] = report; return }
+            report.started = true
+            event = nil
+            send = { try await $0.reportPlaybackStarted($1) }
+        } else if paused != report.paused {
+            event = paused ? "Pause" : "Unpause"
+            send = { try await $0.reportPlaybackProgress($1) }
+        } else if !paused, now.timeIntervalSince(report.lastSent) >= Self.serverProgressInterval {
+            event = "TimeUpdate"
+            send = { try await $0.reportPlaybackProgress($1) }
+        } else {
+            serverReports[sessionID] = report
+            return
+        }
+        report.paused = paused
+        report.lastSent = now
+        serverReports[sessionID] = report
+        deliver(report, event: event, ticks: report.positionTicks, send)
+    }
+
+    /// The session is over: where it stopped, or its end when it finished,
+    /// so the server marks it watched as it would for any of its apps.
+    fileprivate func finishServerReport(_ sessionID: UUID, completed: Bool = false) {
+        guard let report = serverReports.removeValue(forKey: sessionID), report.started else { return }
+        let ticks = completed && report.durationTicks > 0 ? report.durationTicks : report.positionTicks
+        deliver(report, event: nil, ticks: ticks) { try await $0.reportPlaybackStopped($1) }
+    }
+
+    private func deliver(_ report: ServerPlaybackReport, event: String?, ticks: Int64,
+                         _ send: @escaping (JellyfinClient, JellyfinClient.PlaybackReport) async throws -> Void) {
+        guard let profile = profiles.first(where: { $0.id == report.profileID }),
+              let source = (try? client(for: profile)) as? JellyfinClient else { return }
+        let body = JellyfinClient.PlaybackReport(itemID: report.itemID, mediaSourceID: report.mediaSourceID,
+            playSessionID: report.playSessionID, positionTicks: ticks, isPaused: report.paused, eventName: event)
+        // A report that does not arrive is a position the server keeps from
+        // the last one; playback never waits on it.
+        Task { try? await send(source, body) }
+    }
+
+    /// What the viewer is part way through or up to on the server, from any
+    /// app, into Continue Watching. A title's newer position wins, wherever
+    /// it was watched: one played here since is kept, one played elsewhere
+    /// since replaces it. A title hidden from Continue Watching stays hidden.
+    func importServerProgress(for profile: MediaServerProfile) async {
+        guard serverTrackingEnabled, localTrackingEnabled, contains(profile),
+              let source = (try? client(for: profile)) as? JellyfinClient else { return }
+        let generation = playbackGeneration
+        async let resumeList = source.resumeItems(userID: profile.userID)
+        async let nextList = source.nextUpEpisodes(userID: profile.userID)
+        let resumed = (try? await resumeList) ?? []
+        let upNext = (try? await nextList) ?? []
+        guard generation == playbackGeneration, contains(profile), serverTrackingEnabled, localTrackingEnabled else { return }
+
+        var records = localPlayback
+        var changed = false
+        for raw in resumed where raw.isPlayable {
+            let item = raw.servedBy(profile.id)
+            guard let ticks = item.userData?.playbackPositionTicks, ticks > 0,
+                  let runtime = item.runTimeTicks, runtime > ticks,
+                  heldPlayback.map({ !Self.samePlaybackItem($0.item, item) }) ?? true,
+                  !isHiddenFromContinueWatching(item, profileID: profile.id) else { continue }
+            let position = Double(ticks) / 10_000_000
+            let duration = Double(runtime) / 10_000_000
+            let playedAt = item.userData?.lastPlayed ?? .distantPast
+            if let index = records.firstIndex(where: {
+                $0.profileID == profile.id && Self.samePlaybackItem($0.item, item)
+            }) {
+                guard playedAt > records[index].updatedAt else { continue }
+                records[index].position = position
+                records[index].duration = duration
+                records[index].updatedAt = playedAt
+                records[index].completed = false
+                records[index].isUpNext = nil
+                records[index].explicitlyUnwatched = nil
+            } else {
+                records.append(LocalMediaPlayback(profileID: profile.id, item: item, position: position,
+                    duration: duration, updatedAt: playedAt == .distantPast ? Date() : playedAt, completed: false))
+            }
+            changed = true
+        }
+        if changed {
+            localPlayback = records
+            persistLocalPlayback()
+        }
+        // Each show's next episode, where this device has nothing of the show.
+        for episode in upNext where episode.type == "Episode" {
+            rememberNextUp(episode.servedBy(profile.id))
+        }
     }
 }

@@ -327,6 +327,80 @@ struct JellyfinClient: Sendable {
                 method: isFavorite ? "POST" : "DELETE"))
     }
 
+    // MARK: - Watch progress, shared with every app on the server
+
+    /// One report of what is playing and where, as Jellyfin's session API
+    /// takes it. A server keeps resume points and watched state from these,
+    /// so whatever app the viewer opens next picks up where they were.
+    struct PlaybackReport: Encodable, Sendable {
+        let itemID: String
+        let mediaSourceID: String?
+        let playSessionID: String
+        let positionTicks: Int64
+        let isPaused: Bool
+        var eventName: String? = nil
+
+        enum CodingKeys: String, CodingKey {
+            case itemID = "ItemId", mediaSourceID = "MediaSourceId", playSessionID = "PlaySessionId"
+            case positionTicks = "PositionTicks", isPaused = "IsPaused", eventName = "EventName"
+            case canSeek = "CanSeek", playMethod = "PlayMethod"
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(itemID, forKey: .itemID)
+            try container.encodeIfPresent(mediaSourceID, forKey: .mediaSourceID)
+            try container.encode(playSessionID, forKey: .playSessionID)
+            try container.encode(positionTicks, forKey: .positionTicks)
+            try container.encode(isPaused, forKey: .isPaused)
+            try container.encodeIfPresent(eventName, forKey: .eventName)
+            try container.encode(true, forKey: .canSeek)
+            // Lineup plays the file as the server offers it.
+            try container.encode("DirectPlay", forKey: .playMethod)
+        }
+    }
+
+    func reportPlaybackStarted(_ report: PlaybackReport) async throws {
+        try await sendIgnoringBody(try request(path: "sessions/playing", method: "POST", body: report))
+    }
+
+    func reportPlaybackProgress(_ report: PlaybackReport) async throws {
+        try await sendIgnoringBody(try request(path: "sessions/playing/progress", method: "POST", body: report))
+    }
+
+    func reportPlaybackStopped(_ report: PlaybackReport) async throws {
+        try await sendIgnoringBody(try request(path: "sessions/playing/stopped", method: "POST", body: report))
+    }
+
+    /// What the viewer is part way through, by any app, newest first.
+    func resumeItems(userID: String, limit: Int = 30) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "Limit", value: String(limit)),
+            URLQueryItem(name: "MediaTypes", value: "Video"),
+            URLQueryItem(name: "EnableUserData", value: "true"),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Thumb")
+        ]
+        let response: JellyfinItemsResponse = try await send(
+            try request(path: "users/\(userID)/items/resume", query: query))
+        return response.items
+    }
+
+    /// The next episode of each show the viewer is watching, by any app.
+    func nextUpEpisodes(userID: String, limit: Int = 30) async throws -> [MediaItem] {
+        let query = [
+            URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "Limit", value: String(limit)),
+            URLQueryItem(name: "EnableUserData", value: "true"),
+            URLQueryItem(name: "Fields", value: Self.fields),
+            URLQueryItem(name: "ImageTypeLimit", value: "1"),
+            URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Thumb")
+        ]
+        let response: JellyfinItemsResponse = try await send(try request(path: "shows/nextup", query: query))
+        return response.items
+    }
+
     func setPlayed(userID: String, itemID: String, isPlayed: Bool) async throws {
         try await sendIgnoringBody(
             try request(path: "users/\(userID)/playeditems/\(itemID)",
@@ -482,6 +556,13 @@ struct JellyfinClient: Sendable {
         if software == .emby { request.setValue(authorization, forHTTPHeaderField: "X-Emby-Authorization") }
         if let accessToken { request.setValue(accessToken, forHTTPHeaderField: "X-Emby-Token") }
         return request
+    }
+
+    /// A request carrying a JSON body.
+    private func request<Body: Encodable>(path: String, method: String, body: Body) throws -> URLRequest {
+        var value = try request(path: path, method: method)
+        value.httpBody = try JSONEncoder().encode(body)
+        return value
     }
 
     private func authenticatedURL(path: String, query: [URLQueryItem]) -> URL? {

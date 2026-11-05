@@ -490,7 +490,8 @@ struct MediaSourcePicker: View {
                            ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
                        seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) },
                        episodes: seasonEpisodes(around: trackedItem))
-            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning, nativeSilo: nativeSilo) }
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning,
+                                                   nativeSilo: nativeSilo, mediaSourceID: source.sourceID) }
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #else
@@ -525,7 +526,8 @@ struct MediaSourcePicker: View {
                                  media.completePlayback(of: trackedItem, sessionID: sessionID)
                                  if advance == nil { advance = .reachedEnd }
                              })
-            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning, nativeSilo: nativeSilo) }
+            .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning,
+                                                   nativeSilo: nativeSilo, mediaSourceID: source.sourceID) }
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #endif
         } else {

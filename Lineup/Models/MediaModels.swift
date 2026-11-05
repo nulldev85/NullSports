@@ -572,12 +572,34 @@ struct MediaUserData: Codable, Hashable, Sendable {
     let played: Bool?
     let isFavorite: Bool?
     let playedPercentage: Double?
+    /// Where the viewer stopped, as the server keeps it for every app.
+    var playbackPositionTicks: Int64? = nil
+    /// When the server last heard the title played, by any app.
+    var lastPlayedDate: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case played = "Played"
         case isFavorite = "IsFavorite"
         case playedPercentage = "PlayedPercentage"
+        case playbackPositionTicks = "PlaybackPositionTicks"
+        case lastPlayedDate = "LastPlayedDate"
     }
+
+    /// `lastPlayedDate` read as a date. Servers write it with up to seven
+    /// fractional digits, which ISO 8601 parsing does not take; the whole
+    /// seconds are all that matters here.
+    var lastPlayed: Date? {
+        guard let raw = lastPlayedDate, raw.count >= 19 else { return nil }
+        return Self.secondsFormatter.date(from: String(raw.prefix(19)))
+    }
+
+    private static let secondsFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter
+    }()
 }
 
 /// Lineup's on-device account of a title's playback. Jellyfin-compatible
