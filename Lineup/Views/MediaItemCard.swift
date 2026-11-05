@@ -168,6 +168,12 @@ enum MediaArtShape {
 
     static func forItems(_ items: [MediaItem]) -> MediaArtShape {
         if items.isEmpty { return .poster }
+        // A row whose art is wide -- an AIOStreams catalog of collections
+        // drawn landscape, say -- is drawn wide, rather than cut down to a
+        // poster's middle third.
+        if items.allSatisfy({ !$0.isPlayable && !$0.hasDetailPage && ($0.primaryImageAspectRatio ?? 0) > 1.2 }) {
+            return .still
+        }
         return items.contains(where: { $0.type != "Episode" }) ? .poster : .still
     }
 }
@@ -244,9 +250,11 @@ struct MediaItemCard: View {
                 if StreamingService.service(for: item) != nil {
                     Text(item.childCount == 1 ? "1 TITLE" : "\(item.childCount ?? 0) TITLES")
                 } else {
-                    Text(item.type.uppercased())
+                    // A server's word for a collection is "BoxSet"; a
+                    // viewer's is "collection".
+                    Text(item.type == "BoxSet" ? "COLLECTION" : item.type.uppercased())
                     if let year = item.productionYear { Text("· \(String(year))") }
-                    if let count = item.childCount { Text("· \(count)") }
+                    if let count = item.childCount, count > 0 { Text("· \(count)") }
                 }
             }
             .font(.inter(.caption2, .medium))

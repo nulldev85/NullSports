@@ -204,10 +204,17 @@ struct MediaServersView: View {
     /// What the Library's dropdown offers: its shelves -- the ones that can
     /// go a list of their own inside it -- then its servers.
     private var optionsSections: [MobileMenuSection] {
-        let removable = media.removableShelves.map { shelf in
+        var removable = media.removableShelves.map { shelf in
             MobileMenuItem(media.shelfName(shelf), id: "remove-\(shelf.id)", isDestructive: true) {
                 media.removeShelf(shelf)
             }
+        }
+        // The Collections row is no catalog, but it goes the same way and
+        // comes back from Add Shelf like the other rows Lineup brings.
+        if media.showsCollectionsRow {
+            removable.insert(MobileMenuItem("Collections", id: "remove-collections", isDestructive: true) {
+                media.setShowsCollectionsRow(false)
+            }, at: 0)
         }
         var servers = [
             MobileMenuItem("Seerr · Discover & Requests", imageName: "SeerrLogo") { showingSeerr = true },
@@ -893,7 +900,7 @@ struct MediaCatalogsScreen: View {
     private var phoneRows: [PhoneRow] {
         var rows: [PhoneRow] = []
         #if !os(tvOS)
-        rows.append(.collections)
+        if media.showsCollectionsRow { rows.append(.collections) }
         #endif
         if !continueWatching.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",

@@ -67,6 +67,10 @@ final class MediaLibrary {
     }
     /// Whether the Streaming Services row is in the Library.
     private(set) var showsStreamingServices = true
+    /// The phone's Collections row: the viewer's own collections and their
+    /// servers'. A viewer whose collections come as shelves of their own --
+    /// an AIOStreams server's -- can take it away.
+    private(set) var showsCollectionsRow = true
     /// The trending rows' titles that play, by row id; built with the
     /// Streaming Services row.
     private(set) var trendingTitles: [String: [MediaItem]] = [:] {
@@ -281,6 +285,7 @@ final class MediaLibrary {
     private let providerShelvesKey = "Lineup.providerShelves.v1"
     private let streamingHiddenKey = "Lineup.streamingServices.hidden"
     private let trendingHiddenKey = "Lineup.trendingRows.hidden"
+    private let collectionsRowHiddenKey = "Lineup.collectionsRow.hidden"
     private let shelfOrderKey = "Lineup.libraryShelfOrder.v1"
     private let shelfNamesKey = "Lineup.libraryShelfNames.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
@@ -444,6 +449,7 @@ final class MediaLibrary {
             localFavorites = saved.map { Self.marked($0) }
         }
         showsStreamingServices = !defaults.bool(forKey: streamingHiddenKey)
+        showsCollectionsRow = !defaults.bool(forKey: collectionsRowHiddenKey)
         hiddenTrendingRows = Set(defaults.stringArray(forKey: trendingHiddenKey) ?? [])
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
         shelfNames = defaults.dictionary(forKey: shelfNamesKey) as? [String: String] ?? [:]
@@ -4589,6 +4595,12 @@ extension MediaLibrary {
             rows.append(BuiltInRow(id: StreamingService.rowID, title: StreamingService.rowTitle,
                                    detail: "What each service has on that you can play"))
         }
+        #if !os(tvOS)
+        if !showsCollectionsRow {
+            rows.append(BuiltInRow(id: LibraryShelfOrder.collections, title: "Collections",
+                                   detail: "Your own collections, and your servers'"))
+        }
+        #endif
         return rows
     }
 
@@ -4601,7 +4613,15 @@ extension MediaLibrary {
     /// Puts a built-in row back, or takes it away.
     func setShowsBuiltInRow(_ id: String, _ shown: Bool) {
         if id == StreamingService.rowID { setShowsStreamingServices(shown) }
+        else if id == LibraryShelfOrder.collections { setShowsCollectionsRow(shown) }
         else { setShowsTrendingRow(id, shown) }
+    }
+
+    func setShowsCollectionsRow(_ shown: Bool) {
+        showsCollectionsRow = shown
+        if shown { defaults.removeObject(forKey: collectionsRowHiddenKey) }
+        else { defaults.set(true, forKey: collectionsRowHiddenKey) }
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
     func setShowsTrendingRow(_ id: String, _ shown: Bool) {
@@ -5033,8 +5053,10 @@ extension MediaLibrary {
     var libraryRows: [LibraryRow] {
         var rows: [LibraryRow] = []
         #if !os(tvOS)
-        rows.append(LibraryRow(id: LibraryShelfOrder.collections, title: "Collections",
-                               detail: nil, symbol: "folder.fill", brand: nil))
+        if showsCollectionsRow {
+            rows.append(LibraryRow(id: LibraryShelfOrder.collections, title: "Collections",
+                                   detail: nil, symbol: "folder.fill", brand: nil))
+        }
         #endif
         if !continueWatching.isEmpty {
             rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",

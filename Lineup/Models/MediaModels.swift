@@ -1160,18 +1160,27 @@ struct LibraryHeroSource: Codable, Hashable, Sendable {
 }
 
 enum MediaHeroCatalogSelection {
+    /// The chosen shelf, or the first with something to feature. A shelf
+    /// of collections features nothing: its cards are ways into lists, not
+    /// titles, and drawn as a hero they were collection artwork cropped to
+    /// a poster.
     static func resolve(_ catalogs: [MediaCatalog], selectedID: String?) -> MediaCatalog? {
         if let selectedID,
-           let selected = catalogs.first(where: { $0.id == selectedID && !$0.items.isEmpty }) {
+           let selected = catalogs.first(where: { $0.id == selectedID && features($0) }) {
             return selected
         }
-        return catalogs.first { !$0.items.isEmpty }
+        return catalogs.first(where: features)
     }
 
+    static func features(_ catalog: MediaCatalog) -> Bool {
+        !featuredItems(in: catalog, limit: 1).isEmpty
+    }
+
+    /// The first titles a catalog holds: films, shows and episodes, never a
+    /// collection or a folder.
     static func featuredItems(in catalog: MediaCatalog, limit: Int = 10) -> [MediaItem] {
         guard limit > 0 else { return [] }
-        let presentable = Array(catalog.items.lazy.filter { $0.hasDetailPage || $0.isPlayable }.prefix(limit))
-        return presentable.isEmpty ? Array(catalog.items.prefix(limit)) : presentable
+        return Array(catalog.items.lazy.filter { $0.hasDetailPage || $0.isPlayable }.prefix(limit))
     }
 }
 

@@ -420,9 +420,10 @@ struct LibraryHeroSettingsView: View {
     /// it groups them.
     private var groups: [ChoiceGroup] {
         var groups: [ChoiceGroup] = []
-        let shelves = media.heroCatalogChoices.filter { !$0.items.isEmpty }.map { catalog in
+        let shelves = media.heroCatalogChoices.filter(MediaHeroCatalogSelection.features).map { catalog in
             Choice(id: catalog.id, title: media.shelfTitle(catalog),
-                   detail: [featured(catalog.items.count), media.serverName(for: catalog)]
+                   detail: [featured(MediaHeroCatalogSelection.featuredItems(in: catalog).count),
+                            media.serverName(for: catalog)]
                        .compactMap { $0 }.joined(separator: " · "),
                    pick: .shelf(catalog))
         }
@@ -463,7 +464,9 @@ struct LibraryHeroSettingsView: View {
 
     private func rootChoice(_ root: MediaItem) -> Choice {
         Choice(id: MediaCatalog.id(for: root), title: root.name,
-               detail: root.childCount.map { $0 == 1 ? "1 title" : "\($0) titles" },
+               // A server that does not count a library's titles reports
+               // none; that is not an empty library, so nothing is said.
+               detail: root.childCount.flatMap { $0 > 0 ? ($0 == 1 ? "1 title" : "\($0) titles") : nil },
                pick: .list(LibraryHeroSource(root: root, name: root.name)))
     }
 
