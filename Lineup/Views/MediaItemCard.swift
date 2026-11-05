@@ -134,6 +134,52 @@ enum MediaRatingMetrics {
 }
 
 #if os(tvOS)
+/// A cover's animation, over its still, for as long as the card is in focus.
+/// Nothing is fetched or decoded until the remote has rested on the card a
+/// moment, so passing along a shelf costs nothing; a still cover never
+/// shows anything here. The frames play in Core Animation, off the main
+/// thread, and stop when focus moves on and this view goes.
+struct TVAnimatedArtwork: View {
+    let url: URL
+    let width: CGFloat
+    @State private var animation: UIImage?
+
+    var body: some View {
+        Group {
+            if let animation {
+                TVAnimatedImageView(image: animation).transition(.opacity)
+            }
+        }
+        .task(id: url) {
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            let found = await LineupArt.animation(url, pixels: LineupArt.pixels(for: width))
+            guard !Task.isCancelled, let found else { return }
+            withAnimation(.easeOut(duration: 0.2)) { animation = found }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct TVAnimatedImageView: UIViewRepresentable {
+    let image: UIImage
+
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView(image: image)
+        view.contentMode = .scaleAspectFill
+        view.clipsToBounds = true
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        return view
+    }
+
+    func updateUIView(_ view: UIImageView, context: Context) {
+        if view.image !== image { view.image = image }
+    }
+}
+
 /// BetterPosters' rated poster, drawn over the ordinary one, as the phone's
 /// `MobileRatedPoster` does: both through the same artwork cache, and the
 /// ordinary poster shown while the rated one loads and wherever it fails.
@@ -311,6 +357,11 @@ struct MediaItemCard: View {
                               fallback: artworkURL, width: artWidth) { loaded in
                     if let image = loaded { image.resizable().scaledToFill() }
                     else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
+                }
+                // An animated cover plays on the card in focus, and only
+                // there: a row of them all moving at once is noise.
+                if artworkIsFocused, let artworkURL {
+                    TVAnimatedArtwork(url: artworkURL, width: artWidth)
                 }
                 #else
                 let art = Self.art(for: item, shape: shape, in: media, scale: displayScale)
