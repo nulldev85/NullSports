@@ -943,7 +943,12 @@ final class MediaLibrary {
             let loadedCollections = (gathered ?? oldState.collections)
                 .filter { !known.contains($0.id) }
                 .map { $0.servedBy(profile.id) }
-            let selectedRoots = selectedShelfRoots(from: loaded + loadedCollections, profileID: profile.id)
+            // An AIOStreams server's libraries are the catalogs its viewer
+            // arranged for it, in their order: they are its Library from the
+            // start, as any Jellyfin app shows them, rather than shelves to
+            // find one by one in Add Shelf.
+            let selectedRoots = selectedShelfRoots(from: loaded + loadedCollections, profileID: profile.id,
+                                                   starting: crawlable ? [] : loaded.filter { $0.type == "CollectionFolder" })
             let coldStart = state(of: profile).catalogs.isEmpty
             let oldCatalogs = Dictionary(oldState.catalogs.map { ($0.root.id, $0) }, uniquingKeysWith: { first, _ in first })
             var shelfFailure: Error?
@@ -4367,14 +4372,25 @@ final class MediaLibrary {
         if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
-    private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID) -> [MediaItem] {
+    private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID,
+                                    starting: [MediaItem] = []) -> [MediaItem] {
         let selections = savedShelves()
         guard let saved = selections[profileID.uuidString] else {
             // A server adds no shelves of its own: the Library opens on its
             // own rows, and the viewer adds a server's from Add Shelf. An
             // empty choice is kept as a choice, so it is never filled in.
-            saveShelfIDs([], profileID: profileID)
-            return []
+            // The exception is a server whose libraries are themselves the
+            // viewer's arrangement (`starting`): it brings them, once, and
+            // from then on they are the viewer's to change.
+            let first = Array(starting.prefix(Self.startingShelfLimit))
+            saveShelfIDs(first.map(\.id), profileID: profileID)
+            if !first.isEmpty {
+                // Never mistaken for the old automatic picks below.
+                var retired = Set(defaults.stringArray(forKey: Self.autoShelvesRetiredKey) ?? [])
+                retired.insert(profileID.uuidString)
+                defaults.set(retired.sorted(), forKey: Self.autoShelvesRetiredKey)
+            }
+            return first
         }
         // Once: shelves that are still exactly what was once picked for a
         // server on its own -- its trending libraries, or its first two --
@@ -4392,6 +4408,8 @@ final class MediaLibrary {
     }
 
     private static let autoShelvesRetiredKey = "Lineup.automaticServerShelvesRetired.v1"
+    /// How many of a new AIOStreams server's libraries it starts with.
+    static let startingShelfLimit = 12
 
     /// What used to be chosen for a server when nobody had chosen.
     nonisolated static func formerAutomaticShelfIDs(in roots: [MediaItem]) -> [String] {
