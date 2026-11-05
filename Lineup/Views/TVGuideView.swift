@@ -94,6 +94,8 @@ struct GuideView: View {
     @StateObject private var previewPlayer = TVPlaybackController(place: .guide)
     @State private var previewHidden = false
     @State private var sidebarVisible = false
+    /// Asks the grid to go back to its first row; see `backAction`.
+    @State private var topRequest = 0
     @State private var reorderingFavorites = false
     /// Where the remote is taking focus, and which rows exist to take it.
     @State private var navigation = GuideNavigation()
@@ -291,6 +293,13 @@ struct GuideView: View {
                                         }
                                     }.padding(.top, 2)
                                 }
+                                .onChange(of: topRequest) { _, _ in
+                                    guard let first = filtered.first else { return }
+                                    let target = firstRowFocus(first)
+                                    navigation.heading(to: target)
+                                    proxy.scrollTo(first.id, anchor: .top)
+                                    if navigation.builtRows.contains(first.id) { gridFocus = target }
+                                }
                                 .onChange(of: sidebarVisible) { _, visible in
                                     guard !visible, let target = gridFocus else { return }
                                     proxy.scrollTo(target.streamID, anchor: .center)
@@ -397,21 +406,7 @@ struct GuideView: View {
                     hoverTask?.cancel()
                     stopPreview()
                 }
-                .onExitCommand {
-                    if playbackTransitionID != nil {
-                        // Menu during the handover: full screen never opens, so
-                        // there is nothing to come back from and nothing to
-                        // keep. Left set, this would hold a channel that was
-                        // never handed anywhere.
-                        playbackTransitionID = nil
-                        resumeAfterFullscreen = nil
-                    } else if previewPlaybackStream != nil {
-                        hoverTask?.cancel()
-                        stopPreview()
-                    } else if !previewHidden {
-                        previewHidden = true
-                    }
-                }
+                .onExitCommand(perform: backAction)
             }
             .environment(\.guideLayout, layout)
             .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
@@ -455,6 +450,44 @@ struct GuideView: View {
         let programs = visibleGuidePrograms(for: stream)
         let current = programs.first { $0.start <= guideNow && guideNow < $0.end } ?? programs.first
         gridFocus = GuideGridFocus(streamID: stream.id, programStart: current?.start)
+    }
+
+    /// What Back does in the Guide, in order: call off a handover to full
+    /// screen; close the categories; from anywhere below the first channel,
+    /// go back to the top; turn off a channel whose sound was turned on.
+    /// Otherwise nothing here takes it, and the system moves up to the tab
+    /// bar -- so a long way down the Guide, Back twice reaches the tabs,
+    /// where it used to take holding Up all the way.
+    private var backAction: (() -> Void)? {
+        if playbackTransitionID != nil {
+            return {
+                // Menu during the handover: full screen never opens, so there
+                // is nothing to come back from and nothing to keep. Left set,
+                // this would hold a channel that was never handed anywhere.
+                playbackTransitionID = nil
+                resumeAfterFullscreen = nil
+            }
+        }
+        if sidebarVisible && !searchActive { return { closeSidebar() } }
+        if let row = channelPosition(gridFocus?.streamID), row > 0 {
+            return { topRequest &+= 1 }
+        }
+        if previewAudible {
+            return {
+                hoverTask?.cancel()
+                stopPreview()
+            }
+        }
+        return nil
+    }
+
+    /// The first channel's cell: what is on now in the Guide, the row itself
+    /// in List.
+    private func firstRowFocus(_ stream: XtreamStream) -> GuideGridFocus {
+        guard guideViewMode == .tvGuide else { return GuideGridFocus(streamID: stream.id, programStart: nil) }
+        let programs = visibleGuidePrograms(for: stream)
+        let program = programs.first { $0.start <= guideNow && guideNow < $0.end } ?? programs.first
+        return GuideGridFocus(streamID: stream.id, programStart: program?.start)
     }
 
     private func restoreFilteredGuideFocus() {
