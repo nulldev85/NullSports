@@ -1602,11 +1602,10 @@ final class MediaLibrary {
     }
 
     private func fetchInventory() async -> (items: [MediaItem], failure: Error?) {
-        var targets: [(MediaServerProfile, (any MediaServerClient)?)] = []
-        for profile in profiles {
-            guard await crawls(profile) else { continue }
-            targets.append((profile, try? client(for: profile)))
-        }
+        // A server's kind is learned as its shelves load, which is always
+        // first; asking for it again here would cost every server a request.
+        let targets = profiles.filter { serverKinds[$0.id] != .aiostreams }
+            .map { ($0, try? client(for: $0)) }
         let answers = await withTaskGroup(of: (Int, Result<[MediaItem], Error>).self) { group in
             for (index, (profile, source)) in targets.enumerated() {
                 group.addTask {
