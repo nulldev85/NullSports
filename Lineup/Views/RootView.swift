@@ -48,7 +48,12 @@ struct RootView: View {
         // Again once there is a window: the pass in the app's initialiser runs
         // before any tab bar exists, and the bar's own font is read off a label
         // it has laid out.
-        .onAppear { applyLineupTabBarTheme() }
+        .onAppear {
+            applyLineupTabBarTheme()
+            // Every moment the screen stands still, kept for Settings.
+            FrameStallMonitor.shared.refresh = library.refreshProgress
+            FrameStallMonitor.shared.start()
+        }
         #endif
         .task {
             guard library.hasProfile else { return }
@@ -147,16 +152,13 @@ private extension View {
 
 struct MainView: View {
     @State private var selectedTab = 0
-    @State private var sportsSpotlight: LiveSpotlight
-    @State private var sportsCanvas = TVSportsCanvasState()
     @State private var tabBar = TVTabBarState()
     /// The accent chosen on the phone, which iCloud brings here: the tabs
     /// are drawn again in it when it changes, as the phone's are.
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
 
-    init(initialTab: Int = 0, spotlight: LiveSpotlight = LiveSpotlight()) {
+    init(initialTab: Int = 0) {
         _selectedTab = State(initialValue: initialTab)
-        _sportsSpotlight = State(initialValue: spotlight)
     }
 
     var body: some View {
@@ -166,7 +168,7 @@ struct MainView: View {
         // to restore it afterward, so every tab states it, and only a title's
         // page takes it away (`TVTabBarState`).
         TabView(selection: $selectedTab) {
-            LiveView(isActive: selectedTab == 0, spotlight: sportsSpotlight)
+            LiveView(isActive: selectedTab == 0)
                 .environment(\.tvPlaybackPlace, .sports)
                 .lineupAccentScope(accent)
                 .tabBar(hidden: tabBar.hidden)
@@ -203,15 +205,13 @@ struct MainView: View {
                 .tag(3)
         }
         .environment(\.tvTabBar, tabBar)
-        .environment(\.tvSportsCanvasState, sportsCanvas)
-        // Outside the native tab container: top navigation, overscan margins
-        // and the bottom crawl share one palette and one gradient layer.
-        .background {
-            TVSportsTabCanvas(canvas: sportsCanvas, active: selectedTab == 0)
-        }
-        .toolbarBackground(selectedTab == 0 ? .hidden : .visible, for: .tabBar)
+        // Every tab sits on the same plain ground under the same tab bar.
+        .background(LineupStyle.background.ignoresSafeArea())
         // A tab changed is a tab's own screen showing.
-        .onChange(of: selectedTab) { _, _ in tabBar.reset() }
+        .onChange(of: selectedTab, initial: true) { _, tab in
+            tabBar.reset()
+            FrameStallMonitor.shared.tab = [0: "Sports", 1: "TV Guide", 2: "Library", 3: "Settings", 4: "Search"][tab] ?? "Tab \(tab)"
+        }
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(.white)
         // Beside the tab bar, where the set's own notices appear, over every

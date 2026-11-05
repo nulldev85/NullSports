@@ -408,6 +408,8 @@ struct AccountView: View {
                            detail: "See why each game chose its channel.") { MatchDiagnosticsView() }
             TVSettingsLink(symbol: "speedometer", title: "Launch Timing",
                            detail: "See where the last start spent its time.") { TVStartupTraceView() }
+            TVSettingsLink(symbol: "gauge.with.dots.needle.bottom.50percent", title: "Screen Stalls",
+                           detail: "See each moment the screen stood still, and what was running.") { TVFrameStallView() }
             TVSettingsLink(symbol: "list.bullet.rectangle.portrait", title: "Playback Log",
                            detail: "See what the player did and why it stopped.") { TVPlaybackJournalView() }
         }
@@ -567,6 +569,30 @@ private struct TVStartupTraceView: View {
                 .padding(40)
         }
         .focusable()
+        .background(LineupPresentationStyle.ground)
+    }
+}
+
+/// Every moment the screen stood still, newest first, with the tab and the
+/// background refresh at the time: what a tester can read out or photograph
+/// when the remote "gets stuck".
+private struct TVFrameStallView: View {
+    @ObservedObject private var monitor = FrameStallMonitor.shared
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                TVSelectable(scale: LineupStyle.controlLift, action: { monitor.clear() }) {
+                    Label("Clear", systemImage: "trash").font(.inter(20, .semibold))
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                }
+                Text(monitor.report)
+                    .font(.interDigits(21))
+                    .foregroundStyle(LineupPresentationStyle.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(40)
+        }
         .background(LineupPresentationStyle.ground)
     }
 }

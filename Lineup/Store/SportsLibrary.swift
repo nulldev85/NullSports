@@ -1598,23 +1598,6 @@ final class SportsLibrary {
         return stream(for: game) != nil
     }
 
-    func scoreTickerGames() -> [SportsGame] {
-        let today = Calendar.current.startOfDay(for: Date())
-        let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: today) ?? today
-        let games = SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] }.filter(isListed)
-        return games
-            .filter {
-                $0.start >= today && $0.start < tomorrow
-                    && ($0.isLive || $0.state == "post")
-                    && !$0.awayScore.isEmpty && !$0.homeScore.isEmpty
-            }
-            .sorted {
-                // A final whistle or a score update must not reshuffle the ticker.
-                if $0.start != $1.start { return $0.start < $1.start }
-                return $0.id < $1.id
-            }
-    }
-
     // `includeTomorrow: false` is for frequent, light-weight callers (e.g. a live-score
     // poll) that only need today's slate refreshed. Tomorrow's already-known games are
     // preserved rather than dropped, and are still refetched on their own lifetime.

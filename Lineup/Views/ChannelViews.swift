@@ -6,11 +6,11 @@ import LineupMPVPlayback
 struct LiveView: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.tvSportsCanvasState) private var rootCanvas
     let isActive: Bool
     @State private var selectedLeague: SportsLeague?
     @State private var soccerCompetition: String?
-    @State private var spotlight = LiveSpotlight()
+    /// Only the teams the viewer follows, as the phone's My Teams.
+    @State private var onlyFollowed = false
     /// What is full screen. One value carries the channel, the game and the
     /// preview's player together: read from state of their own inside the
     /// cover, the game and the player could come through as they were a
@@ -20,10 +20,6 @@ struct LiveView: View {
     @State private var multiviewPrimary: XtreamStream?
     @State private var multiviewPrimaryGame: SportsGame?
     @State private var multiviewSession: MultiviewSession?
-    @State private var previewStream: XtreamStream?
-    @State private var previewGameID: String?
-    @State private var previewWasManuallySelected = false
-    @State private var playbackTransitionID: UUID?
     @State private var manualChannelGame: SportsGame?
     @State private var showsChannelSyncMessage = false
     @State private var pendingLiveSelection: (game: SportsGame, multiview: Bool)?
@@ -45,9 +41,8 @@ struct LiveView: View {
     @State private var catchUpLookup: Task<Void, Never>?
     @State private var showingReplays = false
 
-    init(isActive: Bool, spotlight: LiveSpotlight = LiveSpotlight()) {
+    init(isActive: Bool) {
         self.isActive = isActive
-        _spotlight = State(initialValue: spotlight)
     }
 
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
@@ -59,50 +54,30 @@ struct LiveView: View {
                 && (selectedLeague != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
         }
     }
-    private var tickerEvents: [SportsGame] { library.scoreTickerGames() }
-
     var body: some View {
-        GeometryReader { container in
-            VStack(spacing: 0) {
-                // Sports presents its destinations in their own covers; it
-                // has no pushed routes. An unused native navigation container
-                // paints a separate ground above the full-screen canvas.
-                Group {
-                    LiveScreen(
-                        events: events,
-                        spotlight: spotlight,
-                        selectedLeague: $selectedLeague,
-                        soccerCompetition: $soccerCompetition,
-                        previewStream: previewStream,
-                        previewGame: library.gamesByLeague.values.lazy.flatMap { $0 }.first { $0.id == previewGameID },
-                        previewURLs: previewStream.map { library.playbackURLs(for: $0) } ?? [],
-                        multiviewPrimaryID: multiviewPrimary?.id,
-                        multiviewTitle: multiviewPrimary?.name,
-                        isScheduleLoading: library.isLoading || library.isScheduleLoading,
-                        isScheduleAvailable: library.scheduleAvailable(for: selectedLeague),
-                        scheduleErrorMessage: library.scheduleErrorMessage,
-                        onPlay: select,
-                        onStartMultiview: startMultiview,
-                        onCancelMultiview: {
-                            multiviewPrimary = nil
-                            multiviewPrimaryGame = nil
-                        },
-                        onStopPreview: stopPreview
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // Hold Select on any game for its channel, wherever the
-                    // game's card is.
-                    .environment(\.liveChooseChannel, { chooseChannel(for: $0) })
-                    .environment(\.liveGameActions, gameActions)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                // The ticker belongs to the same full-height Sports layout.
-                LiveTicker(events: tickerEvents, isActive: isActive && scenePhase == .active
-                    && fullScreen == nil && multiviewSession == nil)
-                    .frame(height: LiveTicker.height)
-            }
-            .frame(width: container.size.width, height: container.size.height, alignment: .top)
+        TVSportsBoard(
+            events: events,
+            selectedLeague: $selectedLeague,
+            soccerCompetition: $soccerCompetition,
+            onlyFollowed: $onlyFollowed,
+            multiviewPrimaryID: multiviewPrimary?.id,
+            multiviewTitle: multiviewPrimary?.name,
+            isScheduleLoading: library.isLoading || library.isScheduleLoading,
+            isScheduleAvailable: library.scheduleAvailable(for: selectedLeague),
+            scheduleErrorMessage: library.scheduleErrorMessage,
+            onPlay: select,
+            onStartMultiview: startMultiview,
+            onCancelMultiview: {
+                multiviewPrimary = nil
+                multiviewPrimaryGame = nil
+            },
+            onShowReplays: { showingReplays = true }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Hold Select on any game for its channel, wherever the game's card is.
+        .environment(\.liveChooseChannel, { chooseChannel(for: $0) })
+        .environment(\.liveGameActions, gameActions)
+        .background(LineupStyle.background.ignoresSafeArea())
             .lineupFullScreenCover(item: $fullScreen) { item in
                 PlayerView(
                     urls: library.playbackURLs(for: item.stream),
@@ -120,7 +95,7 @@ struct LiveView: View {
                 )
             }
             .lineupFullScreenCover(item: $eventChannelsGame, onDismiss: applyPickedChannel) { game in
-                TVEventChannelsScreen(game: game, playingID: previewGameID == game.id ? previewStream?.id : nil) { stream in
+                TVEventChannelsScreen(game: game, playingID: nil) { stream in
                     pickedChannel = TVPickedChannel(game: game, stream: stream, startsMultiview: false)
                     eventChannelsGame = nil
                 }
@@ -204,41 +179,15 @@ struct LiveView: View {
                     pendingLiveSelection = nil
                     opensPendingSelectionAfterDismiss = false
                     showsChannelSyncMessage = false
-                    stopPreview()
                 }
             }
             .onChange(of: library.eventChannelsInputs) { retryPendingLiveSelection() }
             .onDisappear { catchUpLookup?.cancel() }
-        }
-        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
-        // Own one canvas outside the clipped content viewport so it reaches
-        // behind both system navigation and the score ticker.
-        .background {
-            if let rootCanvas { TVSportsCanvasSource(spotlight: spotlight, events: events, canvas: rootCanvas, active: isActive) }
-            else { LiveCanvas(spotlight: spotlight, events: events) }
-        }
-        .toolbarBackground(.hidden, for: .tabBar)
     }
 
+    /// Select on a game plays it full screen, as tapping one does on the
+    /// phone, once its channel is settled.
     private func select(_ game: SportsGame) {
-        // On the monitor already: a second press takes that same picture
-        // full screen, on the channel it is showing.
-        if previewGameID == game.id, let previewStream {
-            play(game, on: previewStream)
-            return
-        }
-        // Another card whose channel is the one already on the monitor --
-        // two tournaments carried by one tennis channel, say. Opening it
-        // again would change nothing on screen, and a press that changes
-        // nothing reads as a press that did not register, so it is taken
-        // full screen, as a second press would be.
-        if let previewStream, case let .play(streamID, _) = library.preferredChannel(for: game),
-           streamID == previewStream.id {
-            previewGameID = game.id
-            play(game, on: previewStream)
-            return
-        }
-        stopPreview()
         open(game, startsMultiview: false)
     }
 
@@ -295,7 +244,6 @@ struct LiveView: View {
     private func start(_ game: SportsGame, on stream: XtreamStream, startsMultiview: Bool,
                        manuallySelected: Bool = false) {
         if startsMultiview {
-            stopPreview()
             multiviewPrimary = stream
             multiviewPrimaryGame = game
         } else {
@@ -320,9 +268,6 @@ struct LiveView: View {
         guard let picked = pickedChannel else { return }
         pickedChannel = nil
         library.saveGameSelection(picked.stream, for: picked.game)
-        // Fresh on the monitor, rather than taken full screen as a second
-        // press on a game already there would be.
-        if !picked.startsMultiview, previewGameID == picked.game.id { stopPreview() }
         start(picked.game, on: picked.stream, startsMultiview: picked.startsMultiview, manuallySelected: true)
         scopingChannel = library.asksScope(for: picked)
     }
@@ -336,30 +281,7 @@ struct LiveView: View {
 
     private func play(_ game: SportsGame, on stream: XtreamStream, manuallySelected: Bool = false) {
         guard let primary = multiviewPrimary else {
-            if previewGameID == game.id, let preview = TVPreviewHandoff.lend(playing: stream.id) {
-                // The preview's own player goes full screen, still playing,
-                // and the preview stays behind it to come back to.
-                playbackTransitionID = nil
-                presentWithoutAnimation {
-                    fullScreen = TVFullScreenItem(stream: stream, game: game, preview: preview)
-                }
-            } else if previewGameID == game.id {
-                let transitionID = UUID()
-                playbackTransitionID = transitionID
-                previewStream = nil
-                previewGameID = nil
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(180))
-                    guard isActive, playbackTransitionID == transitionID else { return }
-                    playbackTransitionID = nil
-                    fullScreen = TVFullScreenItem(stream: stream, game: game)
-                }
-            } else {
-                playbackTransitionID = nil
-                previewStream = stream
-                previewGameID = game.id
-                previewWasManuallySelected = manuallySelected
-            }
+            fullScreen = TVFullScreenItem(stream: stream, game: game)
             return
         }
         guard primary.id != stream.id else { return }
@@ -409,20 +331,12 @@ struct LiveView: View {
     /// A recording full screen, once the screen it was chosen on has gone.
     /// A replay is the recording or nothing: it never goes live instead.
     private func watchRecording(of stream: XtreamStream, programme: CatchUpProgramme, recordingOnly: Bool = false) {
-        stopPreview()
         TVPreviewHandoff.stopPreviews()
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(180))
             guard isActive else { return }
             fullScreen = TVFullScreenItem(stream: stream, recording: programme, recordingOnly: recordingOnly)
         }
-    }
-
-    private func stopPreview() {
-        playbackTransitionID = nil
-        previewStream = nil
-        previewGameID = nil
-        previewWasManuallySelected = false
     }
 
 }

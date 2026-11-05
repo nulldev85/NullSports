@@ -936,7 +936,9 @@ struct MediaDetailScreen: View {
             // the server's next one -- and the season it is in, so the page
             // opens where they were, with every other episode a choice away.
             nextUp = await media.resumeEpisode(in: subject)
-            await loadSeason(seasonList.first { $0.indexNumber == nextUp?.parentIndexNumber } ?? seasonList[0])
+            let season = nextUp?.parentIndexNumber ?? media.lastFinishedSeason(of: subject)
+            await loadSeason(seasonList.first { $0.indexNumber == season }
+                ?? seasonList.first { $0.indexNumber != 0 } ?? seasonList[0])
             pageReady = true
         } catch {
             self.error = error.localizedDescription
@@ -1197,11 +1199,26 @@ struct MediaEpisodeCard: View {
                 Text(label).font(.inter(.caption, .semibold))
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
             }
-            #if os(tvOS)
-            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
-            #else
-            Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
-            #endif
+            // The name, and right under it when it aired and how long it
+            // runs. Room is kept for a two-line name and that line together,
+            // so a short name keeps its date beside it and the summaries
+            // below still line up from card to card.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("A\nA").font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
+                Text(" ").font(.inter(.caption2))
+            }
+            .hidden()
+            .accessibilityHidden(true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .topLeading) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(episode.name).font(.inter(.subheadline, .bold)).lineLimit(2)
+                    if !footer.isEmpty {
+                        Text(footer).font(.inter(.caption2))
+                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
+                    }
+                }
+            }
             if let overview = episode.overview, !overview.isEmpty {
                 #if os(tvOS)
                 TVMediaSummaryPreview(text: overview, compact: true, action: onSummary)
@@ -1212,10 +1229,6 @@ struct MediaEpisodeCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(LineupStyle.lightPurple.opacity(0.6))
                 #endif
-            }
-            if !footer.isEmpty {
-                Text(footer).font(.inter(.caption2))
-                    .foregroundStyle(LineupStyle.lightPurple.opacity(0.45))
             }
             LibraryMetadataCredit(item: episode, interactive: false)
         }

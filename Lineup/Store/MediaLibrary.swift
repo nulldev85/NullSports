@@ -67,6 +67,10 @@ final class MediaLibrary {
     }
     /// Whether the Streaming Services row is in the Library.
     private(set) var showsStreamingServices = true
+    /// The phone's Collections row: the viewer's own collections and their
+    /// servers'. A viewer whose collections come as shelves of their own --
+    /// an AIOStreams server's -- can take it away.
+    private(set) var showsCollectionsRow = true
     /// The trending rows' titles that play, by row id; built with the
     /// Streaming Services row.
     private(set) var trendingTitles: [String: [MediaItem]] = [:] {
@@ -196,6 +200,12 @@ final class MediaLibrary {
     }
     @ObservationIgnored var collectionCreationItem: MediaItem?
     private var metadataResults: [String: LibraryMetadata] = [:]
+    /// Answers waiting to join `metadataResults` together. Every card reads
+    /// that dictionary, so each write redrew every card on screen; a shelf
+    /// scrolled into view asks for a dozen titles at once, and answers landing
+    /// one by one redrew the whole screen a dozen times over.
+    @ObservationIgnored private var pendingMetadata: [String: LibraryMetadata] = [:]
+    @ObservationIgnored private var metadataFlush: Task<Void, Never>?
     /// The provider's list lives in `ProviderVOD`, which nothing observes:
     /// this moves each time it comes in, so what is drawn from it -- the
     /// shelf picker's categories, an episode's show cover -- is drawn again.
@@ -275,6 +285,7 @@ final class MediaLibrary {
     private let providerShelvesKey = "Lineup.providerShelves.v1"
     private let streamingHiddenKey = "Lineup.streamingServices.hidden"
     private let trendingHiddenKey = "Lineup.trendingRows.hidden"
+    private let collectionsRowHiddenKey = "Lineup.collectionsRow.hidden"
     private let shelfOrderKey = "Lineup.libraryShelfOrder.v1"
     private let shelfNamesKey = "Lineup.libraryShelfNames.v1"
     private let heroCatalogKey = "Lineup.mediaHeroCatalog.v1"
@@ -438,6 +449,7 @@ final class MediaLibrary {
             localFavorites = saved.map { Self.marked($0) }
         }
         showsStreamingServices = !defaults.bool(forKey: streamingHiddenKey)
+        showsCollectionsRow = !defaults.bool(forKey: collectionsRowHiddenKey)
         hiddenTrendingRows = Set(defaults.stringArray(forKey: trendingHiddenKey) ?? [])
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
         shelfNames = defaults.dictionary(forKey: shelfNamesKey) as? [String: String] ?? [:]
@@ -931,7 +943,12 @@ final class MediaLibrary {
             let loadedCollections = (gathered ?? oldState.collections)
                 .filter { !known.contains($0.id) }
                 .map { $0.servedBy(profile.id) }
-            let selectedRoots = selectedShelfRoots(from: loaded + loadedCollections, profileID: profile.id)
+            // An AIOStreams server's libraries are the catalogs its viewer
+            // arranged for it, in their order: they are its Library from the
+            // start, as any Jellyfin app shows them, rather than shelves to
+            // find one by one in Add Shelf.
+            let selectedRoots = selectedShelfRoots(from: loaded + loadedCollections, profileID: profile.id,
+                                                   starting: crawlable ? [] : loaded.filter { $0.type == "CollectionFolder" })
             let coldStart = state(of: profile).catalogs.isEmpty
             let oldCatalogs = Dictionary(oldState.catalogs.map { ($0.root.id, $0) }, uniquingKeysWith: { first, _ in first })
             var shelfFailure: Error?
@@ -1125,14 +1142,32 @@ final class MediaLibrary {
         guard source != .provider, metadataAvailable(source),
               ["Movie", "Series", "Episode"].contains(item.type) else { return }
         let key = metadataRequestKey(for: item)
-        guard metadataResults[key] == nil else { return }
+        guard metadataResults[key] == nil, pendingMetadata[key] == nil else { return }
         let raw = item.withMetadata(nil)
         var parent: MediaItem?
         if raw.type == "Episode" { parent = await metadataParent(for: raw) }
         guard let value = await metadataResolver.resolve(raw, source: source, parent: parent) else { return }
         // Results are keyed by source and original identity. A late response
         // cannot overwrite a new source choice or another server's title.
-        metadataResults[key] = value
+        await publishMetadata(value, for: key)
+    }
+
+    /// Joins an answer to the ones arriving with it and publishes them all in
+    /// one write, a moment later. Returns once this one is published, so a
+    /// caller that awaited it finds it there.
+    private func publishMetadata(_ value: LibraryMetadata, for key: String) async {
+        pendingMetadata[key] = value
+        if metadataFlush == nil {
+            metadataFlush = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(250))
+                guard let self else { return }
+                let batch = self.pendingMetadata
+                self.pendingMetadata = [:]
+                self.metadataFlush = nil
+                self.metadataResults.merge(batch) { _, new in new }
+            }
+        }
+        await metadataFlush?.value
     }
 
     func metadataParent(for episode: MediaItem) async -> MediaItem? {
@@ -2322,7 +2357,33 @@ final class MediaLibrary {
             return records.contains { $0.completed || $0.explicitlyUnwatched == true } ? saved : (saved ?? serverNext)
         }
         return SeriesResumePolicy.target(episodes: episodes, records: records,
-            serverNext: serverNext, isWatched: { [unowned self] in self.isWatched($0) })
+            serverNext: serverNext, stillAiring: Self.isStillAiring(displayItem(series), episodes: episodes),
+            isWatched: { [unowned self] in self.isWatched($0) })
+    }
+
+    /// Whether a show has more to come: its server or metadata says it is
+    /// continuing, or, saying neither, its newest episode aired in the last
+    /// four months. An ended show is not airing whatever its dates say.
+    nonisolated static func isStillAiring(_ series: MediaItem, episodes: [MediaItem],
+                                          now: Date = Date()) -> Bool {
+        switch series.status?.lowercased() {
+        case "continuing", "returning series", "in production": return true
+        case "ended", "canceled", "cancelled": return false
+        default:
+            let newest = episodes.filter { ($0.parentIndexNumber ?? 0) > 0 }
+                .compactMap(\.premiereDay).filter { $0 <= now }.max()
+            guard let newest else { return false }
+            return now.timeIntervalSince(newest) < 120 * 24 * 60 * 60
+        }
+    }
+
+    /// The season of the episode last finished here, for a show page with
+    /// nothing up next to open on: a show caught up with opens where the
+    /// viewer was, not on its first season or its specials.
+    func lastFinishedSeason(of series: MediaItem) -> Int? {
+        guard let profileID = serverID(of: series) else { return nil }
+        return seriesRecords(of: series, profileID: profileID).filter(\.completed)
+            .max { $0.updatedAt < $1.updatedAt }?.item.parentIndexNumber
     }
 
     /// All server responses reconcile against live records on the main actor.
@@ -2332,14 +2393,36 @@ final class MediaLibrary {
                                  serverNext: MediaItem? = nil) -> MediaItem? {
         learnEpisodeOrder(episodes)
         let target = seriesPlayTarget(in: series, fallbackEpisodes: episodes, serverNext: serverNext)
-        if let target { settleUpNext(target) }
+        if let target { settleUpNext(target) } else { retireCaughtUpQueue(in: series) }
         return target
     }
 
     private func reconcileCachedSeries(for episode: MediaItem) {
         guard let series = series(of: episode), let key = episodeOrderKey(for: episode),
               let episodes = seriesEpisodes[key], !episodes.isEmpty else { return }
-        if let target = seriesPlayTarget(in: series) { settleUpNext(target) }
+        if let target = seriesPlayTarget(in: series) { settleUpNext(target) } else { retireCaughtUpQueue(in: series) }
+    }
+
+    /// A show with episodes and nothing to play next is one caught up with
+    /// while it is still airing. Whatever was queued for it then -- a special,
+    /// or its first episode, which is where finishing the newest episode used
+    /// to send it -- goes, so Continue Watching does not offer it. The next
+    /// episode's placeholder, from its schedule, stays, and so does any
+    /// episode with real progress in it.
+    private func retireCaughtUpQueue(in series: MediaItem) {
+        guard let profileID = serverID(of: series) else { return }
+        let scope = LocalContinueWatchingDismissal(item: series, profileID: profileID)
+        let before = localPlayback
+        localPlayback = localPlayback.compactMap { record in
+            guard record.profileID == profileID, record.isUpNext == true, record.item.type == "Episode",
+                  !record.item.isUpcomingPlaceholder, record.explicitlyUnwatched != true,
+                  scope.matches(record.item, profileID: record.profileID) else { return record }
+            guard record.position >= 5 else { return nil }
+            var kept = record
+            kept.isUpNext = nil
+            return kept
+        }
+        if before != localPlayback { persistLocalPlayback() }
     }
 
     /// This device's records of a show's episodes.
@@ -4289,14 +4372,25 @@ final class MediaLibrary {
         if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
-    private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID) -> [MediaItem] {
+    private func selectedShelfRoots(from roots: [MediaItem], profileID: UUID,
+                                    starting: [MediaItem] = []) -> [MediaItem] {
         let selections = savedShelves()
         guard let saved = selections[profileID.uuidString] else {
             // A server adds no shelves of its own: the Library opens on its
             // own rows, and the viewer adds a server's from Add Shelf. An
             // empty choice is kept as a choice, so it is never filled in.
-            saveShelfIDs([], profileID: profileID)
-            return []
+            // The exception is a server whose libraries are themselves the
+            // viewer's arrangement (`starting`): it brings them, once, and
+            // from then on they are the viewer's to change.
+            let first = Array(starting.prefix(Self.startingShelfLimit))
+            saveShelfIDs(first.map(\.id), profileID: profileID)
+            if !first.isEmpty {
+                // Never mistaken for the old automatic picks below.
+                var retired = Set(defaults.stringArray(forKey: Self.autoShelvesRetiredKey) ?? [])
+                retired.insert(profileID.uuidString)
+                defaults.set(retired.sorted(), forKey: Self.autoShelvesRetiredKey)
+            }
+            return first
         }
         // Once: shelves that are still exactly what was once picked for a
         // server on its own -- its trending libraries, or its first two --
@@ -4314,6 +4408,8 @@ final class MediaLibrary {
     }
 
     private static let autoShelvesRetiredKey = "Lineup.automaticServerShelvesRetired.v1"
+    /// How many of a new AIOStreams server's libraries it starts with.
+    static let startingShelfLimit = 12
 
     /// What used to be chosen for a server when nobody had chosen.
     nonisolated static func formerAutomaticShelfIDs(in roots: [MediaItem]) -> [String] {
@@ -4517,6 +4613,12 @@ extension MediaLibrary {
             rows.append(BuiltInRow(id: StreamingService.rowID, title: StreamingService.rowTitle,
                                    detail: "What each service has on that you can play"))
         }
+        #if !os(tvOS)
+        if !showsCollectionsRow {
+            rows.append(BuiltInRow(id: LibraryShelfOrder.collections, title: "Collections",
+                                   detail: "Your own collections, and your servers'"))
+        }
+        #endif
         return rows
     }
 
@@ -4529,7 +4631,15 @@ extension MediaLibrary {
     /// Puts a built-in row back, or takes it away.
     func setShowsBuiltInRow(_ id: String, _ shown: Bool) {
         if id == StreamingService.rowID { setShowsStreamingServices(shown) }
+        else if id == LibraryShelfOrder.collections { setShowsCollectionsRow(shown) }
         else { setShowsTrendingRow(id, shown) }
+    }
+
+    func setShowsCollectionsRow(_ shown: Bool) {
+        showsCollectionsRow = shown
+        if shown { defaults.removeObject(forKey: collectionsRowHiddenKey) }
+        else { defaults.set(true, forKey: collectionsRowHiddenKey) }
+        if defaults === UserDefaults.standard { CloudSettingsSync.shared.localSettingsChanged() }
     }
 
     func setShowsTrendingRow(_ id: String, _ shown: Bool) {
@@ -4961,8 +5071,10 @@ extension MediaLibrary {
     var libraryRows: [LibraryRow] {
         var rows: [LibraryRow] = []
         #if !os(tvOS)
-        rows.append(LibraryRow(id: LibraryShelfOrder.collections, title: "Collections",
-                               detail: nil, symbol: "folder.fill", brand: nil))
+        if showsCollectionsRow {
+            rows.append(LibraryRow(id: LibraryShelfOrder.collections, title: "Collections",
+                                   detail: nil, symbol: "folder.fill", brand: nil))
+        }
         #endif
         if !continueWatching.isEmpty {
             rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
