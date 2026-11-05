@@ -29,6 +29,7 @@ TARGET_FILES = [
     "Lineup/Views/ChannelViews.swift",
     "Lineup/Views/TVCatchUpScreen.swift",
     "Lineup/Views/TVLiveScreen.swift",
+    "Lineup/Views/TVSportsBoard.swift",
     "Lineup/Views/TVGuideView.swift",
     "Lineup/Views/TVSettingsView.swift",
     "Lineup/Views/TVSettingsStyle.swift",

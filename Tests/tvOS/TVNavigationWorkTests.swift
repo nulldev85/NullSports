@@ -3,19 +3,6 @@ import XCTest
 
 @MainActor
 final class TVNavigationWorkTests: XCTestCase {
-    func testTickerWindowIsBoundedAndWrapsWithoutDroppingGames() {
-        XCTAssertEqual(TVTickerWindow.indices(count: 0, start: 0, viewportWidth: 1920), [])
-        XCTAssertEqual(TVTickerWindow.indices(count: 1, start: 0, viewportWidth: 1920), [0, 0, 0, 0])
-        XCTAssertEqual(TVTickerWindow.indices(count: 3, start: 2, viewportWidth: 1920), [2, 0, 1, 2])
-        for count in [4, 125, 30_000] {
-            XCTAssertEqual(TVTickerWindow.indices(count: count, start: count - 1, viewportWidth: 1920).count, 4)
-            let visited = (0..<count).map { TVTickerWindow.indices(count: count, start: $0, viewportWidth: 1920)[0] }
-            XCTAssertEqual(visited, Array(0..<count), "A bounded viewport must still cycle through every score")
-        }
-        XCTAssertEqual(TVTickerWindow.stride(at: 1, count: 3), 804)
-        XCTAssertEqual(TVTickerWindow.stride(at: 2, count: 3), 838)
-    }
-
     func testThirtyThousandChannelQueryYieldsTheUIActorAndBuildsTheRemoteIndex() async throws {
         let streams = (0..<30_000).map { id in
             XtreamStream(num: 30_000 - id, name: "Channel \(id)", streamType: "live", streamID: id,

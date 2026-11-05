@@ -5,46 +5,6 @@ import UIKit
 
 @MainActor
 final class TVNavigationRenderingTests: XCTestCase {
-    func testTickerHasOneBoundedStripAndStopsOffScreenWhileRetainingFreshScores() async throws {
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        let previous = scene.windows.first { $0.isKeyWindow }
-        let ticker = TVScoreTickerController { entries in AnyView(Text(entries.first?.game.awayScore ?? "Empty")) }
-        let window = UIWindow(windowScene: scene)
-        window.rootViewController = ticker
-        window.makeKeyAndVisible()
-        defer { ticker.pause(); window.isHidden = true; previous?.makeKey() }
-        window.layoutIfNeeded()
-        var games = (0..<5_000).map { game("\($0)", score: "1") }
-        ticker.update(events: games, active: true) { entries in AnyView(Text(entries.first?.game.awayScore ?? "Empty")) }
-        let deadline = Date().addingTimeInterval(2)
-        while !ticker.hasScheduledAdvance, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        XCTAssertLessThanOrEqual(ticker.renderedEntries.count, 6)
-        XCTAssertEqual(ticker.renderedEntries.first?.game.id, "0")
-        XCTAssertTrue(ticker.hasScheduledAdvance)
-        XCTAssertEqual(ticker.animationCount, 1)
-        games[0] = game("0", score: "3")
-        ticker.update(events: games, active: true) { entries in AnyView(Text(entries.first?.game.awayScore ?? "Empty")) }
-        XCTAssertEqual(ticker.renderedEntries.first?.game.awayScore, "3")
-        XCTAssertEqual(ticker.animationCount, 1, "Updating a score must not accumulate animations")
-        ticker.beginAppearanceTransition(false, animated: false)
-        ticker.endAppearanceTransition()
-        ticker.update(events: games, active: true) { _ in AnyView(EmptyView()) }
-        XCTAssertFalse(ticker.hasScheduledAdvance, "A retained offscreen tab must stay idle even before its input updates")
-        XCTAssertEqual(ticker.animationCount, 0)
-        ticker.update(events: games, active: false) { _ in AnyView(EmptyView()) }
-        await Task.yield()
-        XCTAssertFalse(ticker.hasScheduledAdvance)
-        XCTAssertEqual(ticker.animationCount, 0, "Leaving Sports must stop the crawl")
-        ticker.beginAppearanceTransition(true, animated: false)
-        ticker.endAppearanceTransition()
-        ticker.update(events: games, active: true) { _ in AnyView(EmptyView()) }
-        XCTAssertTrue(ticker.hasScheduledAdvance, "Returning to Sports must resume its bounded crawl")
-        ticker.update(events: [], active: true) { _ in AnyView(EmptyView()) }
-        XCTAssertTrue(ticker.renderedEntries.isEmpty)
-        XCTAssertFalse(ticker.hasScheduledAdvance, "An empty ticker must be idle")
-        XCTAssertEqual(ticker.animationCount, 0)
-    }
-
     func testLibraryFocusDoesNotRebuildHistoryAndInactiveSourcesRefreshOnReturn() async throws {
         let suite = "TVLibraryBrowseRows.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

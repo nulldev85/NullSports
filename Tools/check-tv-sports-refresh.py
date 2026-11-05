@@ -18,7 +18,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = (
-    "Lineup/Views/TVTickerWindow.swift", "Lineup/Views/TVGuideChannelSnapshot.swift",
+    "Lineup/Views/TVGuideChannelSnapshot.swift",
     "Lineup/Services/LivePreparationWork.swift",
     "Lineup/Services/GuideChannelList.swift",
     "Lineup/Models/XtreamModels.swift", "Lineup/Models/SportsExpansionModels.swift",
