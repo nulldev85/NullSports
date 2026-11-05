@@ -65,34 +65,8 @@ struct GuideView: View {
     @State private var multiviewSession: MultiviewSession?
     @State private var guideNow = Date()
     @State private var focusedGuideItem: GuideFocusItem?
-    /// The channel playing in the preview. Resting on a channel plays it
-    /// there without sound; Select turns its sound on, and Select again
-    /// takes it full screen.
-    @State private var previewPlaybackStream: XtreamStream?
-    @State private var pinnedPreviewItem: GuideFocusItem?
-    /// Whether the preview's sound is on: only once its channel is chosen.
-    @State private var previewAudible = false
-    /// Waits for the remote to rest on a channel before playing it, so
-    /// passing through rows doesn't open a stream for each.
-    @State private var hoverTask: Task<Void, Never>?
-    @State private var playbackTransitionID: UUID?
-    /// What the preview goes back to playing when full screen closes.
-    ///
-    /// Going full screen tears the preview's player down first -- two players
-    /// on one channel is two connections to the provider for one picture --
-    /// so on the way back there is nothing left running to return to. This is
-    /// what was pinned when it left, kept so it can be put back.
-    @State private var resumeAfterFullscreen: GuideFocusItem?
-    /// The channel full screen moved to, if the viewer changed channel
-    /// there: the preview picks it up when full screen closes.
-    @State private var fullScreenChannel: XtreamStream?
     /// A channel whose past programmes are being chosen from.
     @State private var catchUpChannel: XtreamStream?
-    /// The preview's one player, kept for as long as the Guide is. Resting
-    /// on a channel opens it there and moving on stops it; nothing is built
-    /// or torn down as the remote moves (see `GuidePreviewVideo`).
-    @StateObject private var previewPlayer = TVPlaybackController(place: .guide)
-    @State private var previewHidden = false
     @State private var sidebarVisible = false
     /// Asks the grid to go back to its first row; see `backAction`.
     @State private var topRequest = 0
@@ -170,9 +144,6 @@ struct GuideView: View {
         }
         return nil
     }
-    private var displayedPreviewItem: GuideFocusItem? {
-        previewPlaybackStream == nil ? previewItem : pinnedPreviewItem
-    }
 
     private var controlBar: GuideControlBar {
         GuideControlBar(
@@ -194,15 +165,12 @@ struct GuideView: View {
             let layout = GuideLayout(width: container.size.width - 2 * GuideLayout.margin)
             NavigationStack {
                 VStack(alignment: .leading, spacing: 18) {
-                    if !previewHidden, let previewItem = displayedPreviewItem {
+                    if let previewItem {
                         GuidePreviewPanel(
-                            player: previewPlayer,
                             controls: controlBar,
                             item: previewItem,
                             categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
                             quality: guideQuality(previewItem.stream),
-                            previewURLs: previewPlaybackStream?.id == previewItem.stream.id ? library.playbackURLs(for: previewItem.stream) : nil,
-                            audible: previewAudible,
                             now: guideNow
                         )
                         .frame(height: GuidePreviewPanel.height)
@@ -260,7 +228,6 @@ struct GuideView: View {
                                                         },
                                                         onFocusProgram: { program in
                                                             focusedGuideItem = GuideFocusItem(stream: stream, program: program)
-                                                            previewHidden = false
                                                         }
                                                     )
                                                 } else {
@@ -282,7 +249,6 @@ struct GuideView: View {
                                                         },
                                                         onFocus: {
                                                             focusedGuideItem = currentProgram.map { GuideFocusItem(stream: stream, program: $0) }
-                                                            previewHidden = false
                                                         }
                                                     )
                                                 }
@@ -346,13 +312,10 @@ struct GuideView: View {
                     .clipShape(Rectangle())
                 }
                 .padding(.horizontal, GuideLayout.margin).padding(.top, 8)
-                // Only the preview coming and going is animated. Focus moving
-                // through the grid never is.
-                .animation(.easeOut(duration: 0.18), value: previewHidden)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .background(GuidePalette.background.ignoresSafeArea())
-                .lineupFullScreenCover(item: $fullScreen, onDismiss: resumePreview) { item in
+                .lineupFullScreenCover(item: $fullScreen) { item in
                     PlayerView(
                         urls: library.playbackURLs(for: item.stream),
                         title: item.stream.name,
@@ -364,7 +327,6 @@ struct GuideView: View {
                         lineup: filtered,
                         recording: item.recording,
                         startsOver: item.startsOver,
-                        onChannelChange: { fullScreenChannel = $0 },
                         continuing: item.preview
                     )
                 }
@@ -391,21 +353,16 @@ struct GuideView: View {
                     guard channelRequest.active else { return }
                     while !Task.isCancelled {
                         guideNow = Date()
-                        do { try await Task.sleep(for: .seconds(5)) }
+                        // The now line and progress bars move a pixel or two a
+                        // minute: twice a minute is plenty, and every redraw of
+                        // the Guide is every visible row drawn again.
+                        do { try await Task.sleep(for: .seconds(30)) }
                         catch { return }
                     }
                 }
                 .task(id: channelRequest) { await loadChannels() }
                 .task(id: previewRequest) { await loadDefaultPreview() }
-                .onChange(of: gridFocus?.streamID) { _, streamID in rest(on: streamID) }
                 .onChange(of: guideViewModeValue) { _, value in restoreGuideFocus(for: value) }
-                // Away from the Guide nothing plays, and coming back to it
-                // plays nothing until the remote rests on a channel.
-                .onChange(of: isActive) { _, active in
-                    guard !active else { return }
-                    hoverTask?.cancel()
-                    stopPreview()
-                }
                 .onExitCommand(perform: backAction)
             }
             .environment(\.guideLayout, layout)
@@ -452,31 +409,15 @@ struct GuideView: View {
         gridFocus = GuideGridFocus(streamID: stream.id, programStart: current?.start)
     }
 
-    /// What Back does in the Guide, in order: call off a handover to full
-    /// screen; close the categories; from anywhere below the first channel,
-    /// go back to the top; turn off a channel whose sound was turned on.
-    /// Otherwise nothing here takes it, and the system moves up to the tab
-    /// bar -- so a long way down the Guide, Back twice reaches the tabs,
-    /// where it used to take holding Up all the way.
+    /// What Back does in the Guide: close the categories; from anywhere
+    /// below the first channel, go back to the top. Otherwise nothing here
+    /// takes it, and the system moves up to the tab bar -- so a long way
+    /// down the Guide, Back twice reaches the tabs, where it used to take
+    /// holding Up all the way.
     private var backAction: (() -> Void)? {
-        if playbackTransitionID != nil {
-            return {
-                // Menu during the handover: full screen never opens, so there
-                // is nothing to come back from and nothing to keep. Left set,
-                // this would hold a channel that was never handed anywhere.
-                playbackTransitionID = nil
-                resumeAfterFullscreen = nil
-            }
-        }
         if sidebarVisible && !searchActive { return { closeSidebar() } }
         if let row = channelPosition(gridFocus?.streamID), row > 0 {
             return { topRequest &+= 1 }
-        }
-        if previewAudible {
-            return {
-                hoverTask?.cancel()
-                stopPreview()
-            }
         }
         return nil
     }
@@ -598,126 +539,24 @@ struct GuideView: View {
             .sorted { $0.start < $1.start }
     }
 
-    /// Put the preview back on the channel that was just full screen.
-    ///
-    /// It keeps playing there until a different channel is chosen, which is
-    /// the branch below that pins a new one. Choosing the same channel again
-    /// goes back to full screen, as it did before.
-    ///
-    /// Only for a preview that could not be lent to full screen. One that
-    /// was carries on playing behind it and needs nothing put back.
-    private func resumePreview() {
-        previewHidden = false
-        // Moved to another channel in full screen: that channel carries on
-        // here, with its sound, as the one being watched.
-        if let changed = fullScreenChannel {
-            fullScreenChannel = nil
-            resumeAfterFullscreen = nil
-            hoverTask?.cancel()
-            startPreview(changed, audible: true)
-            return
-        }
-        guard let resume = resumeAfterFullscreen else { return }
-        resumeAfterFullscreen = nil
-        pinnedPreviewItem = resume
-        // It was being watched full screen, so it comes back with its sound.
-        previewAudible = true
-        previewPlaybackStream = resume.stream
-    }
-
-    /// The remote resting on a channel: once it has stayed a moment, the
-    /// channel plays in the preview without sound. Moving to another channel
-    /// stops the one playing at once, so the preview never shows a channel
-    /// the remote has left.
-    private func rest(on streamID: Int?) {
-        hoverTask?.cancel()
-        guard let streamID, streamID != -1, isActive, multiviewPrimary == nil,
-              previewPlaybackStream?.id != streamID else { return }
-        if previewPlaybackStream != nil { stopPreview() }
-        hoverTask = Task { @MainActor in
-            do { try await Task.sleep(for: .milliseconds(600)) } catch { return }
-            guard gridFocus?.streamID == streamID, previewPlaybackStream == nil,
-                  let stream = filtered.first(where: { $0.id == streamID }) else { return }
-            startPreview(stream, audible: false)
-        }
-    }
-
-    private func startPreview(_ stream: XtreamStream, audible: Bool) {
-        let program = focusedGuideItem.flatMap { $0.stream.id == stream.id ? $0.program : nil }
-            ?? library.guidePrograms(for: stream).normalizedEPG().first(where: { $0.start <= guideNow && guideNow < $0.end })
-            ?? library.guidePrograms(for: stream).normalizedEPG().first
-            ?? CurrentProgram(
-                channelID: stream.epgChannelID ?? String(stream.id),
-                title: stream.name,
-                detail: "Live channel preview",
-                start: guideNow,
-                end: guideNow.addingTimeInterval(3600)
-            )
-        pinnedPreviewItem = GuideFocusItem(stream: stream, program: program)
-        previewAudible = audible
-        previewPlaybackStream = stream
-        previewHidden = false
-    }
-
-    private func stopPreview() {
-        previewPlaybackStream = nil
-        pinnedPreviewItem = nil
-        previewAudible = false
-    }
-
     /// A channel's recording full screen: a programme from the past, or with
     /// none, the programme on now from its start. The preview's stream is
     /// let go first -- two streams of one channel is two connections.
     private func watchRecording(of stream: XtreamStream, programme: CatchUpProgramme?) {
-        hoverTask?.cancel()
-        stopPreview()
-        fullScreenChannel = nil
-        playbackTransitionID = nil
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(180))
             fullScreen = TVFullScreenItem(stream: stream, recording: programme, startsOver: programme == nil)
         }
     }
 
-    /// Select on a channel: playing without sound, its sound comes on;
-    /// with its sound on, it goes full screen; not playing yet, it starts
-    /// with its sound.
+    /// Select on a channel plays it full screen, as tapping one does on the
+    /// phone. Choosing a second channel for multiview opens both.
     private func select(_ stream: XtreamStream) {
         guard let primary = multiviewPrimary else {
-            hoverTask?.cancel()
-            if previewPlaybackStream?.id == stream.id, !previewAudible {
-                previewAudible = true
-            } else if previewPlaybackStream?.id == stream.id, let preview = TVPreviewHandoff.lend(playing: stream.id) {
-                // The preview's own player goes full screen, still playing,
-                // and the preview stays pinned behind it to come back to.
-                playbackTransitionID = nil
-                presentWithoutAnimation { fullScreen = TVFullScreenItem(stream: stream, preview: preview) }
-            } else if previewPlaybackStream?.id == stream.id {
-                let transitionID = UUID()
-                playbackTransitionID = transitionID
-                // Remember what is being handed to full screen, so closing it
-                // comes back to this channel still playing rather than to a
-                // dark panel and a channel that has to be chosen again.
-                resumeAfterFullscreen = pinnedPreviewItem
-                previewPlaybackStream = nil
-                pinnedPreviewItem = nil
-                previewHidden = true
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(180))
-                    guard playbackTransitionID == transitionID else { return }
-                    playbackTransitionID = nil
-                    fullScreen = TVFullScreenItem(stream: stream)
-                }
-            } else {
-                playbackTransitionID = nil
-                startPreview(stream, audible: true)
-            }
+            fullScreen = TVFullScreenItem(stream: stream)
             return
         }
         guard primary.id != stream.id else { return }
-        // The two pictures open their own streams; the preview's would be a
-        // third connection for nothing.
-        stopPreview()
         multiviewPrimary = nil
         multiviewSession = MultiviewSession(primary: primary, secondary: stream,
                                            primaryGame: nil, secondaryGame: nil)
@@ -898,14 +737,10 @@ private struct GuidePreviewPanel: View {
     /// and the 216pt preview. The channel grid stays at the same height.
     static let height: CGFloat = 298
 
-    let player: TVPlaybackController
     let controls: GuideControlBar
     let item: GuideFocusItem
     let categoryName: String
     let quality: String?
-    let previewURLs: [URL]?
-    /// Whether the playing channel's sound is on.
-    let audible: Bool
     let now: Date
 
     private var progress: CGFloat {
@@ -925,15 +760,11 @@ private struct GuidePreviewPanel: View {
     var body: some View {
         let frame = RoundedRectangle(cornerRadius: 22, style: .continuous)
         HStack(alignment: .top, spacing: 20) {
-            Group {
-                if let previewURLs {
-                    GuidePreviewVideo(controller: player, channelID: item.stream.id,
-                                      urls: previewURLs, audible: audible)
-                } else {
-                    GuidePreviewArtwork(stream: item.stream)
-                }
-            }
-            .frame(width: Self.height * 16 / 9, height: Self.height)
+            // The channel's mark. Browsing never starts a stream: a picture
+            // for every channel the remote rested on was a connection opened
+            // and closed, and a video decoded, for each.
+            GuidePreviewArtwork(stream: item.stream)
+                .frame(width: Self.height * 16 / 9, height: Self.height)
             .clipShape(frame)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -985,68 +816,13 @@ private struct GuidePreviewPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Beside the picture, never over it: what Select does next.
+    /// What Select does.
     private var playbackHints: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            if previewURLs != nil {
-                Label(audible ? "SELECT FOR FULL SCREEN" : "SELECT FOR SOUND",
-                      systemImage: audible ? "arrow.up.left.and.arrow.down.right" : "speaker.slash.fill")
-                    .foregroundStyle(GuidePalette.text.opacity(0.85))
-            }
-            Text("MENU HIDES THE PREVIEW")
-                .foregroundStyle(GuidePalette.secondary.opacity(0.8))
-        }
-        .font(.inter(12, .heavy)).tracking(0.6)
-        .fixedSize()
-        .padding(.bottom, 8)
-    }
-}
-
-/// The Guide's preview picture: the Guide's one player, on the channel the
-/// remote rests on.
-///
-/// It used to be a player of its own for every channel, built as the remote
-/// rested and thrown away as it moved on. Throwing a player away while its
-/// stream is still closing is what froze the screen: VLC finishes the close
-/// before the player can go, and parts of that wait on the main thread, so a
-/// slow stream held the whole Guide still for a second or two. One player
-/// that changes channel is never thrown away mid-close.
-private struct GuidePreviewVideo: View {
-    @ObservedObject var controller: TVPlaybackController
-    let channelID: Int
-    let urls: [URL]
-    /// Silent while the remote only rests on the channel; on once chosen.
-    let audible: Bool
-
-    var body: some View {
-        TVHostedSurface(controller: controller)
-            .overlay(alignment: .bottomLeading) { TVPreviewFormatBadges(controller: controller) }
-            .overlay { TVPlaybackStatus(controller: controller) }
-            .background(Color.black)
-            .onAppear { open() }
-            .onChange(of: channelID) { _, _ in open() }
-            // Chosen: the same stream carries on, its sound turned on.
-            .onChange(of: audible) { _, on in controller.setMuted(!on) }
-            .onDisappear {
-                // Lent to full screen, it plays on there. Already on another
-                // channel's preview, it is that preview's to stop.
-                guard !controller.lentToFullScreen, controller.previewChannelID == channelID else { return }
-                controller.stop()
-            }
-    }
-
-    private func open() {
-        // Back from full screen, where it played on: nothing to open, but
-        // its sound is on, as it was there.
-        if controller.isOpen, controller.previewChannelID == channelID {
-            // Written only if it differs: VLC on Apple TV restarts its sound
-            // for every mute written.
-            if controller.isMuted == audible { controller.setMuted(!audible) }
-            return
-        }
-        controller.previewChannelID = channelID
-        controller.start(urls: urls, muted: !audible)
-        TVPreviewHandoff.previewing(channelID, in: controller)
+        Label("SELECT TO WATCH", systemImage: "play.fill")
+            .foregroundStyle(GuidePalette.secondary.opacity(0.85))
+            .font(.inter(12, .heavy)).tracking(0.6)
+            .fixedSize()
+            .padding(.bottom, 8)
     }
 }
 
