@@ -644,8 +644,12 @@ extension View {
     /// only cast while focused, so the height is stated in one place and the
     /// call site only decides when.
     func lineupShadow(_ depth: LineupDepth, on: Bool = true) -> some View {
+        // Off is no shadow at all, not a clear one: a clear shadow at full
+        // radius is still a blur, and every card in a shelf carries one of
+        // these for the moment it is focused.
         shadow(color: .black.opacity(on ? depth.opacity : 0),
-               radius: depth.radius, x: depth.offset.x, y: depth.offset.y)
+               radius: on ? depth.radius : 0,
+               x: on ? depth.offset.x : 0, y: on ? depth.offset.y : 0)
     }
 }
 

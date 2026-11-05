@@ -45,7 +45,15 @@ struct TeamBadge: View {
                 // seventy games carries three hundred of them, recomposited
                 // whenever anything moves. Two points of softening on the one
                 // badge being looked at is the cheaper side of that trade.
+                #if os(tvOS)
+                // On the television, the mark alone. Each glow was a blur
+                // and an offscreen pass made the moment a card scrolled into
+                // view, two to a game, and a row of cards arriving at once
+                // was enough of them to hold up the frame.
+                art
+                #else
                 art.background { halo(art) }.drawingGroup()
+                #endif
             } else {
                 Text(fallback)
                     .font(.inter(max(7, size * 0.3), .black))

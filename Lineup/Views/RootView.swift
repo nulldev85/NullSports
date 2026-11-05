@@ -48,7 +48,12 @@ struct RootView: View {
         // Again once there is a window: the pass in the app's initialiser runs
         // before any tab bar exists, and the bar's own font is read off a label
         // it has laid out.
-        .onAppear { applyLineupTabBarTheme() }
+        .onAppear {
+            applyLineupTabBarTheme()
+            // Every moment the screen stands still, kept for Settings.
+            FrameStallMonitor.shared.refresh = library.refreshProgress
+            FrameStallMonitor.shared.start()
+        }
         #endif
         .task {
             guard library.hasProfile else { return }
@@ -203,7 +208,10 @@ struct MainView: View {
         // Every tab sits on the same plain ground under the same tab bar.
         .background(LineupStyle.background.ignoresSafeArea())
         // A tab changed is a tab's own screen showing.
-        .onChange(of: selectedTab) { _, _ in tabBar.reset() }
+        .onChange(of: selectedTab, initial: true) { _, tab in
+            tabBar.reset()
+            FrameStallMonitor.shared.tab = [0: "Sports", 1: "TV Guide", 2: "Library", 3: "Settings", 4: "Search"][tab] ?? "Tab \(tab)"
+        }
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(.white)
         // Beside the tab bar, where the set's own notices appear, over every

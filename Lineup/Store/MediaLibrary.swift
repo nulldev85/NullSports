@@ -196,6 +196,12 @@ final class MediaLibrary {
     }
     @ObservationIgnored var collectionCreationItem: MediaItem?
     private var metadataResults: [String: LibraryMetadata] = [:]
+    /// Answers waiting to join `metadataResults` together. Every card reads
+    /// that dictionary, so each write redrew every card on screen; a shelf
+    /// scrolled into view asks for a dozen titles at once, and answers landing
+    /// one by one redrew the whole screen a dozen times over.
+    @ObservationIgnored private var pendingMetadata: [String: LibraryMetadata] = [:]
+    @ObservationIgnored private var metadataFlush: Task<Void, Never>?
     /// The provider's list lives in `ProviderVOD`, which nothing observes:
     /// this moves each time it comes in, so what is drawn from it -- the
     /// shelf picker's categories, an episode's show cover -- is drawn again.
@@ -1125,14 +1131,32 @@ final class MediaLibrary {
         guard source != .provider, metadataAvailable(source),
               ["Movie", "Series", "Episode"].contains(item.type) else { return }
         let key = metadataRequestKey(for: item)
-        guard metadataResults[key] == nil else { return }
+        guard metadataResults[key] == nil, pendingMetadata[key] == nil else { return }
         let raw = item.withMetadata(nil)
         var parent: MediaItem?
         if raw.type == "Episode" { parent = await metadataParent(for: raw) }
         guard let value = await metadataResolver.resolve(raw, source: source, parent: parent) else { return }
         // Results are keyed by source and original identity. A late response
         // cannot overwrite a new source choice or another server's title.
-        metadataResults[key] = value
+        await publishMetadata(value, for: key)
+    }
+
+    /// Joins an answer to the ones arriving with it and publishes them all in
+    /// one write, a moment later. Returns once this one is published, so a
+    /// caller that awaited it finds it there.
+    private func publishMetadata(_ value: LibraryMetadata, for key: String) async {
+        pendingMetadata[key] = value
+        if metadataFlush == nil {
+            metadataFlush = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(250))
+                guard let self else { return }
+                let batch = self.pendingMetadata
+                self.pendingMetadata = [:]
+                self.metadataFlush = nil
+                self.metadataResults.merge(batch) { _, new in new }
+            }
+        }
+        await metadataFlush?.value
     }
 
     func metadataParent(for episode: MediaItem) async -> MediaItem? {
