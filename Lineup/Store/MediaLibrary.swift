@@ -2346,7 +2346,33 @@ final class MediaLibrary {
             return records.contains { $0.completed || $0.explicitlyUnwatched == true } ? saved : (saved ?? serverNext)
         }
         return SeriesResumePolicy.target(episodes: episodes, records: records,
-            serverNext: serverNext, isWatched: { [unowned self] in self.isWatched($0) })
+            serverNext: serverNext, stillAiring: Self.isStillAiring(displayItem(series), episodes: episodes),
+            isWatched: { [unowned self] in self.isWatched($0) })
+    }
+
+    /// Whether a show has more to come: its server or metadata says it is
+    /// continuing, or, saying neither, its newest episode aired in the last
+    /// four months. An ended show is not airing whatever its dates say.
+    nonisolated static func isStillAiring(_ series: MediaItem, episodes: [MediaItem],
+                                          now: Date = Date()) -> Bool {
+        switch series.status?.lowercased() {
+        case "continuing", "returning series", "in production": return true
+        case "ended", "canceled", "cancelled": return false
+        default:
+            let newest = episodes.filter { ($0.parentIndexNumber ?? 0) > 0 }
+                .compactMap(\.premiereDay).filter { $0 <= now }.max()
+            guard let newest else { return false }
+            return now.timeIntervalSince(newest) < 120 * 24 * 60 * 60
+        }
+    }
+
+    /// The season of the episode last finished here, for a show page with
+    /// nothing up next to open on: a show caught up with opens where the
+    /// viewer was, not on its first season or its specials.
+    func lastFinishedSeason(of series: MediaItem) -> Int? {
+        guard let profileID = serverID(of: series) else { return nil }
+        return seriesRecords(of: series, profileID: profileID).filter(\.completed)
+            .max { $0.updatedAt < $1.updatedAt }?.item.parentIndexNumber
     }
 
     /// All server responses reconcile against live records on the main actor.
@@ -2356,14 +2382,36 @@ final class MediaLibrary {
                                  serverNext: MediaItem? = nil) -> MediaItem? {
         learnEpisodeOrder(episodes)
         let target = seriesPlayTarget(in: series, fallbackEpisodes: episodes, serverNext: serverNext)
-        if let target { settleUpNext(target) }
+        if let target { settleUpNext(target) } else { retireCaughtUpQueue(in: series) }
         return target
     }
 
     private func reconcileCachedSeries(for episode: MediaItem) {
         guard let series = series(of: episode), let key = episodeOrderKey(for: episode),
               let episodes = seriesEpisodes[key], !episodes.isEmpty else { return }
-        if let target = seriesPlayTarget(in: series) { settleUpNext(target) }
+        if let target = seriesPlayTarget(in: series) { settleUpNext(target) } else { retireCaughtUpQueue(in: series) }
+    }
+
+    /// A show with episodes and nothing to play next is one caught up with
+    /// while it is still airing. Whatever was queued for it then -- a special,
+    /// or its first episode, which is where finishing the newest episode used
+    /// to send it -- goes, so Continue Watching does not offer it. The next
+    /// episode's placeholder, from its schedule, stays, and so does any
+    /// episode with real progress in it.
+    private func retireCaughtUpQueue(in series: MediaItem) {
+        guard let profileID = serverID(of: series) else { return }
+        let scope = LocalContinueWatchingDismissal(item: series, profileID: profileID)
+        let before = localPlayback
+        localPlayback = localPlayback.compactMap { record in
+            guard record.profileID == profileID, record.isUpNext == true, record.item.type == "Episode",
+                  !record.item.isUpcomingPlaceholder, record.explicitlyUnwatched != true,
+                  scope.matches(record.item, profileID: record.profileID) else { return record }
+            guard record.position >= 5 else { return nil }
+            var kept = record
+            kept.isUpNext = nil
+            return kept
+        }
+        if before != localPlayback { persistLocalPlayback() }
     }
 
     /// This device's records of a show's episodes.

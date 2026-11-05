@@ -116,6 +116,53 @@ final class SeriesResumeTests: XCTestCase {
         XCTAssertEqual(target(records: records, watched: everything), "s1e1")
     }
 
+    /// Finishing the newest episode of a show still airing: the viewer is
+    /// waiting for the next one, not starting over and not on to the
+    /// specials. Tulsa King's fourth season went back to the start, or to
+    /// its specials, after each new episode.
+    func testCaughtUpWithAShowStillAiringWaitsForItsNextEpisode() {
+        let withSpecial = show + [episode(0, 1)]
+        let everything = Set(show.map(\.id))
+        let records = [record(episode(2, 6), completed: true, at: 1)]
+        XCTAssertNil(SeriesResumePolicy.target(episodes: withSpecial, records: records, serverNext: nil,
+                                               stillAiring: true, isWatched: { everything.contains($0.id) }))
+        // Earlier episodes never watched here are no reason to go back to them.
+        XCTAssertNil(SeriesResumePolicy.target(episodes: show, records: records, serverNext: nil,
+                                               stillAiring: true, isWatched: { _ in false }))
+    }
+
+    func testASpecialNeverFollowsAnEpisodeOfASeason() {
+        let withSpecial = show + [episode(0, 1)]
+        let everything = Set(show.map(\.id))
+        let records = [record(episode(2, 6), completed: true, at: 1)]
+        XCTAssertEqual(SeriesResumePolicy.target(episodes: withSpecial, records: records, serverNext: nil,
+                                                 isWatched: { everything.contains($0.id) })?.id, "s1e1",
+                       "A finished show starts again rather than going on to its specials")
+        let midway = [record(episode(1, 3), completed: true, at: 1)]
+        XCTAssertEqual(SeriesResumePolicy.target(episodes: withSpecial, records: midway, serverNext: nil,
+                                                 stillAiring: true, isWatched: { _ in false })?.id, "s1e4")
+    }
+
+    func testAShowIsStillAiringByItsStatusOrItsNewestEpisode() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func series(_ status: String?) -> MediaItem {
+            MediaItem(id: "show", name: "Show", type: "Series", overview: nil, productionYear: nil,
+                      primaryImageAspectRatio: nil, childCount: nil, status: status)
+        }
+        func aired(daysAgo: Double) -> MediaItem {
+            let day = now.addingTimeInterval(-daysAgo * 86_400)
+            let stamp = ISO8601DateFormatter().string(from: day)
+            return MediaItem(id: "e", name: "E", type: "Episode", overview: nil, productionYear: nil,
+                             primaryImageAspectRatio: nil, childCount: nil, premiereDate: stamp,
+                             indexNumber: 2, parentIndexNumber: 4, seriesID: "show")
+        }
+        XCTAssertTrue(MediaLibrary.isStillAiring(series("Continuing"), episodes: [], now: now))
+        XCTAssertFalse(MediaLibrary.isStillAiring(series("Ended"), episodes: [aired(daysAgo: 3)], now: now))
+        XCTAssertTrue(MediaLibrary.isStillAiring(series(nil), episodes: [aired(daysAgo: 13)], now: now))
+        XCTAssertFalse(MediaLibrary.isStillAiring(series(nil), episodes: [aired(daysAgo: 400)], now: now))
+        XCTAssertFalse(MediaLibrary.isStillAiring(series(nil), episodes: [], now: now))
+    }
+
     func testSpecialsComeAfterTheSeasons() {
         let special = episode(0, 1)
         let ordered = SeriesResumePolicy.ordered([special, episode(1, 2), episode(1, 1)])

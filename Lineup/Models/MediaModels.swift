@@ -727,7 +727,12 @@ enum SeriesResumePolicy {
 
     /// The episode to play next, from the show's episodes, this device's
     /// records of them, and the server's own next-up.
+    ///
+    /// `stillAiring` is a show with more to come: caught up with one of
+    /// those, the viewer is waiting for its next episode, not starting over
+    /// or moving on to its specials.
     static func target(episodes: [MediaItem], records: [LocalMediaPlayback], serverNext: MediaItem?,
+                       stillAiring: Bool = false,
                        isWatched: (MediaItem) -> Bool) -> MediaItem? {
         let order = ordered(episodes)
         guard !order.isEmpty else { return nil }
@@ -738,8 +743,15 @@ enum SeriesResumePolicy {
             guard let season = episode.parentIndexNumber, let number = episode.indexNumber else { return nil }
             return order.firstIndex { $0.parentIndexNumber == season && $0.indexNumber == number }
         }
+        // Specials are reached on purpose. From an episode of a season, what
+        // comes next is the next episode of the seasons, never a special:
+        // the specials sit after the last season, so finishing the newest
+        // episode of a show still airing led straight into them.
         func next(after position: Int) -> Int? {
-            order.indices.first { $0 > position && !isWatched(order[$0]) }
+            let fromSpecial = order[position].parentIndexNumber == 0
+            return order.indices.first {
+                $0 > position && !isWatched(order[$0]) && (fromSpecial || order[$0].parentIndexNumber != 0)
+            }
         }
         // A server suggestion or generated queue entry is not evidence that
         // intervening episodes were watched. Some servers return E10 after
@@ -778,6 +790,13 @@ enum SeriesResumePolicy {
         // can be stale in either direction and must never win by being later.
         let local = finished.flatMap { index(of: $0.item) }.flatMap { next(after: $0) }
         if let local { return order[local] }
+        // Caught up with a show still airing: nothing here comes next yet,
+        // and that is not the show finished. It holds no episode, rather than
+        // its first or one the viewer skipped long ago; once the schedule
+        // names the next one, its placeholder is queued and found above.
+        if stillAiring, let last = finished.flatMap({ index(of: $0.item) }), order[last].parentIndexNumber != 0 {
+            return nil
+        }
         let server = serverNext.flatMap { index(of: $0) }.flatMap { found in
             isWatched(order[found]) ? next(after: found) : found
         }
