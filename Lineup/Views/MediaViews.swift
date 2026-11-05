@@ -789,7 +789,18 @@ struct MediaCatalogsScreen: View {
                     #endif
                 } else {
                     #if os(tvOS)
-                    tvBrowser
+                    // The phone's Library: every shelf in one column, in the
+                    // viewer's order, each its own row of cards. Up and down
+                    // move between shelves, left and right along one, and
+                    // nothing behind them changes as the remote moves.
+                    ScrollView(.vertical) {
+                        LazyVStack(alignment: .leading, spacing: 48) {
+                            libraryShelves
+                        }
+                        .padding(.top, 24)
+                        .padding(.bottom, 80)
+                    }
+                    .scrollClipDisabled()
                     #else
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: catalogSpacing) {
@@ -857,17 +868,6 @@ struct MediaCatalogsScreen: View {
             }
             searching = false
         }
-        #if os(tvOS)
-        .task(id: LibraryHeroRotationKey(items: heroItems.map(\.libraryKey), index: heroIndex,
-                                        enabled: canRotateLibraryPreview)) {
-            guard canRotateLibraryPreview else { return }
-            await rotateLibraryPreview()
-        }
-        .onAppear {
-            tvPreview.setInitial(defaultPreviewItem)
-        }
-        .onChange(of: media.profiles.map(\.id)) { _, _ in tvPreview.reset(to: defaultPreviewItem) }
-        #endif
     }
 
     /// One of the phone's rows: the device's own, or a shelf.
@@ -1067,12 +1067,10 @@ struct MediaCatalogsScreen: View {
     }
 
     #if os(tvOS)
-    private func preview(_ item: MediaItem, when focused: Bool) {
-        guard !focused || (tabIsActive && scenePhase == .active) else { return }
-        tvPreview.focus(item, focused: focused) { item in
-            try? await media.details(of: item)
-        }
-    }
+    /// The Library no longer previews the card under the remote: doing so
+    /// fetched every focused title's full record from its server and swapped
+    /// a full-screen backdrop for it, at every press.
+    private func preview(_ item: MediaItem, when focused: Bool) {}
 
     private func rotateLibraryPreview() async {
         let candidates = heroItems
