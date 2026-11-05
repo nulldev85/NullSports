@@ -806,12 +806,18 @@ struct MediaCatalogsScreen: View {
                             }
                             libraryShelves
                         }
+                        .padding(.top, headsWithShelf ? 12 : 0)
                         .padding(.bottom, 44)
                     }
                     .scrollBounceBehavior(.always, axes: .vertical)
                     .onScrollPhaseChange { _, phase in phoneScrollActivity.isActive = phase != .idle }
                     .onDisappear { phoneScrollActivity.isActive = false }
-                    .ignoresSafeArea(edges: .top)
+                    // The hero runs up under the status bar on purpose. With
+                    // no hero -- before any shelf or chart is in, or on a
+                    // server with nothing to feature -- the first row would
+                    // sit under the clock instead, so the page keeps clear of
+                    // it.
+                    .ignoresSafeArea(edges: headsWithShelf ? [] : .top)
                     #endif
                 }
             }
@@ -907,6 +913,12 @@ struct MediaCatalogsScreen: View {
             guard case .local(let id, let title, let items, let opensPages) = row else { return row }
             return .local(id: id, title: media.shelfTitle(id: id, default: title), items: items, opensPages: opensPages)
         }
+    }
+
+    /// Whether the Library opens on a row rather than the hero or the
+    /// add-a-server prompt, each of which makes its own room at the top.
+    private var headsWithShelf: Bool {
+        media.heroCatalog == nil && onAddServer == nil
     }
 
     @ViewBuilder

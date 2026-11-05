@@ -1,16 +1,36 @@
+import QuartzCore
 import SwiftUI
 import Observation
 
 // MARK: - The poster
 
-/// A service's poster on the Streaming Services row: its official mark on the
-/// Library's flat grey, sized the way a title's name sits on a poster.
+/// A service's poster on the Streaming Services row: its official mark on
+/// its own colour, and behind it the titles it has on that the viewer can
+/// play, each drifting slowly across the card and giving way to the next.
+/// Until any of that art is in hand, or where there is none, the card is
+/// the flat colour and the mark alone.
+///
+/// Every poster keeps to one clock. On the phone, which title is up and how
+/// far along its drift it is follow from the time alone, so a poster
+/// scrolled away and back, rebuilt, or restarted is exactly where it would
+/// have been, and the posters in a row change in a steady, even turn. Art is
+/// fetched ahead, a change only ever goes to a picture already made, and
+/// once a poster has art it never drops back to the flat card.
 struct StreamingServicePoster: View {
+    @Environment(MediaLibrary.self) private var media
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
+    #if os(tvOS)
+    @Environment(\.lineupTVSelectableFocused) private var focused
+    #endif
     let service: StreamingService
 
-    /// Each service as a flat card in its own colour, the way the rest of
-    /// the app's panels are flat: no gradient, no glow, the logo clean on
-    /// it in the one colour the service sets it in on that ground.
+    @State private var reel = StreamingPosterReel()
+    /// The picture on show, kept until another is ready to take its place.
+    @State private var loaded: StreamingPosterPicture?
+
+    /// Each service as a card in its own colour, the logo on it in the one
+    /// colour the service sets it in on that ground.
     private enum LogoInk { case white, black, original }
 
     private struct Brand {
@@ -55,28 +75,279 @@ struct StreamingServicePoster: View {
         }
     }
 
+    /// How often one title gives way to the next, and how long the fade
+    /// takes. A drift runs longer than a title is up, so a picture is still
+    /// moving under the next one as that fades in.
+    static let interval: Double = 7
+    static let fade: Double = 1.4
+    static let span: Double = 10
+
+    /// The phone moves every poster on screen. The television moves only the
+    /// one in focus, so a row of them is calm until one is chosen; the rest
+    /// hold their picture exactly where it was.
+    private var motion: StreamingPosterCanvas.Motion {
+        if reduceMotion { return .still }
+        #if os(tvOS)
+        return focused ? .running : .paused
+        #else
+        return .running
+        #endif
+    }
+
+    /// Where this service's posters fall in the row's turn: the services
+    /// change a quarter of an interval apart, never all at once.
+    private var order: Int { StreamingService.all.firstIndex(where: { $0.id == service.id }) ?? 0 }
+
     var body: some View {
         GeometryReader { proxy in
             let brand = Self.brand(service.id)
+            let urls = reel.urls(for: service, in: media)
+            let pixels = Self.pixels(for: proxy.size, scale: displayScale)
+            // The cache is asked here as well, so a poster coming back into
+            // view draws its picture in its very first frame.
+            let picture = urls.isEmpty ? nil
+                : loaded ?? StreamingPosterSchedule.opening(urls, pixels: pixels, order: order)
+            let hasArt = picture != nil
             ZStack {
                 brand.fill
-                if UIImage(named: service.logoAsset) != nil {
-                    logo(brand.ink)
-                        .scaledToFit()
-                        .frame(maxWidth: proxy.size.width * 0.7, maxHeight: proxy.size.height * 0.24)
-                } else {
-                    // A mark not yet in the catalog: its name, set plainly.
-                    Text(service.name)
-                        .font(.inter(proxy.size.width * 0.12, .heavy))
-                        .foregroundStyle(brand.ink == .black ? Color.black : Color.white)
-                        .multilineTextAlignment(.center)
-                        .minimumScaleFactor(0.6)
-                        .padding(.horizontal, proxy.size.width * 0.1)
+                // Always there, so the layers it draws with -- and the drift
+                // they are part way through -- live as long as the card.
+                StreamingPosterArt(picture: picture, motion: motion, span: Self.span, fade: Self.fade)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                if hasArt {
+                    // The service's colour rises from the foot of the card
+                    // so its mark always sits on its own ground.
+                    LinearGradient(stops: [
+                        .init(color: .black.opacity(0.05), location: 0),
+                        .init(color: brand.fill.opacity(0), location: 0.34),
+                        .init(color: brand.fill.opacity(0.82), location: 0.66),
+                        .init(color: brand.fill, location: 0.88)
+                    ], startPoint: .top, endPoint: .bottom)
+                    .transition(.opacity)
                 }
+                mark(brand, in: proxy.size, hasArt: hasArt)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+            .task(id: ReelKey(urls: urls, pixels: pixels, rotates: motion == .running)) {
+                await run(urls, pixels: pixels, rotates: motion == .running)
+            }
         }
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(service.name)
+    }
+
+    @ViewBuilder
+    private func mark(_ brand: Brand, in size: CGSize, hasArt: Bool) -> some View {
+        Group {
+            if UIImage(named: service.logoAsset) != nil {
+                logo(brand.ink)
+                    .scaledToFit()
+                    .frame(maxWidth: size.width * (hasArt ? 0.62 : 0.7),
+                           maxHeight: size.height * (hasArt ? 0.17 : 0.24))
+            } else {
+                // A mark not yet in the catalog: its name, set plainly.
+                Text(service.name)
+                    .font(.inter(size.width * 0.12, .heavy))
+                    .foregroundStyle(brand.ink == .black ? Color.black : Color.white)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.6)
+                    .padding(.horizontal, size.width * 0.1)
+            }
+        }
+        // Centred on the flat card; settled into the foot once there is art.
+        .padding(.bottom, hasArt ? size.height * 0.1 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: hasArt ? .bottom : .center)
+    }
+
+    private struct ReelKey: Equatable {
+        let urls: [URL]
+        let pixels: Int
+        let rotates: Bool
+    }
+
+    /// Puts a picture up as soon as there is one, then, while the poster
+    /// moves, changes it on the clock's beat.
+    private func run(_ urls: [URL], pixels: Int, rotates: Bool) async {
+        guard pixels > 0, !urls.isEmpty else { return }
+        let schedule = StreamingPosterSchedule(order: order)
+        // The whole reel is fetched now, so each change finds its picture made.
+        for url in urls { LineupArt.prefetch(url, pixels: pixels) }
+
+        if loaded == nil {
+            if let opening = StreamingPosterSchedule.opening(urls, pixels: pixels, order: order) {
+                // Already drawn from the cache; this only keeps it.
+                loaded = opening
+            } else {
+                let preferred = schedule.index(at: CACurrentMediaTime(), count: urls.count)
+                guard let first = await StreamingPosterSchedule.firstLoading(urls, from: preferred, pixels: pixels),
+                      !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.6)) {
+                    loaded = first.began(schedule.began(at: CACurrentMediaTime()))
+                }
+            }
+        }
+
+        // One title only drifts to and fro; it has nothing to change to,
+        // unless the reel has moved on from the one on show.
+        guard rotates, urls.count > 1 || loaded.map({ !urls.contains($0.url) }) == true else { return }
+        let anchor = CACurrentMediaTime()
+        while !Task.isCancelled {
+            let now = CACurrentMediaTime()
+            let tick = schedule.nextTick(after: now, anchor: anchor)
+            try? await Task.sleep(for: .seconds(max(0, tick - now)))
+            if Task.isCancelled { return }
+            let target = schedule.target(at: tick, count: urls.count, after: loaded?.index)
+            guard let next = StreamingPosterSchedule.nextReady(urls, from: target, pixels: pixels,
+                                                               excluding: loaded?.url) else {
+                // Nothing else made yet -- evicted, or still on its way. The
+                // one on show keeps drifting, and the rest are asked for again.
+                for url in urls { LineupArt.prefetch(url, pixels: pixels) }
+                continue
+            }
+            withAnimation(.easeInOut(duration: Self.fade)) {
+                loaded = next.began(schedule.began(at: tick))
+            }
+        }
+    }
+
+    /// Wide art fills the card's height and runs well past its sides, so it
+    /// is made at that width. Capped at one and a half times the card's
+    /// points: the picture is always moving and under the service's colour,
+    /// and a row of them must not crowd the rest of the Library's art out of
+    /// the cache.
+    private static func pixels(for size: CGSize, scale: CGFloat) -> Int {
+        // Before the card is laid out there is nothing to size the art to.
+        guard size.width >= 1, size.height >= 1 else { return 0 }
+        let points = max(size.width, size.height * 16 / 9) * StreamingPosterDrift.zoom
+        let raw = points * min(max(scale, 1), 1.5)
+        // In steps, so a card a point wider or narrower finds the same one.
+        return max(128, Int((raw / 64).rounded(.up)) * 64)
+    }
+}
+
+/// When a service's poster changes, and to what.
+///
+/// On the phone the beat is the device's own clock, the same for every
+/// poster, each service set a quarter of an interval after the one before:
+/// which title is up, and since when, is a function of the time alone. On
+/// the television a poster's turn starts when it takes focus and goes round
+/// its reel in order, since only that one is moving.
+@MainActor
+struct StreamingPosterSchedule {
+    let offset: Double
+
+    init(order: Int) {
+        offset = Double(order % 4) * StreamingServicePoster.interval / 4
+    }
+
+    private var interval: Double { StreamingServicePoster.interval }
+
+    /// The beat a moment falls in.
+    func slot(at time: CFTimeInterval) -> Int {
+        Int(((time - offset) / interval).rounded(.down))
+    }
+
+    /// When the title up at a moment came up.
+    func began(at time: CFTimeInterval) -> CFTimeInterval? {
+        #if os(tvOS)
+        nil
+        #else
+        Double(slot(at: time)) * interval + offset
+        #endif
+    }
+
+    /// The title the clock puts up at a moment.
+    func index(at time: CFTimeInterval, count: Int) -> Int {
+        #if os(tvOS)
+        0
+        #else
+        guard count > 0 else { return 0 }
+        return ((slot(at: time) % count) + count) % count
+        #endif
+    }
+
+    func nextTick(after now: CFTimeInterval, anchor: CFTimeInterval) -> CFTimeInterval {
+        #if os(tvOS)
+        let beats = ((now - anchor) / interval).rounded(.down) + 1
+        return anchor + beats * interval
+        #else
+        return Double(slot(at: now) + 1) * interval + offset
+        #endif
+    }
+
+    /// The title a beat changes to.
+    func target(at tick: CFTimeInterval, count: Int, after current: Int?) -> Int {
+        #if os(tvOS)
+        ((current ?? -1) + 1) % max(count, 1)
+        #else
+        // A hair past the beat, so it lands in the beat it starts.
+        index(at: tick + 0.001, count: count)
+        #endif
+    }
+
+    /// What a poster can draw this instant: the title the clock has up, or
+    /// failing that the next one already made.
+    static func opening(_ urls: [URL], pixels: Int, order: Int) -> StreamingPosterPicture? {
+        guard pixels > 0 else { return nil }
+        let schedule = StreamingPosterSchedule(order: order)
+        let now = CACurrentMediaTime()
+        return nextReady(urls, from: schedule.index(at: now, count: urls.count), pixels: pixels, excluding: nil)?
+            .began(schedule.began(at: now))
+    }
+
+    /// The first picture from `start` on round the reel that is already made.
+    static func nextReady(_ urls: [URL], from start: Int, pixels: Int, excluding: URL?) -> StreamingPosterPicture? {
+        for step in 0..<urls.count {
+            let index = (start + step) % urls.count
+            guard urls[index] != excluding, let image = LineupArt.ready(urls[index], pixels: pixels) else { continue }
+            return StreamingPosterPicture(url: urls[index], image: image, index: index, began: nil)
+        }
+        return nil
+    }
+
+    /// The first picture from `start` on round the reel that loads.
+    static func firstLoading(_ urls: [URL], from start: Int, pixels: Int) async -> StreamingPosterPicture? {
+        for step in 0..<urls.count {
+            let index = (start + step) % urls.count
+            if let image = await LineupArt.load(urls[index], pixels: pixels) {
+                return StreamingPosterPicture(url: urls[index], image: image, index: index, began: nil)
+            }
+            if Task.isCancelled { return nil }
+        }
+        return nil
+    }
+}
+
+/// The pictures a service's poster runs through: the art of the titles it
+/// has on that the viewer can play, its most popular first. Worked out once
+/// for each change of the row, rather than on every redraw.
+@MainActor
+private final class StreamingPosterReel {
+    static let length = 5
+
+    private var key = ""
+    private var held: [URL] = []
+
+    func urls(for service: StreamingService, in media: MediaLibrary) -> [URL] {
+        let key = service.id + "|" + media.streamingMemoKey
+        if key == self.key { return held }
+        let titles = media.streamingTitles(for: service)
+        let ranked = StreamingSort.popular.sorted(titles.movies + titles.shows)
+        var seen = Set<URL>()
+        var urls: [URL] = []
+        for title in ranked {
+            // A title's wide art first, which has room to travel and carries
+            // no lettering of its own to crowd the mark; its poster where it
+            // has none.
+            guard let url = media.backdropURL(for: title.item) ?? media.imageURL(for: title.item),
+                  seen.insert(url).inserted else { continue }
+            urls.append(url)
+            if urls.count == Self.length { break }
+        }
+        self.key = key
+        held = urls
+        return urls
     }
 }
 

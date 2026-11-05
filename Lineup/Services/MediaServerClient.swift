@@ -55,6 +55,9 @@ enum MediaServerQuery {
     static let shelfLimit = 40
     static let collectionPage = 200
     static let collectionPages = 25
+    /// A Collections library's first page, on a server that is never asked
+    /// for every collection at once.
+    static let libraryCollectionPage = 60
     static let titlePage = 500
     static let titlePages = 50
     static let searchTypes = ["Movie", "Series", "Episode", "Video"]

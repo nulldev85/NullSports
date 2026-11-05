@@ -915,9 +915,20 @@ final class MediaLibrary {
             // library's.
             let known = Set(loaded.map(\.id))
             let oldState = state(of: profile)
-            let loadedCollections = ((try? await source.allCollections(
-                userID: profile.userID, pageSize: MediaServerQuery.collectionPage,
-                maxPages: MediaServerQuery.collectionPages)) ?? oldState.collections)
+            // Asking an AIOStreams server for every collection at once is asking
+            // it for every catalog. Its collections are in libraries of their
+            // own, so it is asked for those libraries' first pages only, and a
+            // collection's titles wait until it is opened.
+            let crawlable = await crawls(profile)
+            let gathered: [MediaItem]?
+            if crawlable {
+                gathered = try? await source.allCollections(
+                    userID: profile.userID, pageSize: MediaServerQuery.collectionPage,
+                    maxPages: MediaServerQuery.collectionPages)
+            } else {
+                gathered = await collectionsByLibrary(on: source, userID: profile.userID)
+            }
+            let loadedCollections = (gathered ?? oldState.collections)
                 .filter { !known.contains($0.id) }
                 .map { $0.servedBy(profile.id) }
             let selectedRoots = selectedShelfRoots(from: loaded + loadedCollections, profileID: profile.id)
@@ -979,11 +990,14 @@ final class MediaLibrary {
             }
             if let shelfFailure, !Self.isCancellation(shelfFailure) { report(shelfFailure, from: profile) }
             persistLibrarySnapshot(for: profile)
-            Task { [weak self] in
-                let counts = try? await source.libraryCounts(userID: profile.userID)
-                guard let self, self.loadIDs[profile.id] == requestID, self.contains(profile) else { return }
-                self.update(profile) { $0.counts = counts }
-                self.persistLibrarySnapshot(for: profile)
+            // Counting what an AIOStreams server holds is fetching all of it.
+            if crawlable {
+                Task { [weak self] in
+                    let counts = try? await source.libraryCounts(userID: profile.userID)
+                    guard let self, self.loadIDs[profile.id] == requestID, self.contains(profile) else { return }
+                    self.update(profile) { $0.counts = counts }
+                    self.persistLibrarySnapshot(for: profile)
+                }
             }
             if profile.brand == .silo {
                 Task { [weak self] in await self?.refreshNativeSiloState(for: profile, requestID: requestID) }
@@ -1588,7 +1602,10 @@ final class MediaLibrary {
     }
 
     private func fetchInventory() async -> (items: [MediaItem], failure: Error?) {
-        let targets = profiles.map { ($0, try? client(for: $0)) }
+        // A server's kind is learned as its shelves load, which is always
+        // first; asking for it again here would cost every server a request.
+        let targets = profiles.filter { serverKinds[$0.id] != .aiostreams }
+            .map { ($0, try? client(for: $0)) }
         let answers = await withTaskGroup(of: (Int, Result<[MediaItem], Error>).self) { group in
             for (index, (profile, source)) in targets.enumerated() {
                 group.addTask {
@@ -3527,6 +3544,37 @@ final class MediaLibrary {
               let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
               url.host != nil else { return nil }
         return url
+    }
+
+    /// The collections in a server's Collections libraries, a page of each,
+    /// for a server that cannot be asked for all of them at once. Nil when
+    /// none of it answered, so the row keeps what it had.
+    private func collectionsByLibrary(on source: any MediaServerClient, userID: String) async -> [MediaItem]? {
+        guard let jellyfin = source as? JellyfinClient,
+              let libraries = try? await jellyfin.collectionLibraryIDs(userID: userID) else { return nil }
+        guard !libraries.isEmpty else { return [] }
+        var collections: [MediaItem] = []
+        var seen: Set<String> = []
+        var answered = false
+        for library in libraries {
+            guard let page = try? await source.items(userID: userID, parentID: library, sortBy: "SortName",
+                                                     limit: MediaServerQuery.libraryCollectionPage) else { continue }
+            answered = true
+            for item in page where seen.insert(item.id).inserted { collections.append(item) }
+        }
+        return answered ? collections : nil
+    }
+
+    /// Whether a server can be asked for everything it holds at once.
+    ///
+    /// A Jellyfin, Emby or Plex server answers that from its own database. An
+    /// AIOStreams server holds nothing: it fetches every catalog from every
+    /// addon behind it to answer, which is the long wait its collections exist
+    /// to avoid. Lineup asks it only for what is on screen -- a shelf, a
+    /// library, a collection when it is opened -- and finds a title on it by
+    /// its ids.
+    func crawls(_ profile: MediaServerProfile) async -> Bool {
+        await serverKind(of: profile) != .aiostreams
     }
 
     /// Which kind of server a profile is, asked of the server once a session.
