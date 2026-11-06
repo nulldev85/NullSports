@@ -82,12 +82,12 @@ struct MobileGuidePlayer: View {
                             .lineupProminentButton()
                     }
                     .padding(.horizontal, 16).padding(.vertical, 12)
-                    .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .padding(.horizontal, 52)
                 } else if controller.loading {
                     ProgressView(controller.loadingMessage).font(.inter(.caption))
                         .padding(.horizontal, 16).padding(.vertical, 12)
-                        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 if let notice = controller.failoverNotice {
                     VStack {
@@ -96,7 +96,7 @@ struct MobileGuidePlayer: View {
                             .font(.inter(.caption, .semibold))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 12).padding(.vertical, 8)
-                            .lineupLiquidGlass(Capsule(), fallback: Color.black.opacity(0.62))
+                            .lineupPlayerPanelGlass(Capsule())
                             .padding(.bottom, !expanded && controlsVisible ? 48 : 12)
                     }
                     .transition(.opacity)
@@ -117,6 +117,7 @@ struct MobileGuidePlayer: View {
                     messages
                 }
                 if controlsVisible {
+                    if expanded { shade }
                     topBar
                     if !expanded {
                         VStack {
@@ -132,9 +133,7 @@ struct MobileGuidePlayer: View {
                     if expanded && (onStepChannel != nil || (lastChannelName != nil && onLastChannel != nil)) {
                         channelButtons
                     }
-                    if expanded && controller.catchUpSource != nil && controller.error == nil {
-                        catchUpControls
-                    }
+                    if expanded { expandedFoot }
                 }
             }
             .foregroundStyle(LineupStyle.mediaText)
@@ -234,13 +233,13 @@ struct MobileGuidePlayer: View {
             HStack(spacing: 8) {
                 control("xmark", label: "Close player", action: onClose)
                 Spacer(minLength: 8)
-                if let onToggleStats {
+                if !expanded, let onToggleStats {
                     control(statsShown ? "chart.bar.fill" : "chart.bar", label: statsShown ? "Hide stats" : "Show stats") {
                         showControls()
                         onToggleStats()
                     }
                 }
-                if let onChooseChannel {
+                if !expanded, let onChooseChannel {
                     control("list.bullet", label: "Choose another channel") {
                         showControls()
                         onChooseChannel()
@@ -267,7 +266,7 @@ struct MobileGuidePlayer: View {
                 providerIdentity(providerName)
                     .foregroundStyle(LineupStyle.mediaText.opacity(0.86))
                     .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(Color.black.opacity(0.66), in: Capsule())
+                    .lineupPlayerPanelGlass(Capsule())
             }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measuredHeaderHeight = $0 }
@@ -312,19 +311,19 @@ struct MobileGuidePlayer: View {
             LineupGlassGroup {
                 HStack(spacing: MobilePlayerLayout.channelTransportSpacing(expanded: expanded)) {
                     if controller.catchUpSource != nil {
-                        control("gobackward.10", label: "Back 10 seconds") {
+                        control("gobackward.10", label: "Back 10 seconds", size: expanded ? 56 : nil) {
                             showControls()
                             controller.skip(by: -CatchUpPolicy.skip)
                         }
                     }
                     control(controller.isPlaying ? "pause.fill" : "play.fill",
-                            label: controller.isPlaying ? "Pause" : "Play", size: expanded ? 48 : 42) {
+                            label: controller.isPlaying ? "Pause" : "Play", size: expanded ? 72 : 42) {
                         controller.toggle()
                     }
                     if controller.catchUpSource != nil {
                         // Live there is nowhere further on to go; only a
                         // recording has.
-                        control("goforward.10", label: "Forward 10 seconds") {
+                        control("goforward.10", label: "Forward 10 seconds", size: expanded ? 56 : nil) {
                             showControls()
                             controller.skip(by: CatchUpPolicy.skip)
                         }
@@ -365,26 +364,116 @@ struct MobileGuidePlayer: View {
         .transition(.opacity)
     }
 
-    /// The recorded channel's timeline and Start Over, along the bottom.
-    private var catchUpControls: some View {
-        MobileCatchUpBar(controller: controller, compact: !expanded, onEditingChanged: { editing in
-            editingTimeline = editing
-            controlsVisible = true
-            if editing { hideControlsTask?.cancel() }
-            else { scheduleAutoHide() }
-        }) {
-            showControls()
-            controller.startOver()
+    /// A soft shade at the top and the foot of a full-screen picture, so
+    /// white controls read on it without panels behind them.
+    private var shade: some View {
+        VStack(spacing: 0) {
+            LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: 170)
+            Spacer(minLength: 0)
+            LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 220)
         }
-        .frame(maxWidth: expanded ? CGFloat(520) : CGFloat.infinity)
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("GuidePlayer")) }) { timelineBounds = $0 }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .padding(.horizontal, expanded ? 24 : 10)
-        .padding(.bottom, expanded ? 20 : 10)
-        .padding(.leading, expanded ? screenInsets.leading : 0)
-        .padding(.trailing, expanded ? screenInsets.trailing : 0)
-        .padding(.bottom, expanded ? screenInsets.bottom : 0)
+        .allowsHitTesting(false)
         .transition(.opacity)
+    }
+
+    /// Full screen: what is on, set straight on the picture at the bottom
+    /// left; a glass toolbar at the bottom right; a recorded channel's
+    /// timeline across the foot.
+    private var expandedFoot: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .bottom, spacing: 12) {
+                nowPlaying
+                Spacer(minLength: 8)
+                expandedToolbar
+            }
+            if controller.catchUpSource != nil && controller.error == nil {
+                MobileCatchUpBar(controller: controller, compact: false, onEditingChanged: { editing in
+                    editingTimeline = editing
+                    controlsVisible = true
+                    if editing { hideControlsTask?.cancel() }
+                    else { scheduleAutoHide() }
+                }) {
+                    showControls()
+                    controller.startOver()
+                }
+                .frame(maxWidth: 560)
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("GuidePlayer")) }) { timelineBounds = $0 }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 20)
+        .padding(.leading, screenInsets.leading)
+        .padding(.trailing, screenInsets.trailing)
+        .padding(.bottom, screenInsets.bottom)
+        .transition(.opacity)
+    }
+
+    /// The programme on -- or the recording playing -- and the channel.
+    private var nowPlaying: some View {
+        let replay = controller.catchUp
+        let title = replay?.title ?? program?.title
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(title ?? stream.name)
+                .font(.inter(.headline, .bold))
+                .lineLimit(2)
+            HStack(spacing: 6) {
+                if title != nil { Text(stream.name).lineLimit(1) }
+                if let replay {
+                    Text("· " + Self.timeText(replay.programmeStart, replay.programmeEnd))
+                } else if let program {
+                    Text("· " + Self.timeText(program.start, program.end))
+                }
+            }
+            .font(.inter(.caption, .semibold))
+            .foregroundStyle(LineupStyle.mediaText.opacity(0.78))
+            .lineLimit(1)
+        }
+        .shadow(color: .black.opacity(0.6), radius: 8, y: 1)
+        .frame(maxWidth: 460, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .allowsHitTesting(false)
+    }
+
+    /// Live stats and another channel for the game, in one sheet of glass.
+    @ViewBuilder
+    private var expandedToolbar: some View {
+        if onToggleStats != nil || onChooseChannel != nil {
+            HStack(spacing: 2) {
+                if let onToggleStats {
+                    toolButton(statsShown ? "chart.bar.fill" : "chart.bar",
+                               label: statsShown ? "Hide stats" : "Show stats") {
+                        showControls()
+                        onToggleStats()
+                    }
+                }
+                if let onChooseChannel {
+                    toolButton("list.bullet", label: "Choose another channel") {
+                        showControls()
+                        onChooseChannel()
+                    }
+                }
+            }
+            .padding(.horizontal, 6)
+            .lineupPlayerControlGlass(Capsule())
+        }
+    }
+
+    private func toolButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .frame(width: 44, height: 46)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private static func timeText(_ start: Date, _ end: Date) -> String {
+        "\(start.formatted(date: .omitted, time: .shortened)) – \(end.formatted(date: .omitted, time: .shortened))"
     }
 
     // MARK: Messages
@@ -469,13 +558,16 @@ struct MobileGuidePlayer: View {
     /// A round glass button that gives under a finger, as the system's own
     /// player controls do. Play and pause, the large one, sits a shade
     /// brighter than the rest.
-    private func control(_ symbol: String, label: String, size: CGFloat = 36,
+    private func control(_ symbol: String, label: String, size: CGFloat? = nil,
                          action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: size >= 42 ? 17 : 14, weight: .semibold, design: .rounded))
+        // Full screen, the system player's sizes; inline, a preview's.
+        let size = size ?? (expanded ? 44 : 36)
+        return Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: size >= 70 ? 30 : (size >= 42 ? 18 : 14), weight: .semibold, design: .rounded))
                 .frame(width: size, height: size)
                 .contentShape(Circle())
-                .lineupGlassControl(Circle(), fallback: Color.black.opacity(0.48), prominent: size >= 42)
+                .lineupPlayerControlGlass(Circle(), prominent: size >= 42 && symbol.hasSuffix(".fill") && (symbol.hasPrefix("play") || symbol.hasPrefix("pause")))
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 
@@ -498,7 +590,7 @@ struct MobileGuidePlayer: View {
                     .lineLimit(1).minimumScaleFactor(0.75)
             }
             .padding(.horizontal, 9).padding(.vertical, 7)
-            .lineupGlassControl(Capsule())
+            .lineupPlayerControlGlass(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(badgeAccessibilityLabel)
@@ -534,6 +626,6 @@ struct MobileGuidePlayer: View {
     private func qualityBadge(_ text: String) -> some View {
         Text(text).font(.inter(.caption2, .semibold)).lineLimit(1)
             .padding(.horizontal, 9).padding(.vertical, 7)
-            .lineupLiquidGlass(Capsule())
+            .lineupPlayerPanelGlass(Capsule())
     }
 }
