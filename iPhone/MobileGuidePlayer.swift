@@ -67,7 +67,7 @@ struct MobileGuidePlayer: View {
             ZStack {
                 MobileVideoSurface(controller: controller)
                 // Full screen only: a preview over the guide has no bars.
-                MobileAmbientGlow(controller: controller,
+                LineupAmbientGlow(frames: { await controller.captureFrame() },
                                   enabled: expanded && !controller.loading && controller.error == nil
                                     && !controller.pictureInPictureActive)
                 // A transparent tap-catching layer, separate from the embedded VLC

@@ -12,16 +12,20 @@ import UIKit
 /// glow lies over the surface with the picture itself cut out of it -- the
 /// frame's shape says where the picture is. An engine that cannot hand over
 /// a frame simply has none.
-struct MobileAmbientGlow: View {
-    let controller: MobilePlaybackController
+struct LineupAmbientGlow: View {
+    /// The frame on screen, from whichever player is showing it.
+    let frames: @MainActor () async -> CapturedVideoFrame?
     var enabled = true
 
-    @AppStorage(MobileAmbientGlow.preferenceKey) private var preference = true
+    @AppStorage(LineupAmbientGlow.preferenceKey) private var preference = true
     @State private var sample: Sample?
 
     static let preferenceKey = "Lineup.player.ambient.v1"
     /// How often the colours are taken again: slow, as the glow is.
     static let interval: Duration = .seconds(2.5)
+    /// How often a picture that fills the screen, with no black to light, is
+    /// looked at again -- in case what is playing changes shape.
+    static let idleInterval: Duration = .seconds(10)
 
     struct Sample: Equatable {
         let id = UUID()
@@ -70,15 +74,26 @@ struct MobileAmbientGlow: View {
                 return
             }
             while !Task.isCancelled {
-                if let frame = await controller.captureFrame(),
-                   let reduced = await MobileAmbientSampler.reduce(frame) {
+                var fills = false
+                if let frame = await frames(),
+                   let reduced = await LineupAmbientSampler.reduce(frame) {
                     withAnimation(.easeInOut(duration: 1.6)) {
                         sample = Sample(image: UIImage(cgImage: reduced.image), aspect: reduced.aspect)
                     }
+                    fills = Self.fillsScreen(reduced.aspect)
                 }
-                try? await Task.sleep(for: Self.interval)
+                try? await Task.sleep(for: fills ? Self.idleInterval : Self.interval)
             }
         }
+    }
+
+    /// Whether a picture of this shape leaves no black on the screen.
+    @MainActor
+    static func fillsScreen(_ aspect: CGFloat) -> Bool {
+        let bounds = UIScreen.main.bounds.size
+        let screen = max(bounds.width, bounds.height) / max(min(bounds.width, bounds.height), 1)
+        let picture = aspect >= 1 ? aspect : 1 / max(aspect, 0.01)
+        return abs(picture - screen) / screen < 0.02
     }
 
     /// Where an aspect-fitted picture sits in a space, centred.
@@ -92,7 +107,7 @@ struct MobileAmbientGlow: View {
 }
 
 /// Shrinks frames for the glow, away from the screen's own actor.
-enum MobileAmbientSampler {
+enum LineupAmbientSampler {
     nonisolated(unsafe) private static let context = CIContext(options: [.useSoftwareRenderer: false])
 
     /// The frame at a few dozen pixels across, and its shape, made off the

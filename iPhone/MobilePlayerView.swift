@@ -65,7 +65,7 @@ struct MobilePlayerView: View {
         ZStack {
             MobileVideoSurface(controller: controller)
                 .ignoresSafeArea()
-            MobileAmbientGlow(controller: controller,
+            LineupAmbientGlow(frames: { await controller.captureFrame() },
                               enabled: !controller.loading && controller.error == nil
                                 && !controller.pictureInPictureActive)
             // A transparent tap-catching layer, separate from the embedded VLC
