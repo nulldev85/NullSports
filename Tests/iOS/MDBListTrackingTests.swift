@@ -43,7 +43,8 @@ final class MDBListTrackingTests: XCTestCase {
         if !condition() { throw NSError(domain: "MDBListTrackingTests", code: 1) }
     }
     private func makeLibrary(_ defaults: UserDefaults, mdb: Bool = false, itemID: String = "matrix",
-                             runtime: Int64? = 36_000_000_000, vod: Bool = false) throws -> (MediaLibrary, MediaItem) {
+                             runtime: Int64? = 36_000_000_000, vod: Bool = false,
+                             server: Bool = false) throws -> (MediaLibrary, MediaItem) {
         let profile = MediaServerProfile(name: "Jellyfin", serverURL: "https://server.invalid", username: "viewer", userID: itemID)
         defaults.set(try JSONEncoder().encode(vod ? [] : [profile]), forKey: "NullSports.mediaServers")
         let provider = XtreamProfile(name: "Fixture VOD", serverURL: "https://provider.invalid", username: "viewer")
@@ -52,6 +53,10 @@ final class MDBListTrackingTests: XCTestCase {
             defaults.set(provider.id.uuidString, forKey: "NullSports.activeProfile")
         }
         defaults.set(mdb, forKey: LibraryTrackingPreferences.mdbKey)
+        // The fixture's server is a Jellyfin server on the same transport.
+        // These are MDBList's tests: its reports are the only ones counted,
+        // unless a test asks for the server's too.
+        defaults.set(server, forKey: LibraryTrackingPreferences.serverKey)
         defaults.set(try JSONEncoder().encode(MDBListTrackingAccount(userID: 7,
             keyDigest: MDBListTrackingAccount.digest(key))), forKey: LibraryTrackingPreferences.accountKey)
         let movie = MediaItem(id: vod ? ProviderItem.film(streamID: 42).id : itemID, name: "The Matrix", type: "Movie", overview: nil,
@@ -71,6 +76,54 @@ final class MDBListTrackingTests: XCTestCase {
         case "/upnext": return (200, [:], #"{"items":[]}"#)
         default: return (200, [:], #"{"action":"pause","updated":{"movies":1},"deleted":{"movies":1}}"#)
         }
+    }
+
+    /// Server Tracking tells the Jellyfin server what plays and where, as
+    /// every Jellyfin app does: started on the first sample, a pause at
+    /// once, and the end when it finished.
+    func testServerTrackingReportsStartPauseAndFinishToTheServer() async throws {
+        TrackingTestProtocol.install { _ in (204, [:], "") }
+        let (library, movie) = try makeLibrary(try defaults(), server: true)
+        XCTAssertTrue(library.serverTrackingEnabled)
+        let id = UUID()
+        library.beginPlaybackSession(for: movie, id: id, mediaSourceID: "copy-1")
+        library.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 600, duration: 3600),
+                                     for: movie, sessionID: id)
+        try await eventually("start reported") { Self.sessionPosts.count == 1 }
+        library.reportTrackingSample(.init(playing: false, pictureInPicture: false, position: 610, duration: 3600),
+                                     for: movie, sessionID: id)
+        try await eventually("pause reported") { Self.sessionPosts.count == 2 }
+        library.completePlayback(of: movie, sessionID: id)
+        library.endPlaybackSession(id)
+        try await eventually("stop reported") { Self.sessionPosts.count == 3 }
+
+        let posts = Self.sessionPosts
+        XCTAssertEqual(posts.map { $0.url!.path.lowercased() },
+                       ["/sessions/playing", "/sessions/playing/progress", "/sessions/playing/stopped"])
+        let bodies = try posts.map { try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap($0.httpBody)) as? [String: Any]) }
+        XCTAssertEqual(bodies[0]["ItemId"] as? String, movie.id)
+        XCTAssertEqual(bodies[0]["MediaSourceId"] as? String, "copy-1")
+        XCTAssertEqual(bodies[1]["IsPaused"] as? Bool, true)
+        XCTAssertEqual(bodies[1]["EventName"] as? String, "Pause")
+        XCTAssertEqual((bodies[2]["PositionTicks"] as? NSNumber)?.int64Value, 36_000_000_000,
+                       "A finished title is reported at its end, so the server marks it watched")
+        XCTAssertEqual(Set(bodies.compactMap { $0["PlaySessionId"] as? String }).count, 1)
+    }
+
+    func testServerTrackingOffReportsNothing() async throws {
+        TrackingTestProtocol.install { _ in (204, [:], "") }
+        let (library, movie) = try makeLibrary(try defaults(), server: false)
+        let id = UUID()
+        library.beginPlaybackSession(for: movie, id: id)
+        library.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 600, duration: 3600),
+                                     for: movie, sessionID: id)
+        library.endPlaybackSession(id)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertTrue(Self.sessionPosts.isEmpty)
+    }
+
+    nonisolated private static var sessionPosts: [URLRequest] {
+        TrackingTestProtocol.posts.filter { $0.url!.path.lowercased().contains("/sessions/playing") }
     }
 
     func testLocalIsDefaultAndDisablingBothPreservesDeviceHistory() throws {

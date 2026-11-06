@@ -19,6 +19,13 @@ struct LibraryTrackingSettingsView: View {
                 Text("Choose either tracker, both, or neither. Local Tracking saves progress on this device. MDBList Tracking shares activity across devices using the same account. With both on, newer account progress can supply your resume point while current playback and newer local choices stay protected. Saved local history remains separate. Silo also manages its own profile’s watch state independently.")
             }
             Section {
+                Toggle("Server Tracking", isOn: Binding(get: { media.serverTrackingEnabled },
+                    set: { media.setServerTrackingEnabled($0) }))
+                    .tint(LineupStyle.highlight)
+            } header: { Text("Jellyfin, Emby and AIOStreams") } footer: {
+                Text("Tells your server what you watch in Lineup and where you stopped, as every Jellyfin app does, so any app you open next picks up there. What you watched in other apps joins Continue Watching here, with Local Tracking on. Whichever was watched more recently wins.")
+            }
+            Section {
                 if let account = media.mdbListAccount { LabeledContent("Account", value: "@\(account.username)") }
                 Button(media.isMDBListConnected ? "Configure MDBList" : "Connect MDBList") { connecting = true }
                 if media.mdbListTrackingEnabled {

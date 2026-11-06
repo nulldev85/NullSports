@@ -54,6 +54,7 @@ struct MobileStreamPickerBoard: View {
         }
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { cancel() }
+        .task { await StreamBadgeStore.shared.refresh() }
     }
 
     private var header: some View {
@@ -149,6 +150,7 @@ struct MobileStreamPickerBoard: View {
 
 private struct MobileStreamResultRow: View {
     let source: MediaPlaybackSource
+    @AppStorage(MediaStreamRow.serverFormatKey) private var serverFormat = true
     private var detail: String {
         [source.quality, source.dynamicRangeTags.isEmpty ? nil : source.dynamicRangeTags.joined(separator: " / "),
          source.sourceTag, source.videoCodec, source.bitDepth, source.audioCodec,
@@ -160,15 +162,25 @@ private struct MobileStreamResultRow: View {
         HStack(alignment: .top, spacing: 12) {
             LineupIconTile(symbol: "play.fill", size: 28).padding(.top, 3)
             VStack(alignment: .leading, spacing: 4) {
-                Text(source.directURL != nil ? "Your IPTV provider’s copy" : source.releaseName)
-                    .font(.inter(16, .semibold)).foregroundStyle(LineupStyle.text)
-                    .lineLimit(3).fixedSize(horizontal: false, vertical: true)
-                if source.directURL != nil {
-                    Text(source.releaseName).font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(2)
+                if serverFormat, let lines = source.formatterLines {
+                    // The formatter's own lines, exactly as it wrote them.
+                    ForEach(Array(lines.name.enumerated()), id: \.offset) { line in
+                        Text(line.element).font(.inter(16, .semibold)).foregroundStyle(LineupStyle.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    ForEach(Array(lines.description.enumerated()), id: \.offset) { line in
+                        Text(line.element).font(.inter(13)).foregroundStyle(LineupStyle.text.opacity(0.72))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } else {
+                    lineupLines
                 }
-                if !detail.isEmpty {
-                    Text(detail).font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
-                        .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                let badges = StreamBadgeStore.shared.badges(for: source)
+                if !badges.isEmpty {
+                    BadgeFlow(spacing: MediaStreamStyle.badgeGap) {
+                        ForEach(badges, id: \.self) { StreamBadgeChip(badge: $0) }
+                    }
+                    .padding(.vertical, 2)
                 }
                 Text(source.group).font(.inter(12, .semibold)).foregroundStyle(LineupPanelStyle.caption)
             }
@@ -179,6 +191,21 @@ private struct MobileStreamResultRow: View {
         .padding(.horizontal, 10).padding(.vertical, 10)
         .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    /// Lineup's own reading of a stream: its file name, then what it is.
+    @ViewBuilder
+    private var lineupLines: some View {
+        Text(source.directURL != nil ? "Your IPTV provider’s copy" : source.releaseName)
+            .font(.inter(16, .semibold)).foregroundStyle(LineupStyle.text)
+            .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+        if source.directURL != nil {
+            Text(source.releaseName).font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(2)
+        }
+        if !detail.isEmpty {
+            Text(detail).font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
+                .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 

@@ -834,9 +834,20 @@ struct LineupGlassGroup<Content: View>: View {
     var spacing: CGFloat = 8
     @ViewBuilder var content: Content
 
-    // No glass to merge: the app's surfaces are solid, as the reference
-    // app's are. Kept so the groups that used it need not change.
-    var body: some View { content }
+    // Pages keep their solid surfaces; the player's controls are glass, and
+    // a group of them shares one sheet of it so neighbours blend as the
+    // system's own do.
+    var body: some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
 }
 
 #if os(iOS)

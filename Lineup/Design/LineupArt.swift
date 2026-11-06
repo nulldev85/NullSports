@@ -219,6 +219,78 @@ enum LineupArt {
     }
 }
 
+#if os(tvOS)
+extension LineupArt {
+    /// Animated covers, decoded only for the card in focus. A handful are
+    /// kept so going back to a card does not decode it again.
+    private static let animations: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 96 * 1024 * 1024
+        return cache
+    }()
+
+    /// The most frames kept of one cover. A longer one plays every second
+    /// or third frame, at the same overall pace.
+    static let animationFrameLimit = 48
+
+    /// The cover at `url` as an animation, when it is one -- a GIF, an
+    /// animated PNG or WebP -- or nil for a still picture or a failure.
+    /// Frames are made at the size the card draws, from the same cached
+    /// bytes as its still.
+    static func animation(_ url: URL, pixels: Int) async -> UIImage? {
+        let key = "\(url.absoluteString)|\(pixels)|animated" as NSString
+        if let held = animations.object(forKey: key) { return held }
+        guard let fetched = try? await session.data(from: url),
+              (fetched.1 as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
+              !Task.isCancelled else { return nil }
+        let data = fetched.0
+        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+            let count = CGImageSourceGetCount(source)
+            guard count > 1 else { return nil }
+            let step = max(1, Int((Double(count) / Double(animationFrameLimit)).rounded(.up)))
+            let options = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: pixels
+            ] as CFDictionary
+            var frames: [UIImage] = []
+            var total: Double = 0
+            for index in Swift.stride(from: 0, to: count, by: step) {
+                guard let frame = CGImageSourceCreateThumbnailAtIndex(source, index, options) else { continue }
+                frames.append(UIImage(cgImage: frame))
+                for skipped in index..<min(index + step, count) { total += frameDelay(source, at: skipped) }
+            }
+            guard frames.count > 1 else { return nil }
+            return UIImage.animatedImage(with: frames, duration: total > 0 ? total : Double(frames.count) / 12)
+        }.value
+        if let image, let first = image.images?.first {
+            let cost = Int(first.size.width * first.size.height * first.scale * first.scale * 4) * (image.images?.count ?? 1)
+            animations.setObject(image, forKey: key, cost: cost)
+        }
+        return image
+    }
+
+    /// How long one frame is shown, from whichever format's own record of it.
+    private static func frameDelay(_ source: CGImageSource, at index: Int) -> Double {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any] else { return 0.1 }
+        let dictionaries: [(CFString, CFString, CFString)] = [
+            (kCGImagePropertyGIFDictionary, kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime),
+            (kCGImagePropertyPNGDictionary, kCGImagePropertyAPNGUnclampedDelayTime, kCGImagePropertyAPNGDelayTime),
+            (kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime)
+        ]
+        for (dictionary, unclamped, clamped) in dictionaries {
+            guard let values = properties[dictionary] as? [CFString: Any] else { continue }
+            let delay = (values[unclamped] as? Double) ?? (values[clamped] as? Double) ?? 0
+            // Browsers draw anything quicker than this at a tenth of a second.
+            return delay >= 0.02 ? delay : 0.1
+        }
+        return 0.1
+    }
+}
+#endif
+
 /// A picture from the network, drawn through `LineupArt`.
 ///
 /// Shaped like `AsyncImage` on purpose -- the content closure is handed the

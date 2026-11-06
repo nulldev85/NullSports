@@ -96,6 +96,14 @@ struct MediaDetailScreen: View {
         #endif
         .modifier(FullBleedHeader())
         .task(id: item.libraryKey) { await load() }
+        .task(id: "warm-streams|" + (playTarget?.libraryKey ?? "")) {
+            // Once what Play starts has settled, so a page still finding its
+            // next episode asks for one list, not one for each guess.
+            guard let target = playTarget else { return }
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            media.warmStreams(for: target)
+        }
         .task(id: "title-logo|" + media.metadataRequestKey(for: detail ?? item)) {
             // Begin even while TV prepares seasons/backdrop/focus. The title
             // view can use the same decoded logo on its very first frame.

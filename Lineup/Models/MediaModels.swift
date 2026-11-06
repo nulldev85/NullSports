@@ -572,12 +572,34 @@ struct MediaUserData: Codable, Hashable, Sendable {
     let played: Bool?
     let isFavorite: Bool?
     let playedPercentage: Double?
+    /// Where the viewer stopped, as the server keeps it for every app.
+    var playbackPositionTicks: Int64? = nil
+    /// When the server last heard the title played, by any app.
+    var lastPlayedDate: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case played = "Played"
         case isFavorite = "IsFavorite"
         case playedPercentage = "PlayedPercentage"
+        case playbackPositionTicks = "PlaybackPositionTicks"
+        case lastPlayedDate = "LastPlayedDate"
     }
+
+    /// `lastPlayedDate` read as a date. Servers write it with up to seven
+    /// fractional digits, which ISO 8601 parsing does not take; the whole
+    /// seconds are all that matters here.
+    var lastPlayed: Date? {
+        guard let raw = lastPlayedDate, raw.count >= 19 else { return nil }
+        return Self.secondsFormatter.date(from: String(raw.prefix(19)))
+    }
+
+    private static let secondsFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
+        return formatter
+    }()
 }
 
 /// Lineup's on-device account of a title's playback. Jellyfin-compatible
@@ -1325,8 +1347,25 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         let name: String?
         let description: String?
         let bingeGroup: String?
+        /// What AIOStreams parsed from the release, by the names its
+        /// formatter gives them, for badges that match one part of a stream
+        /// rather than all of it.
+        var fields: [String: [String]] = [:]
+
+        /// The parts named here, in the order AIOStreams' own app reads them.
+        static let fieldNames = ["name", "description", "filename", "folderName", "resolution", "quality",
+                                 "encode", "visualTags", "audioTags", "audioChannels", "languages", "editions",
+                                 "releaseGroup", "indexer", "addon", "service", "seMatched", "rseMatched",
+                                 "regexMatched", "rankedRegexMatched"]
 
         enum CodingKeys: String, CodingKey { case addon, filename, cached, id, name, description, bingeGroup }
+
+        private struct AnyKey: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+            init(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
 
         init(from decoder: Decoder) throws {
             let values = try? decoder.container(keyedBy: CodingKeys.self)
@@ -1337,6 +1376,20 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
             name = values?.lenientString(.name)
             description = values?.lenientString(.description)
             bingeGroup = values?.lenientString(.bingeGroup)
+            if let all = try? decoder.container(keyedBy: AnyKey.self) {
+                for field in Self.fieldNames {
+                    let key = AnyKey(stringValue: field)
+                    if let list = try? all.decode([String].self, forKey: key) {
+                        let kept = list.filter { !$0.isEmpty }
+                        if !kept.isEmpty { fields[field] = kept }
+                    } else if let one = all.lenientString(key), !one.isEmpty {
+                        fields[field] = [one]
+                    }
+                }
+                if let seadex = all.lenientString(AnyKey(stringValue: "seadex")) {
+                    fields["seadex"] = [seadex == "best" ? "SeaDex Best" : "SeaDex"]
+                }
+            }
         }
     }
 

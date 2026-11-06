@@ -53,7 +53,7 @@ struct MobileLibrarySeekBar: View {
             .foregroundStyle(LineupStyle.mediaText.opacity(0.8))
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .transaction { $0.animation = nil }
         .onChange(of: touching) { _, active in if !active { finish() } }
         .onChange(of: preview.source?.firstTile.url) { _, _ in

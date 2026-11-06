@@ -87,12 +87,11 @@ struct MobilePlayerView: View {
                         .lineupProminentButton()
                 }
                 .padding(24)
-                .lineupLiquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .padding(32)
             } else if controller.loading {
                 ProgressView(controller.loadingMessage).padding(24)
-                    .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous),
-                                     fallback: Material.ultraThinMaterial, border: .clear)
+                    .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             if let notice = controller.failoverNotice {
                 VStack {
@@ -101,7 +100,7 @@ struct MobilePlayerView: View {
                         .font(.inter(.subheadline, .semibold))
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 14).padding(.vertical, 10)
-                        .lineupLiquidGlass(Capsule(), fallback: Color.black.opacity(0.62))
+                        .lineupPlayerPanelGlass(Capsule())
                         .padding(.bottom, 40)
                 }
                 .transition(.opacity)
@@ -460,7 +459,7 @@ struct MobilePlayerView: View {
                 Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.inter(.caption2, .bold))
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .lineupGlassControl(Capsule())
+            .lineupPlayerControlGlass(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
@@ -517,14 +516,14 @@ struct MobilePlayerView: View {
         .frame(maxWidth: MobilePlayerLayout.synopsisWidth(
                     available: available, compactHeight: verticalSizeClass == .compact),
                     alignment: .leading)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 
     private func qualityBadge(_ text: String) -> some View {
         Text(text).font(.inter(.caption2, .semibold)).lineLimit(1)
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .lineupLiquidGlass(Capsule())
+            .lineupPlayerPanelGlass(Capsule())
     }
 
     /// The close button leaves the same way a swipe does: the picture is
@@ -544,7 +543,7 @@ struct MobilePlayerView: View {
             Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold, design: .rounded))
                 .frame(width: size, height: size)
                 .contentShape(Circle())
-                .lineupGlassControl(Circle(), prominent: size >= 60)
+                .lineupPlayerControlGlass(Circle(), prominent: size >= 60)
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 }
@@ -602,9 +601,7 @@ private struct MobileNextEpisodeCard: View {
         }
         .padding(14)
         .frame(width: 250)
-        .background(LineupPanelStyle.fill, in: shape)
-        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+        .lineupPlayerPanelGlass(shape)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Next episode, \(offer.code.map { $0 + ", " } ?? "")\(offer.title)")
     }

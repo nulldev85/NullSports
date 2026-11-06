@@ -15,6 +15,8 @@ struct LibraryPlaybackSample: Equatable, Sendable {
 enum LibraryTrackingPreferences {
     static let localKey = "Lineup.tracking.local.v1"
     static let mdbKey = "Lineup.tracking.mdblist.v1"
+    /// Progress kept with the viewer's Jellyfin, Emby or AIOStreams server.
+    static let serverKey = "Lineup.tracking.server.v1"
     static let accountKey = "Lineup.tracking.mdblistAccount.v1"
     static func cacheKey(_ account: Int) -> String { "Lineup.tracking.mdblistPlayback.v1.\(account)" }
 }

@@ -18,18 +18,21 @@ final class TVSportsBackgroundTests: XCTestCase {
     func testLiveGamesComeFirstThenEachDayInOrder() {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
+        // Days are counted from midnight, so the test reads the same at any
+        // hour it runs.
         let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
-        let laterToday = Date().addingTimeInterval(3600)
+        let dayAfter = calendar.date(byAdding: .day, value: 2, to: today)!
         let live = game("live", start: Date().addingTimeInterval(-1800), state: "in", status: "Q2")
-        let tonight = game("tonight", start: laterToday, state: "pre")
-        let tomorrowEarly = game("tomorrow-early", start: tomorrow.addingTimeInterval(3600 * 13), state: "pre")
-        let tomorrowLate = game("tomorrow-late", start: tomorrow.addingTimeInterval(3600 * 20), state: "pre")
+        let tomorrowNight = game("tomorrow-night", start: tomorrow.addingTimeInterval(3600 * 19), state: "pre")
+        let laterEarly = game("later-early", start: dayAfter.addingTimeInterval(3600 * 13), state: "pre")
+        let laterLate = game("later-late", start: dayAfter.addingTimeInterval(3600 * 20), state: "pre")
 
-        let slate = TVSportsBoard.Slate([tomorrowLate, tonight, live, tomorrowEarly])
+        let slate = TVSportsBoard.Slate([laterLate, tomorrowNight, live, laterEarly])
 
         XCTAssertEqual(slate.live.map(\.id), ["live"])
-        XCTAssertEqual(slate.days.map(\.day), [calendar.startOfDay(for: laterToday), tomorrow])
-        XCTAssertEqual(slate.days.last?.games.map(\.id), ["tomorrow-early", "tomorrow-late"])
+        XCTAssertEqual(slate.days.map(\.day), [tomorrow, dayAfter])
+        XCTAssertEqual(slate.days.first?.games.map(\.id), ["tomorrow-night"])
+        XCTAssertEqual(slate.days.last?.games.map(\.id), ["later-early", "later-late"])
         XCTAssertEqual(slate.ordered.map(\.id).first, "live", "Back counts cards in the order they are drawn")
         XCTAssertEqual(slate.ordered.count, 4)
     }

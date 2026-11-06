@@ -1,8 +1,6 @@
 import SwiftUI
 import Observation
-#if os(tvOS)
 import UIKit
-#endif
 
 /// What a stream list is for, drawn at its top.
 struct MediaStreamHeading {
@@ -77,6 +75,9 @@ struct MediaStreamBoard: View {
         }
         .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .foregroundStyle(LineupPresentationStyle.text)
+        // Badge packs older than a few hours are fetched again while the
+        // streams are being found; until then the copy from last time draws.
+        .task { await StreamBadgeStore.shared.refresh() }
     }
 
     // MARK: Header
@@ -389,10 +390,70 @@ struct MediaStreamTab: View {
 /// under that, and its size on the right, where every row's lines up.
 struct MediaStreamRow: View {
     let source: MediaPlaybackSource
+    /// Show a stream the way the server's formatter laid it out, where it
+    /// lays one out, rather than as Lineup reads it.
+    @AppStorage(MediaStreamRow.serverFormatKey) private var serverFormat = true
+
+    static let serverFormatKey = "Lineup.streams.serverFormat.v1"
 
     private typealias Style = MediaStreamStyle
 
+    private var badges: [StreamBadge] { StreamBadgeStore.shared.badges(for: source) }
+
     var body: some View {
+        Group {
+            if serverFormat, let lines = source.formatterLines {
+                formatted(lines)
+            } else {
+                lineupLayout
+            }
+        }
+        .padding(.horizontal, Style.rowInsetH).padding(.vertical, Style.rowInsetV)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        #if os(tvOS)
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous)
+            .strokeBorder(LineupStyle.line, lineWidth: 1))
+        #else
+        // A panel of its own, as every card on the phone is.
+        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
+        #endif
+        .foregroundStyle(LineupPresentationStyle.text)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The formatter's own lines, exactly as it wrote them: its name in
+    /// bold, then its description, then any badges.
+    private func formatted(_ lines: (name: [String], description: [String])) -> some View {
+        VStack(alignment: .leading, spacing: Style.lineGap) {
+            ForEach(Array(lines.name.enumerated()), id: \.offset) { line in
+                Text(line.element)
+                    .font(.inter(Style.summarySize, .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(Array(lines.description.enumerated()), id: \.offset) { line in
+                Text(line.element)
+                    .font(.inter(Style.formatLineSize))
+                    .foregroundStyle(LineupPresentationStyle.text.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            badgeRow
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var badgeRow: some View {
+        let shown = badges
+        if !shown.isEmpty {
+            BadgeFlow(spacing: Style.badgeGap) {
+                ForEach(shown, id: \.self) { StreamBadgeChip(badge: $0) }
+            }
+            .padding(.top, Style.lineGap)
+        }
+    }
+
+    private var lineupLayout: some View {
         HStack(alignment: .center, spacing: Style.rowGap) {
             tile
             VStack(alignment: .leading, spacing: Style.lineGap) {
@@ -414,24 +475,13 @@ struct MediaStreamRow: View {
                 }
                 #endif
                 origin
+                badgeRow
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             #if os(tvOS)
             measures
             #endif
         }
-        .padding(.horizontal, Style.rowInsetH).padding(.vertical, Style.rowInsetV)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        #if os(tvOS)
-        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous)
-            .strokeBorder(LineupStyle.line, lineWidth: 1))
-        #else
-        // A panel of its own, as every card on the phone is.
-        .background(LineupPresentationStyle.card, in: RoundedRectangle(cornerRadius: Style.rowRadius, style: .continuous))
-        #endif
-        .foregroundStyle(LineupPresentationStyle.text)
-        .accessibilityElement(children: .combine)
     }
 
     /// Resolution, large, with the dynamic range under it.
@@ -587,6 +637,12 @@ enum MediaStreamStyle {
     static let noticeTop: CGFloat = 70
     static let separator = "  ·  "
     static let summaryLines = 1
+    static let formatLineSize: CGFloat = 21
+    static let badgeGap: CGFloat = 10
+    static let badgeHeight: CGFloat = 36
+    static let badgeImageHeight: CGFloat = 26
+    static let badgeImageMaxWidth: CGFloat = 160
+    static let badgeTextSize: CGFloat = 17
     #else
     static let boardWidth: CGFloat = .infinity
     static let sideInset: CGFloat = 16
@@ -640,7 +696,90 @@ enum MediaStreamStyle {
     static let noticeTop: CGFloat = 40
     static let separator = " · "
     static let summaryLines = 2
+    static let formatLineSize: CGFloat = 13
+    static let badgeGap: CGFloat = 6
+    static let badgeHeight: CGFloat = 22
+    static let badgeImageHeight: CGFloat = 16
+    static let badgeImageMaxWidth: CGFloat = 90
+    static let badgeTextSize: CGFloat = 11
     #endif
+}
+
+/// One badge from a pack: its picture, or its label in a chip coloured as
+/// the pack says when there is no picture or the picture will not load.
+struct StreamBadgeChip: View {
+    let badge: StreamBadge
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    private typealias Style = MediaStreamStyle
+    private static let pixels = LineupArt.pixels(for: MediaStreamStyle.badgeImageMaxWidth)
+
+    init(badge: StreamBadge) {
+        self.badge = badge
+        _image = State(initialValue: LineupArt.ready(badge.imageURL, pixels: Self.pixels))
+    }
+
+    var body: some View {
+        Group {
+            if let image {
+                let ratio = image.size.width / max(image.size.height, 1)
+                Image(uiImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: min(Style.badgeImageMaxWidth, Style.badgeImageHeight * ratio),
+                           height: Style.badgeImageHeight)
+                    .frame(height: Style.badgeHeight)
+            } else if badge.imageURL != nil, !failed {
+                Color.clear.frame(width: Style.badgeImageHeight * 2.5, height: Style.badgeHeight)
+            } else {
+                label
+            }
+        }
+        .accessibilityLabel(badge.label)
+        .task(id: badge.image) {
+            guard image == nil, let url = badge.imageURL else { return }
+            if let loaded = await LineupArt.load(url, pixels: Self.pixels) {
+                image = loaded
+            } else {
+                failed = true
+            }
+        }
+    }
+
+    private var label: some View {
+        Text(badge.label)
+            .font(.inter(Style.badgeTextSize, .semibold))
+            .lineLimit(1)
+            .foregroundStyle(Self.color(badge.color) ?? .white)
+            .padding(.horizontal, Style.badgeTextSize * 0.6)
+            .frame(height: Style.badgeHeight)
+            .background(Self.color(badge.background) ?? .clear,
+                        in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Self.color(badge.border) ?? .white.opacity(0.6), lineWidth: 1))
+    }
+
+    private static func color(_ text: String?) -> Color? {
+        guard let text, let value = StreamBadgeColor(text) else { return nil }
+        return Color(.sRGB, red: value.red, green: value.green, blue: value.blue, opacity: value.alpha)
+    }
+}
+
+extension MediaPlaybackSource {
+    /// AIOStreams' formatter's own lines -- its name, then its description
+    /// -- when it sent any.
+    var formatterLines: (name: [String], description: [String])? {
+        guard let info = aiostreams else { return nil }
+        func split(_ text: String?) -> [String] {
+            (text ?? "").components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        }
+        let name = split(info.name), description = split(info.description)
+        guard !name.isEmpty || !description.isEmpty else { return nil }
+        return (name, description)
+    }
 }
 
 /// A stream carries anywhere from two to seven badges. One row of them either

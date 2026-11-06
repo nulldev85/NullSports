@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LibraryMetadataSettingsView: View {
     @Environment(MediaLibrary.self) private var media
+    @AppStorage(MediaStreamRow.serverFormatKey) private var serverStreamFormat = true
     #if os(tvOS)
     @State private var choosingMetadata = false
     @State private var choosingEpisodes = false
@@ -39,12 +40,21 @@ struct LibraryMetadataSettingsView: View {
                     .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
                 Text("Artwork").font(.inter(30, .bold)).padding(.top, 12)
                 VStack(spacing: 16) {
+                    switchRow("Server Posters", symbol: "server.rack",
+                              isOn: Bindable(media).serverPostersEnabled)
                     switchRow("BetterPosters", symbol: "photo.on.rectangle.angled",
                               isOn: Bindable(media).betterPostersEnabled)
                     switchRow("Title Logos", symbol: "textformat", isOn: Bindable(media).fanartEnabled)
                 }
-                Text("BetterPosters draws movie and show posters with their ratings, in its default style, for titles with an IMDb match. Your own artwork stays wherever one can't load. Title Logos checks Fanart.tv first, then TMDB, when a server logo is unavailable. Artwork provided by BetterPosters, Fanart.tv, and TMDB.")
+                Text("Server Posters keeps the posters your Jellyfin, Emby or AIOStreams server provides, such as those from a poster service, instead of the metadata source's. BetterPosters draws movie and show posters with their ratings, in its default style, for titles with an IMDb match. Your own artwork stays wherever one can't load. Title Logos checks Fanart.tv first, then TMDB, when a server logo is unavailable. Artwork provided by BetterPosters, Fanart.tv, and TMDB.")
                     .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                Text("Streams").font(.inter(30, .bold)).padding(.top, 12)
+                VStack(spacing: 16) {
+                    switchRow("Server's Stream Format", symbol: "text.alignleft", isOn: $serverStreamFormat)
+                }
+                Text("Shows each AIOStreams stream exactly as your formatter writes it. Turn it off for Lineup's own summary and the file name.")
+                    .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+                StreamBadgeSettingsView()
                 availability
                 credits
             }
@@ -102,6 +112,10 @@ struct LibraryMetadataSettingsView: View {
               footer: { Text("Uses matching community timestamps for Library playback. Next Episode keeps Lineup's existing episode choice and Play Now action. Missing credit timestamps keep the normal prompt near the end. Post-credit notices appear only when a movie has matching scene data; nothing skips automatically.").lineupSettingsFooter() }
               .lineupSettingsRows()
             Section {
+                Toggle(isOn: Bindable(media).serverPostersEnabled) {
+                    sourceLabel("Server Posters", symbol: "server.rack")
+                }
+                .tint(LineupStyle.highlight)
                 Toggle(isOn: Bindable(media).betterPostersEnabled) {
                     sourceLabel("BetterPosters", symbol: "photo.on.rectangle.angled")
                 }
@@ -110,7 +124,7 @@ struct LibraryMetadataSettingsView: View {
                     NavigationLink("Poster Style") { MobileBetterPostersSettings() }
                 }
             } header: { Text("Posters").lineupSettingsHeader() }
-              footer: { Text("Uses BetterPosters for movie and show posters with an IMDb match. Your original artwork remains available when a poster cannot load. Episode stills and hero artwork keep their current style.").lineupSettingsFooter() }
+              footer: { Text("Server Posters keeps the posters your Jellyfin, Emby or AIOStreams server provides, such as those from a poster service, instead of the metadata source's. BetterPosters draws its own for movie and show posters with an IMDb match. Your original artwork remains available when a poster cannot load. Episode stills and hero artwork keep their current style.").lineupSettingsFooter() }
               .lineupSettingsRows()
             Section {
                 Toggle(isOn: Bindable(media).fanartEnabled) {
@@ -122,6 +136,25 @@ struct LibraryMetadataSettingsView: View {
                 }.font(.inter(.footnote))
             } header: { Text("Title Artwork").lineupSettingsHeader() }
               footer: { Text("Uses a matching server logo first, then checks Fanart.tv and TMDB for movie or show title logos. Titles remain readable when neither has a usable logo.").lineupSettingsFooter() }
+              .lineupSettingsRows()
+            Section {
+                Toggle(isOn: $serverStreamFormat) {
+                    sourceLabel("Server's Stream Format", symbol: "text.alignleft")
+                }.tint(LineupStyle.highlight)
+                NavigationLink {
+                    StreamBadgeSettingsView()
+                } label: {
+                    HStack {
+                        sourceLabel("Stream Badges", symbol: "tag")
+                        Spacer()
+                        let count = StreamBadgeStore.shared.count
+                        if count > 0 {
+                            Text("\(count)").font(.inter(.subheadline)).foregroundStyle(LineupPanelStyle.quiet)
+                        }
+                    }
+                }
+            } header: { Text("Streams").lineupSettingsHeader() }
+              footer: { Text("Server's Stream Format shows each AIOStreams stream exactly as your formatter writes it; off, Lineup shows its own summary and the file name. Stream Badges draws pictures under each stream from badge packs you add by address.").lineupSettingsFooter() }
               .lineupSettingsRows()
             Section {
                 availability
@@ -211,6 +244,132 @@ struct LibraryMetadataSettingsView: View {
         .tint(LineupStyle.highlight)
         .buttonStyle(.plain)
         .padding(.vertical, 8)
+    }
+}
+
+/// The badge packs drawn under streams: each one's address, how many badges
+/// it holds or why it would not load, and a field to add another.
+struct StreamBadgeSettingsView: View {
+    @State private var address = ""
+    @State private var adding = false
+    @State private var problem: String?
+    #if os(tvOS)
+    @State private var removing: String?
+    #endif
+
+    private var store: StreamBadgeStore { StreamBadgeStore.shared }
+
+    private static let explanation = "A badge pack is a JSON file of patterns and pictures, written the way the AIOStreams app, Fusion or Nuvio write them. Each stream that matches a pattern gets that badge under it. Packs are checked for changes every few hours."
+
+    var body: some View {
+        #if os(tvOS)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Stream Badges").font(.inter(30, .bold)).padding(.top, 12)
+            ForEach(store.links, id: \.self) { link in
+                TVSelectable(scale: 1.015, fillRadius: 18, action: { removing = link }) {
+                    packRow(link)
+                        .padding(24)
+                        .background(LineupPanelStyle.well, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+            }
+            HStack(spacing: 16) {
+                TextField("Badge pack address", text: $address)
+                    .textContentType(.URL)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .onSubmit(add)
+                Button(adding ? "Adding…" : "Add", action: add)
+                    .disabled(adding || address.isEmpty)
+            }
+            if let problem {
+                Text(problem).font(.inter(21)).foregroundStyle(LineupStyle.highlight)
+            }
+            Text(Self.explanation).font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
+        }
+        .tvChoices("Badge pack", symbol: "tag", isPresented: Binding(
+            get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            [TVChoice("Remove", symbol: "trash", isDestructive: true) {
+                if let removing { store.remove(removing) }
+            }]
+        }
+        #else
+        List {
+            Section {
+                ForEach(store.links, id: \.self) { link in
+                    packRow(link)
+                }
+                .onDelete { offsets in
+                    for link in offsets.map({ store.links[$0] }) { store.remove(link) }
+                }
+                HStack {
+                    TextField("Badge pack address", text: $address)
+                        .textContentType(.URL)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
+                        .onSubmit(add)
+                    Button(adding ? "Adding…" : "Add", action: add)
+                        .disabled(adding || address.isEmpty)
+                        .tint(LineupStyle.highlight)
+                }
+            } header: {
+                Text("Badge Packs").lineupSettingsHeader()
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let problem { Text(problem).foregroundStyle(LineupStyle.highlight) }
+                    Text(Self.explanation)
+                }
+                .lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+        }
+        .lineupSettingsList()
+        .navigationTitle("Stream Badges")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await store.refresh(force: true) }
+        #endif
+    }
+
+    private func packRow(_ link: String) -> some View {
+        let url = URL(string: link)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(url?.host ?? link)
+                .font(.inter(Self.titleSize, .semibold)).lineLimit(1)
+            Text(url?.path.isEmpty == false ? url!.path : link)
+                .font(.inter(Self.detailSize)).foregroundStyle(LineupPanelStyle.quiet)
+                .lineLimit(1).truncationMode(.middle)
+            if let failure = store.failures[link] {
+                Text(failure).font(.inter(Self.detailSize)).foregroundStyle(LineupStyle.highlight)
+            } else if let pack = store.packs[link] {
+                Text(pack.badges.count == 1 ? "1 badge" : "\(pack.badges.count) badges")
+                    .font(.inter(Self.detailSize)).foregroundStyle(LineupPanelStyle.quiet)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(LineupStyle.text)
+    }
+
+    #if os(tvOS)
+    private static let titleSize: CGFloat = 25
+    private static let detailSize: CGFloat = 20
+    #else
+    private static let titleSize: CGFloat = 16
+    private static let detailSize: CGFloat = 13
+    #endif
+
+    private func add() {
+        let text = address
+        guard !text.isEmpty, !adding else { return }
+        adding = true
+        problem = nil
+        Task {
+            let failure = await store.add(text)
+            adding = false
+            problem = failure
+            if failure == nil { address = "" }
+        }
     }
 }
 

@@ -134,6 +134,52 @@ enum MediaRatingMetrics {
 }
 
 #if os(tvOS)
+/// A cover's animation, over its still, for as long as the card is in focus.
+/// Nothing is fetched or decoded until the remote has rested on the card a
+/// moment, so passing along a shelf costs nothing; a still cover never
+/// shows anything here. The frames play in Core Animation, off the main
+/// thread, and stop when focus moves on and this view goes.
+struct TVAnimatedArtwork: View {
+    let url: URL
+    let width: CGFloat
+    @State private var animation: UIImage?
+
+    var body: some View {
+        Group {
+            if let animation {
+                TVAnimatedImageView(image: animation).transition(.opacity)
+            }
+        }
+        .task(id: url) {
+            do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+            let found = await LineupArt.animation(url, pixels: LineupArt.pixels(for: width))
+            guard !Task.isCancelled, let found else { return }
+            withAnimation(.easeOut(duration: 0.2)) { animation = found }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct TVAnimatedImageView: UIViewRepresentable {
+    let image: UIImage
+
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView(image: image)
+        view.contentMode = .scaleAspectFill
+        view.clipsToBounds = true
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        return view
+    }
+
+    func updateUIView(_ view: UIImageView, context: Context) {
+        if view.image !== image { view.image = image }
+    }
+}
+
 /// BetterPosters' rated poster, drawn over the ordinary one, as the phone's
 /// `MobileRatedPoster` does: both through the same artwork cache, and the
 /// ordinary poster shown while the rated one loads and wherever it fails.
@@ -184,6 +230,19 @@ struct MediaItemCard: View {
     @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .subheadline) private var titleHeight: CGFloat = 40
     @ScaledMetric(relativeTo: .caption2) private var metadataHeight: CGFloat = 16
+
+    /// A streaming service, a collection or a folder: a card that stands for
+    /// a group of titles rather than one.
+    private var isGrouping: Bool {
+        StreamingService.service(for: item) != nil
+            || ["BoxSet", "CollectionFolder", "Folder", "UserView"].contains(item.type)
+    }
+
+    /// How many titles a group holds, when the server says.
+    private var groupingCount: String? {
+        guard let count = item.childCount, count > 0 else { return nil }
+        return count == 1 ? "1 TITLE" : "\(count) TITLES"
+    }
     #endif
     #if os(tvOS)
     @Environment(\.lineupTVSelectableFocused) private var artworkFocused
@@ -233,37 +292,41 @@ struct MediaItemCard: View {
                             .padding(9)
                     }
                 }
-            // Two lines are held whether or not the title needs them, so the line
-            // under it lands on the same baseline across a row.
+            #if os(tvOS)
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
-                #if os(tvOS)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .multilineTextAlignment(.center)
-                #else
-                .frame(height: titleHeight, alignment: .topLeading)
-                #endif
-            #if !os(tvOS)
-            // The television shows a poster and its title and nothing more:
-            // "MOVIE · 2026" under every card was clutter a viewer reads past.
-            // The phone keeps the line on every card, so a row stays even.
-            HStack(spacing: 7) {
-                if StreamingService.service(for: item) != nil {
-                    Text(item.childCount == 1 ? "1 TITLE" : "\(item.childCount ?? 0) TITLES")
-                } else {
-                    // A collection's card is its artwork and its name. Its
-                    // type said nothing a viewer needed, and the line keeps
-                    // its height so the row stays even.
-                    if item.type != "BoxSet" {
-                        Text(item.type.uppercased())
-                        if let year = item.productionYear { Text("· \(String(year))") }
-                    }
-                    if let count = item.childCount, count > 0 { Text(item.type == "BoxSet" ? "\(count) TITLES" : "· \(count)") }
+            #else
+            if isGrouping {
+                // A service or a collection is its artwork and its name. A row
+                // of them is all one kind, so nothing below has to line up
+                // with a film's year, and no empty lines are held for it.
+                Text(item.name).font(titleFont).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                if let count = groupingCount {
+                    Text(count)
+                        .font(.inter(.caption2, .medium))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                        .lineLimit(1)
                 }
+            } else {
+                // Two lines are held whether or not the title needs them, so
+                // the line under it lands on the same baseline across a row.
+                Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
+                    .frame(height: titleHeight, alignment: .topLeading)
+                // The television shows a poster and its title and nothing
+                // more; the phone keeps the line on every card, so a row
+                // stays even.
+                HStack(spacing: 7) {
+                    Text(item.type.uppercased())
+                    if let year = item.productionYear { Text("· \(String(year))") }
+                    if let count = item.childCount, count > 0 { Text("· \(count)") }
+                }
+                .font(.inter(.caption2, .medium))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                .lineLimit(1)
+                .frame(height: metadataHeight, alignment: .topLeading)
             }
-            .font(.inter(.caption2, .medium))
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
-            .lineLimit(1)
-            .frame(height: metadataHeight, alignment: .topLeading)
             #endif
         }
         .foregroundStyle(LineupStyle.lightPurple)
@@ -311,6 +374,11 @@ struct MediaItemCard: View {
                               fallback: artworkURL, width: artWidth) { loaded in
                     if let image = loaded { image.resizable().scaledToFill() }
                     else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
+                }
+                // An animated cover plays on the card in focus, and only
+                // there: a row of them all moving at once is noise.
+                if artworkIsFocused, let artworkURL {
+                    TVAnimatedArtwork(url: artworkURL, width: artWidth)
                 }
                 #else
                 let art = Self.art(for: item, shape: shape, in: media, scale: displayScale)
