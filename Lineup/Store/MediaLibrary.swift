@@ -150,6 +150,19 @@ final class MediaLibrary {
             defaults.set(newValue, forKey: "Lineup.library.betterPosters.v1")
         }
     }
+    /// The poster a server hands back, kept in place of the metadata
+    /// source's. A server's own artwork is often chosen with care -- a poster
+    /// service on Jellyfin or AIOStreams -- and the metadata source's would
+    /// otherwise quietly replace it.
+    @ObservationIgnored private var _serverPostersEnabled: Bool = true
+    var serverPostersEnabled: Bool {
+        get { access(keyPath: \.serverPostersEnabled); return _serverPostersEnabled }
+        set {
+            withMutation(keyPath: \.serverPostersEnabled) { _serverPostersEnabled = newValue }
+            defaults.set(newValue, forKey: Self.serverPostersKey)
+        }
+    }
+    static let serverPostersKey = "Lineup.library.serverPosters.v1"
     @ObservationIgnored private var _betterPostersTemplate: String = MobileBetterPosters.defaultTemplate
     var betterPostersTemplate: String {
         get { access(keyPath: \.betterPostersTemplate); return _betterPostersTemplate }
@@ -227,6 +240,7 @@ final class MediaLibrary {
     private(set) var serverTrackingEnabled = true
     /// What each playback session has told its server so far.
     @ObservationIgnored private var serverReports: [UUID: ServerPlaybackReport] = [:]
+    @ObservationIgnored private var warmedStreams: [String: (started: Date, task: Task<[MediaPlaybackSource], Error>)] = [:]
     private(set) var mdbListTrackingEnabled = false
     let mdbListTracking: MDBListTrackingService
     @ObservationIgnored private let trackingKey: () -> String?
@@ -430,6 +444,7 @@ final class MediaLibrary {
         postCreditsNoticeEnabled = defaults.object(forKey: "Lineup.library.postCreditsNotice.v1") as? Bool ?? true
         _fanartEnabled = defaults.object(forKey: "Lineup.library.fanart.v1") as? Bool ?? true
         _betterPostersEnabled = defaults.bool(forKey: "Lineup.library.betterPosters.v1")
+        _serverPostersEnabled = defaults.object(forKey: Self.serverPostersKey) as? Bool ?? true
         if let template = defaults.string(forKey: "Lineup.library.betterPostersTemplate.v1"), MobileBetterPosters.validTemplate(template) {
             _betterPostersTemplate = template
         }
@@ -3485,6 +3500,13 @@ final class MediaLibrary {
 
     func imageURL(for item: MediaItem, width: Int = 600) -> URL? {
         let item = displayItem(item)
+        // The server's own poster, when it has one, before the metadata
+        // source's.
+        if serverPostersEnabled, item.metadata?.poster != nil, item.imageTags?["Primary"] != nil,
+           let profile = profile(for: item),
+           let own = try? client(for: profile).artworkURL(for: item, type: "primary", maxWidth: width) {
+            return own
+        }
         // A source that names its artwork outright is asked for that address
         // directly, and the server is never reached at all.
         if let poster = item.posterURL { return URL(string: poster) }
@@ -3589,6 +3611,45 @@ final class MediaLibrary {
             }
             target = copy
         }
+        // The list asked for when the title's page opened, if it is recent:
+        // waited on if it is still coming, and asked again if it failed.
+        if !refresh, let warm = warmedStreams[Self.warmKey(target.id, on: profile)],
+           Date().timeIntervalSince(warm.started) < Self.warmStreamsWindow,
+           let sources = try? await warm.task.value {
+            return sources
+        }
+        return try await fetchPlaybackSources(of: target, on: profile, refresh: refresh)
+    }
+
+    /// Asks an AIOStreams server for a film's or an episode's streams as its
+    /// page opens, the way a Jellyfin app's item page does, so the addons
+    /// have answered -- or are well on the way -- by the time Play is
+    /// pressed. Only a title's own server, and only AIOStreams: elsewhere
+    /// streams are already to hand, or asking costs more than it saves.
+    func warmStreams(for item: MediaItem) {
+        guard ["Movie", "Episode"].contains(item.type), !item.isProviderTitle,
+              let profile = profile(for: item), serverKinds[profile.id] == .aiostreams else { return }
+        let now = Date()
+        warmedStreams = warmedStreams.filter { now.timeIntervalSince($0.value.started) < Self.warmStreamsWindow }
+        let key = Self.warmKey(item.id, on: profile)
+        guard warmedStreams[key] == nil else { return }
+        let task = Task { [weak self] () throws -> [MediaPlaybackSource] in
+            guard let self else { throw CancellationError() }
+            return try await self.fetchPlaybackSources(of: item, on: profile, refresh: false)
+        }
+        warmedStreams[key] = (now, task)
+    }
+
+    /// Shorter than the three minutes AIOStreams keeps a list by default, so
+    /// a list taken from here is never one the server has already let go.
+    static let warmStreamsWindow: TimeInterval = 120
+
+    private static func warmKey(_ itemID: String, on profile: MediaServerProfile) -> String {
+        profile.id.uuidString + "|" + itemID
+    }
+
+    private func fetchPlaybackSources(of target: MediaItem, on profile: MediaServerProfile,
+                                      refresh: Bool) async throws -> [MediaPlaybackSource] {
         _ = await serverKind(of: profile)
         let features = serverExtensions[profile.id]
         let options = MediaPlaybackRequest(fresh: features?.supports("versions") == true,

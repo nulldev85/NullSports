@@ -1347,8 +1347,25 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         let name: String?
         let description: String?
         let bingeGroup: String?
+        /// What AIOStreams parsed from the release, by the names its
+        /// formatter gives them, for badges that match one part of a stream
+        /// rather than all of it.
+        var fields: [String: [String]] = [:]
+
+        /// The parts named here, in the order AIOStreams' own app reads them.
+        static let fieldNames = ["name", "description", "filename", "folderName", "resolution", "quality",
+                                 "encode", "visualTags", "audioTags", "audioChannels", "languages", "editions",
+                                 "releaseGroup", "indexer", "addon", "service", "seMatched", "rseMatched",
+                                 "regexMatched", "rankedRegexMatched"]
 
         enum CodingKeys: String, CodingKey { case addon, filename, cached, id, name, description, bingeGroup }
+
+        private struct AnyKey: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+            init(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
 
         init(from decoder: Decoder) throws {
             let values = try? decoder.container(keyedBy: CodingKeys.self)
@@ -1359,6 +1376,20 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
             name = values?.lenientString(.name)
             description = values?.lenientString(.description)
             bingeGroup = values?.lenientString(.bingeGroup)
+            if let all = try? decoder.container(keyedBy: AnyKey.self) {
+                for field in Self.fieldNames {
+                    let key = AnyKey(stringValue: field)
+                    if let list = try? all.decode([String].self, forKey: key) {
+                        let kept = list.filter { !$0.isEmpty }
+                        if !kept.isEmpty { fields[field] = kept }
+                    } else if let one = all.lenientString(key), !one.isEmpty {
+                        fields[field] = [one]
+                    }
+                }
+                if let seadex = all.lenientString(AnyKey(stringValue: "seadex")) {
+                    fields["seadex"] = [seadex == "best" ? "SeaDex Best" : "SeaDex"]
+                }
+            }
         }
     }
 

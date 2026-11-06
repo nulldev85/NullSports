@@ -230,6 +230,19 @@ struct MediaItemCard: View {
     @Environment(\.displayScale) private var displayScale
     @ScaledMetric(relativeTo: .subheadline) private var titleHeight: CGFloat = 40
     @ScaledMetric(relativeTo: .caption2) private var metadataHeight: CGFloat = 16
+
+    /// A streaming service, a collection or a folder: a card that stands for
+    /// a group of titles rather than one.
+    private var isGrouping: Bool {
+        StreamingService.service(for: item) != nil
+            || ["BoxSet", "CollectionFolder", "Folder", "UserView"].contains(item.type)
+    }
+
+    /// How many titles a group holds, when the server says.
+    private var groupingCount: String? {
+        guard let count = item.childCount, count > 0 else { return nil }
+        return count == 1 ? "1 TITLE" : "\(count) TITLES"
+    }
     #endif
     #if os(tvOS)
     @Environment(\.lineupTVSelectableFocused) private var artworkFocused
@@ -279,37 +292,41 @@ struct MediaItemCard: View {
                             .padding(9)
                     }
                 }
-            // Two lines are held whether or not the title needs them, so the line
-            // under it lands on the same baseline across a row.
+            #if os(tvOS)
             Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
-                #if os(tvOS)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .multilineTextAlignment(.center)
-                #else
-                .frame(height: titleHeight, alignment: .topLeading)
-                #endif
-            #if !os(tvOS)
-            // The television shows a poster and its title and nothing more:
-            // "MOVIE · 2026" under every card was clutter a viewer reads past.
-            // The phone keeps the line on every card, so a row stays even.
-            HStack(spacing: 7) {
-                if StreamingService.service(for: item) != nil {
-                    Text(item.childCount == 1 ? "1 TITLE" : "\(item.childCount ?? 0) TITLES")
-                } else {
-                    // A collection's card is its artwork and its name. Its
-                    // type said nothing a viewer needed, and the line keeps
-                    // its height so the row stays even.
-                    if item.type != "BoxSet" {
-                        Text(item.type.uppercased())
-                        if let year = item.productionYear { Text("· \(String(year))") }
-                    }
-                    if let count = item.childCount, count > 0 { Text(item.type == "BoxSet" ? "\(count) TITLES" : "· \(count)") }
+            #else
+            if isGrouping {
+                // A service or a collection is its artwork and its name. A row
+                // of them is all one kind, so nothing below has to line up
+                // with a film's year, and no empty lines are held for it.
+                Text(item.name).font(titleFont).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                if let count = groupingCount {
+                    Text(count)
+                        .font(.inter(.caption2, .medium))
+                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                        .lineLimit(1)
                 }
+            } else {
+                // Two lines are held whether or not the title needs them, so
+                // the line under it lands on the same baseline across a row.
+                Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
+                    .frame(height: titleHeight, alignment: .topLeading)
+                // The television shows a poster and its title and nothing
+                // more; the phone keeps the line on every card, so a row
+                // stays even.
+                HStack(spacing: 7) {
+                    Text(item.type.uppercased())
+                    if let year = item.productionYear { Text("· \(String(year))") }
+                    if let count = item.childCount, count > 0 { Text("· \(count)") }
+                }
+                .font(.inter(.caption2, .medium))
+                .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                .lineLimit(1)
+                .frame(height: metadataHeight, alignment: .topLeading)
             }
-            .font(.inter(.caption2, .medium))
-            .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
-            .lineLimit(1)
-            .frame(height: metadataHeight, alignment: .topLeading)
             #endif
         }
         .foregroundStyle(LineupStyle.lightPurple)

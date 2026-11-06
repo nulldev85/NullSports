@@ -73,7 +73,7 @@ struct MobileChannelBanner: View {
         .foregroundStyle(LineupStyle.mediaText)
         .padding(.horizontal, 12).padding(.vertical, 9)
         .frame(maxWidth: 340, alignment: .leading)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous), fallback: Color.black.opacity(0.72))
+        .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
     }
 }
@@ -148,7 +148,7 @@ struct MobileGameAlertBanner: View {
         .foregroundStyle(LineupStyle.mediaText)
         .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 6)
         .frame(maxWidth: 340, alignment: .leading)
-        .lineupLiquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous), fallback: Color.black.opacity(0.72))
+        .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(alert.headline). \(scoreline)\(game.status.isEmpty ? "" : ". \(game.status)")")
         .accessibilityHint("Double-tap to watch.")
@@ -197,7 +197,7 @@ struct MobileCatchUpBar: View {
             }
             .padding(.leading, controller.canStartOver ? 6 : 12).padding(.trailing, 12)
             .padding(.vertical, 6)
-            .lineupLiquidGlass(RoundedRectangle(cornerRadius: 14, style: .continuous), fallback: Color.black.opacity(0.6))
+            .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 
@@ -217,7 +217,7 @@ struct MobileCatchUpBar: View {
                 }
             }
             .contentShape(Capsule())
-            .lineupGlassControl(Capsule())
+            .lineupPlayerControlGlass(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Start over")

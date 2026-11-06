@@ -53,3 +53,36 @@ enum MobilePlayerLayout {
         return min(natural, max(0, clearance))
     }
 }
+
+import SwiftUI
+
+extension View {
+    /// The player's own buttons: Apple's Liquid Glass, which shows the
+    /// picture through it and gives under a finger, as the system player's
+    /// controls do. Below iOS 26, the app's solid round control.
+    func lineupPlayerControlGlass<S: InsettableShape>(_ shape: S, prominent: Bool = false) -> some View {
+        modifier(MobilePlayerGlass(shape: shape, interactive: true, prominent: prominent))
+    }
+
+    /// The player's panels and badges: the same glass, still.
+    func lineupPlayerPanelGlass<S: InsettableShape>(_ shape: S) -> some View {
+        modifier(MobilePlayerGlass(shape: shape, interactive: false, prominent: false))
+    }
+}
+
+private struct MobilePlayerGlass<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let interactive: Bool
+    let prominent: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            let glass: Glass = prominent ? .regular.tint(.white.opacity(0.08)) : .regular
+            content.glassEffect(interactive ? glass.interactive() : glass, in: shape)
+        } else if interactive {
+            content.lineupGlassControl(shape, prominent: prominent)
+        } else {
+            content.lineupLiquidGlass(shape)
+        }
+    }
+}
