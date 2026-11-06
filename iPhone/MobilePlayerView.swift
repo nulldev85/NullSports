@@ -58,6 +58,8 @@ struct MobilePlayerView: View {
     @State private var showingOnlineSubtitles = false
     @State private var showingSubtitleSettings = false
     @State private var onlineSubtitleSession = UUID()
+    /// The synopsis, opened from the toolbar's Info button.
+    @State private var showingInfo = false
 
     var body: some View {
         ZStack {
@@ -115,113 +117,49 @@ struct MobilePlayerView: View {
                 }
             }
             if controlsVisible {
+                // A shade at the top and the foot, so white controls read on
+                // any picture without a panel behind them.
                 VStack(spacing: 0) {
-                    LineupGlassGroup {
-                    VStack(alignment: .leading, spacing: 8) {
-                    MobilePlayerHeader {
-                    HStack(spacing: 10) {
-                        control("xmark", label: "Close player") { exit() }
-                        if showsTitleInHeader {
-                            Text(name).font(.inter(.headline)).lineLimit(1)
-                        }
-                        Spacer(minLength: 8)
-                        if controller.canOfferPictureInPicture {
-                            control("pip.enter", label: "Picture in Picture") {
-                                showControls()
-                                controller.togglePictureInPicture()
-                            }
-                        }
-                        if !isLive && controller.audioTracks.count > 1 {
-                            control("waveform", label: "Audio, \(controller.selectedAudioTitle)") {
-                                showControls()
-                                showingAudio = true
-                            }
-                        }
-                        if !isLive && (controller.subtitleTracks.count > 1 || offersOnlineSubtitles || subtitleIdentityLookup != nil) {
-                            control(controller.selectedSubtitleID == PlaybackSubtitleTrack.off.id
-                                    ? "captions.bubble" : "captions.bubble.fill",
-                                    label: "Subtitles, \(controller.selectedSubtitleTitle)") {
-                                showControls()
-                                showingSubtitles = true
-                            }
-                        }
-                    }
-                    } details: {
-                        if controller.error == nil && !controller.loading {
-                            MobilePlaybackEngineBadge(engine: controller.engine)
-                            if isLive { statusBadge.fixedSize() }
-                            if let detail = badgeDetail { qualityBadge(detail).fixedSize() }
-                            ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
-                        }
-                    }
-                    if let providerName {
-                        Label("Provider: \(providerName)", systemImage: "antenna.radiowaves.left.and.right")
-                            .font(.inter(.caption2, .semibold)).lineLimit(1).truncationMode(.middle)
-                            .foregroundStyle(LineupStyle.mediaText.opacity(0.86))
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(Color.black.opacity(0.66), in: Capsule())
-                            .accessibilityLabel("IPTV provider: \(providerName)")
-                            .accessibilityIdentifier("lineup.playback.provider").allowsHitTesting(false)
-                    }
-                    }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 12)
-                    .padding(.bottom, 22)
-                    .background(LinearGradient(colors: [.black.opacity(0.7), .clear], startPoint: .top, endPoint: .bottom))
-                    Spacer()
+                    LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 170)
+                    Spacer(minLength: 0)
+                    LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 240)
                 }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
                 .transition(.opacity)
-                // A ZStack-centered sibling, not nested in the VStack above, so it
-                // lands dead-center on screen — the same spot every other player
-                // in the app puts its play/pause control.
-                if !controller.loading && controller.error == nil {
-                    LineupGlassGroup {
-                    HStack(spacing: 28) {
-                        if showsTransport {
-                            control("gobackward.15", label: "Back 15 seconds") {
-                                showControls()
-                                controller.skip(by: -15)
-                            }
-                        }
-                        control(controller.isPlaying ? "pause.fill" : "play.fill",
-                                label: controller.isPlaying ? "Pause" : "Play", size: 64) { controller.toggle() }
-                        if showsTransport {
-                            control("goforward.15", label: "Forward 15 seconds") {
-                                showControls()
-                                controller.skip(by: 15)
-                            }
-                        }
-                    }
-                    }
-                    .transition(.opacity)
+                VStack(alignment: .leading, spacing: 0) {
+                    topBar
+                    Spacer(minLength: 0)
+                    bottomBar
                 }
-                if showsTransport, let progress = controller.progress {
-                    // The panel's width is measured rather than assumed: in
-                    // landscape it has to stop short of the transport controls
-                    // sitting dead centre, and only the container knows where
-                    // that is.
-                    GeometryReader { frame in
-                        VStack(alignment: .leading, spacing: 10) {
-                            Spacer()
-                            if skipAction != nil {
-                                HStack { Spacer(); skipSegmentButton }
-                            } else if showsPostCreditsNotice {
-                                HStack { Spacer(); postCreditsNotice }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 10)
+                .transition(.opacity)
+                // A ZStack-centered sibling, so it lands dead-center on screen
+                // -- the same spot every other player in the app puts its
+                // play/pause control.
+                if !controller.loading && controller.error == nil {
+                    LineupGlassGroup(spacing: 28) {
+                        HStack(spacing: 28) {
+                            if showsTransport {
+                                control("gobackward.15", label: "Back 15 seconds", size: 56) {
+                                    showControls()
+                                    controller.skip(by: -15)
+                                }
                             }
-                            if let synopsis, !synopsis.isEmpty {
-                                synopsisPanel(synopsis, within: frame.size.width)
-                            }
-                            MobileLibrarySeekBar(controller: controller, progress: progress, preview: seekPreview) { editing in
-                                isScrubbing = editing
-                                if editing { hideControlsTask?.cancel() } else { scheduleAutoHide() }
+                            control(controller.isPlaying ? "pause.fill" : "play.fill",
+                                    label: controller.isPlaying ? "Pause" : "Play", size: 76) { controller.toggle() }
+                            if showsTransport {
+                                control("goforward.15", label: "Forward 15 seconds", size: 56) {
+                                    showControls()
+                                    controller.skip(by: 15)
+                                }
                             }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity,
-                               alignment: .bottomLeading)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 18)
                     .transition(.opacity)
                 }
             }
@@ -391,8 +329,7 @@ struct MobilePlayerView: View {
             Label(skipAction?.title ?? "Skip Intro", systemImage: "forward.end.fill")
                 .font(.inter(.subheadline, .bold))
                 .padding(.horizontal, 18).frame(minHeight: 48)
-                .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(LineupStyle.line, lineWidth: 1))
+                .lineupPlayerControlGlass(Capsule())
         }.buttonStyle(.plain)
     }
 
@@ -406,8 +343,7 @@ struct MobilePlayerView: View {
     private var postCreditsNotice: some View {
         Label("Post-credit scene ahead", systemImage: "film.stack")
             .font(.inter(.subheadline, .semibold)).padding(.horizontal, 14).padding(.vertical, 12)
-            .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LineupStyle.line, lineWidth: 1))
+            .lineupPlayerPanelGlass(Capsule())
             .accessibilityAddTraits(.updatesFrequently)
             .allowsHitTesting(false)
     }
@@ -480,44 +416,164 @@ struct MobilePlayerView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// The panel above the scrubber already names what is playing, so the top
-    /// bar does not say it twice. Tied to that panel actually being drawn
-    /// rather than merely intended: a live channel has none, and neither does
-    /// a title whose length never resolves, and either way the name has to be
-    /// somewhere.
-    private var showsTitleInHeader: Bool {
-        guard showsTransport, let heading = synopsis?.heading, !heading.isEmpty else { return true }
-        return false
-    }
+    // MARK: Chrome
 
-    private func synopsisPanel(_ synopsis: MobilePlayerSynopsis,
-                               within available: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let heading = synopsis.heading, !heading.isEmpty {
-                Text(heading).font(.inter(.subheadline, .semibold)).lineLimit(1)
+    /// Close on the left; on the right, what a viewer reaches for least
+    /// often -- the picture-in-picture button and, for a channel, its live
+    /// state. Under them, what is playing and how.
+    private var topBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                control("xmark", label: "Close player") { exit() }
+                Spacer(minLength: 8)
+                LineupGlassGroup(spacing: 10) {
+                    HStack(spacing: 10) {
+                        if isLive, controller.error == nil, !controller.loading { statusBadge }
+                        if controller.canOfferPictureInPicture {
+                            control("pip.enter", label: "Picture in Picture") {
+                                showControls()
+                                controller.togglePictureInPicture()
+                            }
+                        }
+                    }
+                }
             }
-            if let detail = synopsis.detail, !detail.isEmpty {
-                Text(detail)
-                    .font(.inter(.caption2, .semibold))
-                    .foregroundStyle(LineupStyle.mediaSecondary.opacity(0.82))
-                    .lineLimit(1)
+            if controller.error == nil && !controller.loading {
+                PlaybackBadgeFlow {
+                    MobilePlaybackEngineBadge(engine: controller.engine)
+                    if let detail = badgeDetail { qualityBadge(detail).fixedSize() }
+                    ForEach(controller.mediaInfo.badges, id: \.self) { PlaybackFormatBadge(text: $0) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if let overview = synopsis.overview, !overview.isEmpty {
-                Text(overview)
-                    .font(.inter(.caption))
-                    .foregroundStyle(LineupStyle.mediaText.opacity(0.82))
-                    // A narrower column is a taller one, and in landscape the
-                    // height is what runs into the controls. Two lines there.
-                    .lineLimit(verticalSizeClass == .compact ? 2 : 3)
-                    .multilineTextAlignment(.leading)
+            if let providerName {
+                Label("Provider: \(providerName)", systemImage: "antenna.radiowaves.left.and.right")
+                    .font(.inter(.caption2, .semibold)).lineLimit(1).truncationMode(.middle)
+                    .foregroundStyle(LineupStyle.mediaText.opacity(0.86))
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .lineupPlayerPanelGlass(Capsule())
+                    .accessibilityLabel("IPTV provider: \(providerName)")
+                    .accessibilityIdentifier("lineup.playback.provider").allowsHitTesting(false)
             }
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .frame(maxWidth: MobilePlayerLayout.synopsisWidth(
-                    available: available, compactHeight: verticalSizeClass == .compact),
-                    alignment: .leading)
-        .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// The title on the left with nothing behind it, the toolbar on the
+    /// right, and the scrubber across the foot.
+    private var bottomBar: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if skipAction != nil {
+                HStack { Spacer(); skipSegmentButton }
+            } else if showsPostCreditsNotice {
+                HStack { Spacer(); postCreditsNotice }
+            }
+            if showingInfo, let overview = synopsis?.overview, !overview.isEmpty {
+                infoPanel(overview)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+            HStack(alignment: .bottom, spacing: 12) {
+                titleBlock
+                Spacer(minLength: 8)
+                toolbar
+            }
+            if showsTransport, let progress = controller.progress {
+                MobileLibrarySeekBar(controller: controller, progress: progress, preview: seekPreview,
+                                     inline: true) { editing in
+                    isScrubbing = editing
+                    if editing { hideControlsTask?.cancel() } else { scheduleAutoHide() }
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showingInfo)
+    }
+
+    /// What is playing, set straight on the picture: its name, and the line
+    /// of facts under it.
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(synopsis?.heading.flatMap { $0.isEmpty ? nil : $0 } ?? name)
+                .font(.inter(.headline, .bold))
+                .lineLimit(2)
+            if let detail = synopsis?.detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.inter(.caption, .semibold))
+                    .foregroundStyle(LineupStyle.mediaText.opacity(0.78))
+                    .lineLimit(1)
+            }
+        }
+        .shadow(color: .black.opacity(0.6), radius: 8, y: 1)
+        .frame(maxWidth: 460, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+
+    private var hasOverview: Bool { !(synopsis?.overview ?? "").isEmpty }
+
+    private var offersSubtitles: Bool {
+        !isLive && (controller.subtitleTracks.count > 1 || offersOnlineSubtitles || subtitleIdentityLookup != nil)
+    }
+
+    private var offersAudio: Bool { !isLive && controller.audioTracks.count > 1 }
+
+    private var offersNext: Bool {
+        nextEpisode != nil && !isLive && controller.error == nil && !controller.loading
+    }
+
+    /// One sheet of glass holding everything about what is playing rather
+    /// than the playing of it: its synopsis, its subtitles, its sound and
+    /// the episode after it.
+    @ViewBuilder
+    private var toolbar: some View {
+        if hasOverview || offersSubtitles || offersAudio || offersNext {
+            HStack(spacing: 2) {
+                if hasOverview {
+                    toolButton(showingInfo ? "info.circle.fill" : "info.circle", label: "Info") {
+                        showingInfo.toggle()
+                        showControls()
+                    }
+                }
+                if offersSubtitles {
+                    toolButton(controller.selectedSubtitleID == PlaybackSubtitleTrack.off.id
+                               ? "captions.bubble" : "captions.bubble.fill",
+                               label: "Subtitles, \(controller.selectedSubtitleTitle)") {
+                        showControls()
+                        showingSubtitles = true
+                    }
+                }
+                if offersAudio {
+                    toolButton("waveform", label: "Audio, \(controller.selectedAudioTitle)") {
+                        showControls()
+                        showingAudio = true
+                    }
+                }
+                if offersNext, let offer = nextEpisode {
+                    toolButton("forward.end.fill", label: "Next episode") { playNext(offer) }
+                }
+            }
+            .padding(.horizontal, 6)
+            .lineupPlayerControlGlass(Capsule())
+        }
+    }
+
+    private func toolButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .frame(width: 44, height: 46)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func infoPanel(_ overview: String) -> some View {
+        Text(overview)
+            .font(.inter(.subheadline))
+            .foregroundStyle(LineupStyle.mediaText.opacity(0.9))
+            .lineLimit(verticalSizeClass == .compact ? 3 : 6)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .frame(maxWidth: 520, alignment: .leading)
+            .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func qualityBadge(_ text: String) -> some View {
@@ -540,10 +596,10 @@ struct MobilePlayerView: View {
     private func control(_ symbol: String, label: String, size: CGFloat = 44,
                          action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: size >= 60 ? 26 : 18, weight: .bold, design: .rounded))
+            Image(systemName: symbol).font(.system(size: size >= 70 ? 30 : (size >= 50 ? 22 : 18), weight: .bold, design: .rounded))
                 .frame(width: size, height: size)
                 .contentShape(Circle())
-                .lineupPlayerControlGlass(Circle(), prominent: size >= 60)
+                .lineupPlayerControlGlass(Circle(), prominent: size >= 70)
         }.buttonStyle(.plain).accessibilityLabel(label)
     }
 }

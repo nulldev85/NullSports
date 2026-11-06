@@ -6,6 +6,9 @@ struct MobileLibrarySeekBar: View {
     let controller: MobilePlaybackController
     let progress: MobilePlaybackProgress
     @ObservedObject var preview: MobileSeekPreviewStore
+    /// Times either side of a thin bar, set straight on the picture, as the
+    /// full-screen player has it; otherwise a panel with the times beneath.
+    var inline = false
     let onEditingChanged: (Bool) -> Void
     @State private var target: Double?
     @GestureState private var touching = false
@@ -13,47 +16,7 @@ struct MobileLibrarySeekBar: View {
     private var shown: Double { target ?? progress.position }
 
     var body: some View {
-        VStack(spacing: 4) {
-            GeometryReader { track in
-                let fraction = min(max(shown / max(progress.duration, 1), 0), 1)
-                ZStack(alignment: .leading) {
-                    LineupProgressBar(value: fraction, height: target == nil ? LineupProgressBar.standardHeight : 12)
-                    if target != nil {
-                        Circle().fill(Color.white).frame(width: 14, height: 14)
-                            .offset(x: fraction * max(0, track.size.width - 14))
-                    }
-                }
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .highPriorityGesture(
-                    DragGesture(minimumDistance: 0)
-                        .updating($touching) { _, active, _ in active = true }
-                        .onChanged { move(x: $0.location.x, width: track.size.width) }
-                        .onEnded { value in
-                            move(x: value.location.x, width: track.size.width)
-                            finish()
-                        }
-                )
-                .overlay(alignment: .topLeading) {
-                    if let target, let info = preview.source?.info {
-                        MobileSeekThumbnail(frame: preview.frame, index: info.index(at: target), seconds: target)
-                            .frame(width: min(160, track.size.width), height: 112)
-                            .offset(x: min(max(0, fraction * track.size.width - 80), max(0, track.size.width - 160)), y: -116)
-                            .allowsHitTesting(false)
-                    }
-                }
-            }
-            .frame(height: 44)
-            HStack {
-                Text(MobilePlaybackProgress.timecode(shown))
-                Spacer()
-                Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
-            }
-            .font(.inter(.caption2, .semibold).monospacedDigit())
-            .foregroundStyle(LineupStyle.mediaText.opacity(0.8))
-        }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        layout
         .transaction { $0.animation = nil }
         .onChange(of: touching) { _, active in if !active { finish() } }
         .onChange(of: preview.source?.firstTile.url) { _, _ in
@@ -71,6 +34,65 @@ struct MobileLibrarySeekBar: View {
             @unknown default: break
             }
             onEditingChanged(false)
+        }
+    }
+
+    @ViewBuilder
+    private var layout: some View {
+        if inline {
+            HStack(spacing: 12) {
+                Text(MobilePlaybackProgress.timecode(shown))
+                track.frame(height: 32)
+                Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
+            }
+            .font(.inter(.caption, .semibold).monospacedDigit())
+            .foregroundStyle(LineupStyle.mediaText.opacity(0.92))
+            .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+        } else {
+            VStack(spacing: 4) {
+                track.frame(height: 44)
+                HStack {
+                    Text(MobilePlaybackProgress.timecode(shown))
+                    Spacer()
+                    Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
+                }
+                .font(.inter(.caption2, .semibold).monospacedDigit())
+                .foregroundStyle(LineupStyle.mediaText.opacity(0.8))
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+    }
+
+    private var track: some View {
+        GeometryReader { track in
+            let fraction = min(max(shown / max(progress.duration, 1), 0), 1)
+            ZStack(alignment: .leading) {
+                LineupProgressBar(value: fraction, height: target == nil ? LineupProgressBar.standardHeight : 12)
+                if target != nil {
+                    Circle().fill(Color.white).frame(width: 14, height: 14)
+                        .offset(x: fraction * max(0, track.size.width - 14))
+                }
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($touching) { _, active, _ in active = true }
+                    .onChanged { move(x: $0.location.x, width: track.size.width) }
+                    .onEnded { value in
+                        move(x: value.location.x, width: track.size.width)
+                        finish()
+                    }
+            )
+            .overlay(alignment: .topLeading) {
+                if let target, let info = preview.source?.info {
+                    MobileSeekThumbnail(frame: preview.frame, index: info.index(at: target), seconds: target)
+                        .frame(width: min(160, track.size.width), height: 112)
+                        .offset(x: min(max(0, fraction * track.size.width - 80), max(0, track.size.width - 160)), y: -116)
+                        .allowsHitTesting(false)
+                }
+            }
         }
     }
 
