@@ -65,6 +65,9 @@ struct MobilePlayerView: View {
         ZStack {
             MobileVideoSurface(controller: controller)
                 .ignoresSafeArea()
+            MobileAmbientGlow(controller: controller,
+                              enabled: !controller.loading && controller.error == nil
+                                && !controller.pictureInPictureActive)
             // A transparent tap-catching layer, separate from the embedded VLC
             // view itself. VLCKit inserts its own rendering subview into that
             // UIKit view, and a plain SwiftUI gesture attached directly to a

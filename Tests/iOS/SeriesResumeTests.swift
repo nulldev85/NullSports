@@ -131,6 +131,20 @@ final class SeriesResumeTests: XCTestCase {
                                                stillAiring: true, isWatched: { _ in false }))
     }
 
+    /// The card that keeps a show caught up with in Continue Watching when
+    /// its schedule names no next episode is never the episode to play.
+    func testTheComingSoonCardIsNeverPlayed() {
+        let comingSoon = MediaItem(id: MediaItem.upcomingPrefix + "more|show", name: "Show", type: "Episode",
+            overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+            indexNumber: nil, parentIndexNumber: 0, seriesName: "Show", seriesID: "show", serverID: server)
+        let everything = Set(show.map(\.id))
+        let records = [record(episode(2, 6), completed: true, at: 1)]
+        XCTAssertNil(SeriesResumePolicy.target(episodes: show + [comingSoon], records: records, serverNext: nil,
+                                               stillAiring: true, isWatched: { everything.contains($0.id) }))
+        XCTAssertEqual(comingSoon.upcomingLabel, "COMING SOON")
+        XCTAssertNil(comingSoon.episodeCode)
+    }
+
     func testASpecialNeverFollowsAnEpisodeOfASeason() {
         let withSpecial = show + [episode(0, 1)]
         let everything = Set(show.map(\.id))

@@ -240,6 +240,7 @@ final class MediaLibrary {
     private(set) var serverTrackingEnabled = true
     /// What each playback session has told its server so far.
     @ObservationIgnored private var serverReports: [UUID: ServerPlaybackReport] = [:]
+    @ObservationIgnored private var caughtUpHolds: Set<String> = []
     @ObservationIgnored private var warmedStreams: [String: (started: Date, task: Task<[MediaPlaybackSource], Error>)] = [:]
     private(set) var mdbListTrackingEnabled = false
     let mdbListTracking: MDBListTrackingService
@@ -2451,6 +2452,65 @@ final class MediaLibrary {
             return kept
         }
         if before != localPlayback { persistLocalPlayback() }
+        holdCaughtUpShow(series)
+    }
+
+    /// Keeps a show caught up with in Continue Watching, where it would
+    /// otherwise vanish until its next episode reaches the server: by the
+    /// next episode the show's schedule names, with the day it airs, or,
+    /// when none is named yet, by a card saying more is coming. Asked once
+    /// a session for each show.
+    private func holdCaughtUpShow(_ series: MediaItem) {
+        guard let profileID = serverID(of: series),
+              let profile = profiles.first(where: { $0.id == profileID }) else { return }
+        let records = seriesRecords(of: series, profileID: profileID)
+        let held = records.filter { $0.isUpNext == true && $0.item.isUpcomingPlaceholder }
+        // A scheduled episode already holds it.
+        guard !held.contains(where: { $0.item.indexNumber != nil }),
+              let finished = records.filter(\.completed).max(by: { $0.updatedAt < $1.updatedAt }),
+              finished.item.parentIndexNumber != 0,
+              caughtUpHolds.insert(profileID.uuidString + "|" + series.id).inserted else { return }
+        let generation = playbackGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            let scheduled = await self.upcomingEpisode(after: finished.item, profile: profile)
+            guard generation == self.playbackGeneration, self.contains(profile),
+                  self.seriesPlayTarget(in: series) == nil else { return }
+            let placeholder: MediaItem
+            if let scheduled {
+                placeholder = scheduled
+                let generic = Set(held.map(\.item.id))
+                self.localPlayback.removeAll { $0.profileID == profileID && generic.contains($0.item.id) }
+            } else if held.isEmpty {
+                placeholder = MediaItem(id: MediaItem.upcomingPrefix + "more|" + (finished.item.seriesID ?? series.id),
+                    name: finished.item.seriesName ?? series.name, type: "Episode", overview: nil, productionYear: nil,
+                    primaryImageAspectRatio: 16.0 / 9, childCount: nil, premiereDate: nil, indexNumber: nil,
+                    // Kept with the specials, so nothing plays it or counts
+                    // it as the next episode.
+                    parentIndexNumber: 0, seriesName: finished.item.seriesName ?? series.name,
+                    seriesID: finished.item.seriesID ?? series.id,
+                    posterURL: self.showArtwork(seriesID: finished.item.seriesID ?? series.id, profile: profile),
+                    serverID: profileID)
+            } else {
+                return
+            }
+            self.queueAsUpNext(placeholder, explicitlyUnwatched: false)
+            // Where the show was in the row, not first because it was asked.
+            if let index = self.localPlayback.firstIndex(where: {
+                $0.profileID == profileID && $0.item.id == placeholder.id
+            }) {
+                self.localPlayback[index].updatedAt = finished.updatedAt
+            }
+            self.persistLocalPlayback()
+        }
+    }
+
+    /// A show's wide artwork from its server, for a card standing in for an
+    /// episode it does not have yet.
+    private func showArtwork(seriesID: String, profile: MediaServerProfile) -> String? {
+        guard let source = try? client(for: profile) else { return nil }
+        return (source.imageURL(itemID: seriesID, type: "backdrop", maxWidth: 1280)
+            ?? source.imageURL(itemID: seriesID, type: "primary", maxWidth: 1280))?.absoluteString
     }
 
     /// This device's records of a show's episodes.
