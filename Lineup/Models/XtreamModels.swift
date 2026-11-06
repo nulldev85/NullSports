@@ -115,12 +115,57 @@ struct CurrentProgram: Codable, Hashable, Sendable {
     let isNew: Bool?
 
     init(channelID: String, title: String, detail: String, start: Date, end: Date, isNew: Bool? = nil) {
+        let marked = Self.markedTitle(title)
         self.channelID = channelID
-        self.title = title
+        self.title = marked.title
         self.detail = detail
         self.start = start
         self.end = end
-        self.isNew = isNew
+        self.isNew = marked.isNew ? true : isNew
+    }
+
+    private enum CodingKeys: String, CodingKey { case channelID, title, detail, start, end, isNew }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(channelID: try values.decode(String.self, forKey: .channelID),
+                  title: try values.decode(String.self, forKey: .title),
+                  detail: try values.decode(String.self, forKey: .detail),
+                  start: try values.decode(Date.self, forKey: .start),
+                  end: try values.decode(Date.self, forKey: .end),
+                  isNew: try values.decodeIfPresent(Bool.self, forKey: .isNew))
+    }
+
+    /// A title as some guides write it, with a tag in raised letters on the
+    /// end -- "The View ᴺᵉʷ" -- and the title without it. A tag that reads
+    /// New marks the programme new; any other raised word (ᴸᶦᵛᵉ, ᴴᴰ) only
+    /// comes off.
+    static func markedTitle(_ raw: String) -> (title: String, isNew: Bool) {
+        var title = Substring(raw)
+        var isNew = false
+        while true {
+            let trimmed = title.drop(while: { $0 == " " }).reversed().drop(while: { $0 == " " || $0 == "\u{00A0}" })
+            let word = trimmed.prefix(while: isRaisedLetter)
+            guard word.count >= 2, word.count < trimmed.count else { break }
+            let read = String(word.reversed()).precomposedStringWithCompatibilityMapping.lowercased()
+            if read == "new" { isNew = true }
+            title = Substring(String(trimmed.dropFirst(word.count).reversed()))
+        }
+        let cleaned = title.trimmingCharacters(in: .whitespaces)
+        return (cleaned.isEmpty ? raw : cleaned, isNew)
+    }
+
+    /// A letter written small and raised: the modifier letters, the
+    /// superscript and subscript letters, and the small capitals.
+    private static func isRaisedLetter(_ character: Character) -> Bool {
+        guard character.unicodeScalars.count == 1, let scalar = character.unicodeScalars.first else { return false }
+        switch scalar.value {
+        case 0x1D00...0x1D6A, 0x1D9B...0x1DBF, 0x02B0...0x02B8, 0x02E0...0x02E4,
+             0x2071, 0x207F, 0x2090...0x209C, 0xA7F8...0xA7F9:
+            return true
+        default:
+            return false
+        }
     }
 
     var isLive: Bool {
