@@ -43,11 +43,17 @@ struct LivePlaybackHealth {
     /// Why the last stream judged lost was.
     private(set) var stall: Stall?
 
-    init(now: TimeInterval, stallLimit: TimeInterval = 12) {
+    /// How long a stream may be open without a picture before it counts as
+    /// lost. Thirty seconds where reconnecting is all there is to do; a
+    /// game, with another verified channel to move to, waits less.
+    private let neverPlayedLimit: TimeInterval
+
+    init(now: TimeInterval, stallLimit: TimeInterval = 12, neverPlayedLimit: TimeInterval = 30) {
         started = now
         lastProgress = now
         lastData = now
         self.stallLimit = stallLimit
+        self.neverPlayedLimit = neverPlayedLimit
         frozenLimit = max(45, stallLimit * 2)
     }
 
@@ -91,7 +97,7 @@ struct LivePlaybackHealth {
         } else if hadVideo {
             lost = now - lastProgress >= limit
         } else {
-            lost = now - started >= max(30, stallLimit)
+            lost = now - started >= max(neverPlayedLimit, stallLimit)
         }
         if lost { stall = !hadVideo ? .neverPlayed : arriving ? .frozenWhileArriving : .nothingArriving }
         return lost

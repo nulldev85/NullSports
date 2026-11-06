@@ -626,7 +626,7 @@ struct PlaybackClockReader<Content: View>: View {
         case .nothingArriving:
             reason = "Nothing arrived for \(isLive ? 12 : 30) seconds"
         case .neverPlayed:
-            reason = "No picture came within 30 seconds"
+            reason = "No picture came within \(isLive && failover != nil ? 15 : 30) seconds"
         case .failed, nil:
             reason = engineTitle + " reported the stream " + Self.describe(state)
         }
@@ -644,6 +644,13 @@ struct PlaybackClockReader<Content: View>: View {
         // A recording that stops is picked up from where it had got to --
         // or, having reached the present or the end of its programme, isn't.
         if catchUp != nil, recordingStopped() { return }
+        // A game's channel that has never shown a picture is given one more
+        // try, then the next channel verified for the game. Working through
+        // every retry first held a dead channel on screen for minutes.
+        if neverPlayed, isLive, catchUp == nil, failover != nil, retries.attempts >= 1 {
+            log(reason + ". Trying another channel for this game")
+            if switchToNextChannel() { return }
+        }
         guard var delay = retries.nextDelay() else {
             log(reason + ". Gave up after \(retries.attempts) tries")
             // Another channel live is no answer to a recording that won't play.
@@ -1308,7 +1315,9 @@ struct PlaybackClockReader<Content: View>: View {
     /// gone. A film on a slow link can buffer for longer and come back by
     /// itself, and reopening it costs the buffer it was filling.
     private func freshHealth() -> LivePlaybackHealth {
-        LivePlaybackHealth(now: uptime(), stallLimit: isLive ? 12 : 30)
+        // A game, with other channels to try, waits less for a first picture.
+        LivePlaybackHealth(now: uptime(), stallLimit: isLive ? 12 : 30,
+                           neverPlayedLimit: isLive && failover != nil ? 15 : 30)
     }
 
     /// The end of a film or an episode: the monitor stops, and the position

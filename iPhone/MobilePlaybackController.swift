@@ -270,6 +270,9 @@ final class MobilePlaybackController: ObservableObject {
     private var pausedByUser = false
     private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
     private var retries = LivePlaybackRetry()
+    /// How long a live stream may stay without a picture before it is
+    /// judged dead: shorter for a game, which has other channels to try.
+    private var startupLimit: TimeInterval { isLive && failover != nil ? 15 : 30 }
     private var retryAt: TimeInterval?
     /// Whether the AVPlayer item now open has shown a picture: past that, its
     /// opening watchdog has nothing more to judge.
@@ -1261,7 +1264,8 @@ final class MobilePlaybackController: ObservableObject {
         }
         engine = selected
         nativeCompatibilityActive = preference == .native && selected == .aether && !nativeCompatibilityFailures.contains(url)
-        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30,
+                                    neverPlayedLimit: startupLimit)
         diag.record("openNext \(url.lastPathComponent) engine=\(engine.rawValue) remaining=\(candidates.count)")
         started = Date()
         loading = true
@@ -1534,7 +1538,8 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func openSystem(_ url: URL) {
-        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30,
+                                    neverPlayedLimit: startupLimit)
         let item = AVPlayerItem(url: url)
         applyQualityCeiling(to: item)
         systemPlayer.replaceCurrentItem(with: item)
@@ -1645,7 +1650,8 @@ final class MobilePlaybackController: ObservableObject {
         waitingForVideo = false
         waitingSince = nil
         started = Date()
-        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+        health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30,
+                                    neverPlayedLimit: startupLimit)
         closeStartGate()
         player.play()
         UIApplication.shared.isIdleTimerDisabled = true
@@ -1688,7 +1694,8 @@ final class MobilePlaybackController: ObservableObject {
                 diag.record("catch-up: resumed from the pause, \(Int(Date().timeIntervalSince(pause)))s behind live")
                 return
             }
-            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30,
+                                    neverPlayedLimit: startupLimit)
             switch engine {
             case .aether:
                 if retryAt == nil { aetherSession?.play() }
@@ -1749,6 +1756,11 @@ final class MobilePlaybackController: ObservableObject {
         // A recording that stops is picked up from where it had got to -- or,
         // having reached the present or the end of its programme, isn't.
         if catchUp != nil, recordingStopped() { return }
+        // A game's channel that has never shown a picture is given one more
+        // try, then the next channel verified for the game. Working through
+        // every retry first held a dead channel on screen for minutes.
+        if neverPlayed, isLive, catchUp == nil, failover != nil, retries.attempts >= 1,
+           switchToNextChannel() { return }
         guard var delay = retries.nextDelay(), !originalURLs.isEmpty else {
             // This channel's own URLs are spent — including the HLS-then-VLC
             // fallback, which happens inside `candidates` before ever reaching
@@ -2298,7 +2310,8 @@ final class MobilePlaybackController: ObservableObject {
             // player only held the screen awake with nothing on it.
             guard monitor != nil else { break }
             started = Date()
-            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30)
+            health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: isLive ? 12 : 30,
+                                    neverPlayedLimit: startupLimit)
             switch engine {
             case .aether:
                 if retryAt == nil { aetherSession?.play(); UIApplication.shared.isIdleTimerDisabled = true }
