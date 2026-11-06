@@ -26,12 +26,20 @@ struct SportsScheduleClient: Sendable {
         let racingEnd = Calendar.current.date(byAdding: .day, value: 14, to: start) ?? end
         async let todaySnapshot = snapshot(for: today)
         async let expanded = ExpandedSportsScheduleClient.shared.games(from: start, to: end, racingTo: racingEnd)
+        // The schedule files a game under the day it starts in the East. A
+        // late game out West is still on after midnight there, and after
+        // midnight anywhere east of it, under yesterday: so in the small
+        // hours yesterday's slate is asked for too, for what is still live.
+        let overnight = Self.overnightDay(for: Date()).map { formatter.string(from: $0) }
+        async let yesterdaySnapshot = snapshot(forOptional: overnight)
         guard includeTomorrow else {
-            return Self.merging(await expanded, into: Self.adding(await tennis, to: await todaySnapshot))
+            let base = Self.adding(await tennis, to: await todaySnapshot)
+            return Self.merging(await expanded, into: Self.addingOvernight(await yesterdaySnapshot, to: base))
         }
 
         async let tomorrowSnapshot = snapshot(for: tomorrow)
-        let (first, second) = await (todaySnapshot, tomorrowSnapshot)
+        let (todayFetched, second) = await (todaySnapshot, tomorrowSnapshot)
+        let first = Self.addingOvernight(await yesterdaySnapshot, to: todayFetched)
         var merged: [SportsLeague: [SportsGame]] = [:]
         for league in SportsLeague.allCases {
             let games = (first.games[league] ?? []) + (second.games[league] ?? [])
@@ -43,6 +51,29 @@ struct SportsScheduleClient: Sendable {
             loadedLeagues: first.loadedLeagues.intersection(second.loadedLeagues),
             errorMessage: errors.isEmpty ? nil : Array(Set(errors)).sorted().joined(separator: " ")
         )))
+    }
+
+    /// Yesterday, in the hours after midnight when one of its games can
+    /// still be on; nil the rest of the day.
+    static func overnightDay(for now: Date, calendar: Calendar = .current) -> Date? {
+        guard calendar.component(.hour, from: now) < 10 else { return nil }
+        return calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: now))
+    }
+
+    /// Yesterday's games that are still being played, added to today's.
+    /// Nothing else from yesterday: its finished games are not today's, and
+    /// a league yesterday's fetch missed is not one today's did.
+    static func addingOvernight(_ yesterday: Snapshot?, to today: Snapshot) -> Snapshot {
+        guard let yesterday else { return today }
+        var games = today.games
+        for league in today.loadedLeagues {
+            let still = (yesterday.games[league] ?? []).filter(\.isLive)
+            guard !still.isEmpty else { continue }
+            let known = Set((games[league] ?? []).map(\.id))
+            games[league] = ((games[league] ?? []) + still.filter { !known.contains($0.id) })
+                .sorted { $0.start < $1.start }
+        }
+        return Snapshot(games: games, loadedLeagues: today.loadedLeagues, errorMessage: today.errorMessage)
     }
 
     /// The leagues with a feed of their own rather than a place in the
@@ -71,6 +102,11 @@ struct SportsScheduleClient: Sendable {
         }
         return Snapshot(games: games, loadedLeagues: loaded,
                         errorMessage: errors.isEmpty ? nil : errors.joined(separator: " "))
+    }
+
+    private func snapshot(forOptional day: String?) async -> Snapshot? {
+        guard let day else { return nil }
+        return await snapshot(for: day)
     }
 
     private func snapshot(for day: String) async -> Snapshot {
