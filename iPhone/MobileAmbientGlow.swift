@@ -34,29 +34,25 @@ struct MobileAmbientGlow: View {
         GeometryReader { geometry in
             if let sample {
                 let picture = Self.fitted(sample.aspect, in: geometry.size)
-                // How far the light spills past the picture before it is gone:
-                // a band beside it, not the whole of the black.
-                let reach = Self.reach(in: geometry.size)
                 ZStack {
                     Image(uiImage: sample.image)
                         .resizable()
                         .interpolation(.medium)
                         .frame(width: picture.width, height: picture.height)
-                        .scaleEffect(x: (picture.width + reach * 2.4) / max(picture.width, 1),
-                                     y: (picture.height + reach * 2.4) / max(picture.height, 1))
-                        .blur(radius: reach * 0.4)
-                        .saturation(1.4)
-                        .opacity(0.75)
+                        // Spread past the picture's edges, more where the
+                        // bars are deep.
+                        .scaleEffect(x: max(1.15, geometry.size.width / max(picture.width, 1) * 1.1),
+                                     y: max(1.15, geometry.size.height / max(picture.height, 1) * 0.9))
+                        .blur(radius: 46)
+                        .saturation(1.35)
+                        .opacity(0.62)
                         .id(sample.id)
                         .transition(.opacity)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .mask {
                     ZStack {
-                        // Brightest against the picture, fading to black.
-                        RoundedRectangle(cornerRadius: reach, style: .continuous)
-                            .frame(width: picture.width + reach * 2, height: picture.height + reach * 2)
-                            .blur(radius: reach * 0.45)
+                        Rectangle()
                         Rectangle()
                             .frame(width: picture.width, height: picture.height)
                             .blendMode(.destinationOut)
@@ -83,12 +79,6 @@ struct MobileAmbientGlow: View {
                 try? await Task.sleep(for: Self.interval)
             }
         }
-    }
-
-    /// The depth of the glow: about a sixth of the screen's short side,
-    /// within reason.
-    static func reach(in space: CGSize) -> CGFloat {
-        min(90, max(44, min(space.width, space.height) * 0.17))
     }
 
     /// Where an aspect-fitted picture sits in a space, centred.
