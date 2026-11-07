@@ -241,6 +241,7 @@ final class MediaLibrary {
     /// What each playback session has told its server so far.
     @ObservationIgnored private var serverReports: [UUID: ServerPlaybackReport] = [:]
     @ObservationIgnored private var caughtUpHolds: Set<String> = []
+    @ObservationIgnored private var lastServerImport: [UUID: Date] = [:]
     @ObservationIgnored private var warmedStreams: [String: (started: Date, task: Task<[MediaPlaybackSource], Error>)] = [:]
     private(set) var mdbListTrackingEnabled = false
     let mdbListTracking: MDBListTrackingService
@@ -2556,12 +2557,31 @@ final class MediaLibrary {
         guard !hasRealProgress, !records.contains(where: {
             $0.completed || $0.explicitlyUnwatched == true || $0.position >= 5
         }) else {
+            // The server's next episode straight after the last one finished
+            // here -- finished here, or on another device the server told us
+            // of -- is the show's place, without waiting for its episode list.
+            if !hasRealProgress,
+               let finished = records.filter(\.completed).max(by: { $0.updatedAt < $1.updatedAt }),
+               Self.comesNext(episode, after: finished.item),
+               !records.contains(where: { $0.isUpNext == true && $0.explicitlyUnwatched == true }) {
+                settleUpNext(episode)
+                return
+            }
             reconcileCachedSeries(for: episode)
             return
         }
         retireUpNext(for: episode, profileID: profileID)
         queueAsUpNext(episode, explicitlyUnwatched: false)
         persistLocalPlayback()
+    }
+
+    /// The episode straight after another: the next in its season, or the
+    /// first of the next season.
+    nonisolated static func comesNext(_ episode: MediaItem, after previous: MediaItem) -> Bool {
+        guard let season = episode.parentIndexNumber, let number = episode.indexNumber,
+              let lastSeason = previous.parentIndexNumber, let lastNumber = previous.indexNumber,
+              season > 0, lastSeason > 0 else { return false }
+        return (season == lastSeason && number == lastNumber + 1) || (season == lastSeason + 1 && number == 1)
     }
 
     func isWatched(_ item: MediaItem) -> Bool {
@@ -5877,14 +5897,36 @@ extension MediaLibrary {
         guard serverTrackingEnabled, localTrackingEnabled, contains(profile),
               let source = (try? client(for: profile)) as? JellyfinClient else { return }
         let generation = playbackGeneration
+        // What this device has under way from the server, to ask whether it
+        // has since been finished somewhere else.
+        let open = Array(Set(localPlayback.filter {
+            $0.profileID == profile.id && !$0.completed && $0.position >= 5 && $0.explicitlyUnwatched != true
+                && !$0.item.isUpcomingPlaceholder && ProviderItem(id: $0.item.id) == nil
+        }.map(\.item.id))).prefix(150)
         async let resumeList = source.resumeItems(userID: profile.userID)
         async let nextList = source.nextUpEpisodes(userID: profile.userID)
+        async let openList = Self.currentState(of: Array(open), on: source, userID: profile.userID)
         let resumed = (try? await resumeList) ?? []
         let upNext = (try? await nextList) ?? []
+        let current = await openList
         guard generation == playbackGeneration, contains(profile), serverTrackingEnabled, localTrackingEnabled else { return }
 
         var records = localPlayback
         var changed = false
+        // Finished on another device since it was last played here: it
+        // leaves Continue Watching here too, and the show moves on below.
+        for item in current where item.userData?.played == true {
+            guard let playedAt = item.userData?.lastPlayed else { continue }
+            for index in records.indices where records[index].profileID == profile.id
+                && !records[index].completed && Self.samePlaybackItem(records[index].item, item)
+                && playedAt > records[index].updatedAt {
+                records[index].completed = true
+                records[index].position = records[index].duration
+                records[index].updatedAt = playedAt
+                records[index].isUpNext = nil
+                changed = true
+            }
+        }
         for raw in resumed where raw.isPlayable {
             let item = raw.servedBy(profile.id)
             guard let ticks = item.userData?.playbackPositionTicks, ticks > 0,
@@ -5917,6 +5959,31 @@ extension MediaLibrary {
         // Each show's next episode, where this device has nothing of the show.
         for episode in upNext where episode.type == "Episode" {
             rememberNextUp(episode.servedBy(profile.id))
+        }
+        lastServerImport[profile.id] = Date()
+    }
+
+    /// Titles as the server has them now, fifty at a time.
+    nonisolated private static func currentState(of ids: [String], on source: JellyfinClient,
+                                                 userID: String) async -> [MediaItem] {
+        var found: [MediaItem] = []
+        var start = 0
+        while start < ids.count {
+            let batch = Array(ids[start..<min(start + 50, ids.count)])
+            if let items = try? await source.items(userID: userID, ids: batch) { found += items }
+            start += 50
+        }
+        return found
+    }
+
+    /// Picks up what was watched on other devices: as the app comes back to
+    /// the front, and every few minutes while it stays there. A server asked
+    /// within the last minute is left alone.
+    func refreshServerProgress() async {
+        guard serverTrackingEnabled, localTrackingEnabled else { return }
+        for profile in profiles {
+            if let last = lastServerImport[profile.id], Date().timeIntervalSince(last) < 60 { continue }
+            await importServerProgress(for: profile)
         }
     }
 }
