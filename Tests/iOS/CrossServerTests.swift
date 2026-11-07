@@ -47,6 +47,8 @@ final class CrossServerTests: XCTestCase {
                        MediaLibrary.crossServerKey(movie(["imdb": "TT15239678", "Tmdb": "693134"])))
         XCTAssertEqual(MediaLibrary.crossServerKey(movie(nil)), MediaLibrary.crossServerKey(movie([:])))
         XCTAssertNotEqual(MediaLibrary.crossServerKey(movie(nil)), MediaLibrary.crossServerKey(movie(nil, year: 1984)))
+        XCTAssertNil(MediaLibrary.crossServerKey(movie(nil, year: nil)),
+                     "A film known only by its name is not matched: two films share one often")
         let episode = { (series: String) in
             MediaItem(id: UUID().uuidString, name: "Pilot", type: "Episode", overview: nil, productionYear: nil,
                       primaryImageAspectRatio: nil, childCount: nil, indexNumber: 1, parentIndexNumber: 1,

@@ -621,18 +621,24 @@ final class MediaLibrary {
         // One place for a title however many servers have it: two servers
         // with the same catalog, each told of what was watched, would
         // otherwise each put it in the row. The latest wins.
+        // Only copies on different servers are one title: two records on
+        // the same server are two titles that happen to look alike.
         var byTitle: [String: LocalMediaPlayback] = [:]
         var rest: [LocalMediaPlayback] = []
-        for record in selected.values {
+        for record in selected.values.sorted(by: { $0.updatedAt > $1.updatedAt }) {
             guard let title = Self.crossServerKey(record.item) else { rest.append(record); continue }
-            if let existing = byTitle[title], existing.updatedAt >= record.updatedAt { continue }
+            if let newer = byTitle[title] {
+                if newer.profileID == record.profileID { rest.append(record) }
+                continue
+            }
             byTitle[title] = record
         }
         return (Array(byTitle.values) + rest).sorted { $0.updatedAt > $1.updatedAt }
     }
 
     /// The same film, or the same show, on any server: by its IMDb or TMDB
-    /// id where it has one, else its name and year; a show by its name.
+    /// id where it has one, else its name and year (none without a year);
+    /// a show by its name.
     nonisolated static func crossServerKey(_ item: MediaItem) -> String? {
         switch item.type {
         case "Episode":
@@ -643,9 +649,11 @@ final class MediaLibrary {
                                  uniquingKeysWith: { first, _ in first })
             if let imdb = ids["imdb"], !imdb.isEmpty { return "movie|imdb|" + imdb.lowercased() }
             if let tmdb = ids["tmdb"], !tmdb.isEmpty { return "movie|tmdb|" + tmdb }
+            // A name alone is not enough: two films share one often. With
+            // its year it is.
             let name = MediaTitleMatch.normalized(item.name)
-            guard !name.isEmpty else { return nil }
-            return "movie|" + name + "|" + (item.productionYear.map(String.init) ?? "")
+            guard !name.isEmpty, let year = item.productionYear else { return nil }
+            return "movie|" + name + "|" + String(year)
         default:
             return nil
         }
