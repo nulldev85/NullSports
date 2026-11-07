@@ -90,5 +90,10 @@ final class StreamBadgeTests: XCTestCase {
         XCTAssertEqual(lines.description, ["✎ Visionquest S01·E01", "▣ HEVC ✦ 10bit · DV", "◈ 5.17 GB · 12.8 Mbps"])
         XCTAssertNil(try source(#"{"Id":"b","Name":"Plain Jellyfin copy"}"#).formatterLines,
                      "A server without a formatter keeps Lineup's own reading")
+        let nullfin = try source(#"{"Id":"c","Name":"StreamNZB\nReacher\nReacher (2022) S04E04 (2160p WEB-DL)\n🎯 Score: +70494"}"#)
+        XCTAssertEqual(nullfin.formatterLines?.name, ["StreamNZB"])
+        XCTAssertEqual(nullfin.formatterLines?.description,
+                       ["Reacher", "Reacher (2022) S04E04 (2160p WEB-DL)", "🎯 Score: +70494"],
+                       "A server's name written over several lines is its formatter's, shown as written")
     }
 }
