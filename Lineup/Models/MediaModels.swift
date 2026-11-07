@@ -1437,6 +1437,42 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         return displayLines.dropFirst(2).first ?? displayLines.dropFirst().first ?? "Available stream"
     }
 
+    /// The release itself, by its file name, for telling the same stream
+    /// offered by two servers apart from two different ones. Nil when the
+    /// server does not name the file.
+    var releaseIdentity: String? {
+        guard var file = (aiostreams?.filename ?? remux?.providerInfo?.filename)?.lowercased(),
+              !file.isEmpty else { return nil }
+        if let dot = file.lastIndex(of: "."), file.distance(from: dot, to: file.endIndex) <= 5 {
+            file = String(file[..<dot])
+        }
+        let key = String(file.filter { $0.isLetter || $0.isNumber })
+        return key.count >= 8 ? key : nil
+    }
+
+    /// A list with each release once: a stream another server already
+    /// offered -- the same file, of the same size where both say -- is left
+    /// out, keeping the first, which is the title's own server's. Two copies
+    /// from one server are kept: they differ in some other way.
+    static func withoutDuplicates(_ sources: [MediaPlaybackSource]) -> [MediaPlaybackSource] {
+        var kept: [MediaPlaybackSource] = []
+        var seen: [String: [MediaPlaybackSource]] = [:]
+        for source in sources {
+            let key = source.releaseIdentity
+            if let key, seen[key]?.contains(where: {
+                $0.serverID != source.serverID && Self.sameSize($0, source)
+            }) == true { continue }
+            kept.append(source)
+            if let key { seen[key, default: []].append(source) }
+        }
+        return kept
+    }
+
+    private static func sameSize(_ a: MediaPlaybackSource, _ b: MediaPlaybackSource) -> Bool {
+        guard let x = a.size, let y = b.size, x > 0, y > 0 else { return true }
+        return Double(abs(x - y)) / Double(max(x, y)) < 0.02
+    }
+
     /// A stream its debrid service already has, which plays at once rather
     /// than after being fetched. Only AIOStreams says.
     var isInstant: Bool { aiostreams?.cached == true }

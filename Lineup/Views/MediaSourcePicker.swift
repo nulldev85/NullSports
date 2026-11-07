@@ -340,7 +340,8 @@ struct MediaSourcePicker: View {
                         serverStatus[index].phase = .failed(problem.localizedDescription)
                     }
                 }
-                sources = found.keys.sorted().flatMap { found[$0] ?? [] }
+                // Each release once, though two servers offer it.
+                sources = MediaPlaybackSource.withoutDuplicates(found.keys.sorted().flatMap { found[$0] ?? [] })
                 if !sources.isEmpty { loading = false }
                 if autoPicks, selectedSource == nil,
                    let best = Self.bestSource(found: found, places: lookups.count) {
@@ -491,7 +492,8 @@ struct MediaSourcePicker: View {
                        seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) },
                        episodes: seasonEpisodes(around: trackedItem))
             .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning,
-                                                   nativeSilo: nativeSilo, mediaSourceID: source.sourceID) }
+                                                   nativeSilo: nativeSilo, mediaSourceID: source.sourceID,
+                                                   playedOn: source.serverID, serverItemID: source.itemID) }
             // After the player's own last report, which it makes as it goes.
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #else
@@ -527,7 +529,8 @@ struct MediaSourcePicker: View {
                                  if advance == nil { advance = .reachedEnd }
                              })
             .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning,
-                                                   nativeSilo: nativeSilo, mediaSourceID: source.sourceID) }
+                                                   nativeSilo: nativeSilo, mediaSourceID: source.sourceID,
+                                                   playedOn: source.serverID, serverItemID: source.itemID) }
             .onDisappear { DispatchQueue.main.async { media.endPlaybackSession(sessionID) } }
             #endif
         } else {
