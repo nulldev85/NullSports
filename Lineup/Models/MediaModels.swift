@@ -1450,17 +1450,21 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
         return key.count >= 8 ? key : nil
     }
 
-    /// A list with each release once: a stream another server already
-    /// offered -- the same file, of the same size where both say -- is left
-    /// out, keeping the first, which is the title's own server's. Two copies
-    /// from one server are kept: they differ in some other way.
-    static func withoutDuplicates(_ sources: [MediaPlaybackSource]) -> [MediaPlaybackSource] {
+    /// A list with each release once: a stream another server of the same
+    /// kind already offered -- the same file, of the same size where both
+    /// say -- is left out, keeping the first, which is the title's own
+    /// server's. Two copies from one server are kept: they differ in some
+    /// other way. So are copies from servers of different kinds: the same
+    /// scene release from Usenet and from a debrid service are two ways to
+    /// play it, and one may work when the other does not.
+    static func withoutDuplicates(_ sources: [MediaPlaybackSource],
+                                  sameKind: (UUID?, UUID?) -> Bool = { _, _ in true }) -> [MediaPlaybackSource] {
         var kept: [MediaPlaybackSource] = []
         var seen: [String: [MediaPlaybackSource]] = [:]
         for source in sources {
             let key = source.releaseIdentity
             if let key, seen[key]?.contains(where: {
-                $0.serverID != source.serverID && Self.sameSize($0, source)
+                $0.serverID != source.serverID && sameKind($0.serverID, source.serverID) && Self.sameSize($0, source)
             }) == true { continue }
             kept.append(source)
             if let key { seen[key, default: []].append(source) }

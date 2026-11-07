@@ -32,6 +32,10 @@ final class CrossServerTests: XCTestCase {
         XCTAssertEqual(MediaPlaybackSource.withoutDuplicates([first, again, other, resized, sameServer]).map(\.sourceID),
                        ["a1", "n2", "n3", "a2"],
                        "The other server's copy of the same file goes; a different file, size or server's own copies stay")
+        // Usenet on one server and debrid on the other: the same scene file
+        // from each is two ways to play it, and both stay.
+        XCTAssertEqual(MediaPlaybackSource.withoutDuplicates([first, again], sameKind: { _, _ in false }).map(\.sourceID),
+                       ["a1", "n1"])
     }
 
     func testATitleIsKnownAcrossServers() {

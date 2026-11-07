@@ -341,7 +341,8 @@ struct MediaSourcePicker: View {
                     }
                 }
                 // Each release once, though two servers offer it.
-                sources = MediaPlaybackSource.withoutDuplicates(found.keys.sorted().flatMap { found[$0] ?? [] })
+                sources = MediaPlaybackSource.withoutDuplicates(found.keys.sorted().flatMap { found[$0] ?? [] },
+                                                                sameKind: library.sameStreamBackend)
                 if !sources.isEmpty { loading = false }
                 if autoPicks, selectedSource == nil,
                    let best = Self.bestSource(found: found, places: lookups.count) {

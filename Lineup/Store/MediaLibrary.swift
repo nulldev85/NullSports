@@ -3684,6 +3684,14 @@ final class MediaLibrary {
     ///
     /// Only a film or an episode goes looking elsewhere. Those are what another
     /// server can be asked about by name; anything else is its own server's.
+    /// Whether two servers find their streams the same way -- two
+    /// AIOStreams, say -- so that the same release from both is one stream.
+    /// Unknown counts as different: a stream is never hidden on a guess.
+    func sameStreamBackend(_ first: UUID?, _ second: UUID?) -> Bool {
+        guard let first, let second, let a = serverKinds[first], let b = serverKinds[second] else { return false }
+        return a == b
+    }
+
     func streamServers(for item: MediaItem) -> [MediaServerProfile] {
         // A provider's title has no server of its own; each is asked about its
         // own copy, the way it is for another server's title.
