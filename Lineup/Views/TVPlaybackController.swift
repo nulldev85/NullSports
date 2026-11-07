@@ -195,10 +195,16 @@ struct PlaybackClockReader<Content: View>: View {
         let urls: @MainActor (Int) -> [URL]
         let didPlay: @MainActor (Int) -> Void
         let chooseChannel: @MainActor () -> Void
+        /// A channel that would not play, and one that showed a picture,
+        /// remembered for the next game's pick (`ChannelHealth`).
+        var didFail: @MainActor (Int) -> Void = { _ in }
+        var didShowPicture: @MainActor (Int) -> Void = { _ in }
     }
     var failover: FailoverContext?
     private var currentChannelID: Int?
     private var pendingWorkingChannelID: Int?
+    /// The channel whose picture has been reported, so it is reported once.
+    private var reportedPictureChannelID: Int?
     private var failoverState = StreamFailoverState()
     private var noticeTask: Task<Void, Never>?
     /// The level the sound is held at between fades. The playback monitor
@@ -339,6 +345,7 @@ struct PlaybackClockReader<Content: View>: View {
             discardOnlineSubtitles()
         }
         currentChannelID = channelID
+        reportedPictureChannelID = nil
         if resetFailover {
             failoverState.reset()
             activeChannelName = nil
@@ -593,6 +600,10 @@ struct PlaybackClockReader<Content: View>: View {
             time: backend.time.isFinite ? Int32(clamping: Int64(min(max(backend.time * 1000, 0), Double(Int32.max)))) : 0,
             frames: backend.frames,
             bytes: backend.bytes, failed: failed)
+        if health.hasShownPicture, let shown = currentChannelID, reportedPictureChannelID != shown {
+            reportedPictureChannelID = shown
+            failover?.didShowPicture(shown)
+        }
         if health.isStable(now: now) {
             retries.reset()
             if let id = pendingWorkingChannelID, id == currentChannelID {
@@ -697,6 +708,7 @@ struct PlaybackClockReader<Content: View>: View {
 
     private func switchToNextChannel() -> Bool {
         guard let failover else { return false }
+        if let failed = currentChannelID { failover.didFail(failed) }
         while let next = failoverState.next(from: failover.plan(), current: currentChannelID) {
             let nextURLs = failover.urls(next.streamID)
             guard !nextURLs.isEmpty else { continue }
@@ -1468,6 +1480,8 @@ struct TVPreviewFormatBadges: View {
             }
         },
         chooseChannel: chooseChannel)
+    controller.failover?.didFail = { id in library.noteChannelFailed(id) }
+    controller.failover?.didShowPicture = { id in library.noteChannelPlayed(id) }
 }
 
 struct TVPlaybackStatus: View {

@@ -139,12 +139,18 @@ final class MobilePlaybackController: ObservableObject {
         let urls: @MainActor (Int) -> [URL]
         let didSwitch: @MainActor (FailoverChannel) -> Void
         let didPlay: @MainActor (Int) -> Void
+        /// A channel that would not play, and one that showed a picture,
+        /// remembered for the next game's pick (`ChannelHealth`).
+        var didFail: @MainActor (Int) -> Void = { _ in }
+        var didShowPicture: @MainActor (Int) -> Void = { _ in }
     }
     var failover: FailoverContext?
     /// The channel currently playing, so failover knows what to retire.
     private(set) var currentChannelID: Int?
     private var failoverState = StreamFailoverState()
     private var pendingWorkingChannelID: Int?
+    /// The channel whose picture has been reported, so it is reported once.
+    private var reportedPictureChannelID: Int?
     private var noticeTask: Task<Void, Never>?
 
     private var monitor: Task<Void, Never>?
@@ -1031,6 +1037,7 @@ final class MobilePlaybackController: ObservableObject {
         error = nil
         originalURLs = urls
         if let channelID { currentChannelID = channelID }
+        reportedPictureChannelID = nil
         if resetFailover {
             failoverState.reset()
             pendingWorkingChannelID = nil
@@ -1792,6 +1799,7 @@ final class MobilePlaybackController: ObservableObject {
     /// candidate or returns false.
     private func switchToNextChannel() -> Bool {
         guard let failover else { return false }
+        if let failed = currentChannelID { failover.didFail(failed) }
         while let next = failoverState.next(from: failover.plan(), current: currentChannelID) {
             let urls = failover.urls(next.streamID)
             guard !urls.isEmpty else { continue }
@@ -1832,6 +1840,10 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func confirmWorkingChannel() {
+        if let shown = currentChannelID, reportedPictureChannelID != shown {
+            reportedPictureChannelID = shown
+            failover?.didShowPicture(shown)
+        }
         guard let id = pendingWorkingChannelID, id == currentChannelID else { return }
         pendingWorkingChannelID = nil
         failover?.didPlay(id)
