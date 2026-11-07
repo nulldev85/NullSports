@@ -613,7 +613,7 @@ private struct AppSearchGenreGrid: View {
     #if os(tvOS)
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 24), count: 4)
     private let spacing: CGFloat = 24
-    private let genres = AppSearchGenre.all
+    private let genres = AppSearchGenre.alphabetical
     #else
     private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
     private let spacing: CGFloat = 12

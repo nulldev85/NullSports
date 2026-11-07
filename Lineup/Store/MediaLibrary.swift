@@ -240,6 +240,8 @@ final class MediaLibrary {
     private(set) var serverTrackingEnabled = true
     /// What each playback session has told its server so far.
     @ObservationIgnored private var serverReports: [UUID: ServerPlaybackReport] = [:]
+    @ObservationIgnored private var caughtUpHolds: Set<String> = []
+    @ObservationIgnored private var lastServerImport: [UUID: Date] = [:]
     @ObservationIgnored private var warmedStreams: [String: (started: Date, task: Task<[MediaPlaybackSource], Error>)] = [:]
     private(set) var mdbListTrackingEnabled = false
     let mdbListTracking: MDBListTrackingService
@@ -616,7 +618,45 @@ final class MediaLibrary {
                 selected[key] = record
             }
         }
-        return selected.values.sorted { $0.updatedAt > $1.updatedAt }
+        // One place for a title however many servers have it: two servers
+        // with the same catalog, each told of what was watched, would
+        // otherwise each put it in the row. The latest wins.
+        // Only copies on different servers are one title: two records on
+        // the same server are two titles that happen to look alike.
+        var byTitle: [String: LocalMediaPlayback] = [:]
+        var rest: [LocalMediaPlayback] = []
+        for record in selected.values.sorted(by: { $0.updatedAt > $1.updatedAt }) {
+            guard let title = Self.crossServerKey(record.item) else { rest.append(record); continue }
+            if let newer = byTitle[title] {
+                if newer.profileID == record.profileID { rest.append(record) }
+                continue
+            }
+            byTitle[title] = record
+        }
+        return (Array(byTitle.values) + rest).sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// The same film, or the same show, on any server: by its IMDb or TMDB
+    /// id where it has one, else its name and year (none without a year);
+    /// a show by its name.
+    nonisolated static func crossServerKey(_ item: MediaItem) -> String? {
+        switch item.type {
+        case "Episode":
+            guard let series = item.seriesName.map(MediaTitleMatch.normalized), !series.isEmpty else { return nil }
+            return "show|" + series
+        case "Movie":
+            let ids = Dictionary((item.providerIDs ?? [:]).map { ($0.key.lowercased(), $0.value) },
+                                 uniquingKeysWith: { first, _ in first })
+            if let imdb = ids["imdb"], !imdb.isEmpty { return "movie|imdb|" + imdb.lowercased() }
+            if let tmdb = ids["tmdb"], !tmdb.isEmpty { return "movie|tmdb|" + tmdb }
+            // A name alone is not enough: two films share one often. With
+            // its year it is.
+            let name = MediaTitleMatch.normalized(item.name)
+            guard !name.isEmpty, let year = item.productionYear else { return nil }
+            return "movie|" + name + "|" + String(year)
+        default:
+            return nil
+        }
     }
 
     /// Bound the visible history without deleting durable watched state.
@@ -1951,8 +1991,12 @@ final class MediaLibrary {
     }
 
     func beginPlaybackSession(for item: MediaItem, id: UUID, startsOver: Bool = false,
-                              nativeSilo: SiloPlaybackSession? = nil, mediaSourceID: String? = nil) {
-        if nativeSilo == nil { beginServerReport(for: item, id: id, mediaSourceID: mediaSourceID) }
+                              nativeSilo: SiloPlaybackSession? = nil, mediaSourceID: String? = nil,
+                              playedOn server: UUID? = nil, serverItemID: String? = nil) {
+        if nativeSilo == nil {
+            beginServerReport(for: item, id: id, mediaSourceID: mediaSourceID,
+                              playedOn: server.map { ($0, serverItemID ?? item.id) })
+        }
         if let nativeSilo {
             siloPlaybackSessions[id] = nativeSilo
             nativeSilo.retryAllowed = { [weak self, weak nativeSilo] in
@@ -2451,6 +2495,65 @@ final class MediaLibrary {
             return kept
         }
         if before != localPlayback { persistLocalPlayback() }
+        holdCaughtUpShow(series)
+    }
+
+    /// Keeps a show caught up with in Continue Watching, where it would
+    /// otherwise vanish until its next episode reaches the server: by the
+    /// next episode the show's schedule names, with the day it airs, or,
+    /// when none is named yet, by a card saying more is coming. Asked once
+    /// a session for each show.
+    private func holdCaughtUpShow(_ series: MediaItem) {
+        guard let profileID = serverID(of: series),
+              let profile = profiles.first(where: { $0.id == profileID }) else { return }
+        let records = seriesRecords(of: series, profileID: profileID)
+        let held = records.filter { $0.isUpNext == true && $0.item.isUpcomingPlaceholder }
+        // A scheduled episode already holds it.
+        guard !held.contains(where: { $0.item.indexNumber != nil }),
+              let finished = records.filter(\.completed).max(by: { $0.updatedAt < $1.updatedAt }),
+              finished.item.parentIndexNumber != 0,
+              caughtUpHolds.insert(profileID.uuidString + "|" + series.id).inserted else { return }
+        let generation = playbackGeneration
+        Task { [weak self] in
+            guard let self else { return }
+            let scheduled = await self.upcomingEpisode(after: finished.item, profile: profile)
+            guard generation == self.playbackGeneration, self.contains(profile),
+                  self.seriesPlayTarget(in: series) == nil else { return }
+            let placeholder: MediaItem
+            if let scheduled {
+                placeholder = scheduled
+                let generic = Set(held.map(\.item.id))
+                self.localPlayback.removeAll { $0.profileID == profileID && generic.contains($0.item.id) }
+            } else if held.isEmpty {
+                placeholder = MediaItem(id: MediaItem.upcomingPrefix + "more|" + (finished.item.seriesID ?? series.id),
+                    name: finished.item.seriesName ?? series.name, type: "Episode", overview: nil, productionYear: nil,
+                    primaryImageAspectRatio: 16.0 / 9, childCount: nil, premiereDate: nil, indexNumber: nil,
+                    // Kept with the specials, so nothing plays it or counts
+                    // it as the next episode.
+                    parentIndexNumber: 0, seriesName: finished.item.seriesName ?? series.name,
+                    seriesID: finished.item.seriesID ?? series.id,
+                    posterURL: self.showArtwork(seriesID: finished.item.seriesID ?? series.id, profile: profile),
+                    serverID: profileID)
+            } else {
+                return
+            }
+            self.queueAsUpNext(placeholder, explicitlyUnwatched: false)
+            // Where the show was in the row, not first because it was asked.
+            if let index = self.localPlayback.firstIndex(where: {
+                $0.profileID == profileID && $0.item.id == placeholder.id
+            }) {
+                self.localPlayback[index].updatedAt = finished.updatedAt
+            }
+            self.persistLocalPlayback()
+        }
+    }
+
+    /// A show's wide artwork from its server, for a card standing in for an
+    /// episode it does not have yet.
+    private func showArtwork(seriesID: String, profile: MediaServerProfile) -> String? {
+        guard let source = try? client(for: profile) else { return nil }
+        return (source.imageURL(itemID: seriesID, type: "backdrop", maxWidth: 1280)
+            ?? source.imageURL(itemID: seriesID, type: "primary", maxWidth: 1280))?.absoluteString
     }
 
     /// This device's records of a show's episodes.
@@ -2496,12 +2599,31 @@ final class MediaLibrary {
         guard !hasRealProgress, !records.contains(where: {
             $0.completed || $0.explicitlyUnwatched == true || $0.position >= 5
         }) else {
+            // The server's next episode straight after the last one finished
+            // here -- finished here, or on another device the server told us
+            // of -- is the show's place, without waiting for its episode list.
+            if !hasRealProgress,
+               let finished = records.filter(\.completed).max(by: { $0.updatedAt < $1.updatedAt }),
+               Self.comesNext(episode, after: finished.item),
+               !records.contains(where: { $0.isUpNext == true && $0.explicitlyUnwatched == true }) {
+                settleUpNext(episode)
+                return
+            }
             reconcileCachedSeries(for: episode)
             return
         }
         retireUpNext(for: episode, profileID: profileID)
         queueAsUpNext(episode, explicitlyUnwatched: false)
         persistLocalPlayback()
+    }
+
+    /// The episode straight after another: the next in its season, or the
+    /// first of the next season.
+    nonisolated static func comesNext(_ episode: MediaItem, after previous: MediaItem) -> Bool {
+        guard let season = episode.parentIndexNumber, let number = episode.indexNumber,
+              let lastSeason = previous.parentIndexNumber, let lastNumber = previous.indexNumber,
+              season > 0, lastSeason > 0 else { return false }
+        return (season == lastSeason && number == lastNumber + 1) || (season == lastSeason + 1 && number == 1)
     }
 
     func isWatched(_ item: MediaItem) -> Bool {
@@ -3570,6 +3692,14 @@ final class MediaLibrary {
     ///
     /// Only a film or an episode goes looking elsewhere. Those are what another
     /// server can be asked about by name; anything else is its own server's.
+    /// Whether two servers find their streams the same way -- two
+    /// AIOStreams, say -- so that the same release from both is one stream.
+    /// Unknown counts as different: a stream is never hidden on a guess.
+    func sameStreamBackend(_ first: UUID?, _ second: UUID?) -> Bool {
+        guard let first, let second, let a = serverKinds[first], let b = serverKinds[second] else { return false }
+        return a == b
+    }
+
     func streamServers(for item: MediaItem) -> [MediaServerProfile] {
         // A provider's title has no server of its own; each is asked about its
         // own copy, the way it is for another server's title.
@@ -5734,10 +5864,20 @@ extension MediaLibrary {
 
 /// One playback session's account with its Jellyfin, Emby or AIOStreams
 /// server: what it has said, and when.
-private struct ServerPlaybackReport {
+/// One server told of a session: its copy of the title, and the version
+/// played when it is the server that played it.
+private struct ServerReportTarget: Equatable {
     let profileID: UUID
     let itemID: String
     let mediaSourceID: String?
+}
+
+private struct ServerPlaybackReport {
+    /// The server that played it, the title's own server, and every other
+    /// server that keeps progress and has the same title: each keeps the
+    /// viewer's place, so every device and every app on any of them agrees,
+    /// whichever server played it.
+    var targets: [ServerReportTarget]
     let playSessionID = UUID().uuidString
     var started = false
     var paused = false
@@ -5752,11 +5892,52 @@ extension MediaLibrary {
 
     /// A session on a server that keeps progress for its apps. Titles from
     /// the IPTV provider, Plex and Silo keep their own and are left out.
-    fileprivate func beginServerReport(for item: MediaItem, id: UUID, mediaSourceID: String?) {
-        guard serverTrackingEnabled, serverReports[id] == nil, ProviderItem(id: item.id) == nil,
-              ["Movie", "Episode", "Video"].contains(item.type),
-              let profile = profile(for: item), (try? client(for: profile)) is JellyfinClient else { return }
-        serverReports[id] = ServerPlaybackReport(profileID: profile.id, itemID: item.id, mediaSourceID: mediaSourceID)
+    fileprivate func beginServerReport(for item: MediaItem, id: UUID, mediaSourceID: String?,
+                                       playedOn: (profileID: UUID, itemID: String)?) {
+        guard serverTrackingEnabled, serverReports[id] == nil,
+              ["Movie", "Episode", "Video"].contains(item.type) else { return }
+        func keepsProgress(_ profileID: UUID) -> MediaServerProfile? {
+            guard let profile = profiles.first(where: { $0.id == profileID }),
+                  (try? client(for: profile)) is JellyfinClient else { return nil }
+            return profile
+        }
+        var targets: [ServerReportTarget] = []
+        if let playedOn, keepsProgress(playedOn.profileID) != nil {
+            targets.append(ServerReportTarget(profileID: playedOn.profileID, itemID: playedOn.itemID,
+                                              mediaSourceID: mediaSourceID))
+        }
+        if ProviderItem(id: item.id) == nil, let home = profile(for: item), keepsProgress(home.id) != nil,
+           !targets.contains(where: { $0.profileID == home.id }) {
+            targets.append(ServerReportTarget(profileID: home.id, itemID: item.id,
+                                              mediaSourceID: targets.isEmpty ? mediaSourceID : nil))
+        }
+        guard !targets.isEmpty else { return }
+        serverReports[id] = ServerPlaybackReport(targets: targets)
+        // The same title on the other servers, found as its streams were --
+        // usually already known -- and told of the session as it is found.
+        let others = profiles.filter { profile in
+            !targets.contains { $0.profileID == profile.id } && keepsProgress(profile.id) != nil
+        }
+        guard !others.isEmpty else { return }
+        Task { [weak self] in
+            for profile in others {
+                guard let self else { return }
+                var lookup = CounterpartLookup()
+                guard let copy = try? await self.counterpart(of: item, on: profile, lookup: &lookup) else { continue }
+                self.addServerReportTarget(ServerReportTarget(profileID: profile.id, itemID: copy.id,
+                                                              mediaSourceID: nil), to: id)
+            }
+        }
+    }
+
+    /// A server found to have the title after the session began: told it
+    /// started, if it has, from where it is now.
+    private func addServerReportTarget(_ target: ServerReportTarget, to sessionID: UUID) {
+        guard var report = serverReports[sessionID], !report.targets.contains(target) else { return }
+        report.targets.append(target)
+        serverReports[sessionID] = report
+        guard report.started else { return }
+        deliver(report, to: [target], event: nil, ticks: report.positionTicks) { try await $0.reportPlaybackStarted($1) }
     }
 
     /// Started on the first sample, then where it is every ten seconds and
@@ -5798,15 +5979,18 @@ extension MediaLibrary {
         deliver(report, event: nil, ticks: ticks) { try await $0.reportPlaybackStopped($1) }
     }
 
-    private func deliver(_ report: ServerPlaybackReport, event: String?, ticks: Int64,
+    private func deliver(_ report: ServerPlaybackReport, to targets: [ServerReportTarget]? = nil,
+                         event: String?, ticks: Int64,
                          _ send: @escaping (JellyfinClient, JellyfinClient.PlaybackReport) async throws -> Void) {
-        guard let profile = profiles.first(where: { $0.id == report.profileID }),
-              let source = (try? client(for: profile)) as? JellyfinClient else { return }
-        let body = JellyfinClient.PlaybackReport(itemID: report.itemID, mediaSourceID: report.mediaSourceID,
-            playSessionID: report.playSessionID, positionTicks: ticks, isPaused: report.paused, eventName: event)
-        // A report that does not arrive is a position the server keeps from
-        // the last one; playback never waits on it.
-        Task { try? await send(source, body) }
+        for target in targets ?? report.targets {
+            guard let profile = profiles.first(where: { $0.id == target.profileID }),
+                  let source = (try? client(for: profile)) as? JellyfinClient else { continue }
+            let body = JellyfinClient.PlaybackReport(itemID: target.itemID, mediaSourceID: target.mediaSourceID,
+                playSessionID: report.playSessionID, positionTicks: ticks, isPaused: report.paused, eventName: event)
+            // A report that does not arrive is a position the server keeps
+            // from the last one; playback never waits on it.
+            Task { try? await send(source, body) }
+        }
     }
 
     /// What the viewer is part way through or up to on the server, from any
@@ -5817,14 +6001,36 @@ extension MediaLibrary {
         guard serverTrackingEnabled, localTrackingEnabled, contains(profile),
               let source = (try? client(for: profile)) as? JellyfinClient else { return }
         let generation = playbackGeneration
+        // What this device has under way from the server, to ask whether it
+        // has since been finished somewhere else.
+        let open = Array(Set(localPlayback.filter {
+            $0.profileID == profile.id && !$0.completed && $0.position >= 5 && $0.explicitlyUnwatched != true
+                && !$0.item.isUpcomingPlaceholder && ProviderItem(id: $0.item.id) == nil
+        }.map(\.item.id))).prefix(150)
         async let resumeList = source.resumeItems(userID: profile.userID)
         async let nextList = source.nextUpEpisodes(userID: profile.userID)
+        async let openList = Self.currentState(of: Array(open), on: source, userID: profile.userID)
         let resumed = (try? await resumeList) ?? []
         let upNext = (try? await nextList) ?? []
+        let current = await openList
         guard generation == playbackGeneration, contains(profile), serverTrackingEnabled, localTrackingEnabled else { return }
 
         var records = localPlayback
         var changed = false
+        // Finished on another device since it was last played here: it
+        // leaves Continue Watching here too, and the show moves on below.
+        for item in current where item.userData?.played == true {
+            guard let playedAt = item.userData?.lastPlayed else { continue }
+            for index in records.indices where records[index].profileID == profile.id
+                && !records[index].completed && Self.samePlaybackItem(records[index].item, item)
+                && playedAt > records[index].updatedAt {
+                records[index].completed = true
+                records[index].position = records[index].duration
+                records[index].updatedAt = playedAt
+                records[index].isUpNext = nil
+                changed = true
+            }
+        }
         for raw in resumed where raw.isPlayable {
             let item = raw.servedBy(profile.id)
             guard let ticks = item.userData?.playbackPositionTicks, ticks > 0,
@@ -5857,6 +6063,31 @@ extension MediaLibrary {
         // Each show's next episode, where this device has nothing of the show.
         for episode in upNext where episode.type == "Episode" {
             rememberNextUp(episode.servedBy(profile.id))
+        }
+        lastServerImport[profile.id] = Date()
+    }
+
+    /// Titles as the server has them now, fifty at a time.
+    nonisolated private static func currentState(of ids: [String], on source: JellyfinClient,
+                                                 userID: String) async -> [MediaItem] {
+        var found: [MediaItem] = []
+        var start = 0
+        while start < ids.count {
+            let batch = Array(ids[start..<min(start + 50, ids.count)])
+            if let items = try? await source.items(userID: userID, ids: batch) { found += items }
+            start += 50
+        }
+        return found
+    }
+
+    /// Picks up what was watched on other devices: as the app comes back to
+    /// the front, and every few minutes while it stays there. A server asked
+    /// within the last minute is left alone.
+    func refreshServerProgress() async {
+        guard serverTrackingEnabled, localTrackingEnabled else { return }
+        for profile in profiles {
+            if let last = lastServerImport[profile.id], Date().timeIntervalSince(last) < 60 { continue }
+            await importServerProgress(for: profile)
         }
     }
 }

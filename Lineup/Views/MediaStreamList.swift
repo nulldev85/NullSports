@@ -768,17 +768,28 @@ struct StreamBadgeChip: View {
 }
 
 extension MediaPlaybackSource {
-    /// AIOStreams' formatter's own lines -- its name, then its description
-    /// -- when it sent any.
+    /// The server's formatter's own lines -- its name, then its description
+    /// -- when it sent any: AIOStreams' in its own fields, and every other
+    /// server's (Nullfin, a Jellyfin server with an addon) as a stream name
+    /// written over several lines.
     var formatterLines: (name: [String], description: [String])? {
-        guard let info = aiostreams else { return nil }
         func split(_ text: String?) -> [String] {
             (text ?? "").components(separatedBy: .newlines)
                 .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         }
-        let name = split(info.name), description = split(info.description)
-        guard !name.isEmpty || !description.isEmpty else { return nil }
-        return (name, description)
+        if let info = aiostreams {
+            let name = split(info.name), description = split(info.description)
+            if !name.isEmpty || !description.isEmpty { return (name, description) }
+        }
+        // The provider's own copy is named by Lineup, not by a formatter.
+        guard directURL == nil else { return nil }
+        let lines = split(name)
+        var description = Array(lines.dropFirst())
+        for line in split(remux?.providerInfo?.description) where !description.contains(line) {
+            description.append(line)
+        }
+        guard let first = lines.first, !description.isEmpty else { return nil }
+        return ([first], description)
     }
 }
 

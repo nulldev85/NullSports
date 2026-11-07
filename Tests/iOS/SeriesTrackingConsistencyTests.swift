@@ -231,7 +231,10 @@ final class SeriesTrackingConsistencyTests: XCTestCase {
         XCTAssertEqual(library.seriesPlayTarget(in: show.servedBy(other.id))?.id, remote[1].id)
         XCTAssertTrue(library.isWatched(local[1]))
         XCTAssertFalse(library.isWatched(remote[1]))
-        XCTAssertEqual(library.continueWatching.count, 2)
+        // Each server keeps its own place, but the show is one show:
+        // Continue Watching holds it once, where it was last watched.
+        XCTAssertEqual(library.continueWatching.count, 1)
+        XCTAssertEqual(library.continueWatching.first?.profileID, other.id)
     }
 
     func testCompletionCannotBeReversedByLateSessionProgress() throws {

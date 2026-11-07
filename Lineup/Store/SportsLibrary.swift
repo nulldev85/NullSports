@@ -2055,7 +2055,8 @@ final class SportsLibrary {
             guard matchedGameIdentities[game.id] == Self.matchIdentity(game) else { return nil }
             candidates = gameStreamCache[game.id].map { [$0] } ?? []
         }
-        for saved in candidates {
+        // A channel that would not start lately is tried after the others.
+        for saved in ChannelHealth.shared.ordered(candidates, stream: { $0 }) {
             guard let current = stream(withID: saved.id),
                   DailyCachePolicy.isSameChannelSlot(cachedID: saved.id, freshID: current.id,
                     cachedName: saved.name, freshName: current.name,
@@ -2089,9 +2090,23 @@ final class SportsLibrary {
     /// Use a saved, working game channel first, then the verified daily match.
     /// The exact-game selection is provider-scoped and expires with the game.
     func resolvedStream(for game: SportsGame) -> XtreamStream? {
+        let matched = verifiedStream(for: game)
         if let saved = gameChannelSelections.selection(for: game.id),
-           let stream = stream(withID: saved.streamID), stream.name == saved.channelName { return stream }
-        return verifiedStream(for: game)
+           let stream = stream(withID: saved.streamID), stream.name == saved.channelName,
+           !(ChannelHealth.shared.isSuspect(stream) && matched.map { !ChannelHealth.shared.isSuspect($0) } == true) {
+            return stream
+        }
+        return matched
+    }
+
+    /// A game's channel that would not play, or one that showed a picture,
+    /// for the next time a game picks its channel.
+    func noteChannelFailed(_ id: Int) {
+        if let stream = stream(withID: id) { ChannelHealth.shared.failed(stream) }
+    }
+
+    func noteChannelPlayed(_ id: Int) {
+        if let stream = stream(withID: id) { ChannelHealth.shared.played(stream) }
     }
 
     /// Does current evidence say this channel is carrying this game?
@@ -3433,8 +3448,12 @@ final class SportsLibrary {
         // evidence of intent. Unlike a team preference it does not need guide
         // verification: the viewer just confirmed the feed while watching the
         // game, and providers commonly leave those ad-hoc channels without EPG.
+        // Unless it has failed since, and Lineup's own match has not.
+        let matchedStream = verifiedStream(for: game)
+        let matchedHealthy = matchedStream.map { !ChannelHealth.shared.isSuspect($0) } ?? false
         if let saved = gameChannelSelections.selection(for: game.id),
-           let stream = stream(withID: saved.streamID), stream.name == saved.channelName {
+           let stream = stream(withID: saved.streamID), stream.name == saved.channelName,
+           !(ChannelHealth.shared.isSuspect(stream) && matchedHealthy && matchedStream?.id != stream.id) {
             return .play(streamID: saved.streamID, source: .gameSelection)
         }
         let teams = Self.preferenceGame(game)
@@ -3445,10 +3464,13 @@ final class SportsLibrary {
         for key in [teams.homeKey, teams.awayKey] {
             guard let saved = teamPreferences.preference(for: key),
                   let stream = stream(withID: saved.streamID),
-                  isStream(stream, verifiedFor: game) else { continue }
+                  isStream(stream, verifiedFor: game),
+                  // A preferred channel that failed lately gives way to a
+                  // match that has not.
+                  !(ChannelHealth.shared.isSuspect(stream) && matchedHealthy) else { continue }
             verified.insert(stream.id)
         }
-        let matchedID = verifiedStream(for: game)?.id
+        let matchedID = matchedStream?.id
         // Resolve can only choose these two verified preferences or the
         // verified match. Do not rebuild all provider IDs for every tap.
         var available = verified
@@ -3649,7 +3671,10 @@ final class SportsLibrary {
     /// failover can never wander onto an unrelated feed. Bounded to the league's
     /// own channel index and to a handful of alternates, since this runs at the
     /// moment a stream is already failing.
-    func failoverPlan(for game: SportsGame, limit: Int = 4) -> [FailoverChannel] {
+    func failoverPlan(for game: SportsGame, limit: Int? = nil) -> [FailoverChannel] {
+        // Soccer and racing are carried by many channels, each by a few;
+        // there are more worth trying before giving up.
+        let limit = limit ?? ([.soccer, .f1, .nascar].contains(game.league) ? 6 : 4)
         let verified = verifiedStream(for: game)
         let preferred = preferredFailoverChannel(for: game)
         let listings = programsByChannel
@@ -3684,10 +3709,12 @@ final class SportsLibrary {
                                       qualities: qualities, shared: shared) }
             .prefix(limit)
             .map { FailoverChannel(streamID: $0.stream.id, name: $0.stream.name, reason: .alternate) }
-        return FailoverPlanner.plan(
+        let plan = FailoverPlanner.plan(
             preference: preferred,
             verified: verified.map { FailoverChannel(streamID: $0.id, name: $0.name, reason: .verified) },
             alternates: Array(alternates))
+        // Channels that would not start lately are tried last.
+        return ChannelHealth.shared.ordered(plan, stream: { self.stream(withID: $0.streamID) })
     }
 
     /// The viewer's saved channel, and only when it is verified for this game.

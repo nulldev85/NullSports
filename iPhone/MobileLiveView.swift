@@ -854,7 +854,7 @@ struct MobileLiveView: View {
         // rather than a copy of this view.
         let library = self.library
         let automaticID = library.verifiedStream(for: game)?.id
-        return MobilePlaybackController.FailoverContext(
+        var context = MobilePlaybackController.FailoverContext(
             plan: { library.failoverPlan(for: game) },
             urls: { id in library.stream(withID: id).map { library.playbackURLs(for: $0) } ?? [] },
             didSwitch: { channel in
@@ -870,6 +870,9 @@ struct MobileLiveView: View {
                     library.saveGameSelection(working, for: game)
                 }
             })
+        context.didFail = { id in library.noteChannelFailed(id) }
+        context.didShowPicture = { id in library.noteChannelPlayed(id) }
+        return context
     }
 
     /// The channel Last Channel goes back to: the one played before this,

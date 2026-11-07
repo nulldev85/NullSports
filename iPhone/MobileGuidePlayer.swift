@@ -66,6 +66,10 @@ struct MobileGuidePlayer: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
                 MobileVideoSurface(controller: controller)
+                // Full screen only: a preview over the guide has no bars.
+                LineupAmbientGlow(frames: { await controller.captureFrame() },
+                                  enabled: expanded && !controller.loading && controller.error == nil
+                                    && !controller.pictureInPictureActive)
                 // A transparent tap-catching layer, separate from the embedded VLC
                 // view itself. VLCKit inserts its own rendering subview into that
                 // UIKit view, and a plain SwiftUI gesture attached directly to a

@@ -573,6 +573,10 @@ struct PlayerView: View {
             // Narrowed by a value, never by a modifier that comes and goes:
             // the surface keeps its identity, and VLC its drawable.
             TVHostedSurface(controller: controller, fullScreen: true)
+                // The picture's colours in the black around it, as on the
+                // phone; a picture that fills the screen has none to light.
+                .overlay { LineupAmbientGlow(frames: { await controller.captureFrame() },
+                                             enabled: controller.error == nil) }
                 .overlay { TVPlaybackStatus(controller: controller) }
                 .padding(.trailing, statsInset)
                 .background(Color.black).ignoresSafeArea()

@@ -195,10 +195,16 @@ struct PlaybackClockReader<Content: View>: View {
         let urls: @MainActor (Int) -> [URL]
         let didPlay: @MainActor (Int) -> Void
         let chooseChannel: @MainActor () -> Void
+        /// A channel that would not play, and one that showed a picture,
+        /// remembered for the next game's pick (`ChannelHealth`).
+        var didFail: @MainActor (Int) -> Void = { _ in }
+        var didShowPicture: @MainActor (Int) -> Void = { _ in }
     }
     var failover: FailoverContext?
     private var currentChannelID: Int?
     private var pendingWorkingChannelID: Int?
+    /// The channel whose picture has been reported, so it is reported once.
+    private var reportedPictureChannelID: Int?
     private var failoverState = StreamFailoverState()
     private var noticeTask: Task<Void, Never>?
     /// The level the sound is held at between fades. The playback monitor
@@ -339,6 +345,7 @@ struct PlaybackClockReader<Content: View>: View {
             discardOnlineSubtitles()
         }
         currentChannelID = channelID
+        reportedPictureChannelID = nil
         if resetFailover {
             failoverState.reset()
             activeChannelName = nil
@@ -593,6 +600,10 @@ struct PlaybackClockReader<Content: View>: View {
             time: backend.time.isFinite ? Int32(clamping: Int64(min(max(backend.time * 1000, 0), Double(Int32.max)))) : 0,
             frames: backend.frames,
             bytes: backend.bytes, failed: failed)
+        if health.hasShownPicture, let shown = currentChannelID, reportedPictureChannelID != shown {
+            reportedPictureChannelID = shown
+            failover?.didShowPicture(shown)
+        }
         if health.isStable(now: now) {
             retries.reset()
             if let id = pendingWorkingChannelID, id == currentChannelID {
@@ -626,7 +637,7 @@ struct PlaybackClockReader<Content: View>: View {
         case .nothingArriving:
             reason = "Nothing arrived for \(isLive ? 12 : 30) seconds"
         case .neverPlayed:
-            reason = "No picture came within 30 seconds"
+            reason = "No picture came within \(isLive && failover != nil ? 15 : 30) seconds"
         case .failed, nil:
             reason = engineTitle + " reported the stream " + Self.describe(state)
         }
@@ -644,6 +655,13 @@ struct PlaybackClockReader<Content: View>: View {
         // A recording that stops is picked up from where it had got to --
         // or, having reached the present or the end of its programme, isn't.
         if catchUp != nil, recordingStopped() { return }
+        // A game's channel that has never shown a picture is given one more
+        // try, then the next channel verified for the game. Working through
+        // every retry first held a dead channel on screen for minutes.
+        if neverPlayed, isLive, catchUp == nil, failover != nil, retries.attempts >= 1 {
+            log(reason + ". Trying another channel for this game")
+            if switchToNextChannel() { return }
+        }
         guard var delay = retries.nextDelay() else {
             log(reason + ". Gave up after \(retries.attempts) tries")
             // Another channel live is no answer to a recording that won't play.
@@ -690,6 +708,7 @@ struct PlaybackClockReader<Content: View>: View {
 
     private func switchToNextChannel() -> Bool {
         guard let failover else { return false }
+        if let failed = currentChannelID { failover.didFail(failed) }
         while let next = failoverState.next(from: failover.plan(), current: currentChannelID) {
             let nextURLs = failover.urls(next.streamID)
             guard !nextURLs.isEmpty else { continue }
@@ -1308,7 +1327,9 @@ struct PlaybackClockReader<Content: View>: View {
     /// gone. A film on a slow link can buffer for longer and come back by
     /// itself, and reopening it costs the buffer it was filling.
     private func freshHealth() -> LivePlaybackHealth {
-        LivePlaybackHealth(now: uptime(), stallLimit: isLive ? 12 : 30)
+        // A game, with other channels to try, waits less for a first picture.
+        LivePlaybackHealth(now: uptime(), stallLimit: isLive ? 12 : 30,
+                           neverPlayedLimit: isLive && failover != nil ? 15 : 30)
     }
 
     /// The end of a film or an episode: the monitor stops, and the position
@@ -1459,6 +1480,8 @@ struct TVPreviewFormatBadges: View {
             }
         },
         chooseChannel: chooseChannel)
+    controller.failover?.didFail = { id in library.noteChannelFailed(id) }
+    controller.failover?.didShowPicture = { id in library.noteChannelPlayed(id) }
 }
 
 struct TVPlaybackStatus: View {

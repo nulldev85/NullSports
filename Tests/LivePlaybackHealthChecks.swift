@@ -19,6 +19,10 @@ enum LivePlaybackHealthChecks {
         health = LivePlaybackHealth(now: 0)
         precondition(!sample(29, frames: 0, time: -1, playing: false, video: false))
         precondition(sample(30, frames: 0, time: -1, playing: false, video: false), "Opening cannot hang forever")
+        // A game, with other channels to try, gives up on a silent one sooner.
+        health = LivePlaybackHealth(now: 0, neverPlayedLimit: 15)
+        precondition(!sample(14, frames: 0, time: -1, playing: false, video: false))
+        precondition(sample(15, frames: 0, time: -1, playing: false, video: false), "A game's dead channel is left sooner")
         health = LivePlaybackHealth(now: 0)
         precondition(!sample(1, frames: 30))
         precondition(!sample(2, frames: 30, video: false))

@@ -1138,7 +1138,14 @@ struct MobileGuideView: View {
                                     } else {
                                         Text(program.start, format: .dateTime.hour().minute())
                                     }
-                                    if program.isNew == true { Text("NEW") }
+                                    if program.isNew == true {
+                                        Text("NEW")
+                                            .font(.inter(8, .heavy)).tracking(0.6)
+                                            .foregroundStyle(LineupStyle.text.opacity(0.85))
+                                            .padding(.horizontal, 4).padding(.vertical, 1.5)
+                                            .background(LineupStyle.raised,
+                                                        in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+                                    }
                                 }
                                 .font(.inter(9, .medium))
                                 .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary.opacity(0.68))

@@ -3,6 +3,8 @@ import SwiftUI
 struct LibraryMetadataSettingsView: View {
     @Environment(MediaLibrary.self) private var media
     @AppStorage(MediaStreamRow.serverFormatKey) private var serverStreamFormat = true
+    /// The player's glow around the picture, as YouTube's ambient mode.
+    @AppStorage("Lineup.player.ambient.v1") private var ambientMode = true
     #if os(tvOS)
     @State private var choosingMetadata = false
     @State private var choosingEpisodes = false
@@ -35,8 +37,9 @@ struct LibraryMetadataSettingsView: View {
                     switchRow("Next Episode During Credits", symbol: "play.rectangle.on.rectangle",
                               isOn: Bindable(media).creditsPromptEnabled)
                     switchRow("Post-Credit Scene Notices", symbol: "film.stack", isOn: Bindable(media).postCreditsNoticeEnabled)
+                    switchRow("Ambient Mode", symbol: "sparkles.tv", isOn: $ambientMode)
                 }
-                Text("Uses matching community timestamps from IntroDB for Library playback. Missing credit timestamps keep the normal prompt near the end. Nothing skips automatically.")
+                Text("Uses matching community timestamps from IntroDB for Library playback. Missing credit timestamps keep the normal prompt near the end. Nothing skips automatically. Ambient Mode spreads the picture's colours softly into any black around it.")
                     .font(.inter(21)).foregroundStyle(LineupPanelStyle.quiet)
                 Text("Artwork").font(.inter(30, .bold)).padding(.top, 12)
                 VStack(spacing: 16) {
@@ -106,10 +109,13 @@ struct LibraryMetadataSettingsView: View {
                 Toggle(isOn: Bindable(media).postCreditsNoticeEnabled) {
                     sourceLabel("Post-Credit Scene Notices", symbol: "film.stack")
                 }.tint(LineupStyle.highlight)
+                Toggle(isOn: $ambientMode) {
+                    sourceLabel("Ambient Mode", symbol: "sparkles.tv")
+                }.tint(LineupStyle.highlight)
                 Link("Timestamps provided by IntroDB", destination: URL(string: "https://introdb.app")!)
                     .font(.inter(.footnote))
             } header: { Text("Playback").lineupSettingsHeader() }
-              footer: { Text("Uses matching community timestamps for Library playback. Next Episode keeps Lineup's existing episode choice and Play Now action. Missing credit timestamps keep the normal prompt near the end. Post-credit notices appear only when a movie has matching scene data; nothing skips automatically.").lineupSettingsFooter() }
+              footer: { Text("Uses matching community timestamps for Library playback. Next Episode keeps Lineup's existing episode choice and Play Now action. Missing credit timestamps keep the normal prompt near the end. Post-credit notices appear only when a movie has matching scene data; nothing skips automatically. Ambient Mode spreads the picture's colours softly into the black around it.").lineupSettingsFooter() }
               .lineupSettingsRows()
             Section {
                 Toggle(isOn: Bindable(media).serverPostersEnabled) {

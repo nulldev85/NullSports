@@ -71,6 +71,17 @@ struct LineupApp: App {
                         await cloud.sync()
                     }
                 }
+                // What was watched on another device, through the media
+                // server: as the app comes to the front, then every five
+                // minutes while it stays there.
+                .task(id: scenePhase) {
+                    guard scenePhase == .active else { return }
+                    await media.refreshServerProgress()
+                    while !Task.isCancelled {
+                        do { try await Task.sleep(for: .seconds(300)) } catch { return }
+                        await media.refreshServerProgress()
+                    }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: CloudSettingsSync.imported)) { _ in
                     Task {
                         await library.restoreCloudSettings()
