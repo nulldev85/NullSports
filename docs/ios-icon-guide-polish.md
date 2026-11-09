@@ -23,6 +23,14 @@ initial reset/observer transition.
 This batch is based on current main `24c9da5`, retaining the later library and
 playback work. Only the Guide repair was carried over from the earlier local
 batch; the closed, unmerged Cricket branch is not reintroduced.
-Local source checks and asset verification do not establish a native or
-physical-device pass. Those results await the manually requested iPhone build
-and tester review.
+The first manual run built and packaged the physical Release app successfully.
+Its simulator suite ran 830 tests with one existing skip; four assertions in
+the new long/short category regression blocked publication. The regression
+read the bottom clearance before SwiftUI had applied its content margin, then
+computed the list's end using the old inset. It now waits for the actual
+adjusted inset to match the measured coverage before scrolling, retains the
+same three-second readiness deadline and final-row checks, and also asserts
+that the applied margin remains stable after scrolling. The other nine Guide
+tests passed in that run. The corrected regression and physical tester review
+remain pending the replacement manual build; no native or device pass is
+claimed from local checks.

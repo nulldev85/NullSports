@@ -324,9 +324,13 @@ final class GuideScrollLayoutTests: XCTestCase {
                 try await settle {
                     guard let probe = window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self,
                         where: { !$0.horizontal }), probe !== previousProbe,
-                        let list = probe.enclosingScrollView, probe.reported != nil else { return false }
+                        let list = probe.enclosingScrollView, let clearance = probe.reported else { return false }
+                    // The probe reports coverage before SwiftUI installs its
+                    // content margin. Computing the end with the old inset
+                    // stops exactly that clearance short of the real end.
                     return abs(list.contentSize.height - CGFloat(count) * 56) < 1
                         && abs(list.contentOffset.y + list.adjustedContentInset.top) < 1
+                        && abs(list.adjustedContentInset.bottom - clearance) < 1
                 }
                 let probe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal })
                 let list = try XCTUnwrap(probe.enclosingScrollView)
@@ -336,12 +340,17 @@ final class GuideScrollLayoutTests: XCTestCase {
                 list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
                 probe.requestRefresh()
                 try await Task.sleep(for: .milliseconds(50))
+                let context = "category \(count), glass \(glass), offset \(list.contentOffset), "
+                    + "content \(list.contentSize), viewport \(list.bounds), "
+                    + "insets \(list.adjustedContentInset), clearance \(clearance)"
+                XCTAssertEqual(list.adjustedContentInset.bottom, clearance, accuracy: 1,
+                               "The applied margin must remain stable after scrolling: \(context)")
                 XCTAssertEqual(list.contentOffset.y, end, accuracy: 1,
-                               "A layout refresh must preserve category \(count)'s last-row position; glass \(glass)")
+                               "A layout refresh must preserve the last-row position: \(context)")
                 let usableBottom = list.convert(list.bounds, to: window).maxY - clearance
                 let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
                 XCTAssertLessThanOrEqual(lastRowBottom, usableBottom + 1,
-                                         "The last channel must remain above navigation after a category change")
+                                         "The last channel must remain above navigation after a category change: \(context)")
             }
         }
     }
