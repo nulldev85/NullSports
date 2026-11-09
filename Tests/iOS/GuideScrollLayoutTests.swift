@@ -200,18 +200,50 @@ final class GuideScrollLayoutTests: XCTestCase {
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: GuideTopReservationHarness(model: model))
         window.makeKeyAndVisible()
-        defer { window.isHidden = true; previous?.makeKey() }
-        try await settle { model.firstRowFrame != nil && window.firstSubview(of: UINavigationBar.self) != nil }
-        let bar = try XCTUnwrap(window.firstSubview(of: UINavigationBar.self) {
-            !$0.isHidden && $0.alpha > 0.01
-        })
+        defer {
+            let row = window.firstSubview(of: GuideFirstRowMarker.Marker.self)
+            let header = window.firstSubview(of: UINavigationBar.self) { !$0.isHidden && $0.window === window }
+            let scroll = window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal }?.enclosingScrollView
+            print("Guide first-row window geometry: row=\(String(describing: row.map { $0.convert($0.bounds, to: window) })), "
+                + "header=\(String(describing: header.map { $0.convert($0.bounds, to: window) })), "
+                + "offset=\(String(describing: scroll?.contentOffset)), insets=\(String(describing: scroll?.adjustedContentInset))")
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "Guide-first-row-window-geometry"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            window.isHidden = true
+            previous?.makeKey()
+        }
         try await settle {
-            guard let rowTop = model.firstRowFrame?.minY else { return false }
+            window.layoutIfNeeded()
+            return window.firstSubview(of: GuideFirstRowMarker.Marker.self, where: {
+                $0.window === window && $0.bounds.height > 0
+            }) != nil && window.firstSubview(of: UINavigationBar.self, where: {
+                !$0.isHidden && $0.alpha > 0.01 && $0.window === window
+            }) != nil
+        }
+        let bar = try XCTUnwrap(window.firstSubview(of: UINavigationBar.self) {
+            !$0.isHidden && $0.alpha > 0.01 && $0.window === window
+        })
+        // SwiftUI's global space is rooted in its hosting hierarchy, not
+        // necessarily the UIWindow containing UIKit's navigation bar. Measure
+        // both live views in that same window, without a cached preference.
+        let firstRowFrame: () -> CGRect? = {
+            guard let row = window.firstSubview(of: GuideFirstRowMarker.Marker.self),
+                  row.window === window, row.bounds.height > 0 else { return nil }
+            return row.convert(row.bounds, to: window)
+        }
+        try await settle {
+            window.layoutIfNeeded()
+            guard let rowTop = firstRowFrame()?.minY else { return false }
             let barBottom = bar.convert(bar.bounds, to: window).maxY
             return abs(rowTop - barBottom - MobileGuideLayoutMetrics.listFirstRowTopInset) < 3
         }
         window.layoutIfNeeded()
-        let rowTop = try XCTUnwrap(model.firstRowFrame?.minY)
+        let rowTop = try XCTUnwrap(firstRowFrame()?.minY)
         let barBottom = bar.convert(bar.bounds, to: window).maxY
         XCTAssertGreaterThan(rowTop, barBottom,
                              "The first favorite row must not start beneath the Guide toolbar")
@@ -230,17 +262,28 @@ final class GuideScrollLayoutTests: XCTestCase {
                        "The test must move the actual Guide favorites scroller")
         model.resetToken = UUID()
         try await settle {
+            window.layoutIfNeeded()
             guard let activeProbe = window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self, where: {
                 !$0.horizontal
-            }), let activeScroll = activeProbe.enclosingScrollView else { return false }
-            return abs(activeScroll.contentOffset.y - initialOffset.y) < 1
+            }), activeProbe !== probe, let activeScroll = activeProbe.enclosingScrollView,
+                let row = window.firstSubview(of: GuideFirstRowMarker.Marker.self,
+                    where: { $0.isDescendant(of: activeScroll) && $0.window === window }) else { return false }
+            let expectedRowTop = bar.convert(bar.bounds, to: window).maxY + MobileGuideLayoutMetrics.listFirstRowTopInset
+            return abs(activeScroll.contentOffset.y + activeScroll.adjustedContentInset.top) < 1
+                && abs(row.convert(row.bounds, to: window).minY - expectedRowTop) < 3
         }
         let resetProbe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) {
             !$0.horizontal
         })
         let resetScroll = try XCTUnwrap(resetProbe.enclosingScrollView)
-        XCTAssertEqual(resetScroll.contentOffset.y, initialOffset.y, accuracy: 1,
+        XCTAssertEqual(resetScroll.contentOffset.y, -resetScroll.adjustedContentInset.top, accuracy: 1,
                        "Refreshing favorites must recreate the real list at its first channel")
+        let resetRow = try XCTUnwrap(window.firstSubview(of: GuideFirstRowMarker.Marker.self) {
+            $0.isDescendant(of: resetScroll) && $0.window === window
+        })
+        XCTAssertEqual(resetRow.convert(resetRow.bounds, to: window).minY,
+                       bar.convert(bar.bounds, to: window).maxY + MobileGuideLayoutMetrics.listFirstRowTopInset,
+                       accuracy: 3, "The reset first row must physically clear the live navigation header")
     }
 
     /// Scrolled to the end, the last channel rests right on top of the tab
@@ -528,16 +571,22 @@ private struct GuideEndHarness: View {
     }
 }
 
-private struct GuideFirstRowFrame: PreferenceKey {
-    static var defaultValue: CGRect? = nil
-    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
-        if let next = nextValue() { value = next }
+private struct GuideFirstRowMarker: UIViewRepresentable {
+    final class Marker: UIView {}
+
+    func makeUIView(context: Context) -> Marker {
+        let view = Marker()
+        view.isUserInteractionEnabled = false
+        view.isOpaque = false
+        view.accessibilityElementsHidden = true
+        return view
     }
+
+    func updateUIView(_ view: Marker, context: Context) {}
 }
 
 @MainActor
 private final class GuideTopReservationTestState: ObservableObject {
-    @Published var firstRowFrame: CGRect?
     @Published var resetToken = UUID()
 }
 
@@ -551,12 +600,7 @@ private struct GuideTopReservationHarness: View {
                     Text("First favorite")
                         .frame(maxWidth: .infinity)
                         .frame(height: 68)
-                        .background {
-                            GeometryReader { row in
-                                Color.clear.preference(key: GuideFirstRowFrame.self,
-                                    value: row.frame(in: .global))
-                            }
-                        }
+                        .background(GuideFirstRowMarker())
                     ForEach(0..<20, id: \.self) { index in
                         Text("Favorite \(index)").frame(height: 68)
                     }
@@ -569,7 +613,6 @@ private struct GuideTopReservationHarness: View {
             }
             .navigationBarTitleDisplayMode(.inline)
         }
-        .onPreferenceChange(GuideFirstRowFrame.self) { model.firstRowFrame = $0 }
     }
 }
 

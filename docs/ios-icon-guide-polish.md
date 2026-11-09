@@ -31,6 +31,23 @@ computed the list's end using the old inset. It now waits for the actual
 adjusted inset to match the measured coverage before scrolling, retains the
 same three-second readiness deadline and final-row checks, and also asserts
 that the applied margin remains stable after scrolling. The other nine Guide
-tests passed in that run. The corrected regression and physical tester review
-remain pending the replacement manual build; no native or device pass is
-claimed from local checks.
+tests passed in that run.
+
+The next manual run at `c610eb0` passed that category-switch regression, along
+with the fade, reset-token and end-of-list checks. Physical Release packaging
+again succeeded. Publication was blocked by a separate existing first-row test
+that compared a cached SwiftUI global-coordinate preference with a UIKit
+window-coordinate navigation bar (24 versus a header bottom of 82).
+
+That test now measures a noninteractive marker on the actual first row using
+[UIView coordinate conversion](https://developer.apple.com/documentation/uikit/uiview/convert(_:to:)-2kf3d),
+putting both live views in the same window space. SwiftUI's
+[global coordinate space](https://developer.apple.com/documentation/swiftui/coordinatespace/global)
+is rooted in its own view hierarchy. The preference cache and the feedback
+it published into the test's view model are removed. The exact visible-row
+clearance checks and readiness deadlines remain; after reset the new scroller
+must be at its own adjusted top and the first row must still physically clear
+the header. The test retains a screenshot and live geometry diagnostics.
+No app source, icon, workflow gate or timeout changed for either test repair.
+This measurement correction and physical tester review remain pending the next
+manual build; local checks are not a native or device pass.
