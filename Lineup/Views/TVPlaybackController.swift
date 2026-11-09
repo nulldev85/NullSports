@@ -95,6 +95,10 @@ struct PlaybackClockReader<Content: View>: View {
         libraryTrackingEvent(sample)
     }
     @Published private(set) var isMuted = false
+    @Published private(set) var ambientPictureSize = CGSize.zero
+    private(set) var ambientGeneration = UUID()
+    private let scoreboardReader = UUID()
+    private var frameReaders = Set<UUID>()
     @Published private(set) var videoHeight = 0
     @Published private(set) var mediaInfo = PlaybackMediaInfo()
     private let liveQualityReporter = LivePlaybackQualityReporter()
@@ -386,6 +390,8 @@ struct PlaybackClockReader<Content: View>: View {
         liveQualityReporter.reset()
         backend.stop()
         mediaInfo = PlaybackMediaInfo()
+        ambientGeneration = UUID()
+        ambientPictureSize = .zero
         videoHeight = 0
         resetSubtitles()
         sawPicture = false
@@ -432,10 +438,10 @@ struct PlaybackClockReader<Content: View>: View {
 
     /// Position has to keep updating while paused too, so the bar still reads
     /// correctly after a seek that the viewer makes without resuming.
-    private func updateProgress() {
+    private func updateProgress(time: TimeInterval, playing: Bool) {
         guard !isScrubbing else { return }
         if let native = nativeSiloPlayback, let asset = native.asset {
-            guard let time = native.sourcePosition(playerTime: backend.time) else { return }
+            guard let time = native.sourcePosition(playerTime: time) else { return }
             if let length = asset.duration, duration != length { duration = length }
             elapsed = time
             appliedInitialPosition = true
@@ -443,7 +449,6 @@ struct PlaybackClockReader<Content: View>: View {
         }
         let length = backend.duration
         if length.isFinite, length > 0, length != duration { duration = length }
-        let time = backend.time
         guard time.isFinite else { return }
         if let reopenPosition {
             // Until the reopened stream is back where it was, its clock reads
@@ -451,7 +456,7 @@ struct PlaybackClockReader<Content: View>: View {
             // viewer's place. The last good position stands in meanwhile.
             // Only the reopened stream is judged: until it is playing, the
             // stopped one is still the player's media.
-            guard retryAt == nil, backend.isPlaying, length > 0, time > 0 else { return }
+            guard retryAt == nil, playing, length > 0, time > 0 else { return }
             let target = min(max(reopenPosition, 0), max(duration - 1, 0))
             if opened(at: target, time: time) {
                 elapsed = time
@@ -466,7 +471,7 @@ struct PlaybackClockReader<Content: View>: View {
            requestedInitialPosition >= 10, requestedInitialPosition < duration - 30 {
             // The place it was left off holds the bar until the picture is
             // there, rather than a zero that jumps.
-            guard backend.isPlaying, time > 0 else { elapsed = requestedInitialPosition; return }
+            guard playing, time > 0 else { elapsed = requestedInitialPosition; return }
             let target = min(max(requestedInitialPosition, 0), duration - 1)
             if opened(at: target, time: time) {
                 elapsed = time
@@ -481,7 +486,7 @@ struct PlaybackClockReader<Content: View>: View {
         // was playing stands until it plays again, so neither the bar, nor
         // the place saved, nor the place it is reopened at is lost with it:
         // reopening "where it was" from a zero started films over.
-        if time <= 0, !backend.isPlaying, elapsed > 0 { return }
+        if time <= 0, !playing, elapsed > 0 { return }
         guard seekLanding.accepts(time, now: uptime()) else { return }
         elapsed = duration > 0 ? min(max(time, 0), duration) : max(time, 0)
     }
@@ -548,11 +553,15 @@ struct PlaybackClockReader<Content: View>: View {
             holdScreenAwake()
             return
         }
-        let nextMediaInfo = backend.mediaInfo
-        if mediaInfo != nextMediaInfo { mediaInfo = nextMediaInfo }
+        let metadata = backend.playbackMetadata()
+        if mediaInfo != metadata.info { mediaInfo = metadata.info }
+        let hasVideo = backend.hasVideoOut
+        let pictureSize = hasVideo ? metadata.pictureSize : .zero
+        if ambientPictureSize != pictureSize { ambientPictureSize = pictureSize }
         guard !isScrubbing else { return }
         holdAudioLevel()
-        updateProgress()
+        let time = backend.time, playing = backend.isPlaying
+        updateProgress(time: time, playing: playing)
         if seekLanding.isWaiting(now: uptime()) { health = freshHealth(); return }
         followRecordingIntoNextProgramme()
         addOnlineSubtitlesAgain()
@@ -596,8 +605,8 @@ struct PlaybackClockReader<Content: View>: View {
         }
         // What has been read from the server tells a feed VLC is catching up
         // on from one that has stopped coming.
-        let recover = health.observe(now: now, playing: backend.isPlaying, video: backend.hasVideoOut,
-            time: backend.time.isFinite ? Int32(clamping: Int64(min(max(backend.time * 1000, 0), Double(Int32.max)))) : 0,
+        let recover = health.observe(now: now, playing: playing, video: hasVideo,
+            time: time.isFinite ? Int32(clamping: Int64(min(max(time * 1000, 0), Double(Int32.max)))) : 0,
             frames: backend.frames,
             bytes: backend.bytes, failed: failed)
         if health.hasShownPicture, let shown = currentChannelID, reportedPictureChannelID != shown {
@@ -611,15 +620,16 @@ struct PlaybackClockReader<Content: View>: View {
                 failover?.didPlay(id)
             }
         }
-        if isPlaying != backend.isPlaying { isPlaying = backend.isPlaying }
-        if backend.isPlaying && backend.hasVideoOut {
+        if isPlaying != playing { isPlaying = playing }
+        if playing && hasVideo {
             if reconnecting { reconnecting = false }
             sawPicture = true
-            let height = Int(backend.videoSize.height)
+            let size = backend.videoSize
+            let height = Int(size.height)
             if height > 0, height != videoHeight { videoHeight = height }
             liveQualityReporter.observe(url: urls.indices.contains(urlIndex) ? urls[urlIndex] : nil,
-                width: Int(backend.videoSize.width), height: height, frameRate: mediaInfo.frameRate,
-                live: isLive && catchUp == nil, playing: backend.isPlaying, picture: health.hasShownPicture)
+                width: Int(size.width), height: height, frameRate: mediaInfo.frameRate,
+                live: isLive && catchUp == nil, playing: playing, picture: health.hasShownPicture)
         }
         guard recover else { return }
         if isLive, !health.hasShownPicture, urls.indices.contains(urlIndex) {
@@ -876,11 +886,22 @@ struct PlaybackClockReader<Content: View>: View {
     /// The picture on screen, for Auto Sync to read the scoreboard in.
     func captureFrame() async -> CapturedVideoFrame? {
         guard error == nil, isPlaying else { return nil }
+        frameReaders.insert(scoreboardReader)
         return await backend.captureFrame()
     }
 
+    func captureAmbientFrame(reader: UUID) async -> CapturedVideoFrame? {
+        guard error == nil, isPlaying, !Task.isCancelled else { return nil }
+        frameReaders.insert(reader)
+        return await backend.captureAmbientFrame()
+    }
+
     /// Done reading frames.
-    func releaseFrameOutput() { backend.releaseFrameOutput() }
+    func releaseFrameOutput() { releaseFrameOutput(reader: scoreboardReader) }
+
+    func releaseFrameOutput(reader: UUID) {
+        if frameReaders.remove(reader) != nil, frameReaders.isEmpty { backend.releaseFrameOutput() }
+    }
 
     /// The programme from its start -- the one a recording is playing, or
     /// the one on now when the provider records the channel and the guide
@@ -1050,7 +1071,8 @@ struct PlaybackClockReader<Content: View>: View {
     private func refreshSubtitleTracks() {
         let discovered = backend.subtitles
         if discovered != subtitleTracks { subtitleTracks = discovered }
-        let selected = discovered.first { $0.engineIndex == backend.selectedSubtitleIndex }
+        let selectedIndex = backend.selectedSubtitleIndex
+        let selected = discovered.first { $0.engineIndex == selectedIndex }
         if adoptsAddedSubtitle, let selected, selected.id != PlaybackSubtitleTrack.off.id {
             adoptsAddedSubtitle = false
             chosenSubtitle = selected
@@ -1300,6 +1322,8 @@ struct PlaybackClockReader<Content: View>: View {
         liveHeldSeconds = 0
         reconnecting = false
         isPlaying = false
+        ambientGeneration = UUID()
+        ambientPictureSize = .zero
         videoHeight = 0
         mediaInfo = PlaybackMediaInfo()
         duration = 0

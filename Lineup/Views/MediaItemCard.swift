@@ -218,7 +218,7 @@ enum MediaArtShape {
         return title
     }
 
-    static func forItems(_ items: [MediaItem], shelfID: String? = nil) -> MediaArtShape {
+    static func forItems<C: Collection>(_ items: C, shelfID: String? = nil) -> MediaArtShape where C.Element == MediaItem {
         if shelfID == LibraryShelfOrder.continueWatching { return .poster }
         if items.isEmpty { return .poster }
         // A row whose art is wide -- an AIOStreams catalog of collections

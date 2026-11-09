@@ -3,6 +3,29 @@ import XCTest
 
 @MainActor
 final class TVNavigationWorkTests: XCTestCase {
+    func testGuideWindowReusesListingsAcrossFocusMovesAndInvalidatesOnChanges() async {
+        let cache = TVGuideProgramWindow()
+        let start = Date(timeIntervalSince1970: 0), end = Date(timeIntervalSince1970: 7200)
+        let owner = ObjectIdentifier(cache)
+        var reads = 0
+        func read(_ revision: Int, _ windowStart: Date, channel: String = "abc") -> [CurrentProgram] {
+            cache.programs(channel: channel, library: owner, revision: revision, start: windowStart, end: end) {
+                reads += 1
+                return [120, 60, 0, -60, 7200].map { offset in
+                    let time = start.addingTimeInterval(Double(offset))
+                    return CurrentProgram(channelID: channel, title: String(offset), detail: "",
+                                          start: time, end: time.addingTimeInterval(60))
+                }
+            }
+        }
+        for _ in 0..<200 { XCTAssertEqual(read(1, start).map(\.title), ["0", "60", "120"]) }
+        XCTAssertEqual(reads, 1)
+        _ = read(1, start, channel: "def")
+        _ = read(2, start)
+        XCTAssertEqual(read(2, start.addingTimeInterval(60)).map(\.title), ["60", "120"])
+        XCTAssertEqual(reads, 4)
+    }
+
     func testThirtyThousandChannelQueryYieldsTheUIActorAndBuildsTheRemoteIndex() async throws {
         let streams = (0..<30_000).map { id in
             XtreamStream(num: 30_000 - id, name: "Channel \(id)", streamType: "live", streamID: id,

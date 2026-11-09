@@ -45,6 +45,10 @@ public final class AetherPlaybackSession {
         let current = engine.softwareDisplaySize ?? engine.currentAVPlayerItem?.presentationSize ?? .zero
         return current.width > 0 && current.height > 0 ? current : probedVideoSize
     }
+    public var displayedPictureSize: CGSize {
+        if let layer = engine.nativePlayerLayer { return layer.videoRect.size }
+        return engine.softwareDisplaySize ?? .zero
+    }
     public var surface: UIView { canvas }
     public var isNativeVideo: Bool { engine.nativePlayerLayer != nil }
     public var mediaInfo: PlaybackMediaInfo {
