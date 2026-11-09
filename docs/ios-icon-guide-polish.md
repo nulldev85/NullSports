@@ -66,3 +66,25 @@ live first-row marker, exact header clearance assertions, screenshot and
 diagnostics remain. Icons, workflow gates, deadlines and project settings are
 unchanged. Native execution of this source repair and physical tester review
 remain pending the next manual build; local checks are not a native pass.
+
+The run at `e9e1ddf` packaged the physical Release app successfully, but its
+simulator job stopped before compilation or native tests. Xcode could not
+download MPVKit's pinned `Libavutil.xcframework.zip` because the GitHub release
+endpoint returned HTTP500. That run provides no native result for the Guide
+reset-order repair.
+
+The iPhone workflow now resolves packages before either build, using each
+build's own destination, configuration and DerivedData directory. Only binary
+download errors with HTTP500/502/503/504 receive up to three resolution attempts
+with 10/20-second waits. All diagnostics stream to the log. Persistent failures,
+other resolution errors, checksum failures, builds and tests retain their normal
+failure behavior. Native tests and Release compilation still run once after
+successful resolution; publication still requires both test and package jobs.
+Package pins, checksums, app/icon source, native assertions and job deadlines
+are unchanged. Local retry checks cover the captured500, success, exhausted
+retries, permanent/mixed errors and real subprocess output/exit handling.
+All seven retry checks and ten source-membership checks passed. Workflow YAML,
+all23 shell blocks, prior publication gates/deadlines and both exact resolver
+steps also passed local validation, including an HTTP500-to-success process
+stub using the real helper. These checks did not execute Xcode.
+Native execution of the Guide repair and physical tester review remain pending.
