@@ -1,8 +1,11 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 /// Geometry in the full-screen host's coordinates. The player first fits the
 /// movie inside its fixed drawable, then fits that drawable inside the host.
-struct TVAmbientBands: Equatable {
+struct TVAmbientBands {
     let horizontal: Bool
     let first: CGRect
     let second: CGRect
