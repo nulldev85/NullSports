@@ -193,6 +193,70 @@ final class GuideScrollLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testFavoritesResetWaitsForAppliedTopInsetAndPreservesBrowsingAcrossLaterLayouts() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let page = UIViewController()
+        let navigation = UINavigationController(rootViewController: page)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = navigation
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+        navigation.view.layoutIfNeeded()
+
+        let scroll = UIScrollView(frame: navigation.view.bounds)
+        scroll.contentSize = CGSize(width: scroll.bounds.width, height: 2_400)
+        navigation.view.addSubview(scroll)
+        let probe = MobileGuideScrollConfiguration.Probe(frame: CGRect(origin: .zero, size: scroll.contentSize))
+        probe.resetToken = UUID()
+        var measuredTop: CGFloat?
+        probe.onTopOverlap = { measuredTop = $0 }
+        scroll.addSubview(probe)
+        try await settle { (measuredTop ?? 0) > 0 }
+        let initialInset = try XCTUnwrap(measuredTop)
+        XCTAssertEqual(scroll.adjustedContentInset.top, 0,
+                       "The fixture deliberately reports header coverage before applying its margin")
+
+        scroll.contentInset.top = initialInset
+        probe.requestRefresh()
+        try await settle { abs(scroll.contentOffset.y + initialInset) < 0.5 }
+        XCTAssertEqual(scroll.contentOffset.y, -initialInset, accuracy: 0.5,
+                       "The initial token must remain pending until the measured top margin is applied")
+
+        // A later NavigationStack placement can add more coverage after the
+        // token was consumed. A list still at its first row must stay there.
+        scroll.frame.origin.y -= 24
+        probe.requestRefresh()
+        try await settle { (measuredTop ?? 0) > initialInset + 1 }
+        let laterInset = try XCTUnwrap(measuredTop)
+        scroll.contentInset.top = laterInset
+        probe.requestRefresh()
+        try await settle { abs(scroll.contentOffset.y + laterInset) < 0.5 }
+
+        scroll.setContentOffset(CGPoint(x: 0, y: 450), animated: false)
+        scroll.frame.origin.y -= 18
+        probe.requestRefresh()
+        try await settle { (measuredTop ?? 0) > laterInset + 1 }
+        let browsedInset = try XCTUnwrap(measuredTop)
+        scroll.contentInset.top = browsedInset
+        let refreshed = expectation(description: "A later top inset preserves the browsed position")
+        probe.requestRefresh()
+        DispatchQueue.main.async {
+            XCTAssertEqual(scroll.contentOffset.y, 450, accuracy: 0.5,
+                           "New coverage must not reset a category the viewer already scrolled")
+            refreshed.fulfill()
+        }
+        await fulfillment(of: [refreshed], timeout: 3)
+
+        probe.resetToken = UUID()
+        probe.requestRefresh()
+        try await settle { abs(scroll.contentOffset.y + browsedInset) < 0.5 }
+        XCTAssertEqual(scroll.contentOffset.y, -browsedInset, accuracy: 0.5,
+                       "A genuine category reset must still use the current top margin")
+    }
+
+    @MainActor
     func testFavoritesListPlacesItsFirstRowBelowTheLiveNavigationHeader() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }

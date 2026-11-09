@@ -48,6 +48,21 @@ it published into the test's view model are removed. The exact visible-row
 clearance checks and readiness deadlines remain; after reset the new scroller
 must be at its own adjusted top and the first row must still physically clear
 the header. The test retains a screenshot and live geometry diagnostics.
-No app source, icon, workflow gate or timeout changed for either test repair.
-This measurement correction and physical tester review remain pending the next
-manual build; local checks are not a native or device pass.
+No app source, icon, workflow gate or timeout changed for those two test repairs.
+
+The run at `4be89e1` confirmed the first row was physically under the header:
+row top24, header bottom82, adjusted top inset82, and content offset0. The live
+marker exposed a real reset-order defect; changing only the measurement did not
+repair it. The reset had been consumed before SwiftUI installed the top margin.
+Protected lists now measure first and retain a pending reset until the actual
+top inset matches that coverage. A later top-inset change also preserves a list
+still at its old top; an already-browsed, dragged or decelerating list is not
+pulled back upward merely because coverage changes.
+
+A new native regression deliberately delays the top inset, changes viewport
+placement after the first reset, verifies a browsed position survives a later
+inset, and verifies a real category reset still uses the current inset. The
+live first-row marker, exact header clearance assertions, screenshot and
+diagnostics remain. Icons, workflow gates, deadlines and project settings are
+unchanged. Native execution of this source repair and physical tester review
+remain pending the next manual build; local checks are not a native pass.

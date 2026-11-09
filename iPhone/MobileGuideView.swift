@@ -1349,6 +1349,10 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         let probe = Probe(frame: .zero)
         probe.horizontal = horizontal
         probe.resetToken = resetToken
+        probe.usesLineupNavigation = usesLineupNavigation
+        probe.keepsNativeBarLayout = keepsNativeBarLayout
+        probe.onTopOverlap = onTopOverlap
+        probe.onBottomOverlap = onBottomOverlap
         probe.isUserInteractionEnabled = false
         return probe
     }
@@ -1452,6 +1456,8 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         private weak var observedScroll: UIScrollView?
         private weak var resetScroll: UIScrollView?
         private var appliedResetToken: UUID?
+        private weak var topInsetScroll: UIScrollView?
+        private var previousTopInset: CGFloat?
         private weak var boundaryWindow: UIWindow?
         private var observer: ViewportObserver?
 
@@ -1493,15 +1499,9 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         private func refresh() {
             guard let window, let scroll = enclosingScrollView else { return }
             MobileGuideScrollConfiguration.configure(scroll, horizontal: horizontal)
-            if !horizontal, let resetToken,
-               (resetScroll !== scroll || appliedResetToken != resetToken) {
-                resetScroll = scroll
-                appliedResetToken = resetToken
-                let top = -scroll.adjustedContentInset.top
-                if abs(scroll.contentOffset.y - top) > 0.5 {
-                    scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: top), animated: false)
-                }
-            }
+            // Unprotected lists can reset immediately. List mode first needs
+            // the measured header clearance installed by SwiftUI below.
+            if onTopOverlap == nil { updateScrollPosition(in: scroll) }
             guard !horizontal, onTopOverlap != nil || onBottomOverlap != nil else { detachViewportObserver(); return }
             if observedScroll !== scroll {
                 detachViewportObserver()
@@ -1543,6 +1543,42 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
                     onBottomOverlap?(bottom)
                 }
             }
+            if onTopOverlap != nil { updateScrollPosition(in: scroll) }
+        }
+
+        private func updateScrollPosition(in scroll: UIScrollView) {
+            guard !horizontal else { return }
+            let inset = scroll.adjustedContentInset.top
+            if topInsetScroll !== scroll {
+                topInsetScroll = scroll
+                previousTopInset = inset
+            }
+            if onTopOverlap != nil {
+                // Reporting coverage only schedules a SwiftUI margin update.
+                // Do not consume the reset against the old (often zero) inset.
+                guard let reportedTop, abs(inset - reportedTop) <= 0.5 else { return }
+            }
+            let needsReset = resetToken != nil && (resetScroll !== scroll || appliedResetToken != resetToken)
+            var keepFirstRowAnchored = false
+            if onTopOverlap != nil, let previousTopInset,
+               abs(inset - previousTopInset) > 0.5,
+               abs(scroll.contentOffset.y + previousTopInset) <= 0.5,
+               !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating {
+                // A late viewport/header change can add clearance after an
+                // initial zero-inset reset. Move only a list still at its old
+                // top; never pull an already-browsed category back upward.
+                keepFirstRowAnchored = true
+            }
+            previousTopInset = inset
+            guard needsReset || keepFirstRowAnchored else { return }
+            if needsReset {
+                resetScroll = scroll
+                appliedResetToken = resetToken
+            }
+            let top = -inset
+            if abs(scroll.contentOffset.y - top) > 0.5 {
+                scroll.setContentOffset(CGPoint(x: scroll.contentOffset.x, y: top), animated: false)
+            }
         }
 
         @objc private func boundaryGeometryDidChange(_ notification: Notification) {
@@ -1553,6 +1589,8 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             detachViewportObserver()
             resetScroll = nil
             appliedResetToken = nil
+            topInsetScroll = nil
+            previousTopInset = nil
         }
 
         private func detachViewportObserver() {
