@@ -1,5 +1,9 @@
 # Lineup
 
+The current app icon is the approved minimal red three-bar mark. Its raster
+masters and packaging instructions are in [BuildAssets/LineupIcon](BuildAssets/LineupIcon/README.md);
+the iPhone Guide and icon batch is described in [iPhone icon and Guide polish](docs/ios-icon-guide-polish.md).
+
 Lineup is a quiet living-room client for Apple TV and iPhone, covering the two
 things a lineup means: the games on now, and the library you browse.
 
