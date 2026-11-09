@@ -64,6 +64,43 @@ struct JellyfinClient: Sendable {
         return try await send(request)
     }
 
+    func publicUsers() async throws -> [JellyfinAuthenticationResponse.User] {
+        try await send(try request(path: "Users/Public"))
+    }
+
+    struct QuickConnectChallenge: Decodable {
+        let code: String
+        let secret: String
+        enum CodingKeys: String, CodingKey { case code = "Code", secret = "Secret" }
+    }
+
+    func beginQuickConnect() async throws -> QuickConnectChallenge {
+        let enabled: Bool = try await send(try request(path: "QuickConnect/Enabled"))
+        guard enabled else { throw MediaIntegrationError.unavailable("Quick Connect is disabled on this server.") }
+        let challenge: QuickConnectChallenge = try await send(try request(path: "QuickConnect/Initiate", method: "POST"))
+        guard !challenge.code.isEmpty, !challenge.secret.isEmpty else { throw JellyfinError.invalidResponse }
+        return challenge
+    }
+
+    func quickConnectAuthentication(secret: String) async throws -> JellyfinAuthenticationResponse? {
+        struct Status: Decodable {
+            let authenticated: Bool
+            enum CodingKeys: String, CodingKey { case authenticated = "Authenticated" }
+        }
+        let status: Status
+        do {
+            var poll = try request(path: "QuickConnect/Connect", query: [URLQueryItem(name: "secret", value: secret)])
+            poll.cachePolicy = .reloadIgnoringLocalCacheData
+            status = try await send(poll)
+        } catch JellyfinError.server(404) {
+            throw MediaIntegrationError.unavailable("This code expired. Start Quick Connect again.")
+        }
+        guard status.authenticated else { return nil }
+        try Task.checkCancellation()
+        return try await send(try request(path: "Users/AuthenticateWithQuickConnect", method: "POST",
+                                          body: ["Secret": secret]))
+    }
+
     func views(userID: String) async throws -> [MediaItem] {
         let response: JellyfinItemsResponse = try await send(try request(path: "users/\(userID)/views"))
         return response.items

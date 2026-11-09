@@ -509,13 +509,20 @@ private struct MediaServerRow: View {
             MediaServerLogoTile(brand: .of(profile))
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.name).font(.inter(17, .medium)).foregroundStyle(LineupStyle.text).lineLimit(1)
-                Text(profile.displayHost).font(.inter(13))
+                Text(profile.brand == .jellyfin ? "\(profile.username) · \(profile.displayHost)" : profile.displayHost)
+                    .font(.inter(13))
                     .foregroundStyle(LineupPanelStyle.listValue).lineLimit(1)
             }
             .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
             Spacer(minLength: 8)
-            Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))
-                .font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
+            if media.profiles.contains(profile) {
+                Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))
+                    .font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
+            } else {
+                Button("Use") { media.selectJellyfinAccount(profile) }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Use " + profile.username)
+            }
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
                     .foregroundStyle(LineupPanelStyle.listValue)
@@ -690,7 +697,7 @@ private struct MobileMediaServerSettingsView: View {
                 }
             }
             Section {
-                ForEach(media.profiles) { profile in
+                ForEach(media.savedProfiles) { profile in
                     MediaServerRow(profile: profile, remove: { removingMediaProfile = profile })
                 }
                 Button { addingMediaServer = true } label: {
@@ -700,7 +707,7 @@ private struct MobileMediaServerSettingsView: View {
             } header: {
                 Text("Servers").lineupSettingsHeader()
             } footer: {
-                Text("Lineup uses every media server here together, Jellyfin, Emby, Plex and Silo alike: their shelves, search and streams all appear in one Library.")
+                Text("Your connected servers appear together in the Library. Choose which signed-in Jellyfin profile to use on each server.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()

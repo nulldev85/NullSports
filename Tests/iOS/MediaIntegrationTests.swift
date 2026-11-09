@@ -13,6 +13,139 @@ final class MediaIntegrationTests: XCTestCase {
     }
     override func tearDown() { MediaIntegrationProtocol.reset(); super.tearDown() }
 
+    func testJellyfinPickerAndQuickConnectUseTheMountedServerAndApprovedUser() async throws {
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let client = try JellyfinClient(serverURL: "https://jellyfin-contract.test/jellyfin/u/home",
+                                        deviceID: "fixture", session: network)
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertTrue(request.value(forHTTPHeaderField: "Authorization")?.contains("DeviceId=\"fixture\"") == true)
+            switch (request.httpMethod, url.path) {
+            case ("GET", "/jellyfin/u/home/Users/Public"):
+                return .json(#"[{"Id":"a","Name":"Alex"},{"Id":"b","Name":"Sam"}]"#)
+            case ("GET", "/jellyfin/u/home/QuickConnect/Enabled"): return .json("true")
+            case ("POST", "/jellyfin/u/home/QuickConnect/Initiate"):
+                return .json(#"{"Code":"012345","Secret":"private/token"}"#)
+            case ("GET", "/jellyfin/u/home/QuickConnect/Connect"):
+                XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+                               [URLQueryItem(name: "secret", value: "private/token")])
+                let polls = MediaIntegrationProtocol.requests.filter { $0.url?.lastPathComponent == "Connect" }
+                return .json(polls.count == 1 ? #"{"Authenticated":false}"# : #"{"Authenticated":true}"#)
+            case ("POST", "/jellyfin/u/home/Users/AuthenticateWithQuickConnect"):
+                XCTAssertEqual(try MediaIntegrationProtocol.body(request)["Secret"] as? String, "private/token")
+                return .json(#"{"User":{"Id":"b","Name":"Sam"},"ServerId":"home","AccessToken":"session-b"}"#)
+            default: XCTFail("Unexpected request"); return .json("{}", status: 404)
+            }
+        }
+        let users = try await client.publicUsers()
+        XCTAssertEqual(users.map(\.name), ["Alex", "Sam"])
+        let challenge = try await client.beginQuickConnect()
+        XCTAssertEqual(challenge.code, "012345")
+        let pending = try await client.quickConnectAuthentication(secret: challenge.secret)
+        XCTAssertNil(pending)
+        XCTAssertFalse(MediaIntegrationProtocol.requests.contains { $0.url?.lastPathComponent == "AuthenticateWithQuickConnect" })
+        let approved = try await client.quickConnectAuthentication(secret: challenge.secret)
+        XCTAssertEqual(approved?.user.id, "b")
+        XCTAssertEqual(approved?.accessToken, "session-b")
+        XCTAssertEqual(approved?.serverID, "home")
+    }
+
+    func testDisabledOrExpiredQuickConnectDoesNotExchangeASecret() async throws {
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let client = try JellyfinClient(serverURL: "https://home-contract.test", deviceID: "fixture", session: network)
+        MediaIntegrationProtocol.install { request in
+            switch request.url?.lastPathComponent {
+            case "Enabled": return .json("false")
+            case "Connect": return .json("{}", status: 404)
+            default: XCTFail("Unexpected sign-in request"); return .json("{}", status: 404)
+            }
+        }
+        do {
+            _ = try await client.beginQuickConnect()
+            XCTFail("A disabled server must not issue a challenge")
+        } catch MediaIntegrationError.unavailable(let reason) {
+            XCTAssertTrue(reason.contains("disabled"))
+        }
+        do {
+            _ = try await client.quickConnectAuthentication(secret: "expired")
+            XCTFail("An expired code requires a new challenge")
+        } catch MediaIntegrationError.unavailable(let reason) {
+            XCTAssertTrue(reason.contains("expired"))
+        }
+    }
+
+    @MainActor
+    func testSavedJellyfinAccountsKeepIndependentPositionsAcrossSwitchAndRelaunch() throws {
+        let suite = "JellyfinHousehold.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let first = MediaServerProfile(name: "Home", serverURL: "https://home.invalid/jellyfin/u/home",
+                                      username: "Alex", userID: "a")
+        var second = MediaServerProfile(name: "Home", serverURL: "https://home.invalid/jellyfin/p/sam",
+                                        username: "Sam", userID: "b")
+        second.jellyfinServerID = "home"
+        let other = MediaServerProfile(name: "Films", serverURL: "https://films.invalid", username: "Alex", userID: "a")
+        defaults.set(try JSONEncoder().encode([first, second, other]), forKey: "NullSports.mediaServers")
+        let film = MediaItem(id: "same-id", name: "Film", type: "Movie", overview: nil, productionYear: 2024,
+                             primaryImageAspectRatio: nil, childCount: nil)
+        let records = [first, second].enumerated().map { index, profile in
+            LocalMediaPlayback(profileID: profile.id, item: film.servedBy(profile.id),
+                               position: index == 0 ? 120 : 480, duration: 3600, updatedAt: Date(), completed: false)
+        }
+        defaults.set(try JSONEncoder().encode(records), forKey: "Lineup.localMediaPlayback.v1")
+        let media = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(media.profiles.map(\.id), [first.id, other.id])
+        XCTAssertEqual(media.continueWatching.map(\.position), [120])
+        media.selectJellyfinAccount(second)
+        XCTAssertEqual(media.profiles.map(\.id), [second.id, other.id])
+        media.trackPlayback(of: film.servedBy(first.id), position: 900, duration: 3600)
+        media.flushLocalPlayback()
+        XCTAssertEqual(media.continueWatching.map(\.position), [480])
+        let reopened = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(reopened.continueWatching.map(\.position), [480])
+        reopened.selectJellyfinAccount(first)
+        XCTAssertEqual(reopened.continueWatching.map(\.position), [120])
+        XCTAssertEqual(reopened.savedProfiles.count, 3)
+    }
+
+    @MainActor
+    func testPlayingFromAnotherSourceReportsOnlyToTheSelectedHouseholdUser() async throws {
+        let suite = "JellyfinHouseholdReport.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let alex = MediaServerProfile(name: "Home", serverURL: "https://home-contract.test", username: "Alex", userID: "alex")
+        let sam = MediaServerProfile(name: "Home", serverURL: alex.serverURL, username: "Sam", userID: "sam")
+        let films = MediaServerProfile(name: "Films", serverURL: "https://films-contract.test", username: "Shared", userID: "shared")
+        defaults.set(try JSONEncoder().encode([alex, sam, films]), forKey: "NullSports.mediaServers")
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let started = expectation(description: "The profile receives playback start")
+        let stopped = expectation(description: "The profile receives playback stop")
+        MediaIntegrationProtocol.install { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Emby-Token"), "alex")
+            switch request.url?.path.lowercased() {
+            case "/sessions/playing": started.fulfill()
+            case "/sessions/playing/stopped": stopped.fulfill()
+            default: XCTFail("Unexpected request")
+            }
+            return .json("", status: 204)
+        }
+        let media = MediaLibrary(defaults: defaults, trackingKey: { nil }, serverClientFactory: { profile in
+            try JellyfinClient(serverURL: profile.serverURL, accessToken: profile.userID, deviceID: "fixture", session: network)
+        })
+        let movie = MediaItem(id: "home-film", name: "Film", type: "Movie", overview: nil, productionYear: 2024,
+                              primaryImageAspectRatio: nil, childCount: nil).servedBy(alex.id)
+        let id = UUID()
+        media.beginPlaybackSession(for: movie, id: id, playedOn: films.id, serverItemID: "films-copy")
+        media.reportTrackingSample(.init(playing: true, pictureInPicture: false, position: 120, duration: 3600),
+                                   for: movie, sessionID: id)
+        await fulfillment(of: [started], timeout: 3)
+        media.endPlaybackSession(id)
+        await fulfillment(of: [stopped], timeout: 3)
+    }
+
     func testSeerrPermissionFlagsKeepMovieSeriesAnd4KSeparate() throws {
         func user(_ permissions: Int) throws -> SeerrUser {
             try JSONDecoder().decode(SeerrUser.self, from: Data("{\"id\":7,\"permissions\":\(permissions)}".utf8))

@@ -52,6 +52,9 @@ final class MediaLibrary {
     /// marked with the server it came from (`MediaItem.serverID`), so whatever
     /// is done with it later -- its page, its artwork, playing it -- goes back
     /// to that server.
+    private(set) var savedProfiles: [MediaServerProfile] = []
+    private let preferredAccountsKey = "Lineup.preferredJellyfinAccounts.v1"
+    @ObservationIgnored private var householdAccountIDs: Set<UUID> = []
     private(set) var profiles: [MediaServerProfile] = []
     private(set) var servers: [UUID: MediaServerState] = [:]
     private(set) var isRestoringCache = false
@@ -458,7 +461,8 @@ final class MediaLibrary {
         isMDBListConnected = trackingKey() != nil
         if let data = defaults.data(forKey: profilesKey),
            let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) {
-            profiles = saved
+            savedProfiles = saved
+            updateActiveAccounts()
         }
         if localTrackingEnabled, let data = defaults.data(forKey: localPlaybackKey),
            let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data) {
@@ -724,6 +728,7 @@ final class MediaLibrary {
     /// A Jellyfin or Emby server, signed in to with a user name and password.
     func addServer(name: String, serverURL: String, username: String, password: String,
                    software: MediaServerBrand = .jellyfin) async -> Bool {
+        guard !isAddingServer else { return false }
         let cleanUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         // Only the user name is required. A Jellyfin-compatible server may have
         // no password set on the account, and the server itself is the right
@@ -738,30 +743,119 @@ final class MediaLibrary {
         do {
             let client = try JellyfinClient(serverURL: serverURL, deviceID: deviceID, software: software)
             let authentication = try await client.authenticate(username: cleanUsername, password: password)
-            let typedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let address = client.serverURL.absoluteString
-            var profile = MediaServerProfile(
-                name: typedName.isEmpty ? software.name : typedName,
-                serverURL: address,
-                username: authentication.user.name,
-                userID: authentication.user.id,
-                software: software
-            )
-            // Signing in again to a server that is already here is a new token
-            // for it, not a second copy of every one of its shelves.
-            let existing = profiles.firstIndex { $0.serverURL == address && $0.userID == authentication.user.id }
-            if let existing {
-                profile = MediaServerProfile(id: profiles[existing].id,
-                    name: typedName.isEmpty ? profiles[existing].name : typedName,
-                    serverURL: address, username: authentication.user.name,
-                    userID: authentication.user.id, software: software)
-            }
-            try await adopt(profile, token: authentication.accessToken, replacing: existing)
+            try await saveAuthentication(authentication, client: client, name: name)
             return true
         } catch {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    func signInClient(address: String) throws -> JellyfinClient {
+        try JellyfinClient(serverURL: address, deviceID: deviceID)
+    }
+
+    func finishQuickConnect(_ authentication: JellyfinAuthenticationResponse,
+                            client: JellyfinClient, name: String) async throws {
+        guard !isAddingServer else { throw MediaIntegrationError.unavailable("Another sign-in is in progress.") }
+        isAddingServer = true
+        defer { isAddingServer = false }
+        try await saveAuthentication(authentication, client: client, name: name)
+    }
+
+    private func saveAuthentication(_ authentication: JellyfinAuthenticationResponse,
+                                    client: JellyfinClient, name: String) async throws {
+        try Task.checkCancellation()
+        guard !authentication.user.id.isEmpty, !authentication.accessToken.isEmpty else { throw JellyfinError.invalidResponse }
+        let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let address = client.serverURL.absoluteString
+        let serverID = authentication.serverID.flatMap { $0.isEmpty ? nil : $0 }
+        let existing = savedProfiles.firstIndex {
+            guard $0.brand == client.software, $0.userID == authentication.user.id else { return false }
+            return $0.serverURL == address || (client.software == .jellyfin && serverID != nil &&
+                serverID == $0.jellyfinServerID && client.serverURL.host == URL(string: $0.serverURL)?.host)
+        }
+        let old = existing.map { savedProfiles[$0] }
+        var profile = MediaServerProfile(id: old?.id ?? UUID(),
+            name: typed.isEmpty ? (old?.name ?? client.software.name) : typed,
+            serverURL: address, username: authentication.user.name, userID: authentication.user.id, software: client.software)
+        if client.software == .jellyfin { profile.jellyfinServerID = serverID ?? old?.jellyfinServerID }
+        try await adopt(profile, token: authentication.accessToken, replacing: existing)
+    }
+
+    /// Older saved sessions know only their endpoint. Use the server ID when available
+    /// so different picker addresses on the same Jellyfin server share an account choice.
+    private func activeAccounts() -> (profiles: [MediaServerProfile], household: Set<UUID>) {
+        let preferred = defaults.stringArray(forKey: preferredAccountsKey) ?? []
+        var knownIDs: [String: String] = [:]
+        for account in savedProfiles where account.brand == .jellyfin {
+            if let id = account.jellyfinServerID { knownIDs[account.jellyfinAccountEndpoint] = id }
+        }
+        var positions: [String: Int] = [:]
+        var active: [MediaServerProfile] = []
+        var household: Set<UUID> = []
+        for account in savedProfiles {
+            guard account.brand == .jellyfin else {
+                active.append(account)
+                continue
+            }
+            let endpoint = account.jellyfinAccountEndpoint
+            let group = (account.jellyfinServerID ?? knownIDs[endpoint]).map { "server:" + $0 } ?? endpoint
+            if let index = positions[group] {
+                household.insert(active[index].id)
+                household.insert(account.id)
+                let rank = preferred.firstIndex(of: account.id.uuidString) ?? Int.max
+                if rank < (preferred.firstIndex(of: active[index].id.uuidString) ?? Int.max) { active[index] = account }
+            } else {
+                positions[group] = active.count
+                active.append(account)
+            }
+        }
+        return (active, household)
+    }
+
+    private func preferAccount(_ profile: MediaServerProfile) {
+        guard profile.brand == .jellyfin else { return }
+        let savedIDs = Set(savedProfiles.map { $0.id.uuidString })
+        let prior = defaults.stringArray(forKey: preferredAccountsKey) ?? []
+        defaults.set([profile.id.uuidString] + prior.filter { $0 != profile.id.uuidString && savedIDs.contains($0) },
+                     forKey: preferredAccountsKey)
+    }
+
+    private func updateActiveAccounts() {
+        let (next, household) = activeAccounts()
+        householdAccountIDs = household
+        let leaving = Set(profiles.map(\.id)).subtracting(next.map(\.id))
+        if !leaving.isEmpty {
+            flushLocalPlayback()
+            playbackGeneration = UUID()
+            for (id, session) in playbackSessions where leaving.contains(session.profileID) {
+                endPlaybackSession(id)
+                playbackSessions[id] = nil
+                serverReports[id] = nil
+                mdbPlaybackSessions[id] = nil
+            }
+            for id in leaving { loadIDs[id] = nil }
+            inventoryMemo = nil
+            counterparts.removeAll()
+            warmedStreams.removeAll()
+            heroListRefresh?.cancel()
+            heroListRefresh = nil
+            heroListCatalog = nil
+            mdbListShelves = mdbListShelves.map { shelf in
+                MediaCatalog(root: shelf.root, items: shelf.items.filter { item in
+                    item.serverID.map { !leaving.contains($0) } ?? false
+                })
+            }
+        }
+        profiles = next
+    }
+
+    func selectJellyfinAccount(_ account: MediaServerProfile) {
+        guard account.brand == .jellyfin, savedProfiles.contains(account), !profiles.contains(account) else { return }
+        preferAccount(account)
+        updateActiveAccounts()
+        Task { await reload(servers: [account]) }
     }
 
     /// The device's id as Plex counts devices, for linking it to a Plex account.
@@ -776,10 +870,10 @@ final class MediaLibrary {
             _ = try await client.views(userID: account.id)
             try Task.checkCancellation()
             let address = client.http.base.absoluteString
-            let existing = profiles.firstIndex { $0.brand == .silo && $0.serverURL == address && $0.userID == account.id && $0.siloProfileID == household.id }
+            let existing = savedProfiles.firstIndex { $0.brand == .silo && $0.serverURL == address && $0.userID == account.id && $0.siloProfileID == household.id }
             let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let profile = MediaServerProfile(id: existing.map { profiles[$0].id } ?? UUID(),
-                name: typed.isEmpty ? (existing.map { profiles[$0].name } ?? "Silo · " + household.name) : typed, serverURL: address,
+            let profile = MediaServerProfile(id: existing.map { savedProfiles[$0].id } ?? UUID(),
+                name: typed.isEmpty ? (existing.map { savedProfiles[$0].name } ?? "Silo · " + household.name) : typed, serverURL: address,
                 username: account.username + " · " + household.name, userID: account.id, software: .silo, siloProfileID: household.id)
             let data = try JSONEncoder().encode(await client.credential())
             guard let secret = String(data: data, encoding: .utf8) else { throw MediaIntegrationError.invalidResponse }
@@ -806,9 +900,9 @@ final class MediaLibrary {
                                          username: accountName, userID: server.clientIdentifier,
                                          software: .plex)
         // The same server linked again is a new address and token for it.
-        let existing = profiles.firstIndex { $0.brand == .plex && $0.userID == server.clientIdentifier }
+        let existing = savedProfiles.firstIndex { $0.brand == .plex && $0.userID == server.clientIdentifier }
         if let existing {
-            profile = MediaServerProfile(id: profiles[existing].id, name: server.name,
+            profile = MediaServerProfile(id: savedProfiles[existing].id, name: server.name,
                                          serverURL: address.absoluteString, username: accountName,
                                          userID: server.clientIdentifier, software: .plex)
         }
@@ -830,11 +924,13 @@ final class MediaLibrary {
         serverKinds[profile.id] = nil
         serverExtensions[profile.id] = nil
         if let existing {
-            profiles[existing] = profile
+            savedProfiles[existing] = profile
         } else {
-            profiles.append(profile)
+            savedProfiles.append(profile)
             servers[profile.id] = MediaServerState()
         }
+        preferAccount(profile)
+        updateActiveAccounts()
         persist()
         await loadServer(profile)
         Task { [weak self] in
@@ -867,7 +963,8 @@ final class MediaLibrary {
         clients[profile.id] = nil
         serverKinds[profile.id] = nil
         serverExtensions[profile.id] = nil
-        profiles.removeAll { $0.id == profile.id }
+        savedProfiles.removeAll { $0.id == profile.id }
+        updateActiveAccounts()
         servers[profile.id] = nil
         if heldPlayback?.profileID == profile.id { heldPlayback = nil }
         localPlayback.removeAll { $0.profileID == profile.id }
@@ -1993,6 +2090,7 @@ final class MediaLibrary {
     func beginPlaybackSession(for item: MediaItem, id: UUID, startsOver: Bool = false,
                               nativeSilo: SiloPlaybackSession? = nil, mediaSourceID: String? = nil,
                               playedOn server: UUID? = nil, serverItemID: String? = nil) {
+        guard let owner = serverID(of: item), recordSources.contains(owner) else { return }
         if nativeSilo == nil {
             beginServerReport(for: item, id: id, mediaSourceID: mediaSourceID,
                               playedOn: server.map { ($0, serverItemID ?? item.id) })
@@ -2048,7 +2146,7 @@ final class MediaLibrary {
     func trackPlayback(of item: MediaItem, position: TimeInterval, duration: TimeInterval,
                        sessionID: UUID? = nil) {
         if let sessionID, siloPlaybackSessions[sessionID]?.isReplanning == true { return }
-        guard let profileID = serverID(of: item), position.isFinite, duration.isFinite,
+        guard let profileID = serverID(of: item), recordSources.contains(profileID), position.isFinite, duration.isFinite,
               position >= 0, duration > 0,
               acceptsPlayback(of: item, profileID: profileID, sessionID: sessionID) else { return }
         if let sessionID { siloPlaybackSessions[sessionID]?.finalPosition(position) }
@@ -4698,7 +4796,7 @@ final class MediaLibrary {
     }
 
     private func persist() {
-        defaults.set(try? JSONEncoder().encode(profiles), forKey: profilesKey)
+        defaults.set(try? JSONEncoder().encode(savedProfiles), forKey: profilesKey)
         // Still written for builds from before every server was used at once,
         // which read it to choose the one server they show.
         defaults.set(profiles.first?.id.uuidString, forKey: activeKey)
@@ -4716,8 +4814,9 @@ final class MediaLibrary {
             servers[gone.id] = nil
             clients[gone.id] = nil
         }
-        let arriving = saved.filter { !known.contains($0.id) }
-        profiles = saved
+        savedProfiles = saved
+        updateActiveAccounts()
+        let arriving = profiles.filter { !known.contains($0.id) }
         for profile in arriving {
             let snapshot = await Task.detached(priority: .userInitiated) { () -> LibrarySnapshot? in
                 guard let data = try? Data(contentsOf: Self.snapshotURL(profileID: profile.id)) else { return nil }
@@ -5873,6 +5972,7 @@ private struct ServerReportTarget: Equatable {
 }
 
 private struct ServerPlaybackReport {
+    let owner: UUID
     /// The server that played it, the title's own server, and every other
     /// server that keeps progress and has the same title: each keeps the
     /// viewer's place, so every device and every app on any of them agrees,
@@ -5890,14 +5990,21 @@ extension MediaLibrary {
     /// How often a playing title's position goes to its server.
     static let serverProgressInterval: TimeInterval = 10
 
+    /// A household account's progress stays with that account, even when
+    /// another connected server can supply a stream for the same title.
+    private func canReportProgress(from owner: UUID, to target: UUID) -> Bool {
+        owner == target || (!householdAccountIDs.contains(owner) && !householdAccountIDs.contains(target))
+    }
+
     /// A session on a server that keeps progress for its apps. Titles from
     /// the IPTV provider, Plex and Silo keep their own and are left out.
     fileprivate func beginServerReport(for item: MediaItem, id: UUID, mediaSourceID: String?,
                                        playedOn: (profileID: UUID, itemID: String)?) {
-        guard serverTrackingEnabled, serverReports[id] == nil,
+        guard serverTrackingEnabled, serverReports[id] == nil, let owner = serverID(of: item),
               ["Movie", "Episode", "Video"].contains(item.type) else { return }
         func keepsProgress(_ profileID: UUID) -> MediaServerProfile? {
-            guard let profile = profiles.first(where: { $0.id == profileID }),
+            guard canReportProgress(from: owner, to: profileID),
+                  let profile = profiles.first(where: { $0.id == profileID }),
                   (try? client(for: profile)) is JellyfinClient else { return nil }
             return profile
         }
@@ -5909,10 +6016,10 @@ extension MediaLibrary {
         if ProviderItem(id: item.id) == nil, let home = profile(for: item), keepsProgress(home.id) != nil,
            !targets.contains(where: { $0.profileID == home.id }) {
             targets.append(ServerReportTarget(profileID: home.id, itemID: item.id,
-                                              mediaSourceID: targets.isEmpty ? mediaSourceID : nil))
+                                              mediaSourceID: targets.isEmpty && (playedOn == nil || playedOn?.profileID == home.id) ? mediaSourceID : nil))
         }
         guard !targets.isEmpty else { return }
-        serverReports[id] = ServerPlaybackReport(targets: targets)
+        serverReports[id] = ServerPlaybackReport(owner: owner, targets: targets)
         // The same title on the other servers, found as its streams were --
         // usually already known -- and told of the session as it is found.
         let others = profiles.filter { profile in
@@ -5983,7 +6090,8 @@ extension MediaLibrary {
                          event: String?, ticks: Int64,
                          _ send: @escaping (JellyfinClient, JellyfinClient.PlaybackReport) async throws -> Void) {
         for target in targets ?? report.targets {
-            guard let profile = profiles.first(where: { $0.id == target.profileID }),
+            guard canReportProgress(from: report.owner, to: target.profileID),
+                  let profile = profiles.first(where: { $0.id == target.profileID }),
                   let source = (try? client(for: profile)) as? JellyfinClient else { continue }
             let body = JellyfinClient.PlaybackReport(itemID: target.itemID, mediaSourceID: target.mediaSourceID,
                 playSessionID: report.playSessionID, positionTicks: ticks, isPaused: report.paused, eventName: event)
