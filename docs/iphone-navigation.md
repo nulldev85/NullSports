@@ -93,6 +93,21 @@ switches. A UIKit regression shows and hides the native bar after initial
 layout with a tall, scrolled content probe and no manual refresh. Neither test
 assumes a fixed tab-bar height or a zero bottom inset.
 
+The Guide reserves the higher of the native glass bar and its compact control
+throughout a glass transition, using the same compact geometry as the other
+tabs. A faded native bar still owns its layout space. This keeps bottom content
+margins stable while scrolling to the last channel, before the compact boundary
+attaches, and while that boundary is removed. Measured clearance changes are
+installed without animating the list's content margins.
+
+Viewport-observer replacement does not clear a category's already-consumed
+scroll-reset token. Only a real token change or scroll-view replacement resets
+the position; detaching the entire probe still releases both kinds of state.
+Regression coverage exercises native fade/compact attachment at the last row,
+long/short category changes in both navigation styles, and a layout refresh
+immediately after the first reset. These new UIKit/SwiftUI tests await execution
+in the next authorized iPhone build.
+
 Device review: turn Liquid Glass off and check the panel in Sports, TV Guide,
 Library, Search, and Settings. Check that its compact capsule sits in the same
 lower area as the native bar, with readable labels and generous touch targets.

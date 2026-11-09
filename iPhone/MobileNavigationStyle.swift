@@ -77,6 +77,10 @@ enum MobileLineupNavigationLayout {
         // with a smaller edge margin when there is no home indicator.
         safeAreaBottom > 0 ? 20 : 8
     }
+
+    static func compactTop(windowBottom: CGFloat, safeAreaBottom: CGFloat) -> CGFloat {
+        windowBottom - bottomGap(safeAreaBottom: safeAreaBottom) - itemHeight - 2 * padding
+    }
 }
 
 /// A floating capsule around the icons and labels. It shares the
@@ -246,9 +250,8 @@ final class MobileTabNavigation: ObservableObject {
                 // Keep the same clearance in both glass states, including
                 // devices where the compact control is taller than the bar.
                 let nativeTop = tabs.tabBar.convert(tabs.tabBar.bounds, to: window).minY
-                let compactTop = window.bounds.maxY
-                    - MobileLineupNavigationLayout.bottomGap(safeAreaBottom: window.safeAreaInsets.bottom)
-                    - MobileLineupNavigationLayout.itemHeight - 2 * MobileLineupNavigationLayout.padding
+                let compactTop = MobileLineupNavigationLayout.compactTop(
+                    windowBottom: window.bounds.maxY, safeAreaBottom: window.safeAreaInsets.bottom)
                 self.contentInsets.apply(to: controller, above: min(nativeTop, compactTop), in: window) { [weak self] in
                     self?.requestContentInsetsUpdate()
                 }
