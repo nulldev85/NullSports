@@ -22,6 +22,11 @@ struct MediaServerSetupView: View {
     /// What has been typed for each kind, kept apart, so moving across to
     /// look at another does not carry one server's address into another's.
     @State private var forms: [MediaServerBrand: MediaServerSignIn] = [:]
+    init(jellyfinAddress: String? = nil) {
+        if let jellyfinAddress {
+            _forms = State(initialValue: [.jellyfin: MediaServerSignIn(server: jellyfinAddress)])
+        }
+    }
     #if !os(tvOS)
     @State private var page: MediaServerBrand? = .jellyfin
     /// Held, not observed: a swipe moves the marker under the logos on every

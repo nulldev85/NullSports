@@ -13,6 +13,46 @@ final class MediaIntegrationTests: XCTestCase {
     }
     override func tearDown() { MediaIntegrationProtocol.reset(); super.tearDown() }
 
+    @MainActor
+    func testAIOProfilePickerUsesSessionAndRejectsAnotherUsersToken() async throws {
+        let suite = "AIOProfilePicker.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let source = MediaServerProfile(name: "Home", serverURL: "https://aio-contract.test/jellyfin/u/home",
+                                        username: "Alex", userID: "a")
+        defaults.set(try JSONEncoder().encode([source]), forKey: "NullSports.mediaServers")
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        MediaIntegrationProtocol.install { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Emby-Token"), "token-a")
+            switch (request.httpMethod, request.url?.path) {
+            case ("GET", "/jellyfin/u/home/system/info/public"):
+                return .json(#"{"aiostreams":{"features":{"users":1}}}"#)
+            case ("GET", "/jellyfin/u/home/AIOStreams/Users"):
+                return .json(#"[{"user":{"Id":"b","Name":"Sam"},"needs":"password-pin"},{"user":{"Id":"c","Name":"Lee"},"needs":null}]"#)
+            case ("POST", "/jellyfin/u/home/AIOStreams/Token"):
+                let body = try MediaIntegrationProtocol.body(request)
+                XCTAssertEqual(body["UserId"] as? String, "b")
+                XCTAssertEqual(body["Pw"] as? String, "fixture/1234")
+                return .json(#"{"User":{"Id":"c","Name":"Lee"},"AccessToken":"wrong-user-token"}"#)
+            default: XCTFail("Unexpected profile request"); return .json("{}", status: 404)
+            }
+        }
+        let media = MediaLibrary(defaults: defaults, trackingKey: { nil }, serverClientFactory: { profile in
+            try JellyfinClient(serverURL: profile.serverURL, accessToken: "token-a", deviceID: "fixture", session: network)
+        })
+        let choices = try await media.profileChoices(on: source)
+        XCTAssertEqual(choices.map(\.name), ["Sam", "Lee"])
+        let sam = try XCTUnwrap(choices.first)
+        guard case .household(.passwordPin) = sam.access else { return XCTFail("Expected password and PIN") }
+        do {
+            try await media.useProfile(sam, from: source, secret: "fixture/1234")
+            XCTFail("Another user's token must not activate a profile")
+        } catch MediaIntegrationError.unavailable { }
+        XCTAssertEqual(media.profiles, [source])
+        XCTAssertEqual(media.savedProfiles, [source])
+    }
+
     func testJellyfinPickerAndQuickConnectUseTheMountedServerAndApprovedUser() async throws {
         let network = session()
         defer { network.invalidateAndCancel() }

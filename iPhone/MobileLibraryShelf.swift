@@ -179,7 +179,12 @@ struct MobileLibraryShelfView: UIViewRepresentable {
         private func setAccessibility(_ cell: UICollectionViewCell, item: MediaItem) {
             cell.isAccessibilityElement = true
             cell.accessibilityTraits = .button
-            cell.accessibilityLabel = owner.media.displayItem(item).name
+            let displayed = owner.media.displayItem(item)
+            if let show = owner.shape.showTitle(for: displayed) {
+                cell.accessibilityLabel = [show, displayed.episodeCode, displayed.name].compactMap { $0 }.joined(separator: ", ")
+            } else {
+                cell.accessibilityLabel = displayed.name
+            }
             cell.accessibilityValue = owner.media.cardPlayback(for: item,
                 asShow: item.isSeries || (owner.shape.isPoster && item.type == "Episode"))?.spoken
         }

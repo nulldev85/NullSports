@@ -1238,7 +1238,8 @@ struct JellyfinItemsResponse: Codable, Sendable {
 
 struct JellyfinAuthenticationResponse: Codable, Sendable {
     struct User: Codable, Sendable { let id: String; let name: String
-        enum CodingKeys: String, CodingKey { case id = "Id"; case name = "Name" }
+        var hasPassword: Bool? = nil
+        enum CodingKeys: String, CodingKey { case id = "Id", name = "Name", hasPassword = "HasPassword" }
     }
     let user: User
     var serverID: String? = nil

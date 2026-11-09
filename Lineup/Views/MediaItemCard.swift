@@ -212,7 +212,14 @@ enum MediaArtShape {
 
     var isPoster: Bool { self == .poster }
 
-    static func forItems(_ items: [MediaItem]) -> MediaArtShape {
+    func showTitle(for item: MediaItem) -> String? {
+        guard isPoster, item.type == "Episode", let title = item.seriesName,
+              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return title
+    }
+
+    static func forItems(_ items: [MediaItem], shelfID: String? = nil) -> MediaArtShape {
+        if shelfID == LibraryShelfOrder.continueWatching { return .poster }
         if items.isEmpty { return .poster }
         // A row whose art is wide -- an AIOStreams catalog of collections
         // drawn landscape, say -- is drawn wide, rather than cut down to a
@@ -312,15 +319,20 @@ struct MediaItemCard: View {
             } else {
                 // Two lines are held whether or not the title needs them, so
                 // the line under it lands on the same baseline across a row.
-                Text(item.name).font(titleFont).lineLimit(2, reservesSpace: true)
+                Text(shape.showTitle(for: item) ?? item.name).font(titleFont).lineLimit(2, reservesSpace: true)
                     .frame(height: titleHeight, alignment: .topLeading)
                 // The television shows a poster and its title and nothing
                 // more; the phone keeps the line on every card, so a row
                 // stays even.
                 HStack(spacing: 7) {
-                    Text(item.type.uppercased())
-                    if let year = item.productionYear { Text("· \(String(year))") }
-                    if let count = item.childCount, count > 0 { Text("· \(count)") }
+                    if shape.isPoster && item.type == "Episode" {
+                        Text([item.episodeCode, shape.showTitle(for: item) == nil ? nil : item.name]
+                            .compactMap { $0 }.joined(separator: " · "))
+                    } else {
+                        Text(item.type.uppercased())
+                        if let year = item.productionYear { Text("· \(String(year))") }
+                        if let count = item.childCount, count > 0 { Text("· \(count)") }
+                    }
                 }
                 .font(.inter(.caption2, .medium))
                 .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
@@ -422,7 +434,7 @@ struct MediaItemCard: View {
         let url: URL?
         if shape.isPoster, item.type == "Episode" {
             url = media.seriesPosterURL(for: item, width: size.width)
-                ?? media.imageURL(for: item, width: size.width)
+                ?? media.series(of: item).flatMap { media.imageURL(for: $0, width: size.width) }
         } else {
             url = media.imageURL(for: item, width: size.width)
         }

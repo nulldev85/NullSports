@@ -68,6 +68,21 @@ struct JellyfinClient: Sendable {
         try await send(try request(path: "Users/Public"))
     }
 
+    struct HouseholdUser: Decodable, Identifiable, Sendable {
+        enum Secret: String, Decodable, Sendable { case pin, password, passwordPin = "password-pin" }
+        let user: JellyfinAuthenticationResponse.User
+        let needs: Secret?
+        var id: String { user.id }
+    }
+
+    func householdUsers() async throws -> [HouseholdUser] {
+        try await send(try request(path: "AIOStreams/Users"))
+    }
+
+    func switchHouseholdUser(id: String, secret: String) async throws -> JellyfinAuthenticationResponse {
+        try await send(try request(path: "AIOStreams/Token", method: "POST", body: ["UserId": id, "Pw": secret]))
+    }
+
     struct QuickConnectChallenge: Decodable {
         let code: String
         let secret: String

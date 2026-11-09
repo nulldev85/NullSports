@@ -858,6 +858,66 @@ final class MediaLibrary {
         Task { await reload(servers: [account]) }
     }
 
+    enum ProfileAccess {
+        case household(JellyfinClient.HouseholdUser.Secret?)
+        case saved(MediaServerProfile)
+        case signIn(needsPassword: Bool)
+    }
+
+    struct ProfileChoice: Identifiable {
+        let id: String
+        let name: String
+        let access: ProfileAccess
+    }
+
+    func profileChoices(on source: MediaServerProfile) async throws -> [ProfileChoice] {
+        guard contains(source), source.brand == .jellyfin, let client = try self.client(for: source) as? JellyfinClient
+        else { throw MediaIntegrationError.disconnected }
+        let info = try await client.publicInfo()
+        if info.aiostreams?.supports("users") == true {
+            return try await client.householdUsers().map {
+                ProfileChoice(id: $0.id, name: $0.user.name, access: .household($0.needs))
+            }
+        }
+        let saved = savedProfiles.filter {
+            $0.brand == .jellyfin && ($0.jellyfinAccountEndpoint == source.jellyfinAccountEndpoint ||
+                (source.jellyfinServerID != nil && $0.jellyfinServerID == source.jellyfinServerID))
+        }
+        var choices = saved.map { ProfileChoice(id: $0.userID, name: $0.username, access: .saved($0)) }
+        let known = Set(choices.map(\.id))
+        let users: [JellyfinAuthenticationResponse.User]
+        do { users = try await client.publicUsers() }
+        catch JellyfinError.server(404) { return choices }
+        catch JellyfinError.server(405) { return choices }
+        choices += users.filter { !known.contains($0.id) }.map {
+            ProfileChoice(id: $0.id, name: $0.name, access: .signIn(needsPassword: $0.hasPassword ?? true))
+        }
+        return choices
+    }
+
+    func useProfile(_ choice: ProfileChoice, from source: MediaServerProfile, secret: String) async throws {
+        guard !isAddingServer, contains(source), let client = try self.client(for: source) as? JellyfinClient
+        else { throw MediaIntegrationError.disconnected }
+        isAddingServer = true
+        defer { isAddingServer = false }
+        let result: JellyfinAuthenticationResponse
+        switch choice.access {
+        case .household:
+            result = try await client.switchHouseholdUser(id: choice.id, secret: secret)
+        case .saved(let account):
+            selectJellyfinAccount(account)
+            return
+        case .signIn:
+            let login = try signInClient(address: source.serverURL)
+            result = try await login.authenticate(username: choice.name, password: secret)
+        }
+        try Task.checkCancellation()
+        guard contains(source), result.user.id.caseInsensitiveCompare(choice.id) == .orderedSame else {
+            throw MediaIntegrationError.unavailable("The signed-in profile changed. Open the profile picker again.")
+        }
+        try await saveAuthentication(result, client: client, name: "")
+    }
+
     /// The device's id as Plex counts devices, for linking it to a Plex account.
     var plexClientID: String { deviceID }
 
