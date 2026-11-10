@@ -244,6 +244,49 @@ final class MediaLibrary {
     /// What each playback session has told its server so far.
     @ObservationIgnored private var serverReports: [UUID: ServerPlaybackReport] = [:]
     @ObservationIgnored private var caughtUpHolds: Set<String> = []
+    #if os(iOS)
+    private struct AIOResumeShelf: Codable {
+        let requestedAt: Date
+        // Dates are for display only. Preserve the server's newest-first order
+        // even when it omits a watch date or several items share one.
+        let orderedDates: [String: Date]
+
+        init(items: [MediaItem], requestedAt: Date) {
+            self.requestedAt = requestedAt
+            var dates: [String: Date] = [:]
+            var previous = Date.distantPast
+            for item in items.reversed() {
+                let date = max(item.userData?.lastPlayed ?? .distantPast, previous.addingTimeInterval(0.001))
+                dates[item.id] = date
+                if let alias = Self.episodeKey(item) { dates[alias] = date }
+                previous = date
+            }
+            orderedDates = dates
+        }
+
+        func date(for item: MediaItem) -> Date? {
+            orderedDates[item.id] ?? Self.episodeKey(item).flatMap { orderedDates[$0] }
+        }
+
+        // Equivalent AIO episode IDs can use different provider spellings.
+        private static func episodeKey(_ item: MediaItem) -> String? {
+            guard item.type == "Episode", let series = item.seriesID, !series.isEmpty,
+                  let season = item.parentIndexNumber, season >= 0,
+                  let episode = item.indexNumber, episode > 0 else { return nil }
+            return "episode|\(series)|\(season)|\(episode)"
+        }
+    }
+
+    private static let aioResumeKey = "Lineup.iOS.aioResumeShelves.v1"
+    private var aioResumeShelves: [UUID: AIOResumeShelf] = [:]
+    @ObservationIgnored private var progressRequests: [UUID: UUID] = [:]
+
+    private func saveAIOResumeShelves() {
+        if let data = try? JSONEncoder().encode(aioResumeShelves) {
+            defaults.set(data, forKey: Self.aioResumeKey)
+        }
+    }
+    #endif
     @ObservationIgnored private var lastServerImport: [UUID: Date] = [:]
     @ObservationIgnored private var warmedStreams: [String: (started: Date, task: Task<[MediaPlaybackSource], Error>)] = [:]
     private(set) var mdbListTrackingEnabled = false
@@ -464,6 +507,12 @@ final class MediaLibrary {
             savedProfiles = saved
             updateActiveAccounts()
         }
+        #if os(iOS)
+        if let data = defaults.data(forKey: Self.aioResumeKey),
+           let shelves = try? JSONDecoder().decode([UUID: AIOResumeShelf].self, from: data) {
+            aioResumeShelves = shelves
+        }
+        #endif
         if localTrackingEnabled, let data = defaults.data(forKey: localPlaybackKey),
            let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data) {
             localPlayback = saved.map { Self.marked($0) }
@@ -607,8 +656,21 @@ final class MediaLibrary {
         // resume point is the current episode and must not be displaced by a
         // newer generated Up Next record from the same series.
         var selected: [String: LocalMediaPlayback] = [:]
-        for record in candidates {
-            if let series = series(of: record.item), let key = episodeOrderKey(for: record.item),
+        for var record in candidates {
+            var listedByServer = false
+            #if os(iOS)
+            if serverTrackingEnabled, localTrackingEnabled, let shelf = aioResumeShelves[record.profileID] {
+                // Playback on this phone can advance while the request is in
+                // flight or offline. History imported by another tracker cannot.
+                let localEdit = record.updatedAt >= shelf.requestedAt
+                    && (record.nativeDuration != nil || record.explicitlyUnwatched == true)
+                if let date = shelf.date(for: record.item) {
+                    listedByServer = true
+                    if !localEdit { record.updatedAt = date }
+                } else if !localEdit { continue }
+            }
+            #endif
+            if !listedByServer, let series = series(of: record.item), let key = episodeOrderKey(for: record.item),
                seriesEpisodes[key] != nil, let target = seriesPlayTarget(in: series),
                !Self.samePlaybackItem(target, record.item) {
                 continue
@@ -1000,6 +1062,10 @@ final class MediaLibrary {
     }
 
     func remove(_ profile: MediaServerProfile) {
+        #if os(iOS)
+        progressRequests[profile.id] = nil
+        if aioResumeShelves.removeValue(forKey: profile.id) != nil { saveAIOResumeShelves() }
+        #endif
         nativeSiloRecords[profile.id] = nil
         nativeSiloFavorites[profile.id] = nil
         for (id, session) in siloPlaybackSessions where session.sourceProfileID == profile.id {
@@ -2319,6 +2385,10 @@ final class MediaLibrary {
     }
 
     func clearLocalPlayback() {
+        #if os(iOS)
+        for id in recordSources { aioResumeShelves[id] = nil }
+        saveAIOResumeShelves()
+        #endif
         if !localTrackingEnabled {
             if let data = defaults.data(forKey: localPlaybackKey),
                let saved = try? JSONDecoder().decode([LocalMediaPlayback].self, from: data),
@@ -6169,6 +6239,17 @@ extension MediaLibrary {
         guard serverTrackingEnabled, localTrackingEnabled, contains(profile),
               let source = (try? client(for: profile)) as? JellyfinClient else { return }
         let generation = playbackGeneration
+        #if os(iOS)
+        let request = UUID(), requestedAt = Date()
+        progressRequests[profile.id] = request
+        defer { if progressRequests[profile.id] == request { progressRequests[profile.id] = nil } }
+        let kind = await serverKind(of: profile)
+        let resumeOnly = kind == .aiostreams || (serverKinds[profile.id] == nil && aioResumeShelves[profile.id] != nil)
+        guard !Task.isCancelled, progressRequests[profile.id] == request,
+              playbackGeneration == generation, contains(profile) else { return }
+        #else
+        let resumeOnly = false
+        #endif
         // What this device has under way from the server, to ask whether it
         // has since been finished somewhere else.
         let open = Array(Set(localPlayback.filter {
@@ -6176,12 +6257,22 @@ extension MediaLibrary {
                 && !$0.item.isUpcomingPlaceholder && ProviderItem(id: $0.item.id) == nil
         }.map(\.item.id))).prefix(150)
         async let resumeList = source.resumeItems(userID: profile.userID)
-        async let nextList = source.nextUpEpisodes(userID: profile.userID)
+        async let nextList: [MediaItem] = resumeOnly ? [] : try await source.nextUpEpisodes(userID: profile.userID)
         async let openList = Self.currentState(of: Array(open), on: source, userID: profile.userID)
-        let resumed = (try? await resumeList) ?? []
+        let resumeResponse = try? await resumeList
+        let resumed = resumeResponse ?? []
         let upNext = (try? await nextList) ?? []
         let current = await openList
-        guard generation == playbackGeneration, contains(profile), serverTrackingEnabled, localTrackingEnabled else { return }
+        guard !Task.isCancelled, generation == playbackGeneration, contains(profile), serverTrackingEnabled, localTrackingEnabled else { return }
+        #if os(iOS)
+        guard progressRequests[profile.id] == request else { return }
+        if resumeOnly, let resumeResponse {
+            aioResumeShelves[profile.id] = AIOResumeShelf(items: resumeResponse, requestedAt: requestedAt)
+            saveAIOResumeShelves()
+        } else if !resumeOnly, serverKinds[profile.id] != nil, aioResumeShelves.removeValue(forKey: profile.id) != nil {
+            saveAIOResumeShelves()
+        }
+        #endif
 
         var records = localPlayback
         var changed = false
@@ -6202,25 +6293,37 @@ extension MediaLibrary {
         for raw in resumed where raw.isPlayable {
             let item = raw.servedBy(profile.id)
             guard let ticks = item.userData?.playbackPositionTicks, ticks > 0,
-                  let runtime = item.runTimeTicks, runtime > ticks,
-                  heldPlayback.map({ !Self.samePlaybackItem($0.item, item) }) ?? true,
+                  heldPlayback.map({ $0.profileID != profile.id || !Self.samePlaybackItem($0.item, item) }) ?? true,
                   !isHiddenFromContinueWatching(item, profileID: profile.id) else { continue }
             let position = Double(ticks) / 10_000_000
-            let duration = Double(runtime) / 10_000_000
+            let duration: TimeInterval
+            if let runtime = item.runTimeTicks, runtime > ticks {
+                duration = Double(runtime) / 10_000_000
+            } else if resumeOnly, item.runTimeTicks == nil, let percent = item.userData?.playedPercentage,
+                      percent > 0, percent < 100 {
+                duration = position * 100 / percent
+            } else { continue }
             let playedAt = item.userData?.lastPlayed ?? .distantPast
             if let index = records.firstIndex(where: {
                 $0.profileID == profile.id && Self.samePlaybackItem($0.item, item)
             }) {
-                guard playedAt > records[index].updatedAt else { continue }
+                let prior = records[index]
+                // Older builds stamped imported queue entries with the time
+                // of import. A fresh Resume response can repair those entries.
+                let imported = resumeOnly && !prior.completed && prior.nativeDuration == nil
+                    && prior.explicitlyUnwatched != true
+                guard playedAt > prior.updatedAt || imported else { continue }
+                if imported { records[index].item = item }
                 records[index].position = position
                 records[index].duration = duration
                 records[index].updatedAt = playedAt
                 records[index].completed = false
                 records[index].isUpNext = nil
                 records[index].explicitlyUnwatched = nil
+                if records[index] == prior { continue }
             } else {
                 records.append(LocalMediaPlayback(profileID: profile.id, item: item, position: position,
-                    duration: duration, updatedAt: playedAt == .distantPast ? Date() : playedAt, completed: false))
+                    duration: duration, updatedAt: playedAt == .distantPast && !resumeOnly ? Date() : playedAt, completed: false))
             }
             changed = true
         }
@@ -6232,7 +6335,7 @@ extension MediaLibrary {
         for episode in upNext where episode.type == "Episode" {
             rememberNextUp(episode.servedBy(profile.id))
         }
-        lastServerImport[profile.id] = Date()
+        if !resumeOnly || resumeResponse != nil { lastServerImport[profile.id] = Date() }
     }
 
     /// Titles as the server has them now, fifty at a time.

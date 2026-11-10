@@ -13,6 +13,75 @@ final class MediaIntegrationTests: XCTestCase {
     }
     override func tearDown() { MediaIntegrationProtocol.reset(); super.tearDown() }
 
+    #if os(iOS)
+    @MainActor
+    func testAIOContinueWatchingTracksResumeAcrossRefreshFailureAndRelaunch() async throws {
+        let suite = "AIOResume.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let alex = MediaServerProfile(name: "Home", serverURL: "https://aio-contract.test/jellyfin/u/home",
+                                      username: "Alex", userID: "a")
+        let sam = MediaServerProfile(name: "Home", serverURL: alex.serverURL, username: "Sam", userID: "b")
+        defaults.set(try JSONEncoder().encode([alex, sam]), forKey: "NullSports.mediaServers")
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        func library() -> MediaLibrary {
+            MediaLibrary(defaults: defaults, trackingKey: { nil }, serverClientFactory: { profile in
+                try JellyfinClient(serverURL: profile.serverURL, accessToken: "token-" + profile.userID, deviceID: "fixture", session: network)
+            })
+        }
+        func respond(_ ids: [String], for userID: String = "a", status: Int = 200) throws {
+            let items = ids.map { id in
+                ["Id": id, "Name": id, "Type": "Movie", "RunTimeTicks": 36_000_000_000,
+                 "UserData": ["PlaybackPositionTicks": 600_000_000]] as [String: Any]
+            }
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: ["Items": items]), as: UTF8.self)
+            MediaIntegrationProtocol.install { request in
+                XCTAssertEqual(request.value(forHTTPHeaderField: "X-Emby-Token"), "token-" + userID)
+                switch request.url?.path.lowercased() {
+                case "/jellyfin/u/home/system/info/public": return .json(#"{"aiostreams":{"features":{"users":1}}}"#)
+                case "/jellyfin/u/home/users/\(userID)/items/resume": return .json(json, status: status)
+                case "/jellyfin/u/home/users/\(userID)/items": return .json(#"{"Items":[]}"#)
+                default: XCTFail("Unexpected AIO watch-state request: \(request.url?.path ?? "")"); return .json("{}", status: 404)
+                }
+            }
+        }
+        let media = library()
+        let old = MediaItem(id: "old", name: "Old Show", type: "Episode", overview: nil,
+                            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil).servedBy(alex.id)
+        media.rememberNextUp(old)
+        XCTAssertEqual(media.continueWatching.map(\.item.id), ["old"])
+
+        try respond(["newer", "older"])
+        await media.importServerProgress(for: alex)
+        XCTAssertEqual(media.continueWatching.map(\.item.id), ["newer", "older"], "Undated titles keep server order")
+        try respond(["older"])
+        await media.importServerProgress(for: alex)
+        XCTAssertEqual(media.continueWatching.map(\.item.id), ["older"])
+        XCTAssertEqual(media.resumePosition(for: try XCTUnwrap(media.continueWatching.first?.item)), 60)
+
+        // Reopen with a different saved household account on the same server.
+        defaults.set([sam.id.uuidString], forKey: "Lineup.preferredJellyfinAccounts.v1")
+        let other = library()
+        try respond(["sam-film"], for: sam.userID)
+        await other.importServerProgress(for: sam)
+        XCTAssertEqual(other.continueWatching.map(\.item.id), ["sam-film"])
+        defaults.set([alex.id.uuidString], forKey: "Lineup.preferredJellyfinAccounts.v1")
+        let restored = library()
+        XCTAssertEqual(restored.continueWatching.map(\.item.id), ["older"])
+        try respond([], status: 503)
+        await restored.importServerProgress(for: alex)
+        XCTAssertEqual(restored.continueWatching.map(\.item.id), ["older"])
+        try respond([])
+        await restored.importServerProgress(for: alex)
+        XCTAssertTrue(restored.continueWatching.isEmpty)
+        XCTAssertTrue(library().continueWatching.isEmpty)
+        XCTAssertNotNil(restored.localPlaybackRecord(for: old), "Filtering the shelf must preserve saved tracking data")
+        defaults.set([sam.id.uuidString], forKey: "Lineup.preferredJellyfinAccounts.v1")
+        XCTAssertEqual(library().continueWatching.map(\.item.id), ["sam-film"])
+    }
+    #endif
+
     @MainActor
     func testAIOProfilePickerUsesSessionAndRejectsAnotherUsersToken() async throws {
         let suite = "AIOProfilePicker.\(UUID())"
