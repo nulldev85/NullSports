@@ -88,8 +88,6 @@ struct MediaLibraryHero: View {
         .frame(height: heroHeight)
         .clipped()
         #else
-        // Match the detail page's portrait artwork instead of cropping a
-        // landscape backdrop into the phone's hero.
         .aspectRatio(2.0 / 3.0, contentMode: .fit)
         #endif
         .onAppear { isVisible = true }
@@ -270,7 +268,7 @@ struct MediaLibraryHero: View {
         #if os(tvOS)
         media.backdropURL(for: item, width: artWidth) ?? media.imageURL(for: item, width: artWidth)
         #else
-        media.imageURL(for: item, width: artWidth) ?? media.backdropURL(for: item, width: artWidth)
+        media.backdropURL(for: item, width: artWidth)
         #endif
     }
 

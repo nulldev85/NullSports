@@ -926,6 +926,7 @@ struct MobileAccountView: View {
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
     @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.aether.rawValue
+    @AppStorage(AppSearchGenre.visibilityKey) private var showsSearchGenres = true
     @State private var choosingAccent = false
     @State private var settingUpTV = false
     /// Done in the picker, applied once it has gone: the change redraws this
@@ -993,6 +994,10 @@ struct MobileAccountView: View {
                     } label: {
                         SettingsRow("Tracking", symbol: "checkmark.circle", value: media.trackingSummary)
                     }
+                    Toggle(isOn: $showsSearchGenres) {
+                        SettingsRow("Show Search Genres", symbol: "magnifyingglass")
+                    }
+                    .tint(LineupStyle.highlight)
                     NavigationLink {
                         MobilePreferredChannelsView(clearingPreferences: $clearingPreferences)
                             .environment(library)

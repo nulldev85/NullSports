@@ -11,7 +11,10 @@ import SwiftUI
 struct AppSearchView: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(MediaLibrary.self) private var media
-    #if !os(tvOS)
+    #if os(tvOS)
+    private let showsGenreCategories = true
+    #else
+    @AppStorage(AppSearchGenre.visibilityKey) private var showsGenreCategories = true
     /// Plays a channel full screen. On the phone the player belongs to the
     /// view that owns the tabs.
     let play: (XtreamStream) -> Void
@@ -71,6 +74,9 @@ struct AppSearchView: View {
         }
         #if !os(tvOS)
         .id(homeRevision)
+        .onChange(of: showsGenreCategories) { _, visible in
+            if !visible { selectedGenre = nil }
+        }
         .mobileTabHome(.search) {
             pushed = nil
             selectedGenre = nil
@@ -320,7 +326,11 @@ struct AppSearchView: View {
     private var content: some View {
         if searchedTerm.isEmpty {
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                AppSearchGenreGrid { genre in selectedGenre = genre }
+                if showsGenreCategories {
+                    AppSearchGenreGrid { genre in selectedGenre = genre }
+                } else {
+                    AppSearchPrompt(searching: false)
+                }
             } else {
                 AppSearchPrompt(searching: true)
             }
@@ -569,6 +579,8 @@ struct AppSearchView: View {
 /// Some TMDB TV genres combine several movie genres; unsupported equivalents
 /// remain visible as a tab and explain that TMDB has no matching TV genre.
 struct AppSearchGenre: Identifiable, Hashable {
+    static let visibilityKey = "lineup.search.showGenreCategories"
+
     let title: String
     let assetName: String
     let movieGenre: String
