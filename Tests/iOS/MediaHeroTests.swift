@@ -2,6 +2,16 @@ import XCTest
 @testable import LineupiOS
 
 final class MediaHeroTests: XCTestCase {
+    func testContinueWatchingIdentifiesShowWhenEveryCardIsAnEpisode() {
+        let episode = MediaItem(id: "e", name: "Pilot", type: "Episode", overview: nil,
+            productionYear: nil, primaryImageAspectRatio: 1.78, childCount: nil, indexNumber: 1,
+            parentIndexNumber: 1, seriesName: "The Wire", seriesID: "s")
+        let shape = MediaArtShape.forItems([episode], shelfID: LibraryShelfOrder.continueWatching)
+        XCTAssertEqual(shape, .poster)
+        XCTAssertEqual(shape.showTitle(for: episode), "The Wire")
+        XCTAssertEqual(episode.episodeCode, "S01E01")
+        XCTAssertEqual(MediaArtShape.forItems([episode]), .still)
+    }
     private func catalog(_ id: String, itemCount: Int) -> MediaCatalog {
         let root = MediaItem(id: id, name: id.capitalized, type: "Folder",
             overview: nil, productionYear: nil, primaryImageAspectRatio: nil,

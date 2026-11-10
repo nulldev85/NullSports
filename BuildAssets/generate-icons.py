@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the approved Lineup play-icon masters; never redraw the old mark.
+"""Package the approved Lineup three-bar raster masters without redrawing them.
 
 Committed asset catalogs are used directly by CI. Regeneration is an explicit
 Windows maintenance task using System.Drawing, with no image API calls.
@@ -16,11 +16,11 @@ def main():
     if os.name != "nt" or not shell:
         raise SystemExit(
             "Icon assets are already committed. To repackage approved masters, "
-            "run BuildAssets/package-play-icon.ps1 on Windows with PowerShell. "
-            "Do not regenerate the retired geometric logo."
+            "run BuildAssets/package-lineup-icon.ps1 on Windows with PowerShell. "
+            "Use the committed approved masters."
         )
     subprocess.run(
-        [shell, "-NoProfile", "-File", str(root / "BuildAssets/package-play-icon.ps1")],
+        [shell, "-NoProfile", "-File", str(root / "BuildAssets/package-lineup-icon.ps1")],
         check=True,
     )
 

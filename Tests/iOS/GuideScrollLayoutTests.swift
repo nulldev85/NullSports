@@ -50,6 +50,106 @@ final class GuideScrollLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testInitialResetIsNotRepeatedWhenTheViewportObserverAttaches() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let page = UIViewController()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = page
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+
+        let scroll = UIScrollView(frame: page.view.bounds)
+        scroll.contentSize = CGSize(width: scroll.bounds.width, height: 2_400)
+        page.view.addSubview(scroll)
+        let probe = MobileGuideScrollConfiguration.Probe(frame: CGRect(origin: .zero, size: scroll.contentSize))
+        probe.resetToken = UUID()
+        let refreshed = expectation(description: "A layout refresh preserves the position after the initial reset")
+        probe.onBottomOverlap = { [weak probe] _ in
+            scroll.setContentOffset(CGPoint(x: 0, y: 450), animated: false)
+            probe?.requestRefresh()
+            // Enqueue after the refresh to expose a token accidentally cleared
+            // while installing the viewport observer during the first pass.
+            DispatchQueue.main.async {
+                XCTAssertEqual(scroll.contentOffset.y, 450, accuracy: 1,
+                               "The same category token must not reset a second time after scrolling begins")
+                refreshed.fulfill()
+            }
+        }
+        scroll.addSubview(probe)
+        await fulfillment(of: [refreshed], timeout: 3)
+        probe.onBottomOverlap = nil
+
+        probe.resetToken = UUID()
+        probe.requestRefresh()
+        try await settle { abs(scroll.contentOffset.y + scroll.adjustedContentInset.top) < 0.5 }
+        XCTAssertEqual(scroll.contentOffset.y, -scroll.adjustedContentInset.top, accuracy: 1,
+                       "An actual category change must still reset to the first row")
+    }
+
+    @MainActor
+    func testFadingGlassAndAttachingItsCompactControlKeepTheLastRowStable() async throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Native glass requires iOS 26") }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let page = UIViewController()
+        let tabs = UITabBarController()
+        tabs.setViewControllers([page], animated: false)
+        tabs.setTabBarHidden(false, animated: false)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = tabs
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+
+        let scroll = UIScrollView(frame: page.view.convert(window.bounds, from: window))
+        scroll.contentSize = CGSize(width: scroll.bounds.width, height: 2_400)
+        page.view.addSubview(scroll)
+        let probe = MobileGuideScrollConfiguration.Probe(frame: CGRect(origin: .zero, size: scroll.contentSize))
+        probe.usesLineupNavigation = false
+        probe.keepsNativeBarLayout = true
+        probe.onBottomOverlap = { scroll.contentInset.bottom = $0 }
+        scroll.addSubview(probe)
+        try await settle { probe.reported != nil }
+        let clearance = try XCTUnwrap(probe.reported)
+        XCTAssertGreaterThan(clearance, window.safeAreaInsets.bottom)
+        let end = scroll.contentSize.height + scroll.adjustedContentInset.bottom - scroll.bounds.height
+        scroll.setContentOffset(CGPoint(x: 0, y: end), animated: false)
+        let lastRowBottom = scroll.convert(CGPoint(x: 0, y: scroll.contentSize.height), to: window).y
+        let compactTop = MobileLineupNavigationLayout.compactTop(
+            windowBottom: window.bounds.maxY, safeAreaBottom: window.safeAreaInsets.bottom)
+        let boundary = MobileLineupNavigationBoundary.Boundary(frame:
+            CGRect(x: 20, y: compactTop, width: 62, height: 62))
+
+        // The native bar retains its layout while fading. Exercise the gap
+        // before its compact replacement attaches and the reverse transition.
+        for phase in 0..<4 {
+            switch phase {
+            case 0: tabs.tabBar.alpha = 0.4
+            case 1:
+                tabs.tabBar.alpha = 0
+                probe.usesLineupNavigation = true
+            case 2: window.addSubview(boundary)
+            default:
+                boundary.removeFromSuperview()
+                probe.usesLineupNavigation = false
+            }
+            let measured = MobileGuideScrollConfiguration.bottomOverlap(of: scroll,
+                usesLineupNavigation: probe.usesLineupNavigation, keepsNativeBarLayout: true)
+            XCTAssertEqual(measured, clearance, accuracy: 1,
+                           "Opacity and compact-control attachment must preserve Guide clearance; phase \(phase)")
+            probe.requestRefresh()
+            try await Task.sleep(for: .milliseconds(50))
+            XCTAssertEqual(scroll.adjustedContentInset.bottom, clearance, accuracy: 1)
+            XCTAssertEqual(scroll.contentOffset.y, end, accuracy: 1,
+                           "The list must not jump while resting on its last channel")
+            XCTAssertEqual(scroll.convert(CGPoint(x: 0, y: scroll.contentSize.height), to: window).y,
+                           lastRowBottom, accuracy: 1)
+        }
+    }
+
+    @MainActor
     func testFavoritesReserveVisibleNavigationBarOverlapAboveFirstRow() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
@@ -93,6 +193,70 @@ final class GuideScrollLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testFavoritesResetWaitsForAppliedTopInsetAndPreservesBrowsingAcrossLaterLayouts() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let page = UIViewController()
+        let navigation = UINavigationController(rootViewController: page)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = navigation
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        window.layoutIfNeeded()
+        navigation.view.layoutIfNeeded()
+
+        let scroll = UIScrollView(frame: navigation.view.bounds)
+        scroll.contentSize = CGSize(width: scroll.bounds.width, height: 2_400)
+        navigation.view.addSubview(scroll)
+        let probe = MobileGuideScrollConfiguration.Probe(frame: CGRect(origin: .zero, size: scroll.contentSize))
+        probe.resetToken = UUID()
+        var measuredTop: CGFloat?
+        probe.onTopOverlap = { measuredTop = $0 }
+        scroll.addSubview(probe)
+        try await settle { (measuredTop ?? 0) > 0 }
+        let initialInset = try XCTUnwrap(measuredTop)
+        XCTAssertEqual(scroll.adjustedContentInset.top, 0,
+                       "The fixture deliberately reports header coverage before applying its margin")
+
+        scroll.contentInset.top = initialInset
+        probe.requestRefresh()
+        try await settle { abs(scroll.contentOffset.y + initialInset) < 0.5 }
+        XCTAssertEqual(scroll.contentOffset.y, -initialInset, accuracy: 0.5,
+                       "The initial token must remain pending until the measured top margin is applied")
+
+        // A later NavigationStack placement can add more coverage after the
+        // token was consumed. A list still at its first row must stay there.
+        scroll.frame.origin.y -= 24
+        probe.requestRefresh()
+        try await settle { (measuredTop ?? 0) > initialInset + 1 }
+        let laterInset = try XCTUnwrap(measuredTop)
+        scroll.contentInset.top = laterInset
+        probe.requestRefresh()
+        try await settle { abs(scroll.contentOffset.y + laterInset) < 0.5 }
+
+        scroll.setContentOffset(CGPoint(x: 0, y: 450), animated: false)
+        scroll.frame.origin.y -= 18
+        probe.requestRefresh()
+        try await settle { (measuredTop ?? 0) > laterInset + 1 }
+        let browsedInset = try XCTUnwrap(measuredTop)
+        scroll.contentInset.top = browsedInset
+        let refreshed = expectation(description: "A later top inset preserves the browsed position")
+        probe.requestRefresh()
+        DispatchQueue.main.async {
+            XCTAssertEqual(scroll.contentOffset.y, 450, accuracy: 0.5,
+                           "New coverage must not reset a category the viewer already scrolled")
+            refreshed.fulfill()
+        }
+        await fulfillment(of: [refreshed], timeout: 3)
+
+        probe.resetToken = UUID()
+        probe.requestRefresh()
+        try await settle { abs(scroll.contentOffset.y + browsedInset) < 0.5 }
+        XCTAssertEqual(scroll.contentOffset.y, -browsedInset, accuracy: 0.5,
+                       "A genuine category reset must still use the current top margin")
+    }
+
+    @MainActor
     func testFavoritesListPlacesItsFirstRowBelowTheLiveNavigationHeader() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first { $0.isKeyWindow }
@@ -100,18 +264,50 @@ final class GuideScrollLayoutTests: XCTestCase {
         let window = UIWindow(windowScene: scene)
         window.rootViewController = UIHostingController(rootView: GuideTopReservationHarness(model: model))
         window.makeKeyAndVisible()
-        defer { window.isHidden = true; previous?.makeKey() }
-        try await settle { model.firstRowFrame != nil && window.firstSubview(of: UINavigationBar.self) != nil }
-        let bar = try XCTUnwrap(window.firstSubview(of: UINavigationBar.self) {
-            !$0.isHidden && $0.alpha > 0.01
-        })
+        defer {
+            let row = window.firstSubview(of: GuideFirstRowMarker.Marker.self)
+            let header = window.firstSubview(of: UINavigationBar.self) { !$0.isHidden && $0.window === window }
+            let scroll = window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal }?.enclosingScrollView
+            print("Guide first-row window geometry: row=\(String(describing: row.map { $0.convert($0.bounds, to: window) })), "
+                + "header=\(String(describing: header.map { $0.convert($0.bounds, to: window) })), "
+                + "offset=\(String(describing: scroll?.contentOffset)), insets=\(String(describing: scroll?.adjustedContentInset))")
+            let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let attachment = XCTAttachment(image: image)
+            attachment.name = "Guide-first-row-window-geometry"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            window.isHidden = true
+            previous?.makeKey()
+        }
         try await settle {
-            guard let rowTop = model.firstRowFrame?.minY else { return false }
+            window.layoutIfNeeded()
+            return window.firstSubview(of: GuideFirstRowMarker.Marker.self, where: {
+                $0.window === window && $0.bounds.height > 0
+            }) != nil && window.firstSubview(of: UINavigationBar.self, where: {
+                !$0.isHidden && $0.alpha > 0.01 && $0.window === window
+            }) != nil
+        }
+        let bar = try XCTUnwrap(window.firstSubview(of: UINavigationBar.self) {
+            !$0.isHidden && $0.alpha > 0.01 && $0.window === window
+        })
+        // SwiftUI's global space is rooted in its hosting hierarchy, not
+        // necessarily the UIWindow containing UIKit's navigation bar. Measure
+        // both live views in that same window, without a cached preference.
+        let firstRowFrame: () -> CGRect? = {
+            guard let row = window.firstSubview(of: GuideFirstRowMarker.Marker.self),
+                  row.window === window, row.bounds.height > 0 else { return nil }
+            return row.convert(row.bounds, to: window)
+        }
+        try await settle {
+            window.layoutIfNeeded()
+            guard let rowTop = firstRowFrame()?.minY else { return false }
             let barBottom = bar.convert(bar.bounds, to: window).maxY
             return abs(rowTop - barBottom - MobileGuideLayoutMetrics.listFirstRowTopInset) < 3
         }
         window.layoutIfNeeded()
-        let rowTop = try XCTUnwrap(model.firstRowFrame?.minY)
+        let rowTop = try XCTUnwrap(firstRowFrame()?.minY)
         let barBottom = bar.convert(bar.bounds, to: window).maxY
         XCTAssertGreaterThan(rowTop, barBottom,
                              "The first favorite row must not start beneath the Guide toolbar")
@@ -130,17 +326,28 @@ final class GuideScrollLayoutTests: XCTestCase {
                        "The test must move the actual Guide favorites scroller")
         model.resetToken = UUID()
         try await settle {
+            window.layoutIfNeeded()
             guard let activeProbe = window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self, where: {
                 !$0.horizontal
-            }), let activeScroll = activeProbe.enclosingScrollView else { return false }
-            return abs(activeScroll.contentOffset.y - initialOffset.y) < 1
+            }), activeProbe !== probe, let activeScroll = activeProbe.enclosingScrollView,
+                let row = window.firstSubview(of: GuideFirstRowMarker.Marker.self,
+                    where: { $0.isDescendant(of: activeScroll) && $0.window === window }) else { return false }
+            let expectedRowTop = bar.convert(bar.bounds, to: window).maxY + MobileGuideLayoutMetrics.listFirstRowTopInset
+            return abs(activeScroll.contentOffset.y + activeScroll.adjustedContentInset.top) < 1
+                && abs(row.convert(row.bounds, to: window).minY - expectedRowTop) < 3
         }
         let resetProbe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) {
             !$0.horizontal
         })
         let resetScroll = try XCTUnwrap(resetProbe.enclosingScrollView)
-        XCTAssertEqual(resetScroll.contentOffset.y, initialOffset.y, accuracy: 1,
+        XCTAssertEqual(resetScroll.contentOffset.y, -resetScroll.adjustedContentInset.top, accuracy: 1,
                        "Refreshing favorites must recreate the real list at its first channel")
+        let resetRow = try XCTUnwrap(window.firstSubview(of: GuideFirstRowMarker.Marker.self) {
+            $0.isDescendant(of: resetScroll) && $0.window === window
+        })
+        XCTAssertEqual(resetRow.convert(resetRow.bounds, to: window).minY,
+                       bar.convert(bar.bounds, to: window).maxY + MobileGuideLayoutMetrics.listFirstRowTopInset,
+                       accuracy: 3, "The reset first row must physically clear the live navigation header")
     }
 
     /// Scrolled to the end, the last channel rests right on top of the tab
@@ -170,7 +377,9 @@ final class GuideScrollLayoutTests: XCTestCase {
             let barTop: CGFloat
             if glass && MobileNavigationStyle.supportsGlass {
                 let bar = try XCTUnwrap(window.firstSubview(of: UITabBar.self) { !$0.isHidden })
-                barTop = bar.convert(bar.bounds, to: window).minY
+                let compactTop = MobileLineupNavigationLayout.compactTop(
+                    windowBottom: window.bounds.maxY, safeAreaBottom: window.safeAreaInsets.bottom)
+                barTop = min(bar.convert(bar.bounds, to: window).minY, compactTop)
             } else {
                 // The compact custom bar floats into the bottom container
                 // area; the Guide must stop at its actual top edge.
@@ -187,7 +396,7 @@ final class GuideScrollLayoutTests: XCTestCase {
             XCTAssertEqual(usableBottom, barTop, accuracy: 1,
                            "glass \(glass), usable list edge must meet navigation; inset \(list.adjustedContentInset), "
                            + "measured clearance \(String(describing: probe.reported)), "
-                           + "current overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list))")
+                           + "current overlap \(MobileGuideScrollConfiguration.bottomOverlap(of: list, keepsNativeBarLayout: glass && MobileNavigationStyle.supportsGlass))")
             let end = list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height
             list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
             let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
@@ -201,6 +410,55 @@ final class GuideScrollLayoutTests: XCTestCase {
             attachment.name = "Guide-last-row-\(glass ? "glass" : "custom")"
             attachment.lifetime = .keepAlways
             add(attachment)
+        }
+    }
+
+    @MainActor
+    func testChangingBetweenLongAndShortCategoriesResetsOnceAndKeepsTheBottomReachable() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let model = GuideNavigationTestState()
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = UIHostingController(rootView: GuideEndHarness(model: model))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+        for glass in [false, true] {
+            model.glass = glass
+            for count in [40, 3, 80, 7, 40] {
+                let previousProbe = window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal }
+                model.channelCount = count
+                model.resetToken = UUID()
+                try await settle {
+                    guard let probe = window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self,
+                        where: { !$0.horizontal }), probe !== previousProbe,
+                        let list = probe.enclosingScrollView, let clearance = probe.reported else { return false }
+                    // The probe reports coverage before SwiftUI installs its
+                    // content margin. Computing the end with the old inset
+                    // stops exactly that clearance short of the real end.
+                    return abs(list.contentSize.height - CGFloat(count) * 56) < 1
+                        && abs(list.contentOffset.y + list.adjustedContentInset.top) < 1
+                        && abs(list.adjustedContentInset.bottom - clearance) < 1
+                }
+                let probe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal })
+                let list = try XCTUnwrap(probe.enclosingScrollView)
+                let clearance = try XCTUnwrap(probe.reported)
+                let end = max(-list.adjustedContentInset.top,
+                    list.contentSize.height + list.adjustedContentInset.bottom - list.bounds.height)
+                list.setContentOffset(CGPoint(x: list.contentOffset.x, y: end), animated: false)
+                probe.requestRefresh()
+                try await Task.sleep(for: .milliseconds(50))
+                let context = "category \(count), glass \(glass), offset \(list.contentOffset), "
+                    + "content \(list.contentSize), viewport \(list.bounds), "
+                    + "insets \(list.adjustedContentInset), clearance \(clearance)"
+                XCTAssertEqual(list.adjustedContentInset.bottom, clearance, accuracy: 1,
+                               "The applied margin must remain stable after scrolling: \(context)")
+                XCTAssertEqual(list.contentOffset.y, end, accuracy: 1,
+                               "A layout refresh must preserve the last-row position: \(context)")
+                let usableBottom = list.convert(list.bounds, to: window).maxY - clearance
+                let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
+                XCTAssertLessThanOrEqual(lastRowBottom, usableBottom + 1,
+                                         "The last channel must remain above navigation after a category change: \(context)")
+            }
         }
     }
 
@@ -328,6 +586,8 @@ final class GuideScrollLayoutTests: XCTestCase {
 private final class GuideNavigationTestState: ObservableObject {
     @Published var glass = false
     @Published var selection = 1
+    @Published var channelCount = 40
+    @Published var resetToken = UUID()
 }
 
 private struct GuideEndHarness: View {
@@ -356,9 +616,9 @@ private struct GuideEndHarness: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(spacing: 0) {
                     Color.gray.frame(height: 40)
-                    MobileGuideChannelScroll {
+                    MobileGuideChannelScroll(resetToken: model.resetToken) {
                         LazyVStack(spacing: 0) {
-                            ForEach(0..<40, id: \.self) { _ in Color.blue.frame(height: 56) }
+                            ForEach(0..<model.channelCount, id: \.self) { _ in Color.blue.frame(height: 56) }
                         }
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                     }
@@ -370,20 +630,27 @@ private struct GuideEndHarness: View {
             .contentMargins(.top, 0, for: .scrollContent)
             .safeAreaPadding(.horizontal)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .id(model.resetToken)
         }
     }
 }
 
-private struct GuideFirstRowFrame: PreferenceKey {
-    static var defaultValue: CGRect? = nil
-    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
-        if let next = nextValue() { value = next }
+private struct GuideFirstRowMarker: UIViewRepresentable {
+    final class Marker: UIView {}
+
+    func makeUIView(context: Context) -> Marker {
+        let view = Marker()
+        view.isUserInteractionEnabled = false
+        view.isOpaque = false
+        view.accessibilityElementsHidden = true
+        return view
     }
+
+    func updateUIView(_ view: Marker, context: Context) {}
 }
 
 @MainActor
 private final class GuideTopReservationTestState: ObservableObject {
-    @Published var firstRowFrame: CGRect?
     @Published var resetToken = UUID()
 }
 
@@ -397,12 +664,7 @@ private struct GuideTopReservationHarness: View {
                     Text("First favorite")
                         .frame(maxWidth: .infinity)
                         .frame(height: 68)
-                        .background {
-                            GeometryReader { row in
-                                Color.clear.preference(key: GuideFirstRowFrame.self,
-                                    value: row.frame(in: .global))
-                            }
-                        }
+                        .background(GuideFirstRowMarker())
                     ForEach(0..<20, id: \.self) { index in
                         Text("Favorite \(index)").frame(height: 68)
                     }
@@ -415,7 +677,6 @@ private struct GuideTopReservationHarness: View {
             }
             .navigationBarTitleDisplayMode(.inline)
         }
-        .onPreferenceChange(GuideFirstRowFrame.self) { model.firstRowFrame = $0 }
     }
 }
 

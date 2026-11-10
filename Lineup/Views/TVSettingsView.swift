@@ -273,9 +273,15 @@ struct AccountView: View {
             if media.profiles.isEmpty {
                 TVSettingsInfo(symbol: "server.rack", title: "Media Server", value: "Not connected")
             }
-            ForEach(media.profiles) { profile in
+            ForEach(media.savedProfiles) { profile in
                 TVSettingsInfo(symbol: "server.rack", title: profile.name, value: profile.displayHost)
-                TVSettingsInfo(symbol: "checkmark.circle", title: "Connection", value: serverStatus(profile))
+                if media.profiles.contains(profile) {
+                    TVSettingsInfo(symbol: "checkmark.circle", title: "Connection", value: serverStatus(profile))
+                    if profile.brand == .jellyfin { TVSettingsInfo(symbol: "person", title: "Profile", value: profile.username) }
+                } else {
+                    TVSettingsAction(symbol: "person", title: "Use " + profile.username,
+                                     detail: profile.displayHost) { media.selectJellyfinAccount(profile) }
+                }
                 TVSettingsAction(symbol: "trash", title: "Remove \(profile.name)",
                                  detail: "Remove this connection. Your server and its media are not deleted.", destructive: true) { media.remove(profile) }
             }

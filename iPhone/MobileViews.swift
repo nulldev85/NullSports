@@ -500,6 +500,7 @@ private struct MobileSettingsRowGround: View {
 private struct MediaServerRow: View {
     @Environment(MediaLibrary.self) private var media
     let profile: MediaServerProfile
+    let chooseProfile: () -> Void
     let remove: () -> Void
 
     var body: some View {
@@ -509,13 +510,21 @@ private struct MediaServerRow: View {
             MediaServerLogoTile(brand: .of(profile))
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.name).font(.inter(17, .medium)).foregroundStyle(LineupStyle.text).lineLimit(1)
-                Text(profile.displayHost).font(.inter(13))
+                Text(profile.brand == .jellyfin ? "\(profile.username) · \(profile.displayHost)" : profile.displayHost)
+                    .font(.inter(13))
                     .foregroundStyle(LineupPanelStyle.listValue).lineLimit(1)
             }
             .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
             Spacer(minLength: 8)
-            Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))
-                .font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
+            if profile.brand == .jellyfin && media.profiles.contains(profile) {
+                Button("Switch Profile", action: chooseProfile)
+                    .buttonStyle(.borderless)
+            } else if media.profiles.contains(profile) {
+                Text(state.isLoading ? "Connecting…" : (state.isConnected ? "Connected" : "Offline"))
+                    .font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
+            } else {
+                Text("Saved").font(.inter(15)).foregroundStyle(LineupPanelStyle.listValue)
+            }
             Button(role: .destructive, action: remove) {
                 Image(systemName: "trash").frame(minWidth: 44, minHeight: 44)
                     .foregroundStyle(LineupPanelStyle.listValue)
@@ -679,6 +688,7 @@ private struct MobileMediaServerSettingsView: View {
     @Binding var selectedTab: Int
     @Environment(MediaLibrary.self) private var media
     @State private var addingMediaServer = false
+    @State private var choosingProfile: MediaServerProfile?
     @State private var removingMediaProfile: MediaServerProfile?
 
     var body: some View {
@@ -690,8 +700,9 @@ private struct MobileMediaServerSettingsView: View {
                 }
             }
             Section {
-                ForEach(media.profiles) { profile in
-                    MediaServerRow(profile: profile, remove: { removingMediaProfile = profile })
+                ForEach(media.savedProfiles) { profile in
+                    MediaServerRow(profile: profile, chooseProfile: { choosingProfile = profile },
+                                   remove: { removingMediaProfile = profile })
                 }
                 Button { addingMediaServer = true } label: {
                     SettingsRow("Add Media Server", symbol: "plus")
@@ -700,7 +711,7 @@ private struct MobileMediaServerSettingsView: View {
             } header: {
                 Text("Servers").lineupSettingsHeader()
             } footer: {
-                Text("Lineup uses every media server here together, Jellyfin, Emby, Plex and Silo alike: their shelves, search and streams all appear in one Library.")
+                Text("Your connected servers appear together in the Library. Choose which signed-in Jellyfin profile to use on each server.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
@@ -708,6 +719,9 @@ private struct MobileMediaServerSettingsView: View {
         .lineupSettingsList()
         .navigationTitle("Media Servers")
         .navigationBarTitleDisplayMode(.inline)
+        .lineupSheet(item: $choosingProfile) { source in
+            MobileJellyfinProfilePicker(source: source).environment(media)
+        }
         .lineupSheet(isPresented: $addingMediaServer) {
             MediaServerSetupView()
                 .environment(media)
@@ -718,6 +732,122 @@ private struct MobileMediaServerSettingsView: View {
                        isPresented: Binding(get: { removingMediaProfile != nil }, set: { if !$0 { removingMediaProfile = nil } })) {
             MobileSettingsRemovalChoices.mediaServer(removingMediaProfile, media: media)
         } onCancel: { removingMediaProfile = nil }
+    }
+}
+
+struct MobileJellyfinProfilePicker: View {
+    @Environment(MediaLibrary.self) private var media
+    @Environment(\.dismiss) private var dismiss
+    let source: MediaServerProfile
+    @State private var choices: [MediaLibrary.ProfileChoice] = []
+    @State private var selected: MediaLibrary.ProfileChoice?
+    @State private var password = ""
+    @State private var pin = ""
+    @State private var error: String?
+    @State private var loading = true
+    @State private var reload = UUID()
+    @State private var submission: UUID?
+    @State private var signingIn = false
+
+    init(source: MediaServerProfile) {
+        self.source = source
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section(source.name) {
+                    if loading { ProgressView("Loading profiles…") }
+                    ForEach(choices) { choice in
+                        Button {
+                            selected = choice
+                            password = ""
+                            pin = ""
+                            error = nil
+                            if !needsPassword && !needsPIN { submission = UUID() }
+                        } label: {
+                            HStack {
+                                JellyfinProfileAvatar(name: choice.name, url: choice.avatarURL)
+                                Text(choice.name)
+                                Spacer()
+                                if choice.id == source.userID { Image(systemName: "checkmark").accessibilityLabel("Current profile") }
+                            }
+                        }
+                        .disabled(choice.id == source.userID)
+                    }
+                }
+                if let selected, needsPassword || needsPIN {
+                    Section(selected.name) {
+                        if needsPassword { SecureField("Password", text: $password).textContentType(.password) }
+                        if needsPIN { SecureField("PIN", text: $pin).keyboardType(.numberPad) }
+                        Button("Use " + selected.name) { submission = UUID() }
+                            .disabled(needsPIN && pin.isEmpty)
+                    }
+                }
+                if submission != nil { ProgressView("Switching profile…") }
+                if let error {
+                    Text(error).foregroundStyle(LineupStyle.live)
+                    if choices.isEmpty { Button("Try again") { reload = UUID() } }
+                }
+                if !loading && !choices.contains(where: { if case .household = $0.access { return true }; return false }) {
+                    Button("Sign in to another profile") { signingIn = true }
+                }
+            }
+            .disabled(submission != nil)
+            .navigationTitle("Switch Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .task(id: reload) {
+                loading = true
+                error = nil
+                do {
+                    let available = try await media.profileChoices(on: source)
+                    guard !Task.isCancelled else { return }
+                    choices = available
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.error = "Couldn’t load profiles from this server."
+                }
+                loading = false
+            }
+            .task(id: submission) {
+                guard submission != nil, let selected else { return }
+                let secret = needsPIN && needsPassword ? password + "/" + pin : (needsPIN ? pin : password)
+                password = ""
+                pin = ""
+                do {
+                    try await media.useProfile(selected, from: source, secret: secret)
+                    if !Task.isCancelled { dismiss() }
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    self.error = (error as? JellyfinError)?.errorDescription ??
+                        (error as? MediaIntegrationError)?.errorDescription ?? "Couldn’t switch profiles. Try again."
+                }
+                submission = nil
+            }
+            .lineupSheet(isPresented: $signingIn, onDismiss: {
+                if !media.profiles.contains(source) { dismiss() } else { reload = UUID() }
+            }) {
+                MediaServerSetupView(jellyfinAddress: source.serverURL).environment(media)
+            }
+        }
+    }
+
+    private var needsPassword: Bool {
+        guard let selected else { return false }
+        switch selected.access {
+        case .signIn(let required): return required
+        case .household(.password), .household(.passwordPin): return true
+        default: return false
+        }
+    }
+
+    private var needsPIN: Bool {
+        guard let selected else { return false }
+        switch selected.access {
+        case .household(.pin), .household(.passwordPin): return true
+        default: return false
+        }
     }
 }
 

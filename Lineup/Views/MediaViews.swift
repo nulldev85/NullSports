@@ -48,6 +48,7 @@ struct MediaServersView: View {
     @State private var optionsOpen = false
     #if !os(tvOS)
     @State private var collectionsOpen = false
+    @State private var choosingProfile: MediaServerProfile?
     @State private var newCollectionName = ""
     #endif
     /// Bumped to take the phone's Library back to its front page: an episode
@@ -62,6 +63,9 @@ struct MediaServersView: View {
             .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
             .lineupSheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .lineupSheet(item: $choosingProfile) { source in
+                MobileJellyfinProfilePicker(source: source).environment(media)
+            }
             .lineupSheet(item: Bindable(media).collectionSelectionItem) { item in MobileAddToCollectionView(item: item).environment(media) }
             .lineupTextPrompt("New Collection", symbol: "folder.badge.plus", isPresented: Bindable(media).creatingCollection,
                 text: $newCollectionName, prompt: "Collection name", saveTitle: "Create",
@@ -224,6 +228,11 @@ struct MediaServersView: View {
             },
             MobileMenuItem("Add Server", symbol: "externaldrive.badge.plus") { addingServer = true }
         ]
+        let jellyfin = media.profiles.filter { $0.brand == .jellyfin }
+        for source in jellyfin {
+            let title = jellyfin.count == 1 ? "Switch Profile" : "Switch Profile · " + source.name
+            servers.append(MobileMenuItem(title, symbol: "person.2") { choosingProfile = source })
+        }
         if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
             servers.append(MobileMenuItem("Clear Local Tracking", symbol: "trash", isDestructive: true) {
                 clearingHistory = true
@@ -1652,13 +1661,14 @@ struct MediaCatalogsScreen: View {
             #else
             PhoneShelfHeader(title: title, symbol: Self.shelfSymbol(id)) { EmptyView() }
             #endif
-            let shape = MediaArtShape.forItems(items)
             #if !os(tvOS)
-            MobileLibraryShelf(items: items, shape: shape) { item in
+            let shape = MediaArtShape.forItems(items, shelfID: id)
+            MobileLibraryShelf(items: items, shape: shape, showsResumeProgress: id == LibraryShelfOrder.continueWatching) { item in
                 if let page = pageItem(for: item, opensPages: opensPages) { pushed = page }
                 else { heroPlayableItem = item }
             }
             #else
+            let shape = MediaArtShape.forItems(items)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: itemSpacing) {
                     ForEach(items, id: \.libraryKey) { trackedItem in

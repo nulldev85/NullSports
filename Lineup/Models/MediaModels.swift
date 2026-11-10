@@ -9,6 +9,8 @@ struct MediaServerProfile: Codable, Identifiable, Equatable, Sendable {
     /// The software the server runs. Saved only since Emby and Plex joined
     /// Jellyfin, so a server saved before then reads as the Jellyfin it was.
     var software: MediaServerBrand?
+    var jellyfinServerID: String? = nil
+    var primaryImageTag: String? = nil
     var siloProfileID: String? = nil
 
     init(id: UUID = UUID(), name: String, serverURL: String, username: String, userID: String,
@@ -23,6 +25,20 @@ struct MediaServerProfile: Codable, Identifiable, Equatable, Sendable {
     }
 
     var brand: MediaServerBrand { software ?? .jellyfin }
+
+    /// The picker and personal links for one AIOStreams mount can differ by user.
+    /// Use the common mount only for account grouping. Requests use the full saved URL.
+    var jellyfinAccountEndpoint: String {
+        guard var url = URL(string: serverURL) else { return serverURL }
+        let parts = url.pathComponents
+        if parts.count >= 4, parts[parts.count - 3].lowercased() == "jellyfin" {
+            let kind = parts[parts.count - 2]
+            if kind == "u" || kind == "p" || UUID(uuidString: kind) != nil {
+                url = url.deletingLastPathComponent().deletingLastPathComponent()
+            }
+        }
+        return url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
 
     /// The server's host as a person would know it. Plex reaches a server
     /// through a certificate name that spells its address with dashes,
@@ -1223,13 +1239,19 @@ struct JellyfinItemsResponse: Codable, Sendable {
 
 struct JellyfinAuthenticationResponse: Codable, Sendable {
     struct User: Codable, Sendable { let id: String; let name: String
-        enum CodingKeys: String, CodingKey { case id = "Id"; case name = "Name" }
+        var hasPassword: Bool? = nil
+        var primaryImageTag: String? = nil
+        enum CodingKeys: String, CodingKey {
+            case id = "Id", name = "Name", hasPassword = "HasPassword", primaryImageTag = "PrimaryImageTag"
+        }
     }
     let user: User
+    var serverID: String? = nil
     let accessToken: String
 
     enum CodingKeys: String, CodingKey {
         case user = "User"
+        case serverID = "ServerId"
         case accessToken = "AccessToken"
     }
 }

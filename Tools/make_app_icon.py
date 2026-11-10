@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Legacy entry point for packaging the approved Lineup play-icon artwork."""
+"""Legacy entry point for packaging the approved Lineup three-bar artwork."""
 from pathlib import Path
 import runpy
 

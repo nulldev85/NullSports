@@ -27,6 +27,7 @@ struct MobileLibraryShelf: View {
     let items: [MediaItem]
     let shape: MediaArtShape
     var width: CGFloat? = nil
+    var showsResumeProgress = false
     var discoversSources = false
     let onSelect: (MediaItem) -> Void
 
@@ -34,7 +35,7 @@ struct MobileLibraryShelf: View {
         let metrics = MobileLibraryShelfMetrics(width: width ?? (shape.isPoster ? 150 : 232),
             ratio: shape.ratio, titleHeight: titleHeight, metadataHeight: metadataHeight)
         MobileLibraryShelfView(items: items, shape: shape, metrics: metrics, media: media,
-            position: position, holdMenu: holdMenu, discoversSources: discoversSources, onSelect: onSelect)
+            position: position, holdMenu: holdMenu, showsResumeProgress: showsResumeProgress, discoversSources: discoversSources, onSelect: onSelect)
             .frame(height: metrics.height)
     }
 }
@@ -48,6 +49,7 @@ struct MobileLibraryShelfView: UIViewRepresentable {
     let media: MediaLibrary
     let position: MobileLibraryShelfPosition
     let holdMenu: MobileHoldMenu?
+    var showsResumeProgress = false
     var discoversSources = false
     let onSelect: (MediaItem) -> Void
 
@@ -112,10 +114,11 @@ struct MobileLibraryShelfView: UIViewRepresentable {
 
         func update(_ next: MobileLibraryShelfView, initial: Bool = false) {
             guard let collection else { return }
+            let styleChanged = owner.showsResumeProgress != next.showsResumeProgress
             owner = next // Actions always use the current screen and item.
             let geometryChanged = metrics != next.metrics || shape != next.shape
             let dataChanged = items != next.items
-            guard initial || geometryChanged || dataChanged else {
+            guard initial || geometryChanged || styleChanged || dataChanged else {
                 for cell in collection.visibleCells {
                     if let path = collection.indexPath(for: cell), items.indices.contains(path.item) {
                         setAccessibility(cell, item: items[path.item])
@@ -137,7 +140,7 @@ struct MobileLibraryShelfView: UIViewRepresentable {
                 if geometryChanged, let layout = collection.collectionViewLayout as? UICollectionViewFlowLayout {
                     layout.itemSize = CGSize(width: next.metrics.width, height: next.metrics.cardHeight)
                 }
-                if initial || geometryChanged || oldKeys != newKeys {
+                if initial || geometryChanged || styleChanged || oldKeys != newKeys {
                     needsRestore = true
                     collection.reloadData()
                     if collection.bounds.width > 0, collection.bounds.height > 0 {
@@ -161,8 +164,9 @@ struct MobileLibraryShelfView: UIViewRepresentable {
             let size = owner.metrics
             let shape = owner.shape
             let media = owner.media
+            let showsResumeProgress = owner.showsResumeProgress
             cell.contentConfiguration = UIHostingConfiguration {
-                MediaItemCard(item: item, shape: shape)
+                MediaItemCard(item: item, shape: shape, showsResumeProgress: showsResumeProgress)
                     .environment(media)
                     .frame(width: size.width, height: size.cardHeight, alignment: .topLeading)
                     .id(item.libraryKey)
@@ -179,7 +183,12 @@ struct MobileLibraryShelfView: UIViewRepresentable {
         private func setAccessibility(_ cell: UICollectionViewCell, item: MediaItem) {
             cell.isAccessibilityElement = true
             cell.accessibilityTraits = .button
-            cell.accessibilityLabel = owner.media.displayItem(item).name
+            let displayed = owner.media.displayItem(item)
+            if let show = owner.shape.showTitle(for: displayed) {
+                cell.accessibilityLabel = [show, displayed.episodeCode, displayed.name].compactMap { $0 }.joined(separator: ", ")
+            } else {
+                cell.accessibilityLabel = displayed.name
+            }
             cell.accessibilityValue = owner.media.cardPlayback(for: item,
                 asShow: item.isSeries || (owner.shape.isPoster && item.type == "Episode"))?.spoken
         }

@@ -22,6 +22,11 @@ struct MediaServerSetupView: View {
     /// What has been typed for each kind, kept apart, so moving across to
     /// look at another does not carry one server's address into another's.
     @State private var forms: [MediaServerBrand: MediaServerSignIn] = [:]
+    init(jellyfinAddress: String? = nil) {
+        if let jellyfinAddress {
+            _forms = State(initialValue: [.jellyfin: MediaServerSignIn(server: jellyfinAddress)])
+        }
+    }
     #if !os(tvOS)
     @State private var page: MediaServerBrand? = .jellyfin
     /// Held, not observed: a swipe moves the marker under the logos on every
@@ -153,7 +158,8 @@ struct MediaServerSetupView: View {
             } else if brand == .plex {
                 PlexLinkPanel(onAdded: { dismiss() })
             } else {
-                MediaServerSignInPanel(brand: brand, form: form(for: brand)) { sign in
+                MediaServerSignInPanel(brand: brand, form: form(for: brand), isSelected: brand == software,
+                                       onAdded: { dismiss() }) { sign in
                     Task {
                         if await media.addServer(name: sign.name, serverURL: sign.server, username: sign.username,
                                                  password: sign.password, software: brand) { dismiss() }
@@ -385,12 +391,57 @@ struct MediaServerPanel<Content: View>: View {
     #endif
 }
 
+#if os(iOS)
+struct JellyfinProfileAvatar: View {
+    let name: String
+    let url: URL?
+
+    var body: some View {
+        LineupArtView(url: url, width: 36) { image in
+            if let image {
+                image.resizable().scaledToFill()
+            } else {
+                ZStack {
+                    Circle().fill(LineupStyle.lightPurple.opacity(0.16))
+                    Text(String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased())
+                        .font(.inter(.headline, .semibold))
+                        .foregroundStyle(LineupStyle.lightPurple)
+                }
+            }
+        }
+        .frame(width: 36, height: 36)
+        .clipShape(Circle())
+        .id(url)
+        .accessibilityHidden(true)
+    }
+}
+#endif
+
 /// Jellyfin's or Emby's sign-in: where the server is, and whose account.
 private struct MediaServerSignInPanel: View {
     @Environment(MediaLibrary.self) private var media
     let brand: MediaServerBrand
     @Binding var form: MediaServerSignIn
+    let isSelected: Bool
+    let onAdded: () -> Void
     let connect: (MediaServerSignIn) -> Void
+    private enum Operation { case users, quickConnect }
+    @State private var operation: Operation?
+    @State private var users: [JellyfinAuthenticationResponse.User] = []
+    #if os(iOS)
+    @State private var avatars: [String: URL] = [:]
+    #endif
+    @State private var code: String?
+    @State private var signInMessage: String?
+
+    init(brand: MediaServerBrand, form: Binding<MediaServerSignIn>, isSelected: Bool,
+         onAdded: @escaping () -> Void, connect: @escaping (MediaServerSignIn) -> Void) {
+        self.brand = brand
+        _form = form
+        self.isSelected = isSelected
+        self.onAdded = onAdded
+        self.connect = connect
+    }
 
     var body: some View {
         MediaServerPanel(brand: brand, title: "Sign in to \(brand.name)") {
@@ -401,16 +452,125 @@ private struct MediaServerSignInPanel: View {
                 // wrong either.
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+            if brand == .jellyfin { jellyfinOptions }
             Button {
                 connect(form)
             } label: {
                 Text(media.isAddingServer ? "Connecting…" : "Connect")
             }
             .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
-            .disabled(media.isAddingServer || !form.isComplete)
+            .disabled(media.isAddingServer || operation != nil || !form.isComplete)
             Text(footer)
                 .font(.inter(footerSize)).foregroundStyle(LineupPresentationStyle.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var jellyfinOptions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if operation == .quickConnect {
+                if let code {
+                    Text(code).font(.title.monospacedDigit()).accessibilityLabel("Quick Connect code " + code)
+                    Text("Enter this code in Jellyfin Quick Connect or approve it for your profile in AIO.")
+                } else {
+                    ProgressView("Getting a code…")
+                }
+                Button("Cancel Quick Connect") { resetOptions() }
+            } else {
+                Button("Choose a server profile") { begin(.users) }
+                    .disabled(addressIsEmpty || operation != nil)
+                if operation == .users { ProgressView("Finding profiles…") }
+                ForEach(users, id: \.id) { user in
+                    Button {
+                        form.username = user.name
+                        form.password = ""
+                        users = []
+                    } label: {
+                        #if os(iOS)
+                        HStack {
+                            JellyfinProfileAvatar(name: user.name, url: avatars[user.id])
+                            Text(user.name)
+                        }
+                        #else
+                        Text(user.name)
+                        #endif
+                    }
+                }
+                Button("Quick Connect") { begin(.quickConnect) }
+                    .disabled(addressIsEmpty || operation != nil)
+            }
+            if let signInMessage { Text(signInMessage).font(.footnote) }
+        }
+        .buttonStyle(IntegrationButtonStyle())
+        .task(id: operation) {
+            guard let operation else { return }
+            await perform(operation, address: form.server)
+        }
+        .onChange(of: form.server) { _, _ in resetOptions() }
+        .onChange(of: isSelected) { _, selected in if !selected { resetOptions() } }
+        .onDisappear { resetOptions() }
+    }
+
+    private var addressIsEmpty: Bool { form.server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    private func resetOptions() {
+        operation = nil
+        code = nil
+        users = []
+        #if os(iOS)
+        avatars = [:]
+        #endif
+        signInMessage = nil
+    }
+
+    private func begin(_ action: Operation) {
+        resetOptions()
+        media.errorMessage = nil
+        operation = action
+    }
+
+    @MainActor private func perform(_ action: Operation, address: String) async {
+        func current() -> Bool { !Task.isCancelled && isSelected && operation == action && form.server == address }
+        do {
+            let client = try media.signInClient(address: address)
+            switch action {
+            case .users:
+                let found = try await client.publicUsers()
+                guard current() else { return }
+                users = found
+                #if os(iOS)
+                for user in found {
+                    avatars[user.id] = client.profileImageURL(userID: user.id, tag: user.primaryImageTag, info: nil)
+                }
+                #endif
+                if found.isEmpty { signInMessage = "This server lists no public profiles. Enter your username to sign in." }
+            case .quickConnect:
+                let challenge = try await client.beginQuickConnect()
+                guard current() else { return }
+                code = challenge.code
+                let clock = ContinuousClock()
+                let deadline = clock.now.advanced(by: .seconds(300))
+                while clock.now < deadline {
+                    try await Task.sleep(for: .seconds(3))
+                    guard current() else { return }
+                    if let authentication = try await client.quickConnectAuthentication(secret: challenge.secret) {
+                        guard current() else { return }
+                        try await media.finishQuickConnect(authentication, client: client, name: form.name)
+                        if current() { onAdded() }
+                        return
+                    }
+                }
+                signInMessage = "The code expired. Start Quick Connect again."
+            }
+        } catch {
+            guard current() else { return }
+            // A transport error can include the private picker URL or polling secret.
+            signInMessage = (error as? JellyfinError)?.errorDescription ??
+                (error as? MediaIntegrationError)?.errorDescription ?? "Couldn’t reach the server. Check the address and try again."
+        }
+        if current() {
+            code = nil
+            operation = nil
         }
     }
 
@@ -441,7 +601,7 @@ private struct MediaServerSignInPanel: View {
     }
 
     private var footer: String {
-        "The host and port is enough, as the server's web app opens on. Leave the password blank for a user that has none. Sign-ins are kept in this device's Keychain, and every server you add feeds the Library together."
+        "Enter the server address, including its path if it has one. Leave the password blank for a user that has none. Lineup keeps sign-ins in this device’s Keychain."
     }
 
     #if os(tvOS)
