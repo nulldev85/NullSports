@@ -3,6 +3,9 @@ import SwiftUI
 struct LibraryMetadataSettingsView: View {
     @Environment(MediaLibrary.self) private var media
     @AppStorage(MediaStreamRow.serverFormatKey) private var serverStreamFormat = true
+    #if os(iOS)
+    @AppStorage(MediaStreamRow.badgesAboveKey) private var badgesAbove = false
+    #endif
     /// The player's glow around the picture, as YouTube's ambient mode.
     @AppStorage("Lineup.player.ambient.v1") private var ambientMode = true
     #if os(tvOS)
@@ -147,6 +150,9 @@ struct LibraryMetadataSettingsView: View {
                 Toggle(isOn: $serverStreamFormat) {
                     sourceLabel("Server's Stream Format", symbol: "text.alignleft")
                 }.tint(LineupStyle.highlight)
+                Toggle(isOn: $badgesAbove) {
+                    sourceLabel("Badges Above Stream Text", symbol: "arrow.up.to.line")
+                }.tint(LineupStyle.highlight)
                 NavigationLink {
                     StreamBadgeSettingsView()
                 } label: {
@@ -160,7 +166,7 @@ struct LibraryMetadataSettingsView: View {
                     }
                 }
             } header: { Text("Streams").lineupSettingsHeader() }
-              footer: { Text("Server's Stream Format shows each AIOStreams stream exactly as your formatter writes it; off, Lineup shows its own summary and the file name. Stream Badges draws pictures under each stream from badge packs you add by address.").lineupSettingsFooter() }
+              footer: { Text("Server’s Stream Format uses the text from your AIOStreams formatter. Add packs in Stream Badges to show matching badges on each stream.").lineupSettingsFooter() }
               .lineupSettingsRows()
             Section {
                 availability

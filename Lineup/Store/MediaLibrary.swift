@@ -97,6 +97,14 @@ final class MediaLibrary {
     private(set) var shelfNames: [String: String] = [:]
     /// The shelf driving the large Library feature card.
     private(set) var selectedHeroCatalogID: String? = nil
+    #if os(iOS)
+    private(set) var heroPreferences = LibraryHeroPreferences()
+    private var heroShuffleSeed = Int.random(in: 0..<Int.max)
+    private var selectedHeroLists: [String: (catalog: MediaCatalog, revision: Int, owners: Set<UUID>)] = [:]
+    private var heroMixRefresh = 0
+    private var mixedHeroRevision = 0
+    @ObservationIgnored private var mixedHeroCache: (catalog: MediaCatalog?, revision: Int)?
+    #endif
     /// The hero's own list, when what was chosen for it is not a shelf.
     private(set) var heroListCatalog: MediaCatalog?
     /// The list being read for the hero, while it is.
@@ -534,6 +542,12 @@ final class MediaLibrary {
         restoreCatalogSnapshot()
         migrateLibraryChoices()
         selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
+        #if os(iOS)
+        if let data = defaults.data(forKey: LibraryHeroPreferences.key),
+           let saved = try? JSONDecoder().decode(LibraryHeroPreferences.self, from: data) {
+            heroPreferences = saved
+        }
+        #endif
         for key in Self.retiredKeys where defaults.object(forKey: key) != nil {
             defaults.removeObject(forKey: key)
         }
@@ -752,6 +766,9 @@ final class MediaLibrary {
     /// That keeps the hub useful immediately while leaving the actual saved
     /// choice untouched until the viewer deliberately picks one.
     var heroCatalog: MediaCatalog? {
+        #if os(iOS)
+        if heroPreferences.mode != .single { return mixedHeroCatalog }
+        #endif
         let sources = sourceCatalogs
         if let list = heroListCatalog, list.id == selectedHeroCatalogID, !list.items.isEmpty,
            !sources.contains(where: { $0.id == list.id && !$0.items.isEmpty }) {
@@ -767,6 +784,9 @@ final class MediaLibrary {
     /// Settings needs the shelf name, not metadata copies of every film and
     /// episode across the Library. Shelf roots are not metadata-remapped.
     var heroCatalogTitle: String? {
+        #if os(iOS)
+        if heroPreferences.mode != .single { return heroPreferences.mode.rawValue }
+        #endif
         let sources = sourceCatalogs
         if let list = heroListCatalog, list.id == selectedHeroCatalogID, !list.items.isEmpty,
            !sources.contains(where: { $0.id == list.id && !$0.items.isEmpty }) { return list.title }
@@ -907,6 +927,9 @@ final class MediaLibrary {
             heroListRefresh?.cancel()
             heroListRefresh = nil
             heroListCatalog = nil
+            #if os(iOS)
+            selectedHeroLists.removeAll()
+            #endif
             mdbListShelves = mdbListShelves.map { shelf in
                 MediaCatalog(root: shelf.root, items: shelf.items.filter { item in
                     item.serverID.map { !leaving.contains($0) } ?? false
@@ -1131,6 +1154,10 @@ final class MediaLibrary {
             MediaCatalog(root: shelf.root, items: shelf.items.filter { $0.serverID != profile.id })
         }
         persistMDBListSnapshot()
+        #if os(iOS)
+        heroPreferences.sources.removeAll { $0.root?.serverID == profile.id }
+        saveHeroPreferences()
+        #endif
         if selectedHeroCatalogID?.hasPrefix(profile.id.uuidString + "|") == true {
             selectedHeroCatalogID = nil
             saveHeroCatalogID(nil)
@@ -1201,6 +1228,9 @@ final class MediaLibrary {
         // catalog. The shelves should not wait behind either.
         await loadMDBListShelves()
         await loadAddonCatalogs(on: currentTargets)
+        #if os(iOS)
+        heroMixRefresh &+= 1
+        #endif
         refreshHeroList()
         refreshStreamingServicesIfNeeded()
     }
@@ -5606,6 +5636,108 @@ extension MediaLibrary {
 
 // MARK: - The hero from any list
 
+#if os(iOS)
+extension MediaLibrary {
+    func setHeroMode(_ mode: LibraryHeroMode) {
+        guard heroPreferences.mode != mode else { return }
+        if mode == .selected, heroPreferences.sources.isEmpty, heroPreferences.mode == .single,
+           let id = selectedHeroCatalogID, let catalog = heroCatalog, catalog.id == id {
+            heroPreferences.sources = [savedHeroSource().flatMap { $0.id == id ? $0 : nil }
+                ?? mixSource(for: catalog)]
+        }
+        heroPreferences.mode = mode
+        saveHeroPreferences()
+        if mode == .single { refreshHeroList() }
+    }
+
+    func mixSource(for catalog: MediaCatalog) -> LibraryHeroSource {
+        if Self.isMDBListShelfID(catalog.id), let listID = Int(catalog.id.dropFirst("mdblist:".count)) {
+            return LibraryHeroSource(mdbListID: listID, name: catalog.title)
+        }
+        return LibraryHeroSource(root: catalog.root, name: shelfTitle(catalog))
+    }
+
+    func toggleHeroSource(_ source: LibraryHeroSource) {
+        if let index = heroPreferences.sources.firstIndex(where: { $0.id == source.id }) {
+            heroPreferences.sources.remove(at: index)
+            selectedHeroLists[source.id] = nil
+        } else if heroPreferences.sources.count < LibraryHeroPreferences.limit {
+            heroPreferences.sources.append(source)
+        }
+        saveHeroPreferences()
+    }
+
+    private func saveHeroPreferences() {
+        if let data = try? JSONEncoder().encode(heroPreferences) {
+            defaults.set(data, forKey: LibraryHeroPreferences.key)
+        }
+    }
+
+    func shuffleHero() { heroShuffleSeed = Int.random(in: 0..<Int.max) }
+
+    /// Shelves already have their titles. Only explicitly chosen off-shelf
+    /// sources need a request, using the same small page as a single source.
+    var heroMixRequest: [String] {
+        guard heroPreferences.mode == .selected else { return [] }
+        let shelves = Set(sourceCatalogs.map(\.id))
+        return [String(heroMixRefresh)] + recordSources.map(\.uuidString).sorted()
+            + heroPreferences.sources.map(\.id).filter { !shelves.contains($0) }
+    }
+
+    func loadHeroMixSources() async {
+        guard heroPreferences.mode == .selected else { return }
+        let request = heroMixRequest
+        let shelves = Set(sourceCatalogs.map(\.id))
+        let owners = recordSources
+        for source in heroPreferences.sources where !shelves.contains(source.id) {
+            guard !Task.isCancelled, request == heroMixRequest else { return }
+            if let id = source.root?.serverID, !owners.contains(id) { continue }
+            if let cached = selectedHeroLists[source.id], cached.revision == heroMixRefresh,
+               cached.owners == owners { continue }
+            let catalog = await heroList(for: source)
+            guard !Task.isCancelled, request == heroMixRequest else { return }
+            if let catalog { selectedHeroLists[source.id] = (catalog, heroMixRefresh, owners) }
+        }
+    }
+
+    private var mixedHeroCatalog: MediaCatalog? {
+        if let cache = mixedHeroCache, cache.revision == mixedHeroRevision { return cache.catalog }
+        let revision = mixedHeroRevision
+        let catalog = withObservationTracking {
+            let sources: [MediaCatalog]
+            if heroPreferences.mode == .shuffle {
+                sources = sourceCatalogs + trendingShelves
+            } else {
+                let shelves = sourceCatalogs
+                let connected = recordSources
+                sources = heroPreferences.sources.compactMap { source -> MediaCatalog? in
+                    if let id = source.root?.serverID, !connected.contains(id) { return nil }
+                    if let shelf = shelves.first(where: { $0.id == source.id }) { return shelf }
+                    guard let list = selectedHeroLists[source.id]?.catalog else { return nil }
+                    if source.mdbListID != nil {
+                        guard isMDBListConnected else { return nil }
+                        return MediaCatalog(root: list.root, items: list.items.filter {
+                            $0.serverID.map(connected.contains) == true
+                        })
+                    }
+                    return list
+                }
+            }
+            let items = MediaHeroCatalogSelection.mix(sources, seed: heroPreferences.mode == .shuffle ? heroShuffleSeed : nil)
+            guard !items.isEmpty else { return nil as MediaCatalog? }
+            let mode = heroPreferences.mode.rawValue
+            let root = MediaItem(id: "lineup:hero:" + mode, name: mode, type: "Folder",
+                overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: items.count)
+            return MediaCatalog(root: root, items: items)
+        } onChange: { [weak self] in
+            MainActor.assumeIsolated { self?.mixedHeroRevision &+= 1 }
+        }
+        mixedHeroCache = (catalog, revision)
+        return catalog
+    }
+}
+#endif
+
 extension MediaLibrary {
     /// Features a list that is not a shelf. Its titles are read now; the
     /// hero changes once they are in, and stays as it was if the list has
@@ -5629,6 +5761,9 @@ extension MediaLibrary {
     /// The hero's own list read again, as the Library is: its titles change
     /// as the list does. What was shown stays up until the new ones are in.
     func refreshHeroList() {
+        #if os(iOS)
+        guard heroPreferences.mode == .single else { return }
+        #endif
         guard heroListRefresh == nil, let source = savedHeroSource(),
               source.id == selectedHeroCatalogID else { return }
         heroListRefresh = Task { [weak self] in

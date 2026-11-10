@@ -151,6 +151,7 @@ struct MobileStreamPickerBoard: View {
 private struct MobileStreamResultRow: View {
     let source: MediaPlaybackSource
     @AppStorage(MediaStreamRow.serverFormatKey) private var serverFormat = true
+    @AppStorage(MediaStreamRow.badgesAboveKey) private var badgesAbove = false
     private var detail: String {
         [source.quality, source.dynamicRangeTags.isEmpty ? nil : source.dynamicRangeTags.joined(separator: " / "),
          source.sourceTag, source.videoCodec, source.bitDepth, source.audioCodec,
@@ -162,6 +163,7 @@ private struct MobileStreamResultRow: View {
         HStack(alignment: .top, spacing: 12) {
             LineupIconTile(symbol: "play.fill", size: 28).padding(.top, 3)
             VStack(alignment: .leading, spacing: 4) {
+                if badgesAbove { badgeRow }
                 if serverFormat, let lines = source.formatterLines {
                     // The formatter's own lines, exactly as it wrote them.
                     ForEach(Array(lines.name.enumerated()), id: \.offset) { line in
@@ -175,13 +177,7 @@ private struct MobileStreamResultRow: View {
                 } else {
                     lineupLines
                 }
-                let badges = StreamBadgeStore.shared.badges(for: source)
-                if !badges.isEmpty {
-                    BadgeFlow(spacing: MediaStreamStyle.badgeGap) {
-                        ForEach(badges, id: \.self) { StreamBadgeChip(badge: $0) }
-                    }
-                    .padding(.vertical, 2)
-                }
+                if !badgesAbove { badgeRow }
                 Text(source.group).font(.inter(12, .semibold)).foregroundStyle(LineupPanelStyle.caption)
             }
             Spacer(minLength: 0)
@@ -191,6 +187,17 @@ private struct MobileStreamResultRow: View {
         .padding(.horizontal, 10).padding(.vertical, 10)
         .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private var badgeRow: some View {
+        let badges = StreamBadgeStore.shared.badges(for: source)
+        if !badges.isEmpty {
+            BadgeFlow(spacing: MediaStreamStyle.badgeGap) {
+                ForEach(badges, id: \.self) { StreamBadgeChip(badge: $0) }
+            }
+            .padding(.vertical, 2)
+        }
     }
 
     /// Lineup's own reading of a stream: its file name, then what it is.

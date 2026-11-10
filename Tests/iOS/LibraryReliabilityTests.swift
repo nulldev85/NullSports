@@ -85,6 +85,29 @@ final class LibraryReliabilityTests: XCTestCase {
     }
 
     #if os(iOS)
+    func testMixedHeroUpdatesWithSourceSelectionAndProfileRemoval() async throws {
+        let (profile, defaults, file) = try cachedFixture(itemCount: 40)
+        defer {
+            defaults.removePersistentDomain(forName: "LibraryCacheResponsiveness.\(profile.id)")
+            try? FileManager.default.removeItem(at: file)
+        }
+        let library = MediaLibrary(defaults: defaults)
+        await library.restoreCachedLibrary()
+        let shelf = try XCTUnwrap(library.heroCatalogChoices.first)
+        library.selectHeroCatalog(shelf)
+        library.setHeroMode(.selected)
+        XCTAssertEqual(library.heroPreferences.sources.map(\.id), [shelf.id])
+        XCTAssertEqual(library.heroCatalog?.items.map(\.id), Array(shelf.items.prefix(10)).map(\.id))
+        library.toggleHeroSource(library.mixSource(for: shelf))
+        XCTAssertNil(library.heroCatalog)
+        library.setHeroMode(.shuffle)
+        let deck = try XCTUnwrap(library.heroCatalog).items
+        XCTAssertEqual(deck.count, 10)
+        XCTAssertEqual(library.heroCatalog?.items, deck)
+        library.remove(profile)
+        XCTAssertFalse(library.heroCatalog?.items.contains { $0.serverID == profile.id } ?? false)
+    }
+
     func testRealSettingsRetainsItsScrollableListDuringPlaybackUpdatesWithALargeLibrary() async throws {
         let (profile, defaults, file) = try cachedFixture(itemCount: 30_000)
         defer {

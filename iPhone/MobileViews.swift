@@ -873,9 +873,8 @@ private struct MobileLibrarySettingsView: View {
                     SettingsRow("Library Hero", symbol: "sparkles.rectangle.stack",
                                 value: media.heroCatalogTitle ?? "Choose")
                 }
-                .disabled(!media.hasAnySource)
             } footer: {
-                Text("The hero shows the top ten titles of the list chosen here.").lineupSettingsFooter()
+                Text("Choose which sources supply featured titles at the top of your Library.").lineupSettingsFooter()
             }
             .lineupSettingsRows()
             Section {

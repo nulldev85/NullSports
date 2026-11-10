@@ -795,7 +795,7 @@ struct MediaCatalogsScreen: View {
                 }
             } else {
                 if shownShelves.isEmpty && continueWatching.isEmpty
-                    && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty {
+                    && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty && media.heroCatalog == nil {
                     #if os(tvOS)
                     LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
                         description: Text("Trending Movies, Trending Shows and Streaming Services appear here in a moment. Add any other shelf you want from Settings › Library › Add Shelf."))
@@ -852,6 +852,9 @@ struct MediaCatalogsScreen: View {
         .foregroundStyle(LineupStyle.lightPurple)
         .onAppear { isVisible = true }
         .onDisappear { isVisible = false }
+        #if os(iOS)
+        .task(id: media.heroMixRequest) { await media.loadHeroMixSources() }
+        #endif
         .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         // An episode that ended with nothing after it comes back here.

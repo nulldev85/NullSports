@@ -474,6 +474,15 @@ struct LibraryHeroSettingsView: View {
     }
 
     private func choose(_ choice: Choice) {
+        #if os(iOS)
+        if media.heroPreferences.mode == .selected {
+            switch choice.pick {
+            case .shelf(let catalog): media.toggleHeroSource(media.mixSource(for: catalog))
+            case .list(let source): media.toggleHeroSource(source)
+            }
+            return
+        }
+        #endif
         switch choice.pick {
         case .shelf(let catalog): media.selectHeroCatalog(catalog)
         case .list(let source): Task { await media.selectHeroSource(source) }
@@ -519,24 +528,50 @@ struct LibraryHeroSettingsView: View {
         .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .task { await loadSources() }
         #else
+        let visibleGroups = media.heroPreferences.mode == .shuffle ? [] : groups
         List {
-            if groups.isEmpty {
+            Section {
+                Picker("Hero Sources", selection: Binding(get: { media.heroPreferences.mode },
+                                                          set: { media.setHeroMode($0) })) {
+                    ForEach(LibraryHeroMode.allCases, id: \.self) { mode in Text(mode.rawValue).tag(mode) }
+                }
+                if media.heroPreferences.mode == .shuffle {
+                    Button("Shuffle Again") { media.shuffleHero() }
+                }
+            } footer: {
+                switch media.heroPreferences.mode {
+                case .single: Text("Feature the first ten titles from one source.")
+                case .selected: Text("Choose up to five sources. The hero takes turns featuring their titles, up to ten in total.")
+                case .shuffle: Text("Feature up to ten titles drawn from the catalogs on your Library screen. The mix changes each time Lineup launches.")
+                }
+            }
+            if media.heroPreferences.mode == .selected {
+                let available = Set(visibleGroups.flatMap { $0.choices.map(\.id) })
+                let missing = media.heroPreferences.sources.filter { !available.contains($0.id) }
+                if !missing.isEmpty {
+                    Section("Unavailable Sources") {
+                        ForEach(missing, id: \.id) { source in
+                            Button("Remove \(source.name)") { media.toggleHeroSource(source) }
+                        }
+                    }
+                }
+            }
+            if visibleGroups.isEmpty && media.heroPreferences.mode != .shuffle {
                 LineupUnavailableView("No Lists", systemImage: "rectangle.stack.badge.plus",
                     description: Text("Add a media server, then choose a list here."))
                     .listRowBackground(Color.clear)
-            } else {
-                ForEach(groups) { group in
+            } else if media.heroPreferences.mode != .shuffle {
+                ForEach(visibleGroups) { group in
                     Section {
                         ForEach(group.choices) { choice in
                             Button { choose(choice) } label: { choiceRow(choice) }
                                 .buttonStyle(.plain)
+                                .disabled(media.heroPreferences.mode == .selected
+                                    && media.heroPreferences.sources.count >= LibraryHeroPreferences.limit
+                                    && !media.heroPreferences.sources.contains { $0.id == choice.id })
                         }
                     } header: {
                         groupHeading(group)
-                    } footer: {
-                        if group.id == groups.first?.id {
-                            Text("The first ten titles of the list you choose become the swipeable Library hero.")
-                        }
                     }
                     .listRowBackground(LineupPanelStyle.listCard)
                     .listRowSeparatorTint(LineupPanelStyle.listSeparator)
@@ -569,7 +604,13 @@ struct LibraryHeroSettingsView: View {
     }
 
     private func choiceRow(_ choice: Choice) -> some View {
+        #if os(iOS)
+        let selected = media.heroPreferences.mode == .selected
+            ? media.heroPreferences.sources.contains { $0.id == choice.id }
+            : media.heroCatalog?.id == choice.id
+        #else
         let selected = media.heroCatalog?.id == choice.id
+        #endif
         let busy = media.loadingHeroSource == choice.id
         return HStack(spacing: 16) {
             Image(systemName: "sparkles.rectangle.stack.fill")

@@ -395,6 +395,12 @@ struct MediaStreamRow: View {
     @AppStorage(MediaStreamRow.serverFormatKey) private var serverFormat = true
 
     static let serverFormatKey = "Lineup.streams.serverFormat.v1"
+    static let badgesAboveKey = "Lineup.iPhone.streams.badgesAbove.v1"
+    #if os(iOS)
+    @AppStorage(MediaStreamRow.badgesAboveKey) private var badgesAbove = false
+    #else
+    private let badgesAbove = false
+    #endif
 
     private typealias Style = MediaStreamStyle
 
@@ -426,6 +432,7 @@ struct MediaStreamRow: View {
     /// bold, then its description, then any badges.
     private func formatted(_ lines: (name: [String], description: [String])) -> some View {
         VStack(alignment: .leading, spacing: Style.lineGap) {
+            if badgesAbove { badgeRow }
             ForEach(Array(lines.name.enumerated()), id: \.offset) { line in
                 Text(line.element)
                     .font(.inter(Style.summarySize, .semibold))
@@ -437,7 +444,7 @@ struct MediaStreamRow: View {
                     .foregroundStyle(LineupPresentationStyle.text.opacity(0.78))
                     .fixedSize(horizontal: false, vertical: true)
             }
-            badgeRow
+            if !badgesAbove { badgeRow }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -457,6 +464,7 @@ struct MediaStreamRow: View {
         HStack(alignment: .center, spacing: Style.rowGap) {
             tile
             VStack(alignment: .leading, spacing: Style.lineGap) {
+                if badgesAbove { badgeRow }
                 Text(summary)
                     .font(.inter(Style.summarySize, .semibold))
                     .lineLimit(Style.summaryLines)
@@ -475,7 +483,7 @@ struct MediaStreamRow: View {
                 }
                 #endif
                 origin
-                badgeRow
+                if !badgesAbove { badgeRow }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             #if os(tvOS)

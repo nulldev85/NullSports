@@ -1197,7 +1197,74 @@ struct LibraryHeroSource: Codable, Hashable, Sendable {
     }
 }
 
+enum LibraryHeroMode: String, Codable, CaseIterable {
+    case single = "Single Source"
+    case selected = "Selected Sources"
+    case shuffle = "Shuffle Library"
+}
+
+struct LibraryHeroPreferences: Codable {
+    static let key = "Lineup.iPhone.heroPreferences.v1"
+    static let limit = 5
+    var mode: LibraryHeroMode = .single
+    var sources: [LibraryHeroSource] = []
+}
+
 enum MediaHeroCatalogSelection {
+    /// A partial Fisher–Yates shuffle. Only positions already sampled need a
+    /// swap entry, even when a catalog contains thousands of movies.
+    private struct Cursor {
+        let items: [MediaItem]
+        let rank: Int
+        let shuffle: Bool
+        var position = 0
+        var swaps: [Int: Int] = [:]
+
+        init(_ catalog: MediaCatalog, seed: Int?) {
+            items = catalog.items
+            shuffle = seed != nil
+            var hash = Hasher()
+            hash.combine(seed)
+            hash.combine(catalog.id)
+            rank = hash.finalize()
+        }
+
+        mutating func next() -> MediaItem? {
+            guard position < items.count else { return nil }
+            defer { position += 1 }
+            guard shuffle else { return items[position] }
+            var hash = Hasher()
+            hash.combine(rank)
+            hash.combine(position)
+            let other = position + Int(UInt(bitPattern: hash.finalize()) % UInt(items.count - position))
+            let index = swaps[other] ?? other
+            let replacement = swaps.removeValue(forKey: position) ?? position
+            if other != position { swaps[other] = replacement }
+            return items[index]
+        }
+    }
+
+    static func mix(_ catalogs: [MediaCatalog], seed: Int? = nil) -> [MediaItem] {
+        var lists = catalogs.map { Cursor($0, seed: seed) }
+        if seed != nil { lists.sort { $0.rank < $1.rank } }
+        var result: [MediaItem] = []
+        while result.count < 10 {
+            let before = result.count
+            for i in lists.indices {
+                while let item = lists[i].next() {
+                    guard item.hasDetailPage || item.isPlayable,
+                          !result.contains(where: { $0.libraryKey == item.libraryKey || MediaTitleMatch.isSame($0, item) })
+                    else { continue }
+                    result.append(item)
+                    break
+                }
+                if result.count == 10 { return result }
+            }
+            if result.count == before { break }
+        }
+        return result
+    }
+
     /// The chosen shelf, or the first with something to feature. A shelf
     /// of collections features nothing: its cards are ways into lists, not
     /// titles, and drawn as a hero they were collection artwork cropped to

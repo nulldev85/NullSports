@@ -68,4 +68,42 @@ final class MediaHeroTests: XCTestCase {
         XCTAssertEqual(featured.count, 10)
         XCTAssertEqual(featured.map(\.id), (0..<10).map { "ranked-\($0)" })
     }
+
+    func testSelectedSourcesTakeTurnsSkippingFoldersAndRepeatedTitles() {
+        let a = catalog("a", itemCount: 6), b = catalog("b", itemCount: 6)
+        // The two lists use different item IDs for the same six titles.
+        let second = MediaCatalog(root: b.root, items: [b.root, b.items[0], b.items[4], b.items[5]])
+        let mix = MediaHeroCatalogSelection.mix([a, second, catalog("empty", itemCount: 0)])
+        XCTAssertEqual(mix.map(\.id), ["a-0", "b-4", "a-1", "b-5", "a-2", "a-3"])
+    }
+
+    func testShuffleIsStableBetweenRedrawsAndSamplesBeyondTheFirstTen() {
+        let shelf = catalog("many", itemCount: 80)
+        let samples = (0..<8).map { MediaHeroCatalogSelection.mix([shelf], seed: $0).map(\.id) }
+        XCTAssertEqual(samples[0], MediaHeroCatalogSelection.mix([shelf], seed: 0).map(\.id))
+        XCTAssertTrue(samples.allSatisfy { $0.count == 10 && Set($0).count == 10 })
+        XCTAssertGreaterThan(Set(samples.flatMap { $0 }).count, 10)
+    }
+
+    @MainActor
+    func testMixPreferencesSurviveRelaunchAndKeepSingleSourceChoice() throws {
+        let suite = "HeroSourcesTests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(try JSONEncoder().encode(["library": "previous"]), forKey: "Lineup.mediaHeroCatalog.v1")
+        let library = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(library.heroPreferences.mode, .single)
+        library.setHeroMode(.selected)
+        for id in 1...6 { library.toggleHeroSource(LibraryHeroSource(mdbListID: id, name: "List \(id)")) }
+        XCTAssertEqual(library.heroPreferences.sources.compactMap(\.mdbListID), [1, 2, 3, 4, 5])
+        library.toggleHeroSource(LibraryHeroSource(mdbListID: 2, name: "List 2"))
+        library.toggleHeroSource(LibraryHeroSource(mdbListID: 6, name: "List 6"))
+        library.setHeroMode(.shuffle)
+        let reopened = MediaLibrary(defaults: defaults)
+        XCTAssertEqual(reopened.heroPreferences.mode, .shuffle)
+        reopened.setHeroMode(.selected)
+        XCTAssertEqual(reopened.heroPreferences.sources.compactMap(\.mdbListID), [1, 3, 4, 5, 6])
+        reopened.setHeroMode(.single)
+        XCTAssertEqual(reopened.selectedHeroCatalogID, "previous")
+    }
 }
