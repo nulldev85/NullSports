@@ -109,7 +109,11 @@ def bundled_files(app):
     if missing:
         raise ValueError("Missing packaged Aether files:\n  " + "\n  ".join(missing))
     with (app / "Info.plist").open("rb") as handle:
-        minimum = str(plistlib.load(handle).get("MinimumOSVersion", ""))
+        info = plistlib.load(handle)
+    if info.get("CFBundleIdentifier") == "com.nulldev85.NullSports.iOS":
+        if any("vlckit" in path.name.lower() for path in app.rglob("*.framework")):
+            raise ValueError("The iPhone app must not embed VLCKit")
+    minimum = str(info.get("MinimumOSVersion", ""))
     if minimum != "18.0":
         raise ValueError(f"Expected iOS/tvOS 18.0 minimum, found {minimum!r}")
     return images

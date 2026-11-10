@@ -38,6 +38,13 @@ class AetherBundleChecks(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Frameworks/AetherLibavcodec.framework/AetherLibavcodec"):
             bundle.bundled_files(self.app)
 
+    def test_phone_package_rejects_vlc_framework(self):
+        (self.app / "Info.plist").write_bytes(plistlib.dumps({
+            "CFBundleIdentifier": "com.nulldev85.NullSports.iOS", "MinimumOSVersion": "18.0"}))
+        (self.app / "Frameworks/MobileVLCKit.framework").mkdir()
+        with self.assertRaisesRegex(ValueError, "must not embed VLCKit"):
+            bundle.bundled_files(self.app)
+
     def test_mpv_bridge_and_license_must_be_packaged(self):
         bridge = self.app / "Frameworks/LineupMPVPlayback.framework/LineupMPVPlayback"
         bridge.unlink()

@@ -24,13 +24,13 @@ struct MobilePlaybackPolicyChecks {
         let tokened = URL(string: "http://example.com/live/user/pass/1234.m3u8?token=abc&x=.ts")!
         let odd = URL(string: "http://example.com/live/user/pass/1234")!
 
-        check(MobileEngineSelection.engine(for: hls) == .system, "HLS opens in AVPlayer")
+        check(MobileEngineSelection.engine(for: hls) == .aether, "HLS opens in AetherEngine")
         check(MobileEngineSelection.engine(for: ts) == .aether, "Transport streams open in AetherEngine")
-        check(MobileEngineSelection.engine(for: tokened) == .system,
+        check(MobileEngineSelection.engine(for: tokened) == .aether,
               "A query string does not change the engine")
         check(MobileEngineSelection.engine(for: odd) == .aether,
               "Extensionless server routes use AetherEngine")
-        check(MobileEngineSelection.engine(for: URL(string: "http://e.com/a/1234.M3U8")!) == .system,
+        check(MobileEngineSelection.engine(for: URL(string: "http://e.com/a/1234.M3U8")!) == .aether,
               "Extension matching ignores case")
 
         // Ordering: HLS first, so Picture in Picture is reachable, with the
@@ -38,7 +38,7 @@ struct MobilePlaybackPolicyChecks {
         let ordered = MobileEngineSelection.ordered([ts, hls])
         check(ordered == [hls, ts], "HLS is tried before the transport stream")
         check(MobileEngineSelection.ordered([hls, ts]) == [hls, ts], "Already-ordered input is unchanged")
-        check(MobileEngineSelection.ordered([ts]) == [ts], "A VLC-only channel still has a candidate")
+        check(MobileEngineSelection.ordered([ts]) == [ts], "A transport-only channel still has a candidate")
         check(MobileEngineSelection.ordered([]).isEmpty, "No candidates stays empty")
 
         // Stability: two HLS variants keep the provider's own preference order.
@@ -49,20 +49,14 @@ struct MobilePlaybackPolicyChecks {
         check(MobileEngineSelection.canPictureInPicture([ts, hls]), "A channel with HLS can offer PiP")
         check(MobileEngineSelection.canPictureInPicture([ts]), "Raw transport streams can offer PiP through Aether")
         check(MobileEngineSelection.engine(for: hls, preference: .aether) == .aether, "An explicit Aether choice applies to HLS")
-        check(MobileEngineSelection.engine(for: ts, preference: .vlc) == .vlc, "An explicit VLC choice is honored")
-        check(!MobileEngineSelection.canPictureInPicture([ts], preference: .vlc), "VLC has no PiP source")
-        check(MobileEngineSelection.engine(for: hls, failed: [.system]) == .aether, "Native HLS failure still tries PiP-capable Aether")
-        check(MobileEngineSelection.engine(for: hls, failed: [.system, .aether]) == .vlc, "VLC is the final fallback")
-        check(MobileEngineSelection.engine(for: hls, failed: [.system, .aether, .vlc]) == nil, "Exhaustion cannot loop")
+        check(MobileEngineSelection.engine(for: ts, preference: .mpv) == .mpv, "An explicit MPVKit choice is honored")
+        check(!MobileEngineSelection.canPictureInPicture([ts], preference: .mpv), "MPVKit has no PiP source")
+        check(MobileEngineSelection.engine(for: hls, failed: [.aether]) == .mpv, "MPVKit is the final fallback")
+        check(MobileEngineSelection.engine(for: hls, failed: [.aether, .mpv]) == nil, "Exhaustion cannot loop")
         check(!MobileEngineSelection.canPictureInPicture([]), "No candidates cannot offer PiP")
 
-        check(MobilePlaybackPreference.allCases == [.native, .aether, .vlc, .mpv], "Native replaces Automatic in Settings")
-        check(MobileEngineSelection.engine(for: ts, preference: .native, nativeFallback: false) == .aether,
-              "Strict Native retains the demux/remux compatibility layer")
-        check(MobileEngineSelection.engine(for: hls, preference: .native, failed: [.system, .aether], nativeFallback: false) == nil,
-              "Strict Native cannot silently choose another decoder")
-        check(MobileEngineSelection.engine(for: ts, preference: .native, failed: [.aether], nativeFallback: true) == .vlc,
-              "Opted-in compatibility exhaustion retains the bounded fallback ladder")
+
+        check(MobilePlaybackPreference.allCases == [.aether, .mpv], "Settings offers both bundled engines")
 
         // Background policy ------------------------------------------------
         func action(background: Bool, pip: Bool = false, paused: Bool = false,

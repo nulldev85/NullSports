@@ -11,9 +11,8 @@ struct PlaybackDiagnosticsOverlay: View {
     let controller: MobilePlaybackController
 
     private let shown: Set<String> = [
-        "engine", "awaiting surface", "host", "layer", "layer ready",
-        "item status", "rate", "timeControl", "presentationSize", "video tracks",
-        "vlc videoOut", "error"
+        "engine", "host", "picture ready", "start together", "loading",
+        "PiP renderer", "player error", "error"
     ]
 
     var body: some View {
@@ -38,11 +37,7 @@ struct PlaybackDiagnosticsOverlay: View {
 
     /// The two states that mean "no picture is coming".
     private func alarming(_ row: (label: String, value: String)) -> Bool {
-        (row.label == "layer ready" && row.value == "NO")
-            || (row.label == "video tracks" && row.value.hasPrefix("0 "))
-            || (row.label == "presentationSize" && row.value == "0x0")
-            || (row.label == "layer" && row.value == "none")
-            || (row.label == "error" && row.value != "—")
+        (row.label == "player error" || row.label == "error") && row.value != "—"
     }
 }
 

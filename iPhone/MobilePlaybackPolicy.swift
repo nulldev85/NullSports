@@ -12,77 +12,40 @@ enum MobileRecordingSeekPolicy {
 }
 
 enum MobileStreamEngine: String, Hashable {
-    case system, aether, vlc, mpv
+    case aether, mpv
     var title: String {
-        switch self { case .system: "Native player"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit" }
+        switch self { case .aether: "AetherEngine"; case .mpv: "MPVKit" }
     }
-    var supportsPictureInPicture: Bool { self == .system || self == .aether }
+    var supportsPictureInPicture: Bool { self != .mpv }
 }
 
 enum MobilePlaybackPreference: String, CaseIterable, Identifiable {
-    case automatic, native, aether, vlc, mpv
+    case aether, mpv
     static let storageKey = "Lineup.mobile.playbackEngine.v1"
-    static let nativeFallbackKey = "Lineup.mobile.nativePlayer.fallback.v1"
-    static let allCases: [Self] = [.native, .aether, .vlc, .mpv]
     var id: String { rawValue }
-    var title: String {
-        switch self { case .automatic, .native: "Native player"; case .aether: "AetherEngine"; case .vlc: "VLC"; case .mpv: "MPVKit (Trial)" }
-    }
-    var version: String? {
-        switch self {
-        case .automatic, .native: nil
-        case .aether: PlaybackEngineVersions.aether
-        case .vlc: PlaybackEngineVersions.vlc
-        case .mpv: PlaybackEngineVersions.mpv
-        }
-    }
+    var title: String { self == .aether ? "AetherEngine" : "MPVKit" }
+    var version: String { self == .aether ? PlaybackEngineVersions.aether : PlaybackEngineVersions.mpv }
+
     static func selected(in defaults: UserDefaults = .standard) -> Self {
-        let saved = defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .native
-        return saved == .automatic ? .native : saved
-    }
-    static func allowsNativeFallback(in defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: nativeFallbackKey) as? Bool ?? true
+        defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .aether
     }
 }
 
 enum MobileEngineSelection {
-    /// Keep the existing HLS player; Aether handles other containers and
-    /// extensionless server routes with native or sample-buffer PiP. Failed
-    /// engines are skipped for this URL, so fallback cannot loop forever.
-    static func engine(for url: URL, preference: MobilePlaybackPreference = .automatic,
-                       failed: Set<MobileStreamEngine> = [], nativeFallback: Bool = true) -> MobileStreamEngine? {
-        let order: [MobileStreamEngine]
-        switch preference {
-        case .native:
-            // Files use the native compatibility pipeline as well, retaining
-            // the app's track, subtitle and seeking features around AVPlayer.
-            let direct = ["m3u8", "m3u"].contains(url.pathExtension.lowercased())
-            order = (direct ? [.system, .aether] : [.aether]) + (nativeFallback ? [.vlc] : [])
-        case .automatic:
-            order = ["m3u8", "m3u"].contains(url.pathExtension.lowercased())
-                ? [.system, .aether, .vlc] : [.aether, .vlc]
-        case .aether: order = [.aether, .vlc]
-        case .vlc: order = [.vlc]
-        case .mpv: order = [.mpv, .aether, .vlc]
-        }
+    static func engine(for url: URL, preference: MobilePlaybackPreference = .aether,
+                       failed: Set<MobileStreamEngine> = []) -> MobileStreamEngine? {
+        let order: [MobileStreamEngine] = preference == .aether ? [.aether, .mpv] : [.mpv, .aether]
         return order.first { !failed.contains($0) }
     }
 
-    /// Reorders candidates so PiP-capable URLs are tried first, preserving the
-    /// provider's relative order inside each group. A stable partition rather
-    /// than a sort: when a provider lists two HLS variants, the first one stays
-    /// first, and the transport streams stay available as fallbacks behind them.
     static func ordered(_ urls: [URL], live: Bool = false) -> [URL] {
-        // Live providers already list HLS first. If a rendered playback
-        // measurement promoted TS, do not silently undo that exact choice.
         guard !live else { return urls }
-        return urls.filter { engine(for: $0) == .system } + urls.filter { engine(for: $0) != .system }
+        func isPlaylist(_ url: URL) -> Bool { ["m3u8", "m3u"].contains(url.pathExtension.lowercased()) }
+        return urls.filter(isPlaylist) + urls.filter { !isPlaylist($0) }
     }
 
-    /// True when any candidate could drive Picture in Picture. Used to decide
-    /// whether a PiP button is worth offering before a stream has opened.
-    static func canPictureInPicture(_ urls: [URL], preference: MobilePlaybackPreference = .automatic) -> Bool {
-        urls.contains { engine(for: $0, preference: preference)?.supportsPictureInPicture == true }
+    static func canPictureInPicture(_ urls: [URL], preference: MobilePlaybackPreference = .aether) -> Bool {
+        !urls.isEmpty && preference == .aether
     }
 }
 

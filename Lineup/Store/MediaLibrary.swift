@@ -3920,7 +3920,7 @@ final class MediaLibrary {
         let session = SiloPlaybackSession()
         session.sourceProfileID = profile.id
         do {
-            _ = try await session.open(client: client, fileID: file, position: startsOver ? 0 : resumePosition(for: item) ?? 0, defaults: defaults)
+            _ = try await session.open(client: client, fileID: file, position: startsOver ? 0 : resumePosition(for: item) ?? 0)
             guard contains(profile), !Task.isCancelled else { await session.stop(); throw CancellationError() }
             return session
         } catch { await session.stop(); throw error }

@@ -61,11 +61,8 @@ Run the **Build Lineup tvOS IPA** workflow in GitHub Actions. The downloadable a
 
 The `LineupiOS` target supports iPhones on iOS 18 or later, with a touch-first
 Live screen, league filters, searchable channel guide, favorites, provider setup,
-and full-screen playback in portrait or landscape. Settings offers Automatic,
-AetherEngine 7.49.0, or VLC. Automatic uses AVPlayer for HLS and AetherEngine
-for other video, including server routes without extensions. Aether's native
-and sample-buffer sources enable broader Picture in Picture support; VLC fallback
-has no PiP. See [iPhone playback review](docs/iphone-playback-engines.md).
+and full-screen playback in portrait or landscape. AetherEngine plays live TV and library files by default and supports Picture in Picture.
+If a source fails, Lineup tries MPVKit on the same URL. MPVKit can also be selected in Settings.
 Unmatched games open a
 manual channel picker. Provider credentials, schedules, guide parsing, and channel
 matching share the Apple TV implementation. Profiles and favorites are stored
@@ -138,12 +135,9 @@ the transform animation. The app icon is now a white NS monogram on black.
 Device checks: completed/cancelled swipes, fast tab taps, timeline scrolling,
 fullscreen in both orientations, player close buttons, and Reduce Motion.
 
-iPhone 0.19.0 adds native Picture in Picture and background playback. HLS
-channels play through AVPlayer, which supplies system PiP and keeps audio
-running when Lineup is backgrounded; transport streams and anything AVPlayer
-cannot open still play through VLC. Both engines live in one controller for the
-whole session, so resizing, expanding, rotating and entering PiP never open a
-second connection.
+AetherEngine supports Picture in Picture and background playback for iPhone.
+Guide and fullscreen playback share a controller so expanding the player can
+reuse the active stream.
 
 The same release adds preferred channels by team. Tapping a game uses your saved
 channel when evidence says that channel is carrying the game, asks which feed

@@ -1,3 +1,4 @@
+#if os(tvOS)
 import Foundation
 import VLCKitSPM
 
@@ -28,3 +29,4 @@ enum VLCPlayerDisposal {
         }
     }
 }
+#endif

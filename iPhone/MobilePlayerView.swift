@@ -221,7 +221,7 @@ struct MobilePlayerView: View {
             }
             if offersOnlineSubtitles {
                 let title = controller.canAttachOnlineSubtitles ? "Find Subtitles Online"
-                    : "Use AetherEngine, VLC, or MPVKit for Online Subtitles"
+                    : "Use AetherEngine or MPVKit for Online Subtitles"
                 items.append(MobileMenuItem(title,
                     symbol: "magnifyingglass", id: "online-subtitles",
                     isEnabled: controller.canAttachOnlineSubtitles,

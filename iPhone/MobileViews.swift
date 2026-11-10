@@ -925,7 +925,7 @@ struct MobileAccountView: View {
     @State private var clearingPreferences = false
     @AppStorage(LineupAccent.storageKey) private var accentHex = LineupAccent.red.hex
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
-    @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.automatic.rawValue
+    @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.aether.rawValue
     @State private var choosingAccent = false
     @State private var settingUpTV = false
     /// Done in the picker, applied once it has gone: the change redraws this
@@ -1047,7 +1047,7 @@ struct MobileAccountView: View {
                     SettingsRow("iCloud", symbol: "icloud", value: cloud.status)
                     NavigationLink { MobilePlaybackSettingsView() } label: {
                         SettingsRow(title: "Playback Engine", symbol: "play.rectangle") {
-                            PlaybackEngineText((MobilePlaybackPreference(rawValue: playbackEngine) ?? .automatic).title, size: 17)
+                            PlaybackEngineText((MobilePlaybackPreference(rawValue: playbackEngine) ?? .aether).title, size: 17)
                                 .font(.inter(17))
                                 .foregroundStyle(LineupPanelStyle.listValue)
                                 .lineLimit(1)
@@ -1092,11 +1092,9 @@ struct MobileAccountView: View {
 }
 
 private struct MobilePlaybackSettingsView: View {
-    @AppStorage(MobilePlaybackPreference.storageKey) private var preference = MobilePlaybackPreference.native.rawValue
-    @AppStorage(MobilePlaybackPreference.nativeFallbackKey) private var nativeFallback = true
+    @AppStorage(MobilePlaybackPreference.storageKey) private var preference = MobilePlaybackPreference.aether.rawValue
     private var selected: MobilePlaybackPreference {
-        let value = MobilePlaybackPreference(rawValue: preference) ?? .native
-        return value == .automatic ? .native : value
+        MobilePlaybackPreference(rawValue: preference) ?? .aether
     }
     var body: some View {
         List {
@@ -1105,17 +1103,11 @@ private struct MobilePlaybackSettingsView: View {
                     Button { preference = choice.rawValue } label: {
                         HStack {
                             HStack(spacing: 8) {
-                                if choice == .native {
-                                    Image(systemName: "apple.logo").font(.system(size: 21)).frame(width: 24)
-                                        .foregroundStyle(LineupPresentationStyle.text).accessibilityHidden(true)
-                                }
                                 PlaybackEngineText(choice.title, style: .body).foregroundStyle(LineupStyle.text)
-                                if let version = choice.version {
-                                    Text(version)
-                                        .font(.inter(12, .medium))
-                                        .foregroundStyle(LineupPanelStyle.quiet)
-                                        .accessibilityLabel("version \(version)")
-                                }
+                                Text(choice.version)
+                                    .font(.inter(12, .medium))
+                                    .foregroundStyle(LineupPanelStyle.quiet)
+                                    .accessibilityLabel("version \(choice.version)")
                             }
                             Spacer()
                             if choice == selected {
@@ -1127,17 +1119,10 @@ private struct MobilePlaybackSettingsView: View {
                     .accessibilityIdentifier("lineup.playback.preference.\(choice.rawValue)")
                 }
             } footer: {
-                PlaybackEngineText("Native player uses Apple’s AVPlayer for HLS and a compatibility layer around Apple’s native video pipeline for files and other containers. It retains Lineup’s track, subtitle and seeking controls. Sources that need another decoder can use the optional, clearly labeled AetherEngine/VLC fallback. AetherEngine, VLC and MPVKit remain separate choices. VLC and MPVKit do not support Picture in Picture.", size: 13)
+                PlaybackEngineText("AetherEngine supports Picture in Picture. If it cannot play a source, Lineup tries MPVKit.", size: 13)
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
-            if selected == .native {
-                Section {
-                    Toggle("Compatibility Fallback", isOn: $nativeFallback).tint(LineupStyle.highlight)
-                } footer: {
-                    Text("Keeps unsupported sources playable using AetherEngine, then VLC. Turn off to stay on Apple’s native video pipeline and show a compatibility message instead. Applies to the next video.").lineupSettingsFooter()
-                }.lineupSettingsRows()
-            }
         }
         .lineupSettingsList()
         .navigationTitle("Playback Engine")

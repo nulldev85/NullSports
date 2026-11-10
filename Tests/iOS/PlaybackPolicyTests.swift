@@ -54,9 +54,7 @@ final class PlaybackPolicyTests: XCTestCase {
     }
 
     func testSettingsExposeVersionsForPackagedPlaybackEngines() {
-        XCTAssertNil(MobilePlaybackPreference.native.version)
-        XCTAssertEqual(MobilePlaybackPreference.aether.version, "7.49.0")
-        XCTAssertEqual(MobilePlaybackPreference.vlc.version, "3.6.0")
+        XCTAssertEqual(MobilePlaybackPreference.aether.version, "7.62.0")
         XCTAssertEqual(MobilePlaybackPreference.mpv.version, "1.1.0-n9.0.2")
     }
 
@@ -162,11 +160,11 @@ final class PlaybackPolicyTests: XCTestCase {
     private let hls = URL(string: "http://example.com/live/u/p/1234.m3u8")!
     private let ts = URL(string: "http://example.com/live/u/p/1234.ts")!
 
-    func testHLSGoesToAVPlayerAndOtherSourcesToAether() {
-        XCTAssertEqual(MobileEngineSelection.engine(for: hls), .system)
+    func testAetherOpensHLSAndOtherSources() {
+        XCTAssertEqual(MobileEngineSelection.engine(for: hls), .aether)
         XCTAssertEqual(MobileEngineSelection.engine(for: ts), .aether)
         // Providers append tokens; the query string is not part of the path.
-        XCTAssertEqual(MobileEngineSelection.engine(for: URL(string: "http://e.com/a/1.m3u8?t=9")!), .system)
+        XCTAssertEqual(MobileEngineSelection.engine(for: URL(string: "http://e.com/a/1.m3u8?t=9")!), .aether)
     }
 
     /// The phone reverses Apple TV's transport-stream-first order so that the
@@ -189,52 +187,34 @@ final class PlaybackPolicyTests: XCTestCase {
 
     func testExplicitPreferencesAndFailureFallbackAreBounded() {
         XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .aether), .aether)
-        XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .vlc), .vlc)
         XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .mpv), .mpv)
         XCTAssertEqual(MobileEngineSelection.engine(for: ts, preference: .mpv, failed: [.mpv]), .aether)
-        XCTAssertEqual(MobileEngineSelection.engine(for: ts, preference: .mpv, failed: [.mpv, .aether]), .vlc)
+        XCTAssertNil(MobileEngineSelection.engine(for: ts, preference: .mpv, failed: [.mpv, .aether]))
+        XCTAssertEqual(MobileEngineSelection.engine(for: hls, failed: [.aether]), .mpv)
+        XCTAssertNil(MobileEngineSelection.engine(for: hls, failed: [.aether, .mpv]))
         XCTAssertFalse(MobileStreamEngine.mpv.supportsPictureInPicture)
-        XCTAssertEqual(MobilePlaybackPreference.mpv.title, "MPVKit (Trial)")
-        XCTAssertFalse(MobileEngineSelection.canPictureInPicture([ts], preference: .vlc))
-        XCTAssertEqual(MobileEngineSelection.engine(for: hls, failed: [.system]), .aether)
-        XCTAssertEqual(MobileEngineSelection.engine(for: hls, failed: [.system, .aether]), .vlc)
-        XCTAssertNil(MobileEngineSelection.engine(for: hls, failed: [.system, .aether, .vlc]))
-        XCTAssertEqual(MobileEngineSelection.engine(for: ts, failed: [.aether]), .vlc)
-        XCTAssertNil(MobileEngineSelection.engine(for: ts, preference: .vlc, failed: [.vlc]))
+        XCTAssertEqual(MobilePlaybackPreference.mpv.title, "MPVKit")
     }
 
-    func testPlayerPreferencePersistsAndLegacyAutomaticMigratesToNative() throws {
+    func testPlayerPreferencePersistsAndLegacyChoicesUseAether() throws {
         let suite = "PlayerPreference.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .native)
-        defaults.set("automatic", forKey: MobilePlaybackPreference.storageKey)
-        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .native)
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .aether)
+        XCTAssertEqual(MobilePlaybackPreference.allCases, [.aether, .mpv])
+        for legacy in ["vlc", "native", "automatic"] {
+            defaults.set(legacy, forKey: MobilePlaybackPreference.storageKey)
+            XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .aether)
+        }
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .aether)
         defaults.set("mpv", forKey: MobilePlaybackPreference.storageKey)
         XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .mpv)
         defaults.set("aether", forKey: MobilePlaybackPreference.storageKey)
         XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .aether)
         defaults.set("old-or-unknown", forKey: MobilePlaybackPreference.storageKey)
-        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .native)
+        XCTAssertEqual(MobilePlaybackPreference.selected(in: defaults), .aether)
     }
 
-    func testNativeChoiceKeepsItsCompatibilityLayerAndMakesDecoderFallbackExplicit() throws {
-        XCTAssertEqual(MobilePlaybackPreference.allCases, [.native, .aether, .vlc, .mpv])
-        let hls = URL(string: "https://fixture.test/video.m3u8")!
-        let mkv = URL(string: "https://fixture.test/video.mkv")!
-        XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .native), .system)
-        XCTAssertEqual(MobileEngineSelection.engine(for: mkv, preference: .native), .aether)
-        XCTAssertEqual(MobileEngineSelection.engine(for: hls, preference: .native, failed: [.system], nativeFallback: false), .aether)
-        XCTAssertNil(MobileEngineSelection.engine(for: hls, preference: .native, failed: [.system, .aether], nativeFallback: false))
-        XCTAssertEqual(MobileEngineSelection.engine(for: mkv, preference: .native, failed: [.aether], nativeFallback: true), .vlc)
-        let suite = "NativeFallback." + UUID().uuidString
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        XCTAssertTrue(MobilePlaybackPreference.allowsNativeFallback(in: defaults))
-        defaults.set(false, forKey: MobilePlaybackPreference.nativeFallbackKey)
-        XCTAssertFalse(MobilePlaybackPreference.allowsNativeFallback(in: defaults))
-        XCTAssertEqual(MobileEngineSelection.engine(for: mkv, preference: .vlc), .vlc)
-    }
 
     // MARK: - Surface reuse
 
@@ -243,58 +223,51 @@ final class PlaybackPolicyTests: XCTestCase {
     /// layer, so replacing it would drop PiP and restart the stream.
     @MainActor
     func testResizingReusesTheSamePlayerLayer() {
-        let controller = MobilePlaybackController()
+        let player = AVPlayer()
         let host = MobileVideoHost(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
-        let first = host.installPlayerLayer(for: controller.systemPlayer)
+        let first = host.installPlayerLayer(for: player)
         host.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         host.layoutIfNeeded()
-        let second = host.installPlayerLayer(for: controller.systemPlayer)
+        let second = host.installPlayerLayer(for: player)
         XCTAssertTrue(first === second, "A resize must not replace the AVPlayerLayer")
-        XCTAssertTrue(second.player === controller.systemPlayer)
+        XCTAssertTrue(second.player === player)
         XCTAssertEqual(second.frame, host.bounds, "The layer follows the host without an implicit animation")
-        controller.shutdown()
     }
 
     /// Falling back from HLS to a transport stream swaps engines in place; the
     /// abandoned layer must not stay on screen over VLC's renderer.
     @MainActor
     func testRemovingThePlayerLayerReleasesThePlayer() {
-        let controller = MobilePlaybackController()
+        let player = AVPlayer()
         let host = MobileVideoHost(frame: CGRect(x: 0, y: 0, width: 320, height: 180))
-        host.installPlayerLayer(for: controller.systemPlayer)
+        host.installPlayerLayer(for: player)
         XCTAssertNotNil(host.playerLayer)
         host.removePlayerLayer()
         XCTAssertNil(host.playerLayer)
-        controller.shutdown()
     }
 
     @MainActor
     func testPiPHandoffKeepsTheOriginalLayerAndPlayer() {
-        let controller = MobilePlaybackController()
+        let player = AVPlayer()
         let original = MobileVideoHost(frame: CGRect(x: 0, y: 0, width: 390, height: 220))
-        let layer = original.installPlayerLayer(for: controller.systemPlayer)
+        let layer = original.installPlayerLayer(for: player)
         original.releasePlayerLayerForPictureInPicture()
         XCTAssertNil(original.playerLayer)
-        XCTAssertTrue(layer.player === controller.systemPlayer)
+        XCTAssertTrue(layer.player === player)
         let returned = MobileVideoHost(frame: CGRect(x: 0, y: 0, width: 700, height: 394))
-        XCTAssertTrue(returned.installPlayerLayer(for: controller.systemPlayer, reusing: layer) === layer)
+        XCTAssertTrue(returned.installPlayerLayer(for: player, reusing: layer) === layer)
         original.removePlayerLayer()
-        XCTAssertTrue(layer.player === controller.systemPlayer)
+        XCTAssertTrue(layer.player === player)
         XCTAssertTrue(layer.superlayer === returned.layer)
-        controller.shutdown()
     }
 
-    /// Both engines exist for the whole session, so a channel change or an
-    /// engine fallback never constructs a second player.
     @MainActor
-    func testControllerKeepsOneInstanceOfEachEngine() {
+    func testIdleSceneTransitionsDoNotAllocateADecoder() {
         let controller = MobilePlaybackController()
-        let vlc = controller.player
-        let system = controller.systemPlayer
         controller.handleScenePhase(active: false)
         controller.handleScenePhase(active: true)
-        XCTAssertTrue(controller.player === vlc)
-        XCTAssertTrue(controller.systemPlayer === system)
+        XCTAssertNil(controller.aetherSession)
+        XCTAssertNil(controller.mpvSession)
         controller.shutdown()
     }
 }

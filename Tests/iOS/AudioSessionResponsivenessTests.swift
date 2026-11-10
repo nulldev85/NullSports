@@ -114,8 +114,6 @@ final class AudioSessionResponsivenessTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
         XCTAssertNil(controller.aetherSession)
         XCTAssertNil(controller.mpvSession)
-        XCTAssertNil(controller.systemPlayer.currentItem)
-        XCTAssertNil(controller.player.media)
         XCTAssertFalse(controller.isPlaying)
         XCTAssertFalse(controller.loading)
         XCTAssertEqual(probe.events, ["activate", "deactivate"])
@@ -141,8 +139,6 @@ final class AudioSessionResponsivenessTests: XCTestCase {
         controller.handleScenePhase(active: true)
         XCTAssertNil(controller.aetherSession)
         XCTAssertNil(controller.mpvSession)
-        XCTAssertNil(controller.systemPlayer.currentItem)
-        XCTAssertNil(controller.player.media)
         XCTAssertFalse(controller.isPlaying, "A delayed audio completion or return to the app must preserve Pause")
     }
     #endif

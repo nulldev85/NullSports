@@ -13,11 +13,11 @@ final class PlaybackLifecycleTests: XCTestCase {
         defer { window.isHidden = true }
         host.controller = controller
         controller.attachVideo(host)
-        XCTAssertTrue((controller.player.drawable as? UIView) === host)
+        XCTAssertTrue(controller.videoViewForExit === host)
         host.scheduleAttachment()
         controller.shutdown()
         try await Task.sleep(for: .milliseconds(50))
-        XCTAssertNil(controller.player.drawable)
+        XCTAssertNil(controller.videoViewForExit)
         XCTAssertNil(host.controller)
         XCTAssertFalse(controller.isPlaying)
     }
@@ -30,7 +30,7 @@ final class PlaybackLifecycleTests: XCTestCase {
         controller.attachVideo(old)
         controller.attachVideo(current)
         controller.detachVideo(old)
-        XCTAssertTrue((controller.player.drawable as? UIView) === current)
+        XCTAssertTrue(controller.videoViewForExit === current)
         controller.shutdown()
     }
 
@@ -44,9 +44,9 @@ final class PlaybackLifecycleTests: XCTestCase {
         retired.shutdown()
         fresh.attachVideo(newHost)
         retired.detachVideo(oldHost)
-        XCTAssertFalse(retired.player === fresh.player)
-        XCTAssertNil(retired.player.drawable)
-        XCTAssertTrue((fresh.player.drawable as? UIView) === newHost)
+        XCTAssertFalse(retired === fresh)
+        XCTAssertNil(retired.videoViewForExit)
+        XCTAssertTrue(fresh.videoViewForExit === newHost)
         fresh.shutdown()
     }
 }

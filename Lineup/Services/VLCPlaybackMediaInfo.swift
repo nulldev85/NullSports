@@ -1,3 +1,4 @@
+#if os(tvOS)
 import Foundation
 import VLCKitSPM
 import LineupAetherPlayback
@@ -31,3 +32,4 @@ enum VLCPlaybackMediaInfo {
             audioCodec: codec(audio), audioChannels: (audio?[VLCMediaTracksInformationAudioChannelsNumber] as? NSNumber)?.intValue)
     }
 }
+#endif

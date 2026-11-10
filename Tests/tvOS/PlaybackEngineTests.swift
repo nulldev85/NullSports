@@ -7,7 +7,7 @@ import LineupAetherPlayback
 @MainActor
 final class PlaybackEngineTests: XCTestCase {
     func testSettingsEngineChoicesExposeTheirPinnedVersions() {
-        XCTAssertEqual(TVPlaybackEngine.aether.version, "7.49.0")
+        XCTAssertEqual(TVPlaybackEngine.aether.version, "7.62.0")
         XCTAssertEqual(TVPlaybackEngine.vlc.version, "3.6.0")
         XCTAssertEqual(TVPlaybackEngine.mpv.version, "1.1.0-n9.0.2")
     }
@@ -362,7 +362,7 @@ final class PlaybackEngineTests: XCTestCase {
         let client = try SiloClient(address: "https://tvos-silo-retry.test", credential: .init(accessToken: "fixture"),
             profileID: "profile:1", deviceID: "fixture", session: transport)
         let silo = SiloPlaybackSession()
-        let asset = try await silo.open(client: client, fileID: "file:42", position: 600, defaults: fixture.defaults)
+        let asset = try await silo.open(client: client, fileID: "file:42", position: 600)
         let controller = fixture.controller()
         defer { controller.stop() }
         controller.configureSiloPlayback(silo)

@@ -32,7 +32,6 @@ final class SiloPlaybackSession {
     var retryAllowed: (() -> Bool)?
     private var client: SiloClient?
     private var fileID = ""
-    private var playbackDefaults: UserDefaults = .standard
     private var retryTask: Task<Void, Never>?
     private var installationID = ""
     private var profileID = ""
@@ -51,10 +50,10 @@ final class SiloPlaybackSession {
     private var lastProgressAt = Date.distantPast
     private var progressWriting = false
 
-    func open(client: SiloClient, fileID: String, position: Double, defaults: UserDefaults = .standard) async throws -> SiloPlaybackAsset {
+    func open(client: SiloClient, fileID: String, position: Double) async throws -> SiloPlaybackAsset {
         guard !closed, self.client == nil, position.isFinite, position >= 0 else { throw MediaIntegrationError.invalidResponse }
         self.client = client
-        self.fileID = fileID; playbackDefaults = defaults
+        self.fileID = fileID
         let capability: SiloPlaybackCapabilities = try await client.transport.get(["playback", "capabilities"])
         guard capability.allowed, capability.state == "available" else {
             throw MediaIntegrationError.unavailable("Silo playback is \(capability.state.replacingOccurrences(of: "_", with: " ")) for this account.")
@@ -66,7 +65,7 @@ final class SiloPlaybackSession {
         }
         installationID = installation; profileID = profile
         if capability.features.contains("seek_reanchor_v1") { features.append("seek_reanchor_v1") }
-        let evidence = Self.playerCapabilities(defaults: defaults)
+        let evidence = Self.playerCapabilities()
         capabilities = evidence.capabilities; context = evidence.context
         let body: [String: Any] = ["installation_id": installation, "protocol_version": 3,
             "client_features": features, "file_id": fileID, "profile_id": profile,
@@ -171,7 +170,7 @@ final class SiloPlaybackSession {
                 self.client = nil; self.sequence = 0; self.progressWriting = false
                 self.features = ["playback_plan_v3"]; self.attemptID = UUID().uuidString
                 self.lastProgressAt = .distantPast
-                let prepared = try await self.open(client: client, fileID: self.fileID, position: position, defaults: self.playbackDefaults)
+                let prepared = try await self.open(client: client, fileID: self.fileID, position: position)
                 guard !self.closed, self.retryAllowed?() != false else { await self.stop(); return }
                 self.lastPaused = paused
                 self.isReplanning = false
@@ -278,25 +277,16 @@ final class SiloPlaybackSession {
         guard ["stopped", "replayed"].contains(reply.outcome) else { throw MediaIntegrationError.invalidResponse }
     }
 
-    /// Only what the system player opens when it is the only player; every
-    /// container the other engines read otherwise.
-    private static func containers(systemOnly: Bool) -> [String] {
-        systemOnly ? ["mp4", "mov", "m4v"] : ["mp4", "mov", "m4v", "mkv", "matroska", "mpegts", "webm"]
-    }
-
-    private static func playerCapabilities(defaults: UserDefaults) -> (capabilities: [String: Any], context: [String: Any]) {
+    private static func playerCapabilities() -> (capabilities: [String: Any], context: [String: Any]) {
         #if os(tvOS)
-        let systemOnly = false
         let platform = "tvos", form = "tv"
         #else
-        let systemOnly = MobilePlaybackPreference.selected(in: defaults) == .native
-            && !MobilePlaybackPreference.allowsNativeFallback(in: defaults)
         let platform = "ios", form = "phone"
         #endif
         let hevc = VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)
         let video = hevc ? ["h264", "hevc"] : ["h264"]
         let audio = ["aac", "mp3", "ac3", "eac3"]
-        let containers = Self.containers(systemOnly: systemOnly)
+        let containers = ["mp4", "mov", "m4v", "mkv", "matroska", "mpegts", "webm"]
         // Declared family support, with no invented level/profile, HDR or
         // passthrough claim. The planner may adapt material beyond this set.
         let capabilities: [String: Any] = ["video_evidence": "declared", "audio_evidence": "declared",
@@ -306,7 +296,7 @@ final class SiloPlaybackSession {
             ["enabled": true, "supported_on_device": true, "containers": formats, "video_codecs": video,
                 "audio_decode_codecs": audio, "audio_passthrough_codecs": [],
                 "subtitles": ["embedded_text": true, "sidecar_text": false, "ass_styling": false,
-                    "embedded_bitmap": !systemOnly, "sidecar_bitmap": false, "font_attachments": false],
+                    "embedded_bitmap": true, "sidecar_bitmap": false, "font_attachments": false],
                 "features": [], "auth_header_refresh": false, "validated_claims": [], "transformations": []]
         }
         let context: [String: Any] = ["protocol_version": 3, "form_factor": form,

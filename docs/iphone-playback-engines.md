@@ -1,30 +1,15 @@
 # iPhone playback and Picture in Picture
 
-Lineup requires **iOS 18** and embeds unmodified **AetherEngine 7.49.0** alongside
-the existing Apple and VLC players. Settings → Playback Engine offers:
+Lineup for iPhone requires iOS 18. Settings offers AetherEngine 7.62.0 and MPVKit.
+AetherEngine is the default for live TV, provider recordings and media libraries.
+Existing MPVKit users keep their selection. Older Native, Automatic and VLC choices
+resolve to AetherEngine. A change in Settings applies when the next video opens.
 
-- **Automatic** (default): Apple's AVPlayer for HLS, AetherEngine for other URLs.
-- **AetherEngine**: try AetherEngine for every source, including HLS.
-- **VLC**: always use VLC; this integration does not provide PiP.
-
-The setting is local to the iPhone and applies to the next video opened. Changing
-it does not replace an active session. The player badge identifies the actual
-engine: AVPlayer, AetherEngine, or VLC. This applies to Guide/Sports playback,
-provider VOD, movies and episodes from Nullfin and other connected media servers,
-and provider recordings. URL query strings do not affect engine selection, and
-extensionless server routes can now use Aether and PiP.
-
-Automatic preserves the existing HLS-first order. If a player cannot start a
-source, Lineup tries another PiP-capable endpoint or engine before VLC. Failed
-engines are tracked per URL to prevent fallback loops. VLC remains a compatibility
-fallback, with a visible notice that PiP is unavailable for that playback.
+When a decoder fails to open a source, Lineup tries the other decoder on the same
+URL, tracking failures for that URL before advancing to another candidate. AetherEngine
+supports Picture in Picture through its native and sample-buffer renderers.
 
 ## PiP integration
-
-The previous player allowed PiP only for URLs routed to AVPlayer. Every URL other
-than `.m3u8` or `.m3u`, even an MP4, went directly to VLC. Aether provides native
-`AVPlayerLayer` and software `AVSampleBufferDisplayLayer` sources, so both of its
-video rendering paths can be connected to AVKit PiP on iOS.
 
 The bridge owns one PiP controller for the active renderer. Its sample-buffer
 delegate supplies play/pause, source-clock time ranges, and skips; it reports
@@ -69,15 +54,3 @@ Screenshots are exported with the existing iPhone preview artifact.
 The simulator does not prove a floating PiP window or background lifecycle on an
 iPhone. The physical-device PiP test explicitly skips in the simulator and, on
 device, requires AVKit to actually activate then stop each source's PiP window.
-iPhone simulator compilation, framework embedding, Aether playback tests,
-playback policy, and local tracking passed in run 38661435840. The only failure
-was the Guide's duplicated bottom inset with Liquid Glass enabled. The corrected
-Guide check, release packaging, and physical-device results remain pending.
-
-Before merging, test each of Automatic and AetherEngine with your live TV,
-provider VOD, and a Nullfin movie and episode. Start PiP manually, press Home,
-pause/resume and skip from the PiP controls, return to Lineup, rotate or expand
-the player, and close PiP while backgrounded. Check audio, subtitles, position,
-watched status, and a removed Continue Watching card. Repeat with a software
-format and confirm the actual engine badge. Confirm VLC selection still plays
-your sources and does not advertise unavailable PiP.

@@ -2,7 +2,7 @@ import XCTest
 import AVKit
 import Combine
 import LineupAetherPlayback
-import VLCKitSPM
+import LineupMPVPlayback
 @testable import LineupiOS
 
 @MainActor
@@ -59,12 +59,12 @@ final class AetherPlaybackTests: XCTestCase {
         XCTAssertEqual(Set(root.enabledProfiles.map(\.id)), [first.id, second.id])
     }
 
-    func testSlowExtensionlessMovieOpeningRetainsTheSameVLCInput() async throws {
+    func testSlowExtensionlessMovieOpeningRetainsTheSameMPVInput() async throws {
         let origin = try PlaybackFixtureServer(file: fixture("playback-native", "mp4"), contentType: "video/mp4", headerDelay: 4)
         defer { origin.stop() }
         try await waitUntil("Delayed Jellyfin-style origin did not start") { origin.port != nil }
         let url = try XCTUnwrap(origin.url(path: "Videos/movie/stream?Static=true&MediaSourceId=fixture"))
-        let (defaults, suite) = try preferences(.vlc)
+        let (defaults, suite) = try preferences(.mpv)
         defer { defaults.removePersistentDomain(forName: suite) }
         let controller = MobilePlaybackController(defaults: defaults)
         let (window, host, previous) = try show(controller)
@@ -73,30 +73,25 @@ final class AetherPlaybackTests: XCTestCase {
         controller.start(urls: [url])
         // Audio activation now yields the UI actor before opening a decoder.
         // Capture the actual input once it exists, before delayed HTTP headers.
-        try await waitUntil("VLC input must open after audio activation", timeout: 5) {
-            controller.player.media != nil
+        try await waitUntil("MPV input must open after audio activation", timeout: 5) {
+            controller.mpvSession != nil
         }
-        let input = try XCTUnwrap(controller.player.media)
+        let input = try XCTUnwrap(controller.mpvSession)
         let sessionID = controller.subtitleSessionID
-        // VLCKit replaces the Objective-C wrapper in its media-changed event.
-        // isEqual compares the underlying libvlc descriptor, not its URL.
-        XCTAssertFalse(input.isEqual(VLCMedia(url: url)), "Separate inputs at the same URL must not compare equal")
         XCTAssertTrue(host.pictureHeld)
-        try await waitUntil("Delayed native VLC input did not render a picture", diagnostics: {
-            "nativePlaying=\(controller.player.isPlaying), cachedState=\(controller.player.state.rawValue), "
-                + "videoOutput=\(controller.player.hasVideoOut), pictures=\(controller.player.media?.numberOfDisplayedPictures ?? 0), "
-                + "loading=\(controller.loading), held=\(host.pictureHeld), nativeClock=\(controller.vlcPlaybackSeconds ?? -1)"
+        try await waitUntil("Delayed native MPV input did not render a picture", diagnostics: {
+            "MPV phase=\(input.phase), clock=\(input.position)"
         }) {
-            controller.engine == .vlc && controller.isPlaying && !controller.loading
-                && controller.player.hasVideoOut && (controller.player.media?.numberOfDisplayedPictures ?? 0) > 0
+            controller.engine == .mpv && controller.isPlaying && !controller.loading
+                && input.hasVideoOut && input.position > 0
         }
-        XCTAssertTrue(controller.player.media?.isEqual(input) == true, "Slow opening must retain the same native media descriptor")
+        XCTAssertTrue(controller.mpvSession === input, "Slow opening must retain the same native media descriptor")
         XCTAssertEqual(controller.subtitleSessionID, sessionID, "Slow opening must not reopen the playback session")
         XCTAssertNil(controller.error)
-        try await waitUntil("VLC presentation state did not record the displayed picture") { controller.presentation.hasPresentedVideo }
+        try await waitUntil("MPV presentation state did not record the displayed picture") { controller.presentation.hasPresentedVideo }
         XCTAssertEqual(controller.loadingMessage, "Buffering…", "A subsequent wait belongs to this playing title")
         XCTAssertFalse(host.pictureHeld)
-        XCTAssertGreaterThan(controller.vlcPlaybackSeconds ?? 0, 0)
+        XCTAssertGreaterThan(controller.mpvSession?.position ?? 0, 0)
     }
 
     func testReplacingAetherSourceCannotReleaseTheOldPicturesStartupGate() async throws {
@@ -312,23 +307,23 @@ final class AetherPlaybackTests: XCTestCase {
         }
     }
 
-    func testVLCAddsAnOnlineSubtitleWithoutChangingEngineSessionOrPauseIntent() async throws {
+    func testMPVAddsAnOnlineSubtitleWithoutChangingEngineSessionOrPauseIntent() async throws {
         let ready = expectation(description: "subtitle fixture origin is listening")
         let origin = try PlaybackFixtureServer(file: fixture("playback-native", "mp4"),
             contentType: "video/mp4", onReady: { ready.fulfill() })
         defer { origin.stop() }
         await fulfillment(of: [ready], timeout: 5)
         let url = try XCTUnwrap(origin.url(path: "online-subtitle-fixture.mp4"))
-        let (defaults, suite) = try preferences(.vlc)
+        let (defaults, suite) = try preferences(.mpv)
         defer { defaults.removePersistentDomain(forName: suite) }
         let controller = MobilePlaybackController(defaults: defaults)
         var trackingSamples: [LibraryPlaybackSample] = []
         controller.libraryTrackingEvent = { trackingSamples.append($0) }
         let (window, _, previous) = try show(controller)
         defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
-        let playing = expectation(description: "VLC publishes playing picture and discovered embedded tracks")
+        let playing = expectation(description: "MPV publishes playing picture and discovered embedded tracks")
         let subscription = controller.$loading.combineLatest(controller.$isPlaying, controller.$subtitleTracks)
-            .first { loading, playing, tracks in controller.engine == .vlc && !loading && playing && tracks.count > 1 }
+            .first { loading, playing, tracks in controller.engine == .mpv && !loading && playing && tracks.count > 1 }
             .sink { _ in playing.fulfill() }
         defer { subscription.cancel() }
         controller.isLive = false
@@ -336,33 +331,33 @@ final class AetherPlaybackTests: XCTestCase {
         await fulfillment(of: [playing], timeout: 30)
         let oldIDs = Set(controller.subtitleTracks.map(\.id))
         let sessionID = controller.subtitleSessionID
-        let player = controller.player
-        XCTAssertNotNil(controller.vlcPlaybackSeconds, "A playing input exposes its actual native clock")
-        await pauseVLCAndAwaitNativeState(controller)
+        let player = try XCTUnwrap(controller.mpvSession)
+        XCTAssertNotNil(controller.mpvSession?.position, "A playing input exposes its actual native clock")
+        try await pauseMPVAndAwaitNativeState(controller)
         XCTAssertEqual(trackingSamples.last?.playing, false)
-        XCTAssertTrue(trackingSamples.contains { $0.playing }, "VLC transport must report to the same tracker")
-        let added = expectation(description: "VLC selects its actual newly added subtitle track")
+        XCTAssertTrue(trackingSamples.contains { $0.playing }, "MPV transport must report to the same tracker")
+        let added = expectation(description: "MPV selects its actual newly added subtitle track")
         let chosen = controller.$subtitleTracks.combineLatest(controller.$selectedSubtitleID)
             .first { tracks, selected in selected != PlaybackSubtitleTrack.off.id && !oldIDs.contains(selected) && tracks.contains { $0.id == selected } }
             .sink { _ in added.fulfill() }
         defer { chosen.cancel() }
-        try await controller.addOnlineSubtitle(Data("1\n00:00:00,000 --> 00:00:35,000\nVLC fixture caption\n".utf8),
+        try await controller.addOnlineSubtitle(Data("1\n00:00:00,000 --> 00:00:35,000\nMPV fixture caption\n".utf8),
             title: "Online fixture", language: "en", sessionID: sessionID)
         await fulfillment(of: [added], timeout: 5)
         controller.setSubtitleDelay(0.75)
-        XCTAssertEqual(player.currentVideoSubTitleDelay, 750_000, "VLC uses microseconds; positive values show captions later")
+        XCTAssertEqual(controller.subtitleDelaySeconds, 0.75)
         var appearance = controller.subtitlePreferences
         appearance.scale = 1.25; appearance.background = true
         controller.setSubtitlePreferences(appearance)
-        XCTAssertEqual(controller.engine, .vlc)
-        XCTAssertTrue(controller.player === player)
+        XCTAssertEqual(controller.engine, .mpv)
+        XCTAssertTrue(controller.mpvSession === player)
         XCTAssertEqual(controller.subtitleSessionID, sessionID)
         XCTAssertFalse(controller.isPlaying)
         XCTAssertFalse(player.isPlaying, "Adding/changing subtitles must preserve the native paused transport too")
         controller.selectSubtitle(.off)
         XCTAssertEqual(controller.selectedSubtitleID, PlaybackSubtitleTrack.off.id)
         controller.stop()
-        XCTAssertNil(controller.vlcPlaybackSeconds, "A stopped source cannot retain an old native clock")
+        XCTAssertFalse(player.isOpen)
         XCTAssertEqual(controller.subtitleDelaySeconds, 0, "Timing must not leak into another video/release")
         XCTAssertNotEqual(controller.subtitleSessionID, sessionID)
         XCTAssertFalse(controller.canAttachOnlineSubtitles)
@@ -396,10 +391,10 @@ final class AetherPlaybackTests: XCTestCase {
         controller.isLive = false
         controller.start(urls: [file])
         try await waitUntil("Initial Aether stream did not render") { !controller.loading && controller.engine == .aether }
-        defaults.set("vlc", forKey: MobilePlaybackPreference.storageKey)
+        defaults.set("mpv", forKey: MobilePlaybackPreference.storageKey)
         XCTAssertEqual(controller.engineTitle, "AetherEngine")
         controller.start(urls: [file])
-        XCTAssertEqual(controller.engineTitle, "VLC")
+        XCTAssertEqual(controller.engineTitle, "MPVKit")
         XCTAssertFalse(controller.canOfferPictureInPicture)
         XCTAssertFalse(controller.aetherSession?.isOpen ?? true)
         defaults.set("aether", forKey: MobilePlaybackPreference.storageKey)
@@ -451,14 +446,14 @@ final class AetherPlaybackTests: XCTestCase {
         #endif
     }
 
-    func testReplayTenSecondSkipsAndDraggingSeekInPlaceOnAetherAndVLC() async throws {
+    func testReplayTenSecondSkipsAndDraggingSeekInPlaceOnAetherAndMPV() async throws {
         let listening = expectation(description: "replay fixture origin is listening")
         let origin = try PlaybackFixtureServer(file: fixture("playback-native", "mp4"), contentType: "video/mp4",
                                                onReady: { listening.fulfill() })
         defer { origin.stop() }
         await fulfillment(of: [listening], timeout: 5)
         let url = try XCTUnwrap(origin.url(path: "recorded-game.mp4"))
-        for preference in [MobilePlaybackPreference.aether, .vlc] {
+        for preference in [MobilePlaybackPreference.aether, .mpv] {
             let (defaults, suite) = try preferences(preference)
             defer { defaults.removePersistentDomain(forName: suite) }
             let controller = MobilePlaybackController(defaults: defaults)
@@ -473,7 +468,7 @@ final class AetherPlaybackTests: XCTestCase {
                 return [url]
             }, programme: { _ in nil })
             let ready = expectation(description: "\(preference.rawValue) renders the recorded game")
-            let expectedEngine: MobileStreamEngine = preference == .vlc ? .vlc : .aether
+            let expectedEngine: MobileStreamEngine = preference == .mpv ? .mpv : .aether
             let subscription = controller.$loading.combineLatest(controller.$isPlaying)
                 .first { loading, playing in controller.engine == expectedEngine && !loading && playing }
                 .sink { _ in ready.fulfill() }
@@ -484,14 +479,14 @@ final class AetherPlaybackTests: XCTestCase {
             guard controller.engine == expectedEngine, controller.isPlaying, !controller.loading else { return }
             try await waitUntil("The recording must expose its actual seekable runtime") {
                 (controller.progress?.duration ?? 0) > 30
-                    && (preference == .vlc ? controller.player.isSeekable : controller.aetherSession?.canAcceptSeek == true)
+                    && (preference == .mpv ? controller.mpvSession?.isSeekable == true : controller.aetherSession?.canAcceptSeek == true)
             }
             let session = controller.aetherSession
             let sessionID = controller.subtitleSessionID
             let before = controller.recordingElapsed
             controller.skip(by: 10)
             try await waitUntil("A ten-second skip must move forward without reopening the recording") {
-                let actual = preference == .vlc ? controller.vlcPlaybackSeconds ?? -1
+                let actual = preference == .mpv ? controller.mpvSession?.position ?? -1
                     : controller.aetherSession?.position ?? 0
                 return actual >= before + 9 && controller.recordingElapsed >= before + 9
             }
@@ -508,20 +503,17 @@ final class AetherPlaybackTests: XCTestCase {
                 controller.toggle()
                 _ = try await pausedClock(controller, session: session)
             } else {
-                await pauseVLCAndAwaitNativeState(controller)
+                try await pauseMPVAndAwaitNativeState(controller)
             }
             controller.beginScrubbing()
             controller.previewScrubbing(at: 22)
             controller.endScrubbing(at: 6)
             try await waitUntil("Dragging a paused replay must seek while preserving pause", diagnostics: {
-                "engine=\(controller.engineTitle), UI-playing=\(controller.isPlaying), native-playing=\(controller.player.isPlaying), "
-                    + "native-time=\(String(describing: controller.vlcPlaybackSeconds)), cached-time=\(controller.player.time.intValue), "
-                    + "recording-time=\(controller.recordingElapsed), state=\(String(describing: controller.player.state)), "
-                    + "Aether-phase=\(String(describing: controller.aetherSession?.phase))"
+                "engine=\(controller.engineTitle), recording time=\(controller.recordingElapsed)"
             }) {
-                let actual = preference == .vlc ? controller.vlcPlaybackSeconds ?? -1
+                let actual = preference == .mpv ? controller.mpvSession?.position ?? -1
                     : controller.aetherSession?.position ?? 0
-                let nativePaused = preference == .vlc ? !controller.player.isPlaying
+                let nativePaused = preference == .mpv ? controller.mpvSession?.isPlaying == false
                     : controller.aetherSession?.phase == .paused
                 return abs(actual - 6) < 2 && abs(controller.recordingElapsed - 6) < 2
                     && !controller.isPlaying && nativePaused
@@ -530,78 +522,21 @@ final class AetherPlaybackTests: XCTestCase {
             XCTAssertEqual(controller.subtitleSessionID, sessionID)
             if let session { XCTAssertTrue(controller.aetherSession === session) }
             XCTAssertFalse(controller.finished)
-            if preference == .vlc {
-                let pictures = controller.player.media?.numberOfDisplayedPictures ?? 0
+            if preference == .mpv {
                 controller.toggle()
-                try await waitUntil("Resuming VLC after the paused seek must render new pictures from the final destination") {
-                    guard let seconds = controller.vlcPlaybackSeconds else { return false }
-                    return controller.isPlaying && controller.player.isPlaying && seconds >= 6 && seconds < 12
-                        && (controller.player.media?.numberOfDisplayedPictures ?? 0) > pictures
+                try await waitUntil("Resuming MPV after the paused seek must render new pictures from the final destination") {
+                    guard let session = controller.mpvSession else { return false }
+                    return controller.isPlaying && session.hasVideoOut && session.position > 6 && session.position < 12
                 }
                 XCTAssertEqual(addresses, 1, "Resuming a paused seek must not reopen the provider recording")
             }
         }
     }
 
-    private func pauseVLCAndAwaitNativeState(_ controller: MobilePlaybackController) async {
-        let paused = expectation(description: "VLC publishes its native paused-state callback")
-        let subscription = NotificationCenter.default.publisher(
-            for: Notification.Name("VLCMediaPlayerStateChanged"), object: controller.player)
-            .first { _ in controller.player.state == .paused && !controller.player.isPlaying }
-            .sink { _ in paused.fulfill() }
-        defer { subscription.cancel() }
+    private func pauseMPVAndAwaitNativeState(_ controller: MobilePlaybackController) async throws {
         controller.toggle()
-        XCTAssertFalse(controller.isPlaying, "A manual pause must immediately update the controls, even before VLC acknowledges it")
-        await fulfillment(of: [paused], timeout: 5)
-        XCTAssertFalse(controller.player.isPlaying, "The actual decoder must also pause, not only the controls")
+        try await waitUntil("MPV acknowledges pause") { controller.mpvSession?.phase == .paused && !controller.isPlaying }
         XCTAssertFalse(controller.isPlaying)
-    }
-
-    func testNativeChoiceRendersThroughAppleVideoOrClearlyLabelsItsCompatibilityFallback() async throws {
-        let origin = try PlaybackFixtureServer(file: fixture("playback-native", "mp4"), contentType: "video/mp4")
-        defer { origin.stop() }
-        try await waitUntil("Native fixture origin did not start") { origin.port != nil }
-        let url = try XCTUnwrap(origin.url(path: "Videos/native-choice/stream"))
-        let (defaults, suite) = try preferences(.native)
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let controller = MobilePlaybackController(defaults: defaults)
-        let (window, _, previous) = try show(controller)
-        defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
-        controller.isLive = false
-        controller.start(urls: [url])
-        guard await waitForRenderedPicture(controller, route: "Native choice") else { return }
-        let session = try XCTUnwrap(controller.aetherSession)
-        #if !targetEnvironment(simulator)
-        XCTAssertTrue(controller.nativeCompatibilityActive, "The H.264 fixture must retain Apple's native video path on a device")
-        #endif
-        if controller.nativeCompatibilityActive {
-            XCTAssertTrue(session.isNativeVideo, "A Native label requires an actual AVPlayerLayer, not a sample-buffer decoder")
-            XCTAssertEqual(controller.engineTitle, "Native player · Compatibility")
-        } else {
-            XCTAssertEqual(controller.engineTitle, "AetherEngine · Fallback")
-            XCTAssertTrue(MobilePlaybackPreference.allowsNativeFallback(in: defaults))
-        }
-        XCTAssertEqual(controller.progress?.duration ?? 0, 36, accuracy: 1)
-        controller.toggle()
-        _ = try await pausedClock(controller, session: session)
-        XCTAssertFalse(controller.isPlaying)
-    }
-
-    func testStrictNativeChoiceRefusesASoftwareOnlySourceWithoutStartingAnotherDecoder() async throws {
-        let (defaults, suite) = try preferences(.native)
-        defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set(false, forKey: MobilePlaybackPreference.nativeFallbackKey)
-        let controller = MobilePlaybackController(defaults: defaults)
-        let (window, _, previous) = try show(controller)
-        defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
-        controller.isLive = false
-        controller.start(urls: [try fixture("playback-software", "mkv")])
-        try await waitUntil("A software-only source must report a native compatibility failure") { controller.error != nil }
-        XCTAssertEqual(controller.engine, .aether, "The compatibility layer must not silently select VLC")
-        XCTAssertTrue(controller.nativeCompatibilityActive)
-        XCTAssertFalse(controller.aetherSession?.isNativeVideo ?? true)
-        XCTAssertFalse(controller.isPlaying)
-        XCTAssertFalse(controller.loading)
     }
 
     private func fixture(_ name: String, _ ext: String) throws -> URL {
