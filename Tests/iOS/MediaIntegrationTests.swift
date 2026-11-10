@@ -98,7 +98,7 @@ final class MediaIntegrationTests: XCTestCase {
             case ("GET", "/jellyfin/u/home/system/info/public"):
                 return .json(#"{"aiostreams":{"features":{"users":1}}}"#)
             case ("GET", "/jellyfin/u/home/AIOStreams/Users"):
-                return .json(#"[{"user":{"Id":"b","Name":"Sam"},"needs":"password-pin"},{"user":{"Id":"c","Name":"Lee"},"needs":null}]"#)
+                return .json(#"[{"user":{"Id":"b","Name":"Sam","PrimaryImageTag":"picture-v2"},"needs":"password-pin"},{"user":{"Id":"c","Name":"Lee"},"needs":null}]"#)
             case ("POST", "/jellyfin/u/home/AIOStreams/Token"):
                 let body = try MediaIntegrationProtocol.body(request)
                 XCTAssertEqual(body["UserId"] as? String, "b")
@@ -113,6 +113,11 @@ final class MediaIntegrationTests: XCTestCase {
         let choices = try await media.profileChoices(on: source)
         XCTAssertEqual(choices.map(\.name), ["Sam", "Lee"])
         let sam = try XCTUnwrap(choices.first)
+        let avatar = try XCTUnwrap(sam.avatarURL)
+        XCTAssertEqual(avatar.path, "/jellyfin/u/home/Users/b/Images/Primary")
+        XCTAssertTrue(URLComponents(url: avatar, resolvingAgainstBaseURL: false)?.queryItems?.contains(
+            URLQueryItem(name: "tag", value: "picture-v2")) == true)
+        XCTAssertNil(choices.last?.avatarURL)
         guard case .household(.passwordPin) = sam.access else { return XCTFail("Expected password and PIN") }
         do {
             try await media.useProfile(sam, from: source, secret: "fixture/1234")
@@ -120,6 +125,42 @@ final class MediaIntegrationTests: XCTestCase {
         } catch MediaIntegrationError.unavailable { }
         XCTAssertEqual(media.profiles, [source])
         XCTAssertEqual(media.savedProfiles, [source])
+    }
+
+    @MainActor
+    func testSavedProfileUsesCurrentJellyfinAvatarWithoutDuplicatingPublicUser() async throws {
+        let suite = "ProfilePhotos.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var saved = MediaServerProfile(name: "Home", serverURL: "https://jellyfin-contract.test/mount",
+                                       username: "Alex", userID: "a")
+        saved.primaryImageTag = "old"
+        defaults.set(try JSONEncoder().encode([saved]), forKey: "NullSports.mediaServers")
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let client = try JellyfinClient(serverURL: saved.serverURL, deviceID: "fixture", session: network)
+        let media = MediaLibrary(defaults: defaults, trackingKey: { nil }, serverClientFactory: { _ in client })
+        MediaIntegrationProtocol.install { request in
+            if request.url?.path == "/mount/system/info/public" { return .json(#"{"Version":"10.10.0"}"#) }
+            XCTAssertEqual(request.url?.path, "/mount/Users/Public")
+            return .json(#"[{"Id":"A","Name":"Alex","PrimaryImageTag":"new"},{"Id":"b","Name":"Sam"}]"#)
+        }
+        let choices = try await media.profileChoices(on: saved)
+        XCTAssertEqual(choices.map(\.name), ["Alex", "Sam"])
+        let alex = try XCTUnwrap(choices.first)
+        guard case .saved = alex.access else { return XCTFail("Saved users should still switch without signing in") }
+        let url = try XCTUnwrap(alex.avatarURL)
+        XCTAssertEqual(url.path, "/mount/UserImage")
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertTrue(query.contains(URLQueryItem(name: "tag", value: "new")))
+        XCTAssertTrue(query.contains(URLQueryItem(name: "userId", value: "a")))
+        XCTAssertNil(choices.last?.avatarURL)
+        MediaIntegrationProtocol.install { request in
+            if request.url?.path == "/mount/system/info/public" { return .json(#"{"Version":"10.10.0"}"#) }
+            return .json(#"[{"Id":"a","Name":"Alex"}]"#)
+        }
+        let afterRemoval = try await media.profileChoices(on: saved)
+        XCTAssertNil(try XCTUnwrap(afterRemoval.first).avatarURL)
     }
 
     func testJellyfinPickerAndQuickConnectUseTheMountedServerAndApprovedUser() async throws {

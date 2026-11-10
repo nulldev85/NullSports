@@ -258,7 +258,10 @@ struct MediaItemCard: View {
     private var item: MediaItem { media.displayItem(originalItem) }
     var shape: MediaArtShape = .poster
 
-    init(item: MediaItem, shape: MediaArtShape = .poster) {
+    private let showsResumeProgress: Bool
+
+    init(item: MediaItem, shape: MediaArtShape = .poster, showsResumeProgress: Bool = false) {
+        self.showsResumeProgress = showsResumeProgress
         originalItem = item
         self.shape = shape
     }
@@ -367,7 +370,16 @@ struct MediaItemCard: View {
             .aspectRatio(shape.ratio, contentMode: .fit)
             .overlay { picture }
             .overlay(alignment: .bottom) {
-                if let playback { MediaArtworkProgress(playback: playback) }
+                if let playback {
+                    if showsResumeProgress {
+                        if !playback.watched, playback.fraction > 0 {
+                            MediaProgressTrack(fraction: playback.fraction, thickness: 3, rounded: false, rest: 0.28)
+                                .accessibilityHidden(true)
+                        }
+                    } else {
+                        MediaArtworkProgress(playback: playback)
+                    }
+                }
             }
         #endif
     }
@@ -408,7 +420,7 @@ struct MediaItemCard: View {
     /// A show's poster -- or an episode's, standing in for its show --
     /// counts episodes; anything else counts time.
     private var playbackPresentation: MediaCardPlayback? {
-        media.cardPlayback(for: item, asShow: item.isSeries || (shape.isPoster && item.type == "Episode"))
+        media.cardPlayback(for: item, asShow: !showsResumeProgress && (item.isSeries || (shape.isPoster && item.type == "Episode")))
     }
 
     /// The widest this card is ever drawn -- the top of the grid's adaptive

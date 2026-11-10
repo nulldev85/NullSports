@@ -10,6 +10,7 @@ struct MediaServerProfile: Codable, Identifiable, Equatable, Sendable {
     /// Jellyfin, so a server saved before then reads as the Jellyfin it was.
     var software: MediaServerBrand?
     var jellyfinServerID: String? = nil
+    var primaryImageTag: String? = nil
     var siloProfileID: String? = nil
 
     init(id: UUID = UUID(), name: String, serverURL: String, username: String, userID: String,
@@ -1239,7 +1240,10 @@ struct JellyfinItemsResponse: Codable, Sendable {
 struct JellyfinAuthenticationResponse: Codable, Sendable {
     struct User: Codable, Sendable { let id: String; let name: String
         var hasPassword: Bool? = nil
-        enum CodingKeys: String, CodingKey { case id = "Id", name = "Name", hasPassword = "HasPassword" }
+        var primaryImageTag: String? = nil
+        enum CodingKeys: String, CodingKey {
+            case id = "Id", name = "Name", hasPassword = "HasPassword", primaryImageTag = "PrimaryImageTag"
+        }
     }
     let user: User
     var serverID: String? = nil

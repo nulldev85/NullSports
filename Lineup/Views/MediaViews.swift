@@ -1663,7 +1663,7 @@ struct MediaCatalogsScreen: View {
             #endif
             #if !os(tvOS)
             let shape = MediaArtShape.forItems(items, shelfID: id)
-            MobileLibraryShelf(items: items, shape: shape) { item in
+            MobileLibraryShelf(items: items, shape: shape, showsResumeProgress: id == LibraryShelfOrder.continueWatching) { item in
                 if let page = pageItem(for: item, opensPages: opensPages) { pushed = page }
                 else { heroPlayableItem = item }
             }

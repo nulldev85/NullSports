@@ -841,7 +841,10 @@ final class MediaLibrary {
         var profile = MediaServerProfile(id: old?.id ?? UUID(),
             name: typed.isEmpty ? (old?.name ?? client.software.name) : typed,
             serverURL: address, username: authentication.user.name, userID: authentication.user.id, software: client.software)
-        if client.software == .jellyfin { profile.jellyfinServerID = serverID ?? old?.jellyfinServerID }
+        if client.software == .jellyfin {
+            profile.jellyfinServerID = serverID ?? old?.jellyfinServerID
+            profile.primaryImageTag = authentication.user.primaryImageTag
+        }
         try await adopt(profile, token: authentication.accessToken, replacing: existing)
     }
 
@@ -929,6 +932,7 @@ final class MediaLibrary {
     struct ProfileChoice: Identifiable {
         let id: String
         let name: String
+        var avatarURL: URL? = nil
         let access: ProfileAccess
     }
 
@@ -938,21 +942,33 @@ final class MediaLibrary {
         let info = try await client.publicInfo()
         if info.aiostreams?.supports("users") == true {
             return try await client.householdUsers().map {
-                ProfileChoice(id: $0.id, name: $0.user.name, access: .household($0.needs))
+                ProfileChoice(id: $0.id, name: $0.user.name,
+                    avatarURL: client.profileImageURL(userID: $0.id, tag: $0.user.primaryImageTag, info: info),
+                    access: .household($0.needs))
             }
         }
         let saved = savedProfiles.filter {
             $0.brand == .jellyfin && ($0.jellyfinAccountEndpoint == source.jellyfinAccountEndpoint ||
                 (source.jellyfinServerID != nil && $0.jellyfinServerID == source.jellyfinServerID))
         }
-        var choices = saved.map { ProfileChoice(id: $0.userID, name: $0.username, access: .saved($0)) }
-        let known = Set(choices.map(\.id))
         let users: [JellyfinAuthenticationResponse.User]
         do { users = try await client.publicUsers() }
-        catch JellyfinError.server(404) { return choices }
-        catch JellyfinError.server(405) { return choices }
-        choices += users.filter { !known.contains($0.id) }.map {
-            ProfileChoice(id: $0.id, name: $0.name, access: .signIn(needsPassword: $0.hasPassword ?? true))
+        catch JellyfinError.server(404) { users = [] }
+        catch JellyfinError.server(405) { users = [] }
+        var choices = saved.map { account in
+            let listed = users.first { $0.id.caseInsensitiveCompare(account.userID) == .orderedSame }
+            // A listed user with no tag removed their photo. An unlisted saved user
+            // may predate stored image tags; try their own user image in that case.
+            let tag = listed.map { $0.primaryImageTag } ?? account.primaryImageTag
+            return ProfileChoice(id: account.userID, name: account.username,
+                avatarURL: client.profileImageURL(userID: account.userID, tag: tag, info: info, tryUnlistedUser: listed == nil),
+                access: .saved(account))
+        }
+        let known = Set(saved.map { $0.userID.lowercased() })
+        choices += users.filter { !known.contains($0.id.lowercased()) }.map {
+            ProfileChoice(id: $0.id, name: $0.name,
+                avatarURL: client.profileImageURL(userID: $0.id, tag: $0.primaryImageTag, info: info),
+                access: .signIn(needsPassword: $0.hasPassword ?? true))
         }
         return choices
     }

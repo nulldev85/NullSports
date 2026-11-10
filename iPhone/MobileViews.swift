@@ -767,6 +767,7 @@ struct MobileJellyfinProfilePicker: View {
                             if !needsPassword && !needsPIN { submission = UUID() }
                         } label: {
                             HStack {
+                                JellyfinProfileAvatar(name: choice.name, url: choice.avatarURL)
                                 Text(choice.name)
                                 Spacer()
                                 if choice.id == source.userID { Image(systemName: "checkmark").accessibilityLabel("Current profile") }

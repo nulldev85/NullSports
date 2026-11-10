@@ -68,6 +68,23 @@ struct JellyfinClient: Sendable {
         try await send(try request(path: "Users/Public"))
     }
 
+    func profileImageURL(userID: String, tag: String?, info: MediaServerPublicInfo?,
+                         tryUnlistedUser: Bool = false) -> URL? {
+        guard (tag?.isEmpty == false || tryUnlistedUser), !userID.isEmpty,
+              userID.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
+        let legacy = info?.kind == .jellyfin && info?.version.map {
+            $0.compare("10.9", options: .numeric) == .orderedAscending
+        } == true
+        var query = tag.map { [URLQueryItem(name: "tag", value: $0)] } ?? []
+        // The user-specific path also works before sign-in, when the picker
+        // doesn't know the server flavor yet. AIO's /UserImage is generic.
+        if info == nil || info?.kind == .aiostreams || legacy {
+            return authenticatedURL(path: "Users/\(userID)/Images/Primary", query: query)
+        }
+        query.append(URLQueryItem(name: "userId", value: userID))
+        return authenticatedURL(path: "UserImage", query: query)
+    }
+
     struct HouseholdUser: Decodable, Identifiable, Sendable {
         enum Secret: String, Decodable, Sendable { case pin, password, passwordPin = "password-pin" }
         let user: JellyfinAuthenticationResponse.User

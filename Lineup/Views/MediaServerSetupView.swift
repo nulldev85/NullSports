@@ -391,6 +391,32 @@ struct MediaServerPanel<Content: View>: View {
     #endif
 }
 
+#if os(iOS)
+struct JellyfinProfileAvatar: View {
+    let name: String
+    let url: URL?
+
+    var body: some View {
+        LineupArtView(url: url, width: 36) { image in
+            if let image {
+                image.resizable().scaledToFill()
+            } else {
+                ZStack {
+                    Circle().fill(LineupStyle.lightPurple.opacity(0.16))
+                    Text(String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased())
+                        .font(.inter(.headline, .semibold))
+                        .foregroundStyle(LineupStyle.lightPurple)
+                }
+            }
+        }
+        .frame(width: 36, height: 36)
+        .clipShape(Circle())
+        .id(url)
+        .accessibilityHidden(true)
+    }
+}
+#endif
+
 /// Jellyfin's or Emby's sign-in: where the server is, and whose account.
 private struct MediaServerSignInPanel: View {
     @Environment(MediaLibrary.self) private var media
@@ -402,6 +428,9 @@ private struct MediaServerSignInPanel: View {
     private enum Operation { case users, quickConnect }
     @State private var operation: Operation?
     @State private var users: [JellyfinAuthenticationResponse.User] = []
+    #if os(iOS)
+    @State private var avatars: [String: URL] = [:]
+    #endif
     @State private var code: String?
     @State private var signInMessage: String?
 
@@ -452,10 +481,19 @@ private struct MediaServerSignInPanel: View {
                     .disabled(addressIsEmpty || operation != nil)
                 if operation == .users { ProgressView("Finding profiles…") }
                 ForEach(users, id: \.id) { user in
-                    Button(user.name) {
+                    Button {
                         form.username = user.name
                         form.password = ""
                         users = []
+                    } label: {
+                        #if os(iOS)
+                        HStack {
+                            JellyfinProfileAvatar(name: user.name, url: avatars[user.id])
+                            Text(user.name)
+                        }
+                        #else
+                        Text(user.name)
+                        #endif
                     }
                 }
                 Button("Quick Connect") { begin(.quickConnect) }
@@ -479,6 +517,9 @@ private struct MediaServerSignInPanel: View {
         operation = nil
         code = nil
         users = []
+        #if os(iOS)
+        avatars = [:]
+        #endif
         signInMessage = nil
     }
 
@@ -497,6 +538,11 @@ private struct MediaServerSignInPanel: View {
                 let found = try await client.publicUsers()
                 guard current() else { return }
                 users = found
+                #if os(iOS)
+                for user in found {
+                    avatars[user.id] = client.profileImageURL(userID: user.id, tag: user.primaryImageTag, info: nil)
+                }
+                #endif
                 if found.isEmpty { signInMessage = "This server lists no public profiles. Enter your username to sign in." }
             case .quickConnect:
                 let challenge = try await client.beginQuickConnect()
