@@ -5,6 +5,32 @@ import UIKit
 
 @MainActor
 final class TVNavigationRenderingTests: XCTestCase {
+    func testScrollingPosterRowsReusesTrackingCredentialsAndSeesNewProgress() throws {
+        let suite = "TVPosterProgress.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let profile = MediaServerProfile(name: "Server", serverURL: "http://server.invalid", username: "viewer", userID: "viewer")
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        defaults.set(true, forKey: LibraryTrackingPreferences.mdbKey)
+        var credentialReads = 0
+        let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""), trackingKey: {
+            credentialReads += 1
+            return nil
+        })
+        let movie = item("movie", name: "Movie", profile: profile.id)
+        XCTAssertNil(media.cardPlayback(for: movie, asShow: false))
+        for position: Double in [300, 900] {
+            media.trackPlayback(of: movie, position: position, duration: 3_600)
+            media.flushLocalPlayback()
+            let before = credentialReads
+            for _ in 0..<100 {
+                let state = try XCTUnwrap(media.cardPlayback(for: movie, asShow: false))
+                XCTAssertEqual(state.fraction, position / 3_600, accuracy: 0.0001)
+            }
+            XCTAssertEqual(credentialReads, before)
+        }
+    }
+
     func testLibraryFocusDoesNotRebuildHistoryAndInactiveSourcesRefreshOnReturn() async throws {
         let suite = "TVLibraryBrowseRows.\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))

@@ -35,7 +35,7 @@ final class TVLibraryBrowseRows: ObservableObject {
             let favorites = media.favoriteMedia
             return Snapshot(continuing: Array(media.continueWatching.prefix(20)),
                 titles: favorites.filter { $0.type != "Episode" }, episodes: favorites.filter { $0.type == "Episode" },
-                hasHistory: !media.watchHistory.isEmpty)
+                hasHistory: media.hasWatchHistory)
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, self.observation == token else { return }

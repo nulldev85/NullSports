@@ -32,7 +32,7 @@ final class CloudSettingsSync: ObservableObject {
     private var syncInFlight = false
     private var needsSync = false
 
-    private struct Snapshot: Codable {
+    private struct Snapshot: Codable, Sendable {
         var updatedAt: Date
         var values: [String: Data]
         var providerPasswords: [String: String]
@@ -87,7 +87,17 @@ final class CloudSettingsSync: ObservableObject {
         }
         do {
             let remote = try? await database.record(for: recordID)
-            let local = capture()
+            let updatedAt = defaults.object(forKey: "Lineup.cloudSettingsUpdatedAt") as? Date
+            var local = await Task.detached(priority: .utility) {
+                Self.capture(updatedAt: updatedAt ?? .distantPast)
+            }.value
+            // A setting can change while the worker reads preferences and Keychain.
+            // Take a fresh snapshot before stamping or uploading those values.
+            guard updatedAt == (defaults.object(forKey: "Lineup.cloudSettingsUpdatedAt") as? Date) else {
+                needsSync = true
+                return
+            }
+            local.changedAt = stampChanges(local.values, lastChange: local.updatedAt)
             let incoming = remote.flatMap { $0.encryptedValues["payload"] as? Data }
                 .flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) }
             guard let incoming else {
@@ -127,7 +137,8 @@ final class CloudSettingsSync: ObservableObject {
         Task { await sync() }
     }
 
-    private func capture() -> Snapshot {
+    nonisolated private static func capture(updatedAt: Date) -> Snapshot {
+        let defaults = UserDefaults.standard
         var values: [String: Data] = [:]
         for key in Self.syncedKeys {
             if let value = defaults.object(forKey: key),
@@ -143,7 +154,6 @@ final class CloudSettingsSync: ObservableObject {
         }
         let providerIDs = (try? JSONDecoder().decode([XtreamProfile].self, from: defaults.data(forKey: "NullSports.profiles") ?? Data()))?.map(\.id) ?? []
         let mediaIDs = (try? JSONDecoder().decode([MediaServerProfile].self, from: defaults.data(forKey: "NullSports.mediaServers") ?? Data()))?.map(\.id) ?? []
-        let updatedAt = defaults.object(forKey: "Lineup.cloudSettingsUpdatedAt") as? Date ?? .distantPast
         return Snapshot(
             updatedAt: updatedAt,
             values: values,
@@ -152,8 +162,7 @@ final class CloudSettingsSync: ObservableObject {
             }),
             mediaTokens: Dictionary(uniqueKeysWithValues: mediaIDs.compactMap { id in
                 MediaKeychainStore.token(profileID: id).map { (id.uuidString, $0) }
-            }),
-            changedAt: stampChanges(values, lastChange: updatedAt)
+            })
         )
     }
 

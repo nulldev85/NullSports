@@ -409,7 +409,14 @@ struct MediaStreamRow: View {
     var body: some View {
         Group {
             if serverFormat, let lines = source.formatterLines {
+                #if os(tvOS)
+                HStack(alignment: .top, spacing: Style.rowGap) {
+                    formatted(lines)
+                    measures
+                }
+                #else
                 formatted(lines)
+                #endif
             } else {
                 lineupLayout
             }

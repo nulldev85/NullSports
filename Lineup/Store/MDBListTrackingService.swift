@@ -22,7 +22,7 @@ final class MDBListTrackingService {
     @ObservationIgnored var onSnapshot: (([MDBListTrackingRecord]) -> Void)?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let session: URLSession
-    @ObservationIgnored private var account: Int?
+    @ObservationIgnored private(set) var account: Int?
     @ObservationIgnored private var key: String?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var revision = 0

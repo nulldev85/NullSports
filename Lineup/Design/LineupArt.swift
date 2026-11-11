@@ -244,7 +244,7 @@ extension LineupArt {
               (fetched.1 as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
               !Task.isCancelled else { return nil }
         let data = fetched.0
-        let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+        let worker = Task.detached(priority: .utility) { () -> UIImage? in
             guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
             let count = CGImageSourceGetCount(source)
             guard count > 1 else { return nil }
@@ -258,13 +258,19 @@ extension LineupArt {
             var frames: [UIImage] = []
             var total: Double = 0
             for index in Swift.stride(from: 0, to: count, by: step) {
+                guard !Task.isCancelled else { return nil }
                 guard let frame = CGImageSourceCreateThumbnailAtIndex(source, index, options) else { continue }
                 frames.append(UIImage(cgImage: frame))
-                for skipped in index..<min(index + step, count) { total += frameDelay(source, at: skipped) }
+                for skipped in index..<min(index + step, count) {
+                    guard !Task.isCancelled else { return nil }
+                    total += frameDelay(source, at: skipped)
+                }
             }
             guard frames.count > 1 else { return nil }
             return UIImage.animatedImage(with: frames, duration: total > 0 ? total : Double(frames.count) / 12)
-        }.value
+        }
+        let image = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+        guard !Task.isCancelled else { return nil }
         if let image, let first = image.images?.first {
             let cost = Int(first.size.width * first.size.height * first.scale * first.scale * 4) * (image.images?.count ?? 1)
             animations.setObject(image, forKey: key, cost: cost)

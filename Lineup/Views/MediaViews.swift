@@ -1035,7 +1035,9 @@ struct MediaCatalogsScreen: View {
                 #else
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: itemSpacing) {
-                        ForEach(Array(catalog.items.enumerated()), id: \.element.libraryKey) { index, item in
+                        let items = catalog.items
+                        let indexed = items.indices.lazy.map { (index: $0, element: items[$0]) }
+                        ForEach(indexed, id: \.element.libraryKey) { index, item in
                             Group {
                                 if item.opensPage {
                                     #if os(tvOS)

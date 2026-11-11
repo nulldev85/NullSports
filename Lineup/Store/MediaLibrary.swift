@@ -243,7 +243,21 @@ final class MediaLibrary {
     /// Playback state owned by this device. It deliberately does not travel
     /// through CloudSettingsSync: "local" means a shared Apple TV and a phone
     /// can keep separate places without surprising one another.
-    private(set) var localPlayback: [LocalMediaPlayback] = []
+    private(set) var localPlayback: [LocalMediaPlayback] = [] {
+        didSet { playbackRowsRevision &+= 1 }
+    }
+    private var playbackRowsRevision = 0
+    private struct PlaybackRows {
+        let revision: Int
+        let connected: Set<UUID>
+        let usesMDB: Bool
+        let playing: Set<String>
+        let records: [LocalMediaPlayback]
+        let positions: [String: Int]
+    }
+    @ObservationIgnored private var cachedPlaybackRows: PlaybackRows?
+    @ObservationIgnored private var batchingPlaybackWrites = false
+    @ObservationIgnored private var playbackWritePending = false
     private(set) var localTrackingEnabled = true
     /// Progress shared with the viewer's Jellyfin, Emby and AIOStreams
     /// servers: Lineup tells the server what is playing and where, as every
@@ -304,7 +318,9 @@ final class MediaLibrary {
     @ObservationIgnored private var trackingContext: String?
     @ObservationIgnored private var trackingImport: Task<Void, Never>?
     @ObservationIgnored private var trackingRefresh: Task<Void, Never>?
-    private var remoteMDBPlayback: [LocalMediaPlayback] = []
+    private var remoteMDBPlayback: [LocalMediaPlayback] = [] {
+        didSet { playbackRowsRevision &+= 1 }
+    }
     private var remoteMDBAccount: Int?
     private struct MDBPlaybackSession {
         let item: MediaItem
@@ -437,7 +453,9 @@ final class MediaLibrary {
                 siloFavorites: siloFavorites?.map { $0.servedBy(profile.id) })
         }
     }
-    private var nativeSiloRecords: [UUID: [LocalMediaPlayback]] = [:]
+    private var nativeSiloRecords: [UUID: [LocalMediaPlayback]] = [:] {
+        didSet { playbackRowsRevision &+= 1 }
+    }
     private var nativeSiloFavorites: [UUID: [MediaItem]] = [:]
     private struct LibraryWrite: Sendable {
         let snapshot: LibrarySnapshot
@@ -738,6 +756,8 @@ final class MediaLibrary {
             return nil
         }
     }
+
+    var hasWatchHistory: Bool { playbackForConnectedServers.contains(where: \.completed) }
 
     /// Bound the visible history without deleting durable watched state.
     var watchHistory: [LocalMediaPlayback] {
@@ -2022,7 +2042,8 @@ final class MediaLibrary {
         guard let profileID = serverID(of: item) else { return nil }
         if item.type != "Episode" {
             if let held = heldPlayback, held.profileID == profileID, held.item.id == item.id { return held }
-            return playbackForConnectedServers.first { $0.profileID == profileID && $0.item.id == item.id }
+            let rows = playbackRows
+            return rows.positions[profileID.uuidString + "|" + item.id].map { rows.records[$0] }
         }
         var records = playbackForConnectedServers.filter { $0.profileID == profileID && Self.samePlaybackItem($0.item, item) }
         if let held = heldPlayback, held.profileID == profileID, Self.samePlaybackItem(held.item, item) {
@@ -2055,13 +2076,12 @@ final class MediaLibrary {
         var best: LocalMediaPlayback?
         for record in playbackForConnectedServers where record.profileID == profileID {
             guard record.item.type == "Episode",
-                  usableQueuedPosition(record),
                   (record.explicitlyUnwatched != true || record.isUpNext == true) else { continue }
             let belongsToSeries: Bool
             if let seriesID = record.item.seriesID { belongsToSeries = seriesID == item.id }
             else { belongsToSeries = record.item.seriesName?
                 .localizedCaseInsensitiveCompare(item.name) == .orderedSame }
-            guard belongsToSeries else { continue }
+            guard belongsToSeries, usableQueuedPosition(record) else { continue }
             if let existing = best {
                 if Self.prefersForDisplay(record, over: existing) { best = record }
             } else {
@@ -3156,14 +3176,23 @@ final class MediaLibrary {
         return sources
     }
 
-    private var playbackForConnectedServers: [LocalMediaPlayback] {
+    private var playbackForConnectedServers: [LocalMediaPlayback] { playbackRows.records }
+
+    /// All visible cards share the same account-scoped history. Resolve the
+    /// merge once and keep its item index for exact progress lookups.
+    private var playbackRows: PlaybackRows {
         let connected = recordSources
-        var records = localPlayback.filter { connected.contains($0.profileID) }
-        let mdb = localTrackingEnabled && mdbListTrackingEnabled && remoteMDBAccount == trackingAccountID ? remoteMDBPlayback : []
-        let remoteRecords = mdb + nativeSiloRecords.values.flatMap({ $0 })
-        guard !remoteRecords.isEmpty else { return records }
-        var positions = Dictionary(records.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
+        let usesMDB = localTrackingEnabled && mdbListTrackingEnabled && remoteMDBAccount != nil
+            && remoteMDBAccount == mdbListTracking.account
         let active = Set(playbackSessions.values.filter(\.hasAdvanced).map { $0.profileID.uuidString + "|" + $0.item.id })
+        if let cached = cachedPlaybackRows, cached.revision == playbackRowsRevision,
+           cached.connected == connected, cached.usesMDB == usesMDB, cached.playing == active {
+            return cached
+        }
+        var records = localPlayback.filter { connected.contains($0.profileID) }
+        let mdb = usesMDB ? remoteMDBPlayback : []
+        let remoteRecords = mdb + nativeSiloRecords.values.flatMap({ $0 })
+        var positions = Dictionary(records.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
         for remote in remoteRecords where connected.contains(remote.profileID) {
             if let position = positions[remote.id] {
                 if active.contains(remote.id) || records[position].updatedAt >= remote.updatedAt { continue }
@@ -3173,7 +3202,10 @@ final class MediaLibrary {
                 records.append(remote)
             }
         }
-        return records
+        let rows = PlaybackRows(revision: playbackRowsRevision, connected: connected, usesMDB: usesMDB,
+                                playing: active, records: records, positions: positions)
+        cachedPlaybackRows = rows
+        return rows
     }
 
     /// A record saved before items carried their server gets it from the
@@ -3200,6 +3232,10 @@ final class MediaLibrary {
     }
 
     private func persistLocalPlayback() {
+        if batchingPlaybackWrites {
+            playbackWritePending = true
+            return
+        }
         guard let key = activeTrackingCacheKey else { return }
         if localPlayback.isEmpty {
             defaults.removeObject(forKey: key)
@@ -6094,43 +6130,61 @@ extension MediaLibrary {
         return target.valid ? target : nil
     }
 
+    private struct TrackingIndex: Sendable {
+        let byExternalID: [String: [MediaItem]]
+        let previous: [String: LocalMediaPlayback]
+    }
+
+    nonisolated private static func makeTrackingIndex(inventory: [MediaItem], provider: ProviderVOD.Catalog?,
+                                                       owners: Set<UUID>, saved: Data?) -> TrackingIndex? {
+        let cached = saved.flatMap { try? JSONDecoder().decode([LocalMediaPlayback].self, from: $0) } ?? []
+        var titles = inventory
+        if let provider {
+            titles += provider.films.map { ProviderVOD.item(for: $0, provider: provider.profileID) }
+            titles += provider.shows.map { ProviderVOD.item(for: $0, provider: provider.profileID) }
+        }
+        var index: [String: [MediaItem]] = [:]
+        for item in titles where item.type == "Movie" || item.type == "Series" {
+            guard !Task.isCancelled else { return nil }
+            for (provider, id) in MDBListTrackingTarget.normalizedIDs(LibraryMetadataIdentity.ids(item)) {
+                index[item.type + "|" + provider + ":" + id, default: []].append(item)
+            }
+        }
+        let inventoryByID = Dictionary(titles.map { ($0.libraryKey, $0) }, uniquingKeysWith: { first, _ in first })
+        for value in cached where value.item.type == "Movie" && owners.contains(value.profileID) {
+            let item = inventoryByID[value.item.libraryKey] ?? value.item
+            guard item.type == "Movie" else { continue }
+            let ids = MDBListTrackingTarget.normalizedIDs(value.mdbMovieIDs ?? LibraryMetadataIdentity.ids(value.item))
+            let inventoryIDs = LibraryMetadataIdentity.ids(item)
+            guard !inventoryIDs.contains(where: { provider, id in
+                ids[provider].map { cachedID in cachedID != id } == true
+            }) else { continue }
+            for (provider, id) in ids {
+                index["Movie|" + provider + ":" + id, default: []].append(item)
+            }
+        }
+        let previous = Dictionary(cached.map { ($0.id, $0) }, uniquingKeysWith: { $0.updatedAt > $1.updatedAt ? $0 : $1 })
+        return TrackingIndex(byExternalID: index, previous: previous)
+    }
+
     private func importMDBTracking(_ records: [MDBListTrackingRecord]) {
         guard mdbListTrackingEnabled, trackingAccountID != nil, mdbListTracking.hasSnapshot else { return }
         trackingImport?.cancel()
         let token = trackingRevision, started = Date(), account = trackingAccountID
         let localMode = localTrackingEnabled
-        let cached = account.flatMap { defaults.data(forKey: LibraryTrackingPreferences.cacheKey($0)) }
-            .flatMap { try? JSONDecoder().decode([LocalMediaPlayback].self, from: $0) } ?? []
-        let knownPlayback = Dictionary(cached.map { ($0.id, $0) }, uniquingKeysWith: { a, b in a.updatedAt > b.updatedAt ? a : b })
+        let saved = account.flatMap { defaults.data(forKey: LibraryTrackingPreferences.cacheKey($0)) }
         trackingImport = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
             let inventory: (items: [MediaItem], failure: Error?) = records.isEmpty
                 ? ([], nil) : await self.combinedInventory()
             guard inventory.failure == nil, !Task.isCancelled else { return }
-            var titles = inventory.items
-            if let ready = self.providerVOD.ready {
-                titles += ready.catalog.films.map { ProviderVOD.item(for: $0, provider: ready.catalog.profileID) }
-                titles += ready.catalog.shows.map { ProviderVOD.item(for: $0, provider: ready.catalog.profileID) }
+            let provider = records.isEmpty ? nil : self.providerVOD.ready?.catalog
+            let owners = self.recordSources
+            let worker = Task.detached(priority: .utility) {
+                Self.makeTrackingIndex(inventory: inventory.items, provider: provider, owners: owners, saved: saved)
             }
-            var index: [String: [MediaItem]] = [:]
-            for item in titles where ["Movie", "Series"].contains(item.type) {
-                for (provider, id) in MDBListTrackingTarget.normalizedIDs(LibraryMetadataIdentity.ids(item)) {
-                    index[item.type + "|" + provider + ":" + id, default: []].append(item)
-                }
-            }
-            let inventoryByID = Dictionary(titles.map { ($0.libraryKey, $0) }, uniquingKeysWith: { first, _ in first })
-            for value in cached where value.item.type == "Movie" && self.recordSources.contains(value.profileID) {
-                let item = inventoryByID[value.item.libraryKey] ?? value.item
-                guard item.type == "Movie" else { continue }
-                let ids = MDBListTrackingTarget.normalizedIDs(value.mdbMovieIDs ?? LibraryMetadataIdentity.ids(value.item))
-                let inventoryIDs = LibraryMetadataIdentity.ids(item)
-                guard !inventoryIDs.contains(where: { provider, id in
-                    ids[provider].map { cachedID in cachedID != id } == true
-                }) else { continue }
-                for (provider, id) in ids {
-                    index["Movie|" + provider + ":" + id, default: []].append(item)
-                }
-            }
+            let prepared = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+            guard let prepared, !Task.isCancelled else { return }
             var episodeCache: [String: [MediaItem]] = [:]
             var imported: [String: LocalMediaPlayback] = [:]
             for record in records {
@@ -6138,7 +6192,7 @@ extension MediaLibrary {
                 var matched: [String: MediaItem] = [:]
                 let kind = record.target.kind == .movie ? "Movie" : "Series"
                 for (provider, id) in record.target.ids {
-                    for item in index[kind + "|" + provider + ":" + id] ?? [] { matched[item.libraryKey] = item }
+                    for item in prepared.byExternalID[kind + "|" + provider + ":" + id] ?? [] { matched[item.libraryKey] = item }
                 }
                 for item in matched.values {
                     var target = item
@@ -6163,7 +6217,7 @@ extension MediaLibrary {
                         target = episode
                     }
                     guard let profile = self.serverID(of: target) else { continue }
-                    let previous = knownPlayback[profile.uuidString + "|" + target.id]
+                    let previous = prepared.previous[profile.uuidString + "|" + target.id]
                     let observedDuration = previous?.nativeDuration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
                     if record.state == .progress, observedDuration == nil, (target.runTimeTicks ?? 0) <= 0, record.runtime <= 0 {
                         do { target = try await self.details(of: target) }
@@ -6425,6 +6479,16 @@ extension MediaLibrary {
         }
         #endif
 
+        // Apply this server response synchronously. Each Up Next entry can
+        // request persistence, but the complete history needs only one write.
+        batchingPlaybackWrites = true
+        defer {
+            batchingPlaybackWrites = false
+            if playbackWritePending {
+                playbackWritePending = false
+                persistLocalPlayback()
+            }
+        }
         var records = localPlayback
         var changed = false
         // Finished on another device since it was last played here: it
