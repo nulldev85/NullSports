@@ -36,6 +36,7 @@ protocol TVPlaybackBackend: AnyObject {
     var isPlaying: Bool { get }
     var hasVideoOut: Bool { get }
     var videoSize: CGSize { get }
+    func playbackMetadata() -> (info: PlaybackMediaInfo, pictureSize: CGSize)
     var mediaInfo: PlaybackMediaInfo { get }
     var duration: TimeInterval { get }
     var time: TimeInterval { get }
@@ -62,6 +63,7 @@ protocol TVPlaybackBackend: AnyObject {
     /// The picture on screen now, for Auto Sync to read the scoreboard in.
     /// Nil when there is none to give yet.
     func captureFrame() async -> CapturedVideoFrame?
+    func captureAmbientFrame() async -> CapturedVideoFrame?
     /// Done reading frames: anything attached to read them comes off.
     func releaseFrameOutput()
     /// The languages the next `load` opens with.
@@ -73,6 +75,11 @@ protocol TVPlaybackBackend: AnyObject {
     /// A subtitle file added to what is playing, and chosen. False if the
     /// engine would not take it.
     func addSubtitle(file: URL, title: String, language: String) -> Bool
+}
+
+extension TVPlaybackBackend {
+    func playbackMetadata() -> (info: PlaybackMediaInfo, pictureSize: CGSize) { (mediaInfo, .zero) }
+    func captureAmbientFrame() async -> CapturedVideoFrame? { await captureFrame() }
 }
 
 @MainActor
@@ -114,6 +121,9 @@ final class TVVLCBackend: TVPlaybackBackend {
     var hasVideoOut: Bool { player.hasVideoOut }
     var videoSize: CGSize { player.videoSize }
     var mediaInfo: PlaybackMediaInfo { VLCPlaybackMediaInfo.read(player) }
+    func playbackMetadata() -> (info: PlaybackMediaInfo, pictureSize: CGSize) {
+        VLCPlaybackMediaInfo.snapshot(player)
+    }
     var duration: TimeInterval { Double(player.media?.length.intValue ?? 0) / 1000 }
     var time: TimeInterval { Double(player.time.intValue) / 1000 }
     var frames: Int? { player.media.map { Int($0.statistics.displayedPictures) } }
@@ -204,18 +214,34 @@ final class TVVLCBackend: TVPlaybackBackend {
     /// VLC writes the picture to a file on its own thread; it is read once
     /// it is whole, then thrown away.
     func captureFrame() async -> CapturedVideoFrame? {
-        guard player.hasVideoOut else { return nil }
+        await snapshot(width: 1280)
+    }
+
+    func captureAmbientFrame() async -> CapturedVideoFrame? {
+        await snapshot(width: 96)
+    }
+
+    private func snapshot(width: Int32) async -> CapturedVideoFrame? {
+        guard !Task.isCancelled, player.hasVideoOut else { return nil }
         let file = FileManager.default.temporaryDirectory
             .appendingPathComponent("lineup-scoreboard-\(UUID().uuidString).png")
-        player.saveVideoSnapshot(at: file.path, withWidth: 1280, andHeight: 0)
+        player.saveVideoSnapshot(at: file.path, withWidth: width, andHeight: 0)
+        let worker = Task.detached(priority: .utility) { await Self.readSnapshot(file) }
+        // VLC's write cannot be canceled. Let the reader clean up a late file
+        // even if the view that requested it has already gone away.
+        let image = await worker.value
+        return Task.isCancelled ? nil : image.map(CapturedVideoFrame.image)
+    }
+
+    nonisolated private static func readSnapshot(_ file: URL) async -> CGImage? {
         defer { try? FileManager.default.removeItem(at: file) }
         for _ in 0..<15 {
-            try? await Task.sleep(for: .milliseconds(100))
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return nil }
             guard let data = try? Data(contentsOf: file),
                   let source = CGImageSourceCreateWithData(data as CFData, nil),
                   CGImageSourceGetStatus(source) == .statusComplete,
                   let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { continue }
-            return .image(image)
+            return image
         }
         return nil
     }
@@ -258,6 +284,9 @@ final class TVAetherBackend: TVPlaybackBackend {
     var isPlaying: Bool { session?.isPlaying == true }
     var hasVideoOut: Bool { session?.hasPicture == true }
     var videoSize: CGSize { session?.videoSize ?? .zero }
+    func playbackMetadata() -> (info: PlaybackMediaInfo, pictureSize: CGSize) {
+        (mediaInfo, session?.displayedPictureSize ?? .zero)
+    }
     var mediaInfo: PlaybackMediaInfo { session?.mediaInfo ?? PlaybackMediaInfo() }
     var duration: TimeInterval { session?.duration ?? 0 }
     var time: TimeInterval { session?.position ?? 0 }
@@ -318,7 +347,7 @@ final class TVAetherBackend: TVPlaybackBackend {
     }
     func play() { session?.play() }
     func pause() { session?.pause() }
-    func stop() { session?.stop() }
+    func stop() { releaseFrameOutput(); session?.stop() }
     func seek(to seconds: TimeInterval) { session?.seek(to: seconds) }
     func selectSubtitle(index: Int?) { session?.selectSubtitle(index: index) }
     func selectAudio(index: Int) { session?.selectAudio(index: index) }

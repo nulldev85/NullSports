@@ -121,11 +121,16 @@ enum AppSearch {
         }
     }
 
+    static func liveResults(_ term: String, in snapshot: LiveSnapshot) async -> [AppSearchHit] {
+        let worker = Task.detached(priority: .userInitiated) { live(term, in: snapshot) }
+        return await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+    }
+
     /// Games, then channels, then the guide: what is live in front of what is
     /// on later, and each in the order it is most likely wanted.
     static func live(_ query: String, in snapshot: LiveSnapshot, now: Date = Date()) -> [AppSearchHit] {
         let wanted = words(of: query)
-        guard !wanted.isEmpty else { return [] }
+        guard !Task.isCancelled, !wanted.isEmpty else { return [] }
         let hits = games(wanted, snapshot, now: now) + channels(query, wanted, snapshot, now: now)
             + airings(wanted, snapshot, now: now)
         return hits.map { hit in
@@ -178,11 +183,14 @@ enum AppSearch {
             if name.range(of: phrase, options: options) != nil { return 1 }
             return 2
         }
-        let found = snapshot.channels.filter { channel in
-            !isRadio(channel) && matches(channel.name, words)
+        var found: [(channel: XtreamStream, rank: Int)] = []
+        for channel in snapshot.channels {
+            if Task.isCancelled { return [] }
+            if !isRadio(channel), matches(channel.name, words) {
+                found.append((channel, rank(channel.name)))
+            }
         }
-        return found.map { (channel: $0, rank: rank($0.name)) }
-            .sorted { left, right in
+        return found.sorted { left, right in
                 if left.rank != right.rank { return left.rank < right.rank }
                 return left.channel.name.localizedStandardCompare(right.channel.name) == .orderedAscending
             }
@@ -204,8 +212,9 @@ enum AppSearch {
         // A guide id can belong to several channels -- one in HD and one in
         // SD -- and its listings are shown once, on the first of them.
         var channelForGuide: [String: XtreamStream] = [:]
-        for channel in snapshot.channels where !isRadio(channel) {
-            guard let guide = channel.epgChannelID, !guide.isEmpty, channelForGuide[guide] == nil else { continue }
+        for channel in snapshot.channels {
+            if Task.isCancelled { return [] }
+            guard !isRadio(channel), let guide = channel.epgChannelID, !guide.isEmpty, channelForGuide[guide] == nil else { continue }
             channelForGuide[guide] = channel
         }
         struct Found {
@@ -217,8 +226,10 @@ enum AppSearch {
         // A title is checked once however many times it airs.
         var verdicts: [String: Bool] = [:]
         for (guide, listings) in snapshot.programs {
+            if Task.isCancelled { return [] }
             guard let channel = channelForGuide[guide] else { continue }
             for program in listings where program.end > now {
+                if Task.isCancelled { return [] }
                 let title = program.title
                 let hit: Bool
                 if let known = verdicts[title] { hit = known } else {

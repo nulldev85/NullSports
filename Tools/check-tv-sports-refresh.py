@@ -116,6 +116,9 @@ def main():
             helper.removeprefix("#if os(tvOS)\n").removesuffix("#endif\n"), encoding="utf-8")
         shutil.copyfile(ROOT / "Tests/tvOS/TVSportsRefreshTests.swift", tests / "TVSportsRefreshTests.swift")
         shutil.copyfile(ROOT / "Tests/tvOS/TVNavigationWorkTests.swift", tests / "TVNavigationWorkTests.swift")
+        if not args.phone:
+            shutil.copyfile(ROOT / "Lineup/Views/TVAmbientBands.swift", source / "TVAmbientBands.swift")
+            shutil.copyfile(ROOT / "Tests/tvOS/TVAmbientBandsTests.swift", tests / "TVAmbientBandsTests.swift")
         (package / "Package.swift").write_text('''// swift-tools-version: 5.9
 import PackageDescription
 let package = Package(name: "LineupTVRefreshChecks", platforms: [.macOS(.v13)], targets: [

@@ -28,7 +28,7 @@ struct TVSportsBoard: View {
 
     /// The game under the remote, as an index into the cards on screen: Back
     /// goes to the top from anywhere below the first row.
-    @State private var focusedCard: Int?
+    @State private var cardFocus = TVSportsCardFocus()
     @State private var topRequest = 0
     @Namespace private var scope
     @Environment(\.resetFocus) private var resetFocus
@@ -99,14 +99,7 @@ struct TVSportsBoard: View {
             }
         }
         .focusScope(scope)
-        .onExitCommand(perform: backAction)
-    }
-
-    /// Back from a game below the first row goes up to the sport and My
-    /// Teams; from there it is the system's, and goes up to the tabs.
-    private var backAction: (() -> Void)? {
-        guard let focusedCard, focusedCard >= Self.columns else { return nil }
-        return { topRequest &+= 1 }
+        .modifier(TVSportsBackAction(focus: cardFocus, returnToTop: { topRequest &+= 1 }))
     }
 
     // MARK: Header
@@ -202,8 +195,8 @@ struct TVSportsBoard: View {
                     TVSelectable(scale: 1.04, fillRadius: TVGameCard.radius, drawsFocusChrome: false,
                                  action: { onPlay(game) },
                                  onFocusChange: { focused in
-                                     if focused { focusedCard = position }
-                                     else if focusedCard == position { focusedCard = nil }
+                                     if focused { cardFocus.position = position }
+                                     else if cardFocus.position == position { cardFocus.position = nil }
                                  }) {
                         TVGameCard(game: game, showsDay: showsDay, isFirstOfMultiview: isPrimary)
                     }
@@ -239,6 +232,21 @@ struct TVSportsBoard: View {
             Text(detail).font(.inter(22, .medium)).foregroundStyle(LineupStyle.secondary)
         }
         .padding(.top, 40)
+    }
+}
+
+/// Only the Back handler observes focus. Moving between cards must not
+/// re-sort the schedule and rebuild every game's position.
+@Observable private final class TVSportsCardFocus {
+    var position: Int?
+}
+
+private struct TVSportsBackAction: ViewModifier {
+    let focus: TVSportsCardFocus
+    let returnToTop: () -> Void
+
+    func body(content: Content) -> some View {
+        content.onExitCommand(perform: (focus.position ?? 0) >= TVSportsBoard.columns ? returnToTop : nil)
     }
 }
 

@@ -18,21 +18,22 @@ struct MediaGridScreen: View {
     @Environment(MediaLibrary.self) private var media
     let title: String
     let sections: [MediaGridSection]
+    private let shape: MediaArtShape
     // tvOS pushes by hand because its cards are not NavigationLinks any more.
     @State private var pushed: MediaItem?
     @State private var choosingShelf = false
 
     init(title: String, items: [MediaItem]) {
         self.title = title
+        shape = .forItems(items)
         sections = [MediaGridSection(id: "all", title: nil, items: items)]
     }
 
     init(title: String, sections: [MediaGridSection]) {
         self.title = title
         self.sections = sections
+        shape = .forItems(sections.lazy.flatMap(\.items))
     }
-
-    private var items: [MediaItem] { sections.flatMap(\.items) }
 
     private var grid: some View {
         ScrollView {
@@ -102,8 +103,6 @@ struct MediaGridScreen: View {
             .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         #endif
     }
-
-    private var shape: MediaArtShape { .forItems(items) }
 
     private var columns: [GridItem] {
         #if os(tvOS)

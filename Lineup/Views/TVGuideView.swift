@@ -73,6 +73,7 @@ struct GuideView: View {
     @State private var reorderingFavorites = false
     /// Where the remote is taking focus, and which rows exist to take it.
     @State private var navigation = GuideNavigation()
+    @State private var programWindow = TVGuideProgramWindow()
     @State private var channelSnapshot = TVGuideChannelSnapshot.empty
     @State private var installedChannels: ChannelRequest?
     @State private var defaultPreview: TVGuideChannelSnapshot.Preview?
@@ -214,6 +215,7 @@ struct GuideView: View {
                                                 if guideViewMode == .tvGuide {
                                                     GuideChannelRow(
                                                         stream: stream,
+                                                        visiblePrograms: programs,
                                                         favoritesMode: favoritesOnly && !searchActive,
                                                         now: guideNow,
                                                         gridFocus: $gridFocus,
@@ -382,24 +384,23 @@ struct GuideView: View {
         sidebarFocus = nil
         withAnimation(.easeInOut(duration: 0.2)) { sidebarVisible = false }
         let channels = filtered
-        let stream = returnGridFocus.flatMap { previous in channels.first { $0.id == previous.streamID } } ?? channels.first
+        let stream = channelPosition(returnGridFocus?.streamID).map { channels[$0] } ?? channels.first
         guard let stream else {
             gridFocus = GuideGridFocus(streamID: -1, programStart: nil)
             return
         }
-        let anchor = guideTimelineAnchor(guideNow)
-        let end = anchor.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
-        let programs = library.guidePrograms(for: stream).filter { $0.end > anchor && $0.start < end }
         if guideViewMode == .list {
             gridFocus = GuideGridFocus(streamID: stream.id, programStart: nil)
         } else {
+            let programs = visibleGuidePrograms(for: stream)
             let restored = programs.first { $0.start == returnGridFocus?.programStart } ?? programs.first
             gridFocus = GuideGridFocus(streamID: stream.id, programStart: restored?.start)
         }
     }
 
     private func restoreGuideFocus(for rawValue: String) {
-        guard let stream = filtered.first(where: { $0.id == gridFocus?.streamID }) ?? filtered.first else { return }
+        let channels = filtered
+        guard let stream = channelPosition(gridFocus?.streamID).map({ channels[$0] }) ?? channels.first else { return }
         guard TVGuideViewMode.restored(rawValue) == .tvGuide else {
             gridFocus = GuideGridFocus(streamID: stream.id, programStart: nil)
             return
@@ -534,9 +535,9 @@ struct GuideView: View {
     private func visibleGuidePrograms(for stream: XtreamStream) -> [CurrentProgram] {
         let start = guideTimelineAnchor(guideNow)
         let end = start.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
-        return library.guidePrograms(for: stream)
-            .filter { $0.end > start && $0.start < end }
-            .sorted { $0.start < $1.start }
+        guard let channel = stream.epgChannelID else { return [] }
+        return programWindow.programs(channel: channel, library: ObjectIdentifier(library), revision: library.guideRevision,
+                                      start: start, end: end) { library.guidePrograms(for: stream) }
     }
 
     /// A channel's recording full screen: a programme from the past, or with
@@ -1190,6 +1191,7 @@ private struct GuideChannelRow: View {
     @Environment(\.guideLayout) private var layout
     @Environment(SportsLibrary.self) private var library
     let stream: XtreamStream
+    let visiblePrograms: [CurrentProgram]
     let favoritesMode: Bool
     let now: Date
     let gridFocus: FocusState<GuideGridFocus?>.Binding
@@ -1203,15 +1205,6 @@ private struct GuideChannelRow: View {
     let onCatchUp: () -> Void
     let onMoveFocus: (MoveCommandDirection, GuideGridFocus) -> Void
     let onFocusProgram: (CurrentProgram) -> Void
-    private var programs: [CurrentProgram] { library.guidePrograms(for: stream) }
-
-    private var visiblePrograms: [CurrentProgram] {
-        let start = guideTimelineAnchor(now)
-        let end = start.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
-        return programs.filter { $0.end > start && $0.start < end }
-            .sorted { $0.start < $1.start }
-    }
-
     var body: some View {
         HStack(spacing: 0) {
             // On the guide's own ground, as on the phone: no plate behind it.
@@ -1227,7 +1220,8 @@ private struct GuideChannelRow: View {
                     GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
                         .frame(width: layout.slotWidth - 6, alignment: .leading)
                 } else {
-                    ForEach(Array(visiblePrograms.enumerated()), id: \.offset) { _, program in
+                    ForEach(visiblePrograms.indices, id: \.self) { index in
+                        let program = visiblePrograms[index]
                         let width = guideProgramWidth(program, now: now, layout: layout)
                         let focusID = GuideGridFocus(streamID: stream.id, programStart: program.start)
                         GuideProgramCell(program: program, empty: "", quality: guideQuality(stream), now: now, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) }, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })

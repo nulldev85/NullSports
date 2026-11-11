@@ -164,7 +164,7 @@ struct AppSearchView: View {
         // Each letter typed restarts this; only a pause searches.
         do { try await Task.sleep(for: .milliseconds(320)) } catch { return }
         let snapshot = liveSnapshot()
-        let live = await Task.detached(priority: .userInitiated) { AppSearch.live(term, in: snapshot) }.value
+        let live = await AppSearch.liveResults(term, in: snapshot)
         guard !Task.isCancelled else { return }
         let vod = await media.searchProviderVOD(term).map { found in
             let provider = library.profiles.first { $0.id == found.item.serverID }
@@ -211,8 +211,7 @@ struct AppSearchView: View {
             providerResultsTask?.cancel()
             let snapshot = liveSnapshot()
             providerResultsTask = Task { @MainActor in
-                let work = Task.detached(priority: .userInitiated) { AppSearch.live(term, in: snapshot) }
-                let found = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
+                let found = await AppSearch.liveResults(term, in: snapshot)
                 guard !Task.isCancelled, providerSearchID == request else { return }
                 results.live = found
             }

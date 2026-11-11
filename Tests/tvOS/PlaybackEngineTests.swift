@@ -148,6 +148,32 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(TVPlaybackEngine.selected(for: .library, in: fixture.defaults), .aether)
     }
 
+    func testImmersiveTracksTheCurrentPresentationAndSharesFrameOutputWithAutoSync() async throws {
+        let fixture = try Fixture()
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url])
+        let generation = controller.ambientGeneration
+        fixture.vlc.pictureSize = CGSize(width: 1920, height: 800)
+        controller.checkPlayback()
+        XCTAssertEqual(controller.ambientPictureSize, fixture.vlc.pictureSize)
+        _ = await controller.captureFrame()
+        let reader = UUID()
+        _ = await controller.captureAmbientFrame(reader: reader)
+        controller.releaseFrameOutput(reader: reader)
+        XCTAssertEqual(fixture.vlc.outputReleases, 0)
+        controller.releaseFrameOutput()
+        XCTAssertEqual(fixture.vlc.outputReleases, 1)
+
+        fixture.vlc.pictureSize = CGSize(width: 1920, height: 1080)
+        controller.checkPlayback()
+        XCTAssertEqual(controller.ambientPictureSize, fixture.vlc.pictureSize)
+        controller.start(urls: [Fixture.url])
+        XCTAssertNotEqual(controller.ambientGeneration, generation)
+        XCTAssertEqual(controller.ambientPictureSize, .zero)
+    }
+
     func testInfoReportsActualEngineAndSettingChangesApplyToTheNextStream() throws {
         let fixture = try Fixture()
         defer { fixture.clean() }
@@ -540,6 +566,9 @@ private final class MockTVBackend: TVPlaybackBackend {
     var hasVideoOut: Bool { isOpen }
     var videoSize: CGSize { CGSize(width: 1920, height: 1080) }
     var mediaInfo = PlaybackMediaInfo()
+    var pictureSize = CGSize.zero
+    var outputReleases = 0
+    func playbackMetadata() -> (info: PlaybackMediaInfo, pictureSize: CGSize) { (mediaInfo, pictureSize) }
     var duration: TimeInterval = 3_600
     var time: TimeInterval = 0
     var frames: Int? { nil }
@@ -576,7 +605,7 @@ private final class MockTVBackend: TVPlaybackBackend {
     func selectAudio(index: Int) { selectedAudioIndex = index }
     func selectVideo(index: Int) { selectedVideoIndex = index }
     func captureFrame() async -> CapturedVideoFrame? { nil }
-    func releaseFrameOutput() {}
+    func releaseFrameOutput() { outputReleases += 1 }
     var openingLanguages = PlaybackLanguages()
     var subtitleStyle = PlaybackSubtitleStyle()
     var addedSubtitles: [URL] = []

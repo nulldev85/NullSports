@@ -84,7 +84,8 @@ struct RootView: View {
         // a game starting, close at the end, or going to overtime is held
         // for a player to show over the picture.
         .onChange(of: library.gamesRevision, initial: true) {
-            GameAlertCenter.shared.observe(library.gamesByLeague.values.flatMap { $0 }, isFollowing: library.isFollowing)
+            let games = library.followedTeams.isEmpty ? [] : library.gamesByLeague.values.flatMap { $0 }
+            GameAlertCenter.shared.observe(games, isFollowing: library.isFollowing)
         }
         #if os(tvOS)
         .tvChoices("Couldn’t Connect", symbol: "exclamationmark.triangle",
