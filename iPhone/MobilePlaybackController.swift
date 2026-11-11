@@ -247,6 +247,9 @@ final class MobilePlaybackController: ObservableObject {
     /// How long a live stream may stay without a picture before it is
     /// judged dead: shorter for a game, which has other channels to try.
     private var startupLimit: TimeInterval { isLive && failover != nil ? 15 : 30 }
+    #if targetEnvironment(simulator)
+    private static var hasOpenedMPV = false
+    #endif
     private var retryAt: TimeInterval?
     // Starting together; see `StartTogether`.
     /// Shut from the moment a stream is opened until its picture moves.
@@ -908,6 +911,15 @@ final class MobilePlaybackController: ObservableObject {
                 view.installEngineSurface(session.surface)
             }
             closeStartGate()
+            #if targetEnvironment(simulator)
+            // The simulator compiles MoltenVK's Metal shaders on first use.
+            // A cold movie open gets one bounded allowance per process.
+            if !Self.hasOpenedMPV && !isLive {
+                health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime, stallLimit: 30,
+                                            neverPlayedLimit: 75)
+            }
+            Self.hasOpenedMPV = true
+            #endif
             session.load(url: url, startPosition: isLive ? nil : openingPlace,
                          isLive: isLive && !sourceIsRecording,
                          preferredSubtitleLanguage: preferredSubtitleLanguages.first,
