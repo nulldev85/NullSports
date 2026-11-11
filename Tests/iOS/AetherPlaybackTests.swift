@@ -323,12 +323,27 @@ final class AetherPlaybackTests: XCTestCase {
         defer { controller.shutdown(); window.isHidden = true; previous?.makeKey() }
         let playing = expectation(description: "MPV publishes playing picture and discovered embedded tracks")
         let subscription = controller.$loading.combineLatest(controller.$isPlaying, controller.$subtitleTracks)
-            .first { loading, playing, tracks in controller.engine == .mpv && !loading && playing && tracks.count > 1 }
+            .first { loading, playing, tracks in
+                controller.engine == .mpv && controller.mpvSession?.hasVideoOut == true
+                    && !loading && playing && tracks.count > 1
+            }
             .sink { _ in playing.fulfill() }
         defer { subscription.cancel() }
         controller.isLive = false
         controller.start(urls: [url])
+        #if targetEnvironment(simulator)
+        // Includes audio activation, first-use simulator shader compilation,
+        // and delivery of the real picture and track list to the controller.
+        await fulfillment(of: [playing], timeout: 90)
+        #else
         await fulfillment(of: [playing], timeout: 30)
+        #endif
+        guard controller.engine == .mpv, controller.mpvSession?.hasVideoOut == true,
+              controller.isPlaying, !controller.loading, controller.subtitleTracks.count > 1 else {
+            let state = controller.diagnosticsSnapshot.map { "\($0.label): \($0.value)" }.joined(separator: "\n")
+            XCTFail("MPV lost readiness before the subtitle check.\n\(state)")
+            return
+        }
         let oldIDs = Set(controller.subtitleTracks.map(\.id))
         let sessionID = controller.subtitleSessionID
         let player = try XCTUnwrap(controller.mpvSession)

@@ -282,7 +282,7 @@ struct MobileLiveView: View {
                             .accessibilityHidden(true)
                         MobileLeagueMenu(entries: leagueEntries(), selected: league,
                                          maxHeight: viewport.size.height - Self.headerHeight - 20) { choice in
-                            withAnimation(.easeInOut(duration: 0.18)) { league = choice }
+                            league = choice
                             setLeagueMenu(false)
                         }
                         // A column hung from the pill, down the left side:
@@ -583,7 +583,7 @@ struct MobileLiveView: View {
     /// control that can only disappoint.
     private var followedChip: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.18)) { onlyFollowed.toggle() }
+            onlyFollowed.toggle()
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: onlyFollowed ? "star.fill" : "star")
@@ -602,7 +602,13 @@ struct MobileLiveView: View {
     /// each event row separate lets its team colors identify it at a glance.
     private func slateSection(_ title: String, systemImage: String, detail: String,
                               games: [SportsGame], showsDay: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
+        Section {
+            ForEach(games) { game in
+                matchup(game, showsDay: showsDay)
+                    .padding(.horizontal, Self.inset)
+                    .padding(.bottom, game.id == games.last?.id ? LineupPanelStyle.gap : 9)
+            }
+        } header: {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
                     .font(.system(size: 13, weight: .heavy, design: .rounded))
@@ -617,12 +623,15 @@ struct MobileLiveView: View {
                     .foregroundStyle(title == "On Air" ? LineupStyle.liveStatus
                                                         : LineupPanelStyle.quiet.opacity(0.72))
             }
-            LazyVStack(spacing: 9) {
-                ForEach(games) { game in matchup(game, showsDay: showsDay) }
-            }
+            .padding(.horizontal, Self.inset)
+            .padding(.bottom, 9)
         }
-        .padding(.horizontal, Self.inset)
-        .padding(.bottom, LineupPanelStyle.gap)
+    }
+
+    private struct ScheduleFilter: Hashable {
+        let onlyFollowed: Bool
+        let league: SportsLeague?
+        let competition: String?
     }
 
     /// The list stays mounted underneath the player while it expands. Only the
@@ -679,6 +688,10 @@ struct MobileLiveView: View {
             .padding(.bottom, 16)
         }
         .refreshable { library.refreshSchedule(showsLoading: true) }
+        // A different schedule starts at its top with fresh row measurements.
+        // Live score updates retain the scroll position within that schedule.
+        .id(ScheduleFilter(onlyFollowed: onlyFollowed, league: league, competition: soccerCompetition))
+        .transition(.identity)
     }
 
     private func matchup(_ game: SportsGame, showsDay: Bool = false) -> some View {
