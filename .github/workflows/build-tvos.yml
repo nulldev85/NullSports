@@ -59,13 +59,15 @@ jobs:
             build-for-testing
 
   build:
-    if: ${{ github.event_name != 'push' || github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     # AetherEngine 7.49.0 is built and tested with Swift 6.4 / Xcode 27.
     runs-on: xcode-27
     timeout-minutes: 45
-    steps:
+    steps: &tvos_build_steps
       - name: Checkout source
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Configure Library metadata services
         env:
           LINEUP_TMDB_TOKEN: ${{ secrets.LINEUP_TMDB_TOKEN }}
@@ -289,12 +291,38 @@ jobs:
           zip -qry ../Lineup-unsigned.ipa Payload
 
       - name: Upload IPA
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/upload-artifact@v6
         with:
           name: Lineup-tvOS-unsigned-IPA
           path: Lineup-unsigned.ipa
           if-no-files-found: error
           retention-days: ${{ github.ref == 'refs/heads/main' && 14 || 7 }}
+
+      - name: Deliver manual IPA in a draft release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_TAG: test-tvos-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          ipa=Lineup-unsigned.ipa
+          test -s "$ipa"
+          shasum -a 256 "$ipa" > "$ipa.sha256"
+          release_url=$(gh release create "$TEST_TAG" "$ipa" "$ipa.sha256" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --latest=false \
+            --title "Lineup tvOS test build $GITHUB_RUN_NUMBER" \
+            --notes "Manual Apple TV test build from $GITHUB_SHA.")
+          test -n "$release_url"
+          printf 'Download **%s** from the [draft test release](%s).\n' "$ipa" "$release_url" >> "$GITHUB_STEP_SUMMARY"
+
+  manual-build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: xcode-27
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps: *tvos_build_steps
 
   source-release:
     needs: [build]
