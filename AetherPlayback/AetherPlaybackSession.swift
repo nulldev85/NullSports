@@ -50,6 +50,23 @@ public final class AetherPlaybackSession {
         return engine.softwareDisplaySize ?? .zero
     }
     public var surface: UIView { canvas }
+    #if os(tvOS)
+    public var liveTimingSummary: String? {
+        guard liveSource, isOpen, engine.videoRoute != .none else { return nil }
+        var details = ["Aether route " + engine.videoRoute.rawValue]
+        if let telemetry = engine.liveTelemetry {
+            // This is the remuxer's start-gate gap, not an audible lip-sync measurement.
+            if let gap = telemetry.avSyncGapMs, gap.isFinite {
+                details.append(String(format: "audio/video gate gap %.0f ms", gap))
+            }
+            if let drops = telemetry.droppedFrameCount { details.append("dropped frames \(drops)") }
+            if let delay = telemetry.accumulatedFrameDelaySeconds, delay.isFinite {
+                details.append(String(format: "cumulative late-frame delay %.2f s", delay))
+            }
+        }
+        return details.joined(separator: ", ")
+    }
+    #endif
     public var isNativeVideo: Bool { engine.nativePlayerLayer != nil }
     public var mediaInfo: PlaybackMediaInfo {
         guard isOpen, !loading, hasPicture else { return PlaybackMediaInfo() }
@@ -234,6 +251,12 @@ public final class AetherPlaybackSession {
         #endif
         var options = LoadOptions()
         options.isLive = isLive
+        #if os(tvOS)
+        // Give AVPlayer the broadcaster's playlist with its original A/V
+        // timeline and renditions. Aether handles unsupported HLS carriage.
+        options.nativeRemoteHLS = isLive && url.pathExtension.lowercased() == "m3u8"
+            && ["http", "https"].contains(url.scheme?.lowercased() ?? "")
+        #endif
         options.liveJoinProfile = .fastZap
         options.autoplay = false
         if requireNativeVideo { options.escalatesToSoftwarePath = false }

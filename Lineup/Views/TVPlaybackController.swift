@@ -173,7 +173,14 @@ struct PlaybackClockReader<Content: View>: View {
     private var skipTask: Task<Void, Never>?
     private var monitor: Task<Void, Never>?
     private var urls: [URL] = []
-    private var urlIndex = 0
+    private var urlAttempt = 0
+    private var currentURL: URL? {
+        guard urls.indices.contains(urlAttempt) else { return nil }
+        // Xtream offers HLS, then bare TS. On Aether keep the origin's playlist
+        // timing and discontinuities, or the variant verified for this channel.
+        let inProviderOrder = sourceIsRecording || (isLive && engineKind == .aether)
+        return urls[inProviderOrder ? urlAttempt : urls.count - 1 - urlAttempt]
+    }
     private var muted = false
     private var pausedByUser = false
     private(set) var isScrubbing = false
@@ -328,7 +335,7 @@ struct PlaybackClockReader<Content: View>: View {
         restarting = false
         selectConfiguredBackend()
         sourceIsRecording = recording
-        self.urls = Array(urls.reversed())
+        self.urls = urls
         // A picture turned down to nothing stays muted whatever it is
         // reopened with: a retry or a change of channel passes on the mute
         // as it stood, which partway through fading out was still off.
@@ -358,7 +365,7 @@ struct PlaybackClockReader<Content: View>: View {
         requestedInitialPosition = initialPosition
         appliedInitialPosition = false
         retries.reset()
-        urlIndex = 0
+        urlAttempt = 0
         error = nil
         guard !self.urls.isEmpty else { error = "This stream is unavailable."; return }
         holdScreenAwake()
@@ -387,6 +394,7 @@ struct PlaybackClockReader<Content: View>: View {
     }
 
     private func openCurrent() {
+        guard let url = currentURL else { return }
         liveQualityReporter.reset()
         backend.stop()
         mediaInfo = PlaybackMediaInfo()
@@ -404,7 +412,7 @@ struct PlaybackClockReader<Content: View>: View {
         backend.setOpeningLanguages(isLive ? PlaybackLanguages() : openingLanguages)
         backend.styleSubtitles(isLive ? PlaybackSubtitleStyle() : subtitleStyle)
         onlineSubtitlesToAdd = onlineSubtitles
-        backend.load(url: urls[urlIndex], startPosition: place, isLive: isLive && !sourceIsRecording,
+        backend.load(url: url, startPosition: place, isLive: isLive && !sourceIsRecording,
                      expectedDuration: !isLive && duration > 0 ? duration : nil,
                      primary: fullscreen || (watched != nil && primaryOutput), matchContent: fullscreen)
         health = freshHealth()
@@ -627,13 +635,12 @@ struct PlaybackClockReader<Content: View>: View {
             let size = backend.videoSize
             let height = Int(size.height)
             if height > 0, height != videoHeight { videoHeight = height }
-            liveQualityReporter.observe(url: urls.indices.contains(urlIndex) ? urls[urlIndex] : nil,
+            liveQualityReporter.observe(url: currentURL,
                 width: Int(size.width), height: height, frameRate: mediaInfo.frameRate,
                 live: isLive && catchUp == nil, playing: playing, picture: health.hasShownPicture)
         }
         guard recover else { return }
-        if isLive, !health.hasShownPicture, urls.indices.contains(urlIndex) {
-            let url = urls[urlIndex]
+        if isLive, !health.hasShownPicture, let url = currentURL {
             Task { await LiveQualityVerifier.shared.forgetPlayback(url: url) }
         }
         if engineKind == .mpv, !health.hasShownPicture {
@@ -687,7 +694,7 @@ struct PlaybackClockReader<Content: View>: View {
             + " (try \(retries.attempts))")
         // An address that will not open twice is swapped for the channel's
         // other one. An address that played and then dropped stays: it works.
-        if neverPlayed, retries.attempts > 1 { urlIndex = (urlIndex + 1) % urls.count }
+        if neverPlayed, retries.attempts > 1 { urlAttempt = (urlAttempt + 1) % urls.count }
         reconnecting = true
         retryAt = now + delay
     }
@@ -800,7 +807,7 @@ struct PlaybackClockReader<Content: View>: View {
         let place = isLive ? nil : (reopenPosition ?? (elapsed > 0 ? elapsed : nil))
         log("Retry chosen")
         // Asked for before the stream opens, so it opens there.
-        start(urls: Array(urls.reversed()), muted: muted, initialPosition: place,
+        start(urls: urls, muted: muted, initialPosition: place,
               channelID: currentChannelID, isLive: isLive, keepTrackChoices: true, recording: sourceIsRecording)
     }
     /// A channel reconnects at its live edge; a film or an episode starts over
@@ -826,8 +833,9 @@ struct PlaybackClockReader<Content: View>: View {
             return
         }
         guard !urls.isEmpty else { return }
+        if isLive, let timing = backend.liveTimingSummary { log(timing) }
         log(isLive ? "Go Live chosen" : "Restart chosen")
-        start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID, isLive: isLive,
+        start(urls: urls, muted: muted, channelID: currentChannelID, isLive: isLive,
               keepTrackChoices: true)
     }
     func togglePlayback() {
@@ -1009,8 +1017,7 @@ struct PlaybackClockReader<Content: View>: View {
         skipTarget = nil
         recordingEndsWithProgramme = endsWithProgramme
         pausedAt = nil
-        // `start` tries the last address first, as it does a channel's two.
-        start(urls: Array(addresses.reversed()), muted: muted, channelID: source.stream.id,
+        start(urls: addresses, muted: muted, channelID: source.stream.id,
               resetFailover: false, isLive: true, keepTrackChoices: true, recording: true)
         catchUp = CatchUpTimeline(programmeStart: programmeStart, programmeEnd: programmeEnd,
                                   title: title, streamStart: begin)
@@ -1035,9 +1042,8 @@ struct PlaybackClockReader<Content: View>: View {
         let begin = CatchUpPolicy.minute(position)
         let addresses = source.addresses(begin, recordingEndsWithProgramme ? catchUp.programmeEnd : Date())
         guard !addresses.isEmpty else { return false }
-        // Stored in the order they are tried, as `start` leaves them.
         urls = addresses
-        urlIndex = 0
+        urlAttempt = 0
         elapsed = 0
         self.catchUp = CatchUpTimeline(programmeStart: catchUp.programmeStart, programmeEnd: catchUp.programmeEnd,
                                        title: catchUp.title, streamStart: begin)
@@ -1395,6 +1401,15 @@ struct PlaybackClockReader<Content: View>: View {
         loggedCondition = condition
         let place = !isLive && elapsed > 0 ? " at " + PlaybackJournal.clock(elapsed) : ""
         log(condition + place)
+        if condition == "Playing", isLive, let timing = backend.liveTimingSummary {
+            let source: String
+            switch currentURL?.pathExtension.lowercased() {
+            case "m3u8": source = "HLS playlist"
+            case "ts": source = "TS stream"
+            default: source = "channel stream"
+            }
+            log(source + ", " + timing)
+        }
     }
 
     private func log(_ text: String) {

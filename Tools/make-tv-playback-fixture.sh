@@ -25,7 +25,12 @@ ffmpeg -hide_banner -loglevel error -y \
   -metadata:s:a:1 language=spa -metadata:s:a:1 title=Spanish \
   -metadata:s:s:0 language=eng "$fixture_dir/playback.mkv"
 
-if [ "${1:-}" = "ios" ]; then
+if [ "${1:-}" != "ios" ]; then
+  # The live playlist test reuses this segment across marked clock resets.
+  ffmpeg -hide_banner -loglevel error -y -i "$fixture_dir/playback.mkv" \
+    -map 0:v:0 -map 0:a:0 -t 4 -c copy -mpegts_flags +initial_discontinuity \
+    -f mpegts "$fixture_dir/live-segment.ts"
+else
   # Longer iPhone clips leave room to resume, seek, pause, and enter PiP.
   ffmpeg -hide_banner -loglevel error -y -stream_loop 2 -i "$fixture_dir/playback.mkv" \
     -map 0 -c:v copy -c:a copy -c:s mov_text -t 36 "$fixture_dir/playback-native.mp4"

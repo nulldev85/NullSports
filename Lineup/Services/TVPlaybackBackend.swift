@@ -33,6 +33,7 @@ protocol TVPlaybackBackend: AnyObject {
     var surface: UIView { get }
     var state: TVPlaybackState { get }
     var errorMessage: String? { get }
+    var liveTimingSummary: String? { get }
     var isPlaying: Bool { get }
     var hasVideoOut: Bool { get }
     var videoSize: CGSize { get }
@@ -78,6 +79,7 @@ protocol TVPlaybackBackend: AnyObject {
 }
 
 extension TVPlaybackBackend {
+    var liveTimingSummary: String? { nil }
     func playbackMetadata() -> (info: PlaybackMediaInfo, pictureSize: CGSize) { (mediaInfo, .zero) }
     func captureAmbientFrame() async -> CapturedVideoFrame? { await captureFrame() }
 }
@@ -281,6 +283,7 @@ final class TVAetherBackend: TVPlaybackBackend {
         }
     }
     var errorMessage: String? { initializationError ?? session?.errorMessage }
+    var liveTimingSummary: String? { session?.liveTimingSummary }
     var isPlaying: Bool { session?.isPlaying == true }
     var hasVideoOut: Bool { session?.hasPicture == true }
     var videoSize: CGSize { session?.videoSize ?? .zero }

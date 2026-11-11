@@ -158,6 +158,8 @@ targets:
       - path: Tests/tvOS/Fixtures
         type: folder
         buildPhase: resources
+      - Tests/iOS/PlaybackFixtureByteRange.swift
+      - Tests/iOS/PlaybackFixtureServer.swift
       - Tests/iOS/LocalMediaTrackingTests.swift
       - Tests/iOS/SeriesResumeTests.swift
       - Tests/iOS/SeriesTrackingConsistencyTests.swift

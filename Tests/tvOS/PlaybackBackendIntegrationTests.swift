@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 import UIKit
 import LineupAetherPlayback
 @testable import Lineup
@@ -7,6 +8,59 @@ import LineupAetherPlayback
 /// Controller policy tests above also cover failure and retry deterministically.
 @MainActor
 final class PlaybackBackendIntegrationTests: XCTestCase {
+    func testLiveHLSKeepsTheOriginalPlaylistAndRendersAcrossClockResets() async throws {
+        let segment = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "live-segment",
+            withExtension: "ts", subdirectory: "Fixtures"))
+        let origin = try PlaybackFixtureServer(file: segment, contentType: "video/mp2t")
+        defer { origin.stop() }
+        try await waitUntil("Segment origin did not start") { origin.port != nil }
+        let segments = try (0..<3).map { index in
+            let url = try XCTUnwrap(origin.url(path: "segment-\(index).ts"))
+            return "#EXTINF:4.0,\n" + url.absoluteString
+        }
+        // A completed event is repeatable in CI. Each segment contains the same
+        // four seconds of audio and video, with its timestamps starting over.
+        let body = "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:4\n#EXT-X-PLAYLIST-TYPE:EVENT\n"
+            + segments.joined(separator: "\n#EXT-X-DISCONTINUITY\n") + "\n#EXT-X-ENDLIST\n"
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data(body.utf8).write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let playlist = try PlaybackFixtureServer(file: file, contentType: "application/vnd.apple.mpegurl")
+        defer { playlist.stop() }
+        try await waitUntil("Playlist origin did not start") { playlist.port != nil }
+        let url = try XCTUnwrap(playlist.url(path: "channel.m3u8"))
+        let session = try AetherPlaybackSession()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let host = UIViewController()
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        session.surface.frame = host.view.bounds
+        host.view.addSubview(session.surface)
+        defer { session.stop(); window.isHidden = true; previous?.makeKey() }
+        session.load(url: url, startPosition: nil, isLive: true, expectedDuration: nil,
+                     primary: true, matchContent: false)
+        try await waitUntil("Aether did not open the original channel playlist") {
+            (session.currentPlayerItem?.asset as? AVURLAsset)?.url == url
+        }
+        let item = try XCTUnwrap(session.currentPlayerItem)
+        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: nil)
+        item.add(output)
+        defer { item.remove(output) }
+        var sawFrameAfterSecondReset = false
+        try await waitUntil("Video failed to advance across both timestamp resets") {
+            if sawFrameAfterSecondReset { return true }
+            let clock = item.currentTime()
+            guard clock.seconds > 8.25 else { return false }
+            var displayTime = CMTime.invalid
+            if output.copyPixelBuffer(forItemTime: clock, itemTimeForDisplay: &displayTime) != nil {
+                sawFrameAfterSecondReset = abs(clock.seconds - displayTime.seconds) < 0.2
+            }
+            return sawFrameAfterSecondReset
+        }
+    }
+
     func testBoundedSourceProbeReportsGeneratedVideoDimensions() async throws {
         let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "playback", withExtension: "mkv", subdirectory: "Fixtures"))
         let quality = try await AetherSourceProbe.quality(url: fixture, timeout: 5)

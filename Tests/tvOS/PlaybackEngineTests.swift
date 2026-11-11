@@ -6,6 +6,47 @@ import LineupAetherPlayback
 
 @MainActor
 final class PlaybackEngineTests: XCTestCase {
+    func testLiveChannelRouteSurvivesGoLiveAndRetry() throws {
+        let hls = URL(string: "https://example.invalid/live/1.m3u8")!
+        let ts = URL(string: "https://example.invalid/live/1.ts")!
+        for kind in TVPlaybackEngine.allCases {
+            let fixture = try Fixture(kind)
+            defer { fixture.clean() }
+            let player = fixture.controller()
+            defer { player.stop() }
+            let backend = fixture.backend(kind)
+            player.start(urls: [hls, ts])
+            player.goLive()
+            player.retry()
+            let first = kind == .aether ? hls : ts
+            XCTAssertEqual(backend.loads.map(\.url), [first, first, first])
+            if kind == .aether {
+                player.start(urls: [ts, hls]) // Measured variant takes priority.
+                XCTAssertEqual(backend.loads.last?.url, ts)
+                player.start(urls: [ts])
+                XCTAssertEqual(backend.loads.last?.url, ts)
+            }
+        }
+    }
+
+    func testAetherTriesRawTransportAfterPlaylistFailsToOpen() throws {
+        let hls = URL(string: "https://example.invalid/live/1.m3u8")!
+        let ts = URL(string: "https://example.invalid/live/1.ts")!
+        let fixture = try Fixture(.aether)
+        defer { fixture.clean() }
+        let player = fixture.controller()
+        defer { player.stop() }
+        player.start(urls: [hls, ts])
+        for _ in 0..<2 {
+            fixture.aether.state = .error
+            fixture.now += 3
+            player.checkPlayback()
+            fixture.now += 3
+            player.checkPlayback()
+        }
+        XCTAssertEqual(fixture.aether.loads.map(\.url), [hls, hls, ts])
+    }
+
     func testSettingsEngineChoicesExposeTheirPinnedVersions() {
         XCTAssertEqual(TVPlaybackEngine.aether.version, "7.62.1")
         XCTAssertEqual(TVPlaybackEngine.vlc.version, "3.6.0")
@@ -552,6 +593,7 @@ final class PlaybackEngineTests: XCTestCase {
 @MainActor
 private final class MockTVBackend: TVPlaybackBackend {
     struct Load {
+        let url: URL
         let startPosition: TimeInterval?
         let isLive: Bool
         let expectedDuration: TimeInterval?
@@ -589,7 +631,7 @@ private final class MockTVBackend: TVPlaybackBackend {
     init(_ kind: TVPlaybackEngine) { self.kind = kind }
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
         mediaInfo = PlaybackMediaInfo()
-        loads.append(.init(startPosition: startPosition, isLive: isLive, expectedDuration: expectedDuration,
+        loads.append(.init(url: url, startPosition: startPosition, isLive: isLive, expectedDuration: expectedDuration,
                            primary: primary, matchContent: matchContent))
         isOpen = true
         time = startPosition ?? 0
