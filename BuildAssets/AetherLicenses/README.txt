@@ -1,10 +1,10 @@
 Lineup playback acknowledgements and corresponding source
 
-AetherEngine 7.62.0
+AetherEngine 7.62.1
 Copyright (C) 2026 Vincent Herbst
 LGPL-3.0 with Apple Store / DRM Exception; see AetherEngine.txt and GPL-3.0.txt.
-Unmodified source: https://github.com/superuser404notfound/AetherEngine/tree/7.62.0
-Exact engine revision: a1d2cab8281cbf06f5f459b05dad4653ad12559f
+Unmodified source: https://github.com/superuser404notfound/AetherEngine/tree/7.62.1
+Exact engine revision: d879ef83bc401decb5ac8e2b03b5c973c18db5d9
 Built with its default package traits: optional TrueHD and DTS:X object audio
 and Dolby Vision components are not compiled. LibTrueHD is not linked; DTS:X
 uses FFmpegBuild's decoder rather than a separate LibDTSX library.

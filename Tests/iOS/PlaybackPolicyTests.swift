@@ -54,7 +54,7 @@ final class PlaybackPolicyTests: XCTestCase {
     }
 
     func testSettingsExposeVersionsForPackagedPlaybackEngines() {
-        XCTAssertEqual(MobilePlaybackPreference.aether.version, "7.62.0")
+        XCTAssertEqual(MobilePlaybackPreference.aether.version, "7.62.1")
         XCTAssertEqual(MobilePlaybackPreference.mpv.version, "1.1.0-n9.0.2")
     }
 

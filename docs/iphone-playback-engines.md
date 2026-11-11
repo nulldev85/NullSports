@@ -1,6 +1,6 @@
 # iPhone playback and Picture in Picture
 
-Lineup for iPhone requires iOS 18. Settings offers AetherEngine 7.62.0 and MPVKit.
+Lineup for iPhone requires iOS 18. Settings offers AetherEngine 7.62.1 and MPVKit.
 AetherEngine is the default for live TV, provider recordings and media libraries.
 Existing MPVKit users keep their selection. Older Native, Automatic and VLC choices
 resolve to AetherEngine. A change in Settings applies when the next video opens.
