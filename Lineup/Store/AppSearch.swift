@@ -1,11 +1,21 @@
 import Foundation
 
-/// The four places the Search tab sorts what it finds into, in the order the
-/// tab lists them.
+/// The sections of the Search tab.
 enum AppSearchCategory: String, CaseIterable, Identifiable, Sendable {
     case movies, shows, live, vod
+    #if os(iOS)
+    case collections
+    #endif
 
     var id: String { rawValue }
+
+    var includesServerTitles: Bool {
+        #if os(iOS)
+        self == .movies || self == .shows || self == .vod
+        #else
+        self == .movies || self == .shows
+        #endif
+    }
 
     var title: String {
         switch self {
@@ -13,6 +23,9 @@ enum AppSearchCategory: String, CaseIterable, Identifiable, Sendable {
         case .shows: "Shows"
         case .live: "Live TV"
         case .vod: "VOD"
+        #if os(iOS)
+        case .collections: "Collections"
+        #endif
         }
     }
 
@@ -22,6 +35,9 @@ enum AppSearchCategory: String, CaseIterable, Identifiable, Sendable {
         case .shows: "tv"
         case .live: "dot.radiowaves.left.and.right"
         case .vod: "play.rectangle.on.rectangle"
+        #if os(iOS)
+        case .collections: "rectangle.stack"
+        #endif
         }
     }
 }
@@ -35,6 +51,10 @@ struct AppSearchHit: Identifiable, Sendable {
         /// One of the IPTV provider's films or shows, with the provider's
         /// category for it.
         case vod(MediaItem, group: String?)
+        #if os(iOS)
+        case personalCollection(UUID, name: String)
+        case serverCollection(MediaItem, server: String)
+        #endif
         /// A game, live or to come, and the channel it plays on.
         case game(SportsGame, channel: XtreamStream?)
         /// A live channel, with what is on it now.
@@ -51,9 +71,16 @@ struct AppSearchHit: Identifiable, Sendable {
 
     var category: AppSearchCategory {
         switch kind {
-        case .title(let item, _): AppSearch.isShow(item) ? .shows : .movies
-        case .vod: .vod
-        case .game, .channel, .airing: .live
+        case .title(let item, _):
+            #if os(iOS)
+            if item.type == "Video" { return .vod }
+            #endif
+            return AppSearch.isShow(item) ? .shows : .movies
+        case .vod: return .vod
+        case .game, .channel, .airing: return .live
+        #if os(iOS)
+        case .personalCollection, .serverCollection: return .collections
+        #endif
         }
     }
 }
@@ -64,6 +91,9 @@ struct AppSearchResults: Sendable {
     var shows: [AppSearchHit] = []
     var live: [AppSearchHit] = []
     var vod: [AppSearchHit] = []
+    #if os(iOS)
+    var collections: [AppSearchHit] = []
+    #endif
 
     func hits(in category: AppSearchCategory) -> [AppSearchHit] {
         switch category {
@@ -71,10 +101,13 @@ struct AppSearchResults: Sendable {
         case .shows: shows
         case .live: live
         case .vod: vod
+        #if os(iOS)
+        case .collections: collections
+        #endif
         }
     }
 
-    var total: Int { movies.count + shows.count + live.count + vod.count }
+    var total: Int { AppSearchCategory.allCases.reduce(0) { $0 + hits(in: $1).count } }
 }
 
 /// One query across the whole app: the media servers' films and shows, the
@@ -84,6 +117,18 @@ struct AppSearchResults: Sendable {
 /// thread on a copy of what the stores hold; the servers are asked by the
 /// Library, which already knows how.
 enum AppSearch {
+    #if os(iOS)
+    static func collections(matching term: String, personal: [MobileLibraryCollection],
+                            serverItems: [MediaItem], serverName: (UUID?) -> String?) -> [AppSearchHit] {
+        let wanted = words(of: term)
+        return personal.filter { matches($0.name, wanted) }.map {
+            AppSearchHit(id: "personal|" + $0.id.uuidString, kind: .personalCollection($0.id, name: $0.name))
+        } + serverItems.filter { matches($0.name, wanted) }.map {
+            AppSearchHit(id: "collection|" + $0.libraryKey,
+                         kind: .serverCollection($0, server: serverName($0.serverID) ?? "Server collection"))
+        }
+    }
+    #endif
     /// What the live side holds that a query is matched against, copied off
     /// the store so the matching can run on another thread.
     struct LiveSnapshot: Sendable {

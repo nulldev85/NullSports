@@ -34,6 +34,7 @@ struct AppSearchView: View {
     @State private var providerResultsTask: Task<Void, Never>?
     @State private var providerSearchID = UUID()
     @State private var mobilePlayback: MobileSearchProviderPlayback?
+    @State private var personalCollectionID: UUID?
     #endif
     @State private var selectedGenre: AppSearchGenre?
     #if os(tvOS)
@@ -66,6 +67,8 @@ struct AppSearchView: View {
             .onAppear { tabBar?.reset() }
             .searchable(text: $query, prompt: "Movies, shows, channels, games")
             #else
+            .safeAreaInset(edge: .top, spacing: 0) { typeFilter }
+            .navigationDestination(item: $personalCollectionID) { id in MobilePersonalCollectionView(id: id) }
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
@@ -79,6 +82,7 @@ struct AppSearchView: View {
         }
         .mobileTabHome(.search) {
             pushed = nil
+            personalCollectionID = nil
             selectedGenre = nil
             query = ""
             searchedTerm = ""
@@ -179,6 +183,9 @@ struct AppSearchView: View {
             // The same search again keeps the films and shows it found.
             next.movies = results.movies
             next.shows = results.shows
+            #if os(iOS)
+            next.vod += results.vod.filter { if case .title = $0.kind { true } else { false } }
+            #endif
         }
         results = next
         searchedTerm = term
@@ -188,15 +195,18 @@ struct AppSearchView: View {
         async let providers: Void = searchEnabledProviders(term, request: request)
         #endif
         if searchingServers {
-        let servers = await media.searchServers(term)
-        guard !Task.isCancelled else { return }
-        let titles = AppSearch.titles(from: servers.groups)
-        results.movies = titles.filter { $0.category == .movies }
-        results.shows = titles.filter { $0.category == .shows }
-        searchingServers = false
-        if titles.isEmpty, let error = servers.error, !MediaLibrary.isCancellation(error) {
-            serverProblem = error.localizedDescription
-        }
+            let servers = await media.searchServers(term)
+            guard !Task.isCancelled else { return }
+            let titles = AppSearch.titles(from: servers.groups)
+            results.movies = titles.filter { $0.category == .movies }
+            results.shows = titles.filter { $0.category == .shows }
+            #if os(iOS)
+            results.vod = vod + titles.filter { $0.category == .vod }
+            #endif
+            searchingServers = false
+            if titles.isEmpty, let error = servers.error, !MediaLibrary.isCancellation(error) {
+                serverProblem = error.localizedDescription
+            }
         }
         #if !os(tvOS)
         await providers
@@ -259,6 +269,10 @@ struct AppSearchView: View {
         switch hit.kind {
         case .title(let item, _), .vod(let item, _):
             pushed = item
+        #if os(iOS)
+        case .serverCollection(let item, _): pushed = item
+        case .personalCollection(let id, _): personalCollectionID = id
+        #endif
         case .channel(let channel, _, _):
             tune(channel, game: nil)
         case .airing(let program, let channel, _, _):
@@ -292,6 +306,9 @@ struct AppSearchView: View {
         case .game(_, let channel): channel
         case .channel(let channel, _, _): channel
         case .title, .vod: nil
+        #if os(iOS)
+        case .serverCollection, .personalCollection: nil
+        #endif
         }
     }
 
@@ -325,18 +342,29 @@ struct AppSearchView: View {
     private var content: some View {
         if searchedTerm.isEmpty {
             if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                if showsGenreCategories {
+                if showsGenreCategories && showsUnfilteredContent {
                     AppSearchGenreGrid { genre in selectedGenre = genre }
                 } else {
+                    #if os(iOS)
+                    if let category {
+                        ContentUnavailableView("Search " + category.title, systemImage: category.symbol,
+                                               description: Text("Enter a name in the search field."))
+                    } else {
+                        AppSearchPrompt(searching: false)
+                    }
+                    #else
                     AppSearchPrompt(searching: false)
+                    #endif
                 }
             } else {
                 AppSearchPrompt(searching: true)
             }
         } else {
             VStack(alignment: .leading, spacing: Metrics.sectionGap) {
+                #if os(tvOS)
                 chips
-                if media.seerr.isConnected {
+                #endif
+                if media.seerr.isConnected && showsUnfilteredContent {
                     NavigationLink { SeerrBrowserView(query: searchedTerm).environment(media) } label: {
                         Label("Search Seerr for \"\(searchedTerm)\"", systemImage: "tray.and.arrow.down")
                     }.lineupButtonStyle().padding(.horizontal, Metrics.inset)
@@ -351,6 +379,44 @@ struct AppSearchView: View {
         }
     }
 
+    private var showsUnfilteredContent: Bool {
+        #if os(iOS)
+        category == nil
+        #else
+        true
+        #endif
+    }
+
+    #if os(iOS)
+    private var typeFilter: some View {
+        HStack {
+            Menu {
+                Picker("Search filter", selection: $category) {
+                    Label("All", systemImage: "square.grid.2x2").tag(nil as AppSearchCategory?)
+                    ForEach([AppSearchCategory.movies, .shows, .vod, .collections, .live]) { kind in
+                        Label(kind.title, systemImage: kind.symbol).tag(Optional(kind))
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: category?.symbol ?? "square.grid.2x2")
+                    Text(category?.title ?? "All")
+                    Image(systemName: "chevron.down").font(.caption)
+                }
+                .font(.inter(.body, .semibold))
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(LineupStyle.raised, in: Capsule())
+            }
+            .accessibilityLabel("Search filter")
+            .accessibilityValue(category?.title ?? "All")
+            Spacer()
+        }
+        .padding(.horizontal, Metrics.inset)
+        .padding(.vertical, 4)
+        .background(LineupStyle.background)
+    }
+    #else
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Metrics.chipGap) {
@@ -370,17 +436,14 @@ struct AppSearchView: View {
     @ViewBuilder
     private func chip(_ kind: AppSearchCategory?, title: String, count: Int, waiting: Bool) -> some View {
         let label = AppSearchChip(title: title, count: count, waiting: waiting, active: category == kind)
-        #if os(tvOS)
         TVSelectable(scale: LineupStyle.controlLift, fillRadius: Metrics.chipHeight / 2,
                      drawsFocusChrome: false, action: { category = kind }) { label }
-        #else
-        Button { withAnimation(.easeOut(duration: 0.18)) { category = kind } } label: { label }
-            .lineupFlatButton()
-        #endif
     }
+    #endif
 
     @ViewBuilder
     private var allBody: some View {
+        let results = displayedResults
         ForEach(AppSearchCategory.allCases) { kind in
             let hits = results.hits(in: kind)
             if !hits.isEmpty {
@@ -389,6 +452,9 @@ struct AppSearchView: View {
                     switch kind {
                     case .movies, .shows, .vod: posterShelf(hits)
                     case .live: liveList(Array(hits.prefix(Metrics.liveInAll)))
+                    #if os(iOS)
+                    case .collections: collectionRows(Array(hits.prefix(Metrics.liveInAll)))
+                    #endif
                     }
                 }
                 .modifier(AppSearchPanel())
@@ -411,9 +477,9 @@ struct AppSearchView: View {
 
     @ViewBuilder
     private func categoryBody(_ kind: AppSearchCategory) -> some View {
-        let hits = results.hits(in: kind)
+        let hits = displayedResults.hits(in: kind)
         if hits.isEmpty {
-            if searchingServers && (kind == .movies || kind == .shows) {
+            if searchingServers && kind.includesServerTitles {
                 AppSearchWaiting(text: "Searching " + serverNames + "…")
                     .padding(.horizontal, Metrics.inset)
             } else {
@@ -425,9 +491,47 @@ struct AppSearchView: View {
                 posterGrid(hits)
             case .live:
                 liveSections(hits)
+            #if os(iOS)
+            case .collections: collectionRows(hits)
+            #endif
             }
         }
     }
+
+    private var displayedResults: AppSearchResults {
+        #if os(iOS)
+        if category == nil || category == .collections {
+            var displayed = results
+            displayed.collections = AppSearch.collections(matching: searchedTerm, personal: media.personalCollections,
+                serverItems: media.collections, serverName: media.serverName(of:))
+            return displayed
+        }
+        #endif
+        return results
+    }
+
+    #if os(iOS)
+    private func collectionRows(_ hits: [AppSearchHit]) -> some View {
+        LazyVStack(alignment: .leading, spacing: 4) {
+            ForEach(hits) { hit in
+                Button { open(hit) } label: {
+                    HStack(spacing: 12) {
+                        LineupIconTile(symbol: "rectangle.stack", size: 32)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(AppSearchFormat.title(of: hit)).font(.inter(.body, .semibold))
+                            Text(AppSearchFormat.place(of: hit).path.last ?? "Collections")
+                                .font(.inter(.caption)).foregroundStyle(LineupStyle.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(LineupStyle.secondary)
+                    }
+                    .padding(.vertical, 8)
+                    .contentShape(Rectangle())
+                }.lineupFlatButton()
+            }
+        }.padding(.horizontal, Metrics.inset)
+    }
+    #endif
 
     private func emptyTitle(_ kind: AppSearchCategory) -> String {
         switch kind {
@@ -435,6 +539,9 @@ struct AppSearchView: View {
         case .shows: "No shows for “\(searchedTerm)”"
         case .live: "Nothing on Live TV for “\(searchedTerm)”"
         case .vod: "Nothing in VOD for “\(searchedTerm)”"
+        #if os(iOS)
+        case .collections: "No collections for “\(searchedTerm)”"
+        #endif
         }
     }
 
@@ -443,7 +550,12 @@ struct AppSearchView: View {
         case .movies, .shows: serverProblem.map { "Your servers didn’t answer: " + $0 }
             ?? "None of your servers has one by that name."
         case .live: "No channel, game or listing in the guide matched it."
+        #if os(iOS)
+        case .vod: serverProblem.map { "Your servers didn’t answer: " + $0 } ?? "No provider VOD or server video matched that name."
+        case .collections: "No saved iPhone or server collection matched that name."
+        #else
         case .vod: "Your provider’s VOD has nothing by that name."
+        #endif
         }
     }
 
@@ -1219,6 +1331,7 @@ private struct AppSearchPrompt: View {
                     .foregroundStyle(LineupStyle.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: AppSearchMetrics.promptWidth)
+                #if os(tvOS)
                 HStack(spacing: AppSearchMetrics.promptChipGap) {
                     ForEach(AppSearchCategory.allCases) { kind in
                         Label(kind.title, systemImage: kind.symbol)
@@ -1226,6 +1339,7 @@ private struct AppSearchPrompt: View {
                             .foregroundStyle(LineupStyle.secondary)
                     }
                 }
+                #endif
             }
         }
         .frame(maxWidth: .infinity)
@@ -1294,6 +1408,10 @@ enum AppSearchFormat {
 
     static func title(of hit: AppSearchHit) -> String {
         switch hit.kind {
+        #if os(iOS)
+        case .personalCollection(_, let name): name
+        case .serverCollection(let item, _): item.name
+        #endif
         case .title(let item, _), .vod(let item, _): item.name
         case .game(let game, _): matchup(game)
         case .channel(let channel, _, _): channel.name
@@ -1327,6 +1445,9 @@ enum AppSearchFormat {
     /// for a channel; the channel and the time for a programme.
     static func detail(of hit: AppSearchHit, now: Date = Date()) -> String? {
         switch hit.kind {
+        #if os(iOS)
+        case .personalCollection, .serverCollection: return nil
+        #endif
         case .game(let game, let channel):
             var parts = [game.league.shortName]
             if !game.isLive { parts.append(day(game.start) + " · " + game.start.formatted(date: .omitted, time: .shortened)) }
@@ -1350,6 +1471,10 @@ enum AppSearchFormat {
     /// channel's group or the channel; the Live tab and the league.
     static func place(of hit: AppSearchHit) -> Place {
         switch hit.kind {
+        #if os(iOS)
+        case .personalCollection: return Place(symbol: "folder", path: ["Library", "My Collections"])
+        case .serverCollection(_, let server): return Place(symbol: "rectangle.stack", path: ["Library", server])
+        #endif
         case .title(_, let servers):
             return Place(symbol: "play.square.stack", path: ["Library", servers.joined(separator: " · ")])
         case .vod(_, let group):
