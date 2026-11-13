@@ -100,6 +100,21 @@ struct MobileLibraryCollectionsView: View {
     }
 }
 
+struct MobileCollectionFilterPicker: View {
+    @Binding var selection: CatalogMediaFilter
+
+    var body: some View {
+        Picker("Filter collection", selection: $selection) {
+            ForEach(CatalogMediaFilter.allCases, id: \.self) { filter in
+                Text(filter.rawValue).tag(filter)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, LineupPanelStyle.inset)
+        .padding(.vertical, 8)
+    }
+}
+
 struct MobilePersonalCollectionView: View {
     @Environment(MediaLibrary.self) private var media
     @Environment(\.dismiss) private var dismiss
@@ -107,13 +122,23 @@ struct MobilePersonalCollectionView: View {
     @State private var renaming = false
     @State private var deleting = false
     @State private var options = false
+    @State private var filter: CatalogMediaFilter = .all
     let id: UUID
     private var collection: MobileLibraryCollection? { media.personalCollections.first { $0.id == id } }
 
     var body: some View {
         Group {
             if let collection, !collection.items.isEmpty {
-                MediaGridScreen(title: collection.name, items: collection.items)
+                VStack(spacing: 0) {
+                    MobileCollectionFilterPicker(selection: $filter)
+                    let items = filter.apply(to: collection.items)
+                    if items.isEmpty {
+                        ContentUnavailableView("No \(filter.rawValue)", systemImage: "folder",
+                            description: Text("Try another filter to see other titles in this collection."))
+                    } else {
+                        MediaGridScreen(title: collection.name, items: items)
+                    }
+                }
             } else {
                 ContentUnavailableView("Your Collection", systemImage: "folder",
                     description: Text("Hold a movie or show in Library, then choose Collections to add it here."))

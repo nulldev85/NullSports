@@ -230,6 +230,18 @@ struct SiloClient: MediaServerClient {
         return all
     }
     func items(userID: String, parentID: String, sortBy: String, limit: Int) async throws -> [MediaItem] {
+        try await children(userID: userID, parentID: parentID, sortBy: sortBy, limit: limit, filter: .all)
+    }
+
+    func items(userID: String, parent: MediaItem, sortBy: String, limit: Int, filter: CatalogMediaFilter) async throws -> [MediaItem] {
+        guard filter != .all else { return try await items(userID: userID, parent: parent, sortBy: sortBy, limit: limit) }
+        let items = try await children(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit, filter: filter)
+        return filter.apply(to: items)
+    }
+
+    private func children(userID: String, parentID: String, sortBy: String, limit: Int, filter: CatalogMediaFilter) async throws -> [MediaItem] {
+        let type = filter.itemType?.lowercased()
+        let typeQuery = type.map { [URLQueryItem(name: "type", value: $0)] } ?? []
         if parentID.hasPrefix("silo-curated:") {
             let parts = parentID.dropFirst("silo-curated:".count).split(separator: ":", omittingEmptySubsequences: false)
             guard parts.count == 2, let libraryBytes = Data(base64Encoded: String(parts[0])),
@@ -238,15 +250,15 @@ struct SiloClient: MediaServerClient {
                 throw MediaIntegrationError.invalidResponse
             }
             return try await catalog([.init(name: "source", value: "library_collection"), .init(name: "library_id", value: library),
-                .init(name: "collection_id", value: collection)], limit: limit)
+                .init(name: "collection_id", value: collection)] + typeQuery, limit: limit)
         }
         if parentID.hasPrefix("silo-library:") {
             return try await catalog([.init(name: "library_id", value: String(parentID.dropFirst("silo-library:".count))),
-                .init(name: "type", value: "video"), .init(name: "sort", value: "title")], limit: limit)
+                .init(name: "type", value: type ?? "video"), .init(name: "sort", value: "title")], limit: limit)
         }
         if parentID.hasPrefix("silo-collection:") {
             return try await catalog([.init(name: "source", value: "user_collection"),
-                .init(name: "collection_id", value: String(parentID.dropFirst("silo-collection:".count)))], limit: limit)
+                .init(name: "collection_id", value: String(parentID.dropFirst("silo-collection:".count)))] + typeQuery, limit: limit)
         }
         let parent = try await item(userID: userID, itemID: parentID)
         return try await items(userID: userID, parent: parent, sortBy: sortBy, limit: limit)

@@ -168,6 +168,10 @@ struct JellyfinClient: Sendable {
     }
 
     func items(userID: String, parent: MediaItem, sortBy: String, limit: Int) async throws -> [MediaItem] {
+        try await items(userID: userID, parent: parent, sortBy: sortBy, limit: limit, filter: .all)
+    }
+
+    func items(userID: String, parent: MediaItem, sortBy: String, limit: Int, filter: CatalogMediaFilter) async throws -> [MediaItem] {
         var genre: String?
         if parent.serverExtensions?.genreRequired == true {
             let choices: JellyfinItemsResponse = try await send(try request(path: "genres", query: [
@@ -178,10 +182,11 @@ struct JellyfinClient: Sendable {
                 ?? choices.items.first?.id
             guard genre != nil else { return [] }
         }
-        return try await items(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit, genre: genre)
+        return try await items(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit, genre: genre, filter: filter)
     }
 
-    private func items(userID: String, parentID: String, sortBy: String, limit: Int, genre: String?) async throws -> [MediaItem] {
+    private func items(userID: String, parentID: String, sortBy: String, limit: Int, genre: String?,
+                       filter: CatalogMediaFilter = .all) async throws -> [MediaItem] {
         var query = [
             URLQueryItem(name: "ParentId", value: parentID),
             URLQueryItem(name: "Fields", value: Self.fields),
@@ -192,9 +197,10 @@ struct JellyfinClient: Sendable {
             URLQueryItem(name: "SortOrder", value: "Ascending")
         ]
         if let genre { query.append(URLQueryItem(name: "GenreIds", value: genre)) }
+        if let type = filter.itemType { query.append(URLQueryItem(name: "IncludeItemTypes", value: type)) }
         let response: JellyfinItemsResponse = try await send(
             try request(path: "users/\(userID)/items", query: query))
-        return response.items
+        return filter.apply(to: response.items)
     }
 
     /// Every collection on the server, whether or not it is promoted.

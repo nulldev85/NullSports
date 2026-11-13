@@ -83,41 +83,64 @@ struct PlexClient: MediaServerClient {
     }
 
     func items(userID: String, parentID: String, sortBy: String, limit: Int) async throws -> [MediaItem] {
-        let page = [URLQueryItem(name: "X-Plex-Container-Start", value: "0"),
+        try await children(parentID: parentID, start: 0, limit: limit)?.metadata.map(Self.mediaItem) ?? []
+    }
+
+    func items(userID: String, parent: MediaItem, sortBy: String, limit: Int, filter: CatalogMediaFilter) async throws -> [MediaItem] {
+        guard filter != .all else { return try await items(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit) }
+        // Plex collections return their children in collection order, even when types are mixed.
+        var result: [MediaItem] = []
+        var seen = Set<String>()
+        var start = 0
+        while result.count < limit {
+            try Task.checkCancellation()
+            let pageSize = 100
+            guard let page = try await children(parentID: parent.id, start: start, limit: pageSize) else { break }
+            let fresh = page.metadata.map(Self.mediaItem).filter { seen.insert($0.id).inserted }
+            guard !fresh.isEmpty else { break }
+            result += filter.apply(to: fresh).prefix(limit - result.count)
+            let count = page.size ?? page.metadata.count
+            start += count
+            if let total = page.totalSize {
+                if start >= total { break }
+            } else if count < pageSize { break }
+        }
+        return result
+    }
+
+    private func children(parentID: String, start: Int, limit: Int) async throws -> PlexMediaContainer? {
+        let page = [URLQueryItem(name: "X-Plex-Container-Start", value: String(start)),
                     URLQueryItem(name: "X-Plex-Container-Size", value: String(limit)),
                     URLQueryItem(name: "includeGuids", value: "1")]
         if parentID.hasPrefix(Self.sectionPrefix) {
             let key = String(parentID.dropFirst(Self.sectionPrefix.count))
             return try await get("/library/sections/\(key)/all",
                                  query: page + [URLQueryItem(name: "sort", value: "titleSort")])
-                .metadata.map(Self.mediaItem)
         }
         if parentID.hasPrefix(Self.recentPrefix) {
             // "plex-recent:<type>:<key>". A show library is ordered by when an
             // episode last arrived, which is what "recently added" means for
             // a show; a film library by when the film did.
             let rest = parentID.dropFirst(Self.recentPrefix.count).split(separator: ":").map(String.init)
-            guard rest.count == 2 else { return [] }
+            guard rest.count == 2 else { return nil }
             let sort = rest[0] == "show" ? "episode.addedAt:desc" : "addedAt:desc"
             let path = "/library/sections/\(rest[1])/all"
             do {
                 return try await get(path, query: page + [URLQueryItem(name: "sort", value: sort)])
-                    .metadata.map(Self.mediaItem)
             } catch JellyfinError.server(let status) where status == 400 && rest[0] == "show" {
                 // An older server without that sort orders shows by their own date.
                 return try await get(path, query: page + [URLQueryItem(name: "sort", value: "addedAt:desc")])
-                    .metadata.map(Self.mediaItem)
             }
         }
         if parentID == Self.onDeckID {
-            return try await get("/library/onDeck", query: page).metadata.map(Self.mediaItem)
+            return try await get("/library/onDeck", query: page)
         }
         if parentID.hasPrefix(Self.collectionPrefix) {
             let key = String(parentID.dropFirst(Self.collectionPrefix.count))
-            return try await get("/library/collections/\(key)/children", query: page).metadata.map(Self.mediaItem)
+            return try await get("/library/collections/\(key)/children", query: page)
         }
         // A show's seasons, or a season's episodes, in Plex's own order.
-        return try await get("/library/metadata/\(parentID)/children", query: page).metadata.map(Self.mediaItem)
+        return try await get("/library/metadata/\(parentID)/children", query: page)
     }
 
     func allCollections(userID: String, pageSize: Int, maxPages: Int) async throws -> [MediaItem] {

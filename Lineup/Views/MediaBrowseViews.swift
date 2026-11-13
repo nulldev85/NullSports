@@ -198,8 +198,32 @@ private struct TrendingRowScreen: View {
 }
 
 private struct MediaFolderScreen: View {
+    let folder: MediaItem
+    #if os(iOS)
+    @State private var filter: CatalogMediaFilter = .all
+    #endif
+
+    var body: some View {
+        #if os(iOS)
+        VStack(spacing: 0) {
+            if folder.type != "Season" {
+                MobileCollectionFilterPicker(selection: $filter)
+            }
+            MediaFolderContents(folder: folder, filter: filter).id(filter)
+        }
+        .navigationTitle(folder.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .background(LineupStyle.background.ignoresSafeArea())
+        #else
+        MediaFolderContents(folder: folder, filter: .all)
+        #endif
+    }
+}
+
+private struct MediaFolderContents: View {
     @Environment(MediaLibrary.self) private var media
     let folder: MediaItem
+    let filter: CatalogMediaFilter
     @State private var items: [MediaItem] = []
     @State private var loading = true
     @State private var error: String?
@@ -212,8 +236,9 @@ private struct MediaFolderScreen: View {
                 LineupUnavailableView("Couldn’t Load Library", systemImage: "exclamationmark.triangle",
                     description: Text(error)).mediaFocusAnchor()
             } else if items.isEmpty {
-                LineupUnavailableView("Nothing Here", systemImage: "film.stack",
-                    description: Text("This library did not return any playable items.")).mediaFocusAnchor()
+                LineupUnavailableView(filter == .all ? "Nothing Here" : "No \(filter.rawValue)", systemImage: "film.stack",
+                    description: Text(filter == .all ? "This library did not return any playable items."
+                        : "Try another filter to see other titles in this collection.")).mediaFocusAnchor()
             } else {
                 MediaGridScreen(title: folder.name, items: items)
             }
@@ -222,8 +247,15 @@ private struct MediaFolderScreen: View {
         .background(LineupStyle.background.ignoresSafeArea())
         .task(id: folder.libraryKey) {
             loading = true
-            do { items = try await media.items(in: folder); error = nil }
-            catch { self.error = error.localizedDescription }
+            do {
+                let loaded = try await media.items(in: folder, filter: filter)
+                try Task.checkCancellation()
+                items = loaded
+                error = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.error = error.localizedDescription
+            }
             loading = false
         }
     }
