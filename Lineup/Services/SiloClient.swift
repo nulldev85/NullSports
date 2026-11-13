@@ -193,7 +193,21 @@ struct SiloClient: MediaServerClient {
     let http: MediaIntegrationHTTP
     init(address: String, credential: SiloCredential, profileID: String?, deviceID: String,
          session: URLSession? = nil, persist: (@Sendable (SiloCredential) async -> Void)? = nil) throws {
-        let http = try MediaIntegrationHTTP(address: address, session: session)
+        let input = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty, !input.hasPrefix("/") else { throw MediaIntegrationError.invalidAddress }
+        let absolute = input.contains("://") ? input : "https://" + input
+        guard var parts = URLComponents(string: absolute) else { throw MediaIntegrationError.invalidAddress }
+        // Silo publishes its native reference at <server prefix>/api/v2/docs.
+        // Accept that address as well as the server root without doubling the API path.
+        var path = parts.percentEncodedPath
+        while path.hasSuffix("/") { path.removeLast() }
+        for suffix in ["/api/v2/docs", "/api/v2/openapi.json", "/api/v2"] where path.hasSuffix(suffix) {
+            path.removeLast(suffix.count)
+            break
+        }
+        parts.percentEncodedPath = path
+        guard let base = parts.string else { throw MediaIntegrationError.invalidAddress }
+        let http = try MediaIntegrationHTTP(address: base, session: session)
         self.http = http
         transport = SiloTransport(http: http, credential: credential, profileID: profileID, deviceID: deviceID, persist: persist)
     }
@@ -417,6 +431,7 @@ actor SiloTransport {
     private struct Tokens: Decodable { let access_token: String; let refresh_token: String; let expires_in: Int; let user: SiloAccount? }
     func signIn(username: String, password: String) async throws -> SiloAccount {
         let (data, _) = try await http.send(["api", "v2", "auth", "login"], method: "POST",
+            headers: ["X-Silo-Device-Id": deviceID],
             body: MediaIntegrationHTTP.body(["username": username, "password": password]))
         let tokens = try JSONDecoder().decode(Tokens.self, from: data)
         guard let user = tokens.user, !tokens.access_token.isEmpty else { throw MediaIntegrationError.invalidResponse }

@@ -403,6 +403,24 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertTrue(MediaIntegrationProtocol.requests.allSatisfy { $0.httpMethod == "GET" })
     }
 
+    func testSiloSetupAcceptsServerAndAPIAddressesWithTheirProxyPrefix() async throws {
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        MediaIntegrationProtocol.install { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://silo-contract.test/mount/api/v2/auth/login")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Silo-Device-Id"), "fixture-device")
+            return .json(#"{"access_token":"access","refresh_token":"refresh","expires_in":3600,"user":{"id":"42","username":"viewer"}}"#)
+        }
+        for address in ["silo-contract.test/mount", "https://silo-contract.test/mount/",
+                        "https://silo-contract.test/mount/api/v2", "https://silo-contract.test/mount/api/v2/docs/",
+                        "https://silo-contract.test/mount/api/v2/openapi.json"] {
+            let client = try SiloClient(address: address, credential: .init(accessToken: ""), profileID: nil,
+                                        deviceID: "fixture-device", session: network)
+            let account = try await client.signIn(username: "viewer", password: "fixture")
+            XCTAssertEqual(account.id, "42")
+        }
+    }
+
     func testSiloProfilePINProofIsScopedAndVersionBrowsingDoesNotCreateASession() async throws {
         let session = session(); defer { session.invalidateAndCancel() }
         let client = try SiloClient(address: "https://silo-contract.test/base", credential: .init(accessToken: "fixture-key"), profileID: nil, deviceID: "test", session: session)
@@ -462,7 +480,9 @@ final class MediaIntegrationTests: XCTestCase {
             }
             XCTAssertEqual(request.httpMethod, "DELETE")
             XCTAssertEqual(body["position"] as? Double, 725)
-            XCTAssertNotNil(body["stop_id"])
+            let stopID = try XCTUnwrap(body["stop_id"] as? String)
+            let uuid = try XCTUnwrap(UUID(uuidString: stopID))
+            XCTAssertEqual(stopID, uuid.uuidString.lowercased())
             return .json("{\"outcome\":\"stopped\",\"accepted\":{\"sequence\":\(sequence)}}")
         }
         let playback = SiloPlaybackSession()

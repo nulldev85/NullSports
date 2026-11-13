@@ -134,7 +134,7 @@ struct MobileLineupNavigationBar: View {
         .padding(MobileLineupNavigationLayout.padding)
         .modifier(MobileNavigationSurface(liquidGlass: liquidGlass))
         .background(MobileLineupNavigationBoundary(navigation: navigation).allowsHitTesting(false))
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: compact ? .trailing : .center)
         .padding(.horizontal, MobileLineupNavigationLayout.sideMargin)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Main navigation")

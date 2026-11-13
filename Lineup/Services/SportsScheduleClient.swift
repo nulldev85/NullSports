@@ -503,6 +503,14 @@ struct SportsScheduleClient: Sendable {
     }
 
     private static func describe(_ error: Error) -> String {
+        if let network = error as? URLError {
+            switch network.code {
+            case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
+                 .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid:
+                return "Couldn’t refresh the sports schedule over a secure connection."
+            default: break
+            }
+        }
         if let decoding = error as? DecodingError {
             switch decoding {
             case .keyNotFound(let key, let context): return "Schedule data is missing \(key.stringValue) at \(path(context.codingPath))."
