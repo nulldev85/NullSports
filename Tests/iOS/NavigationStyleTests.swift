@@ -5,6 +5,39 @@ import SwiftUI
 
 final class NavigationStyleTests: XCTestCase {
     @MainActor
+    func testVerticalNavigationKeepsAllNativeTabsAvailableAcrossStyleAndFullscreenChanges() async throws {
+        guard #available(iOS 27.1, *) else { throw XCTSkip("Vertical system bars require iOS 27.1") }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let tabs = UITabBarController()
+        let model = NavigationPreviewState()
+        let selection = MobileNavigationTab.library
+        let page = UIHostingController(rootView: VerticalNavigationProbe(model: model))
+        tabs.viewControllers = MobileNavigationTab.allCases.map { tab -> UIViewController in
+            let controller: UIViewController = tab == selection ? page : UIViewController()
+            controller.tabBarItem = UITabBarItem(title: tab.title, image: nil, tag: tab.rawValue)
+            return controller
+        }
+        tabs.selectedViewController = page
+        window.rootViewController = tabs
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousWindow?.makeKey() }
+
+        for (glass, fullscreen) in [(false, false), (true, false), (true, true), (false, false)] {
+            model.glass = glass
+            model.fullscreen = fullscreen
+            try await Task.sleep(for: .milliseconds(200))
+            window.layoutIfNeeded()
+            XCTAssertEqual(tabs.isTabBarHidden, fullscreen)
+            XCTAssertEqual(tabs.tabBar.isUserInteractionEnabled, !fullscreen)
+            XCTAssertEqual(tabs.tabBar.accessibilityElementsHidden, fullscreen)
+            XCTAssertEqual(tabs.tabBar.items?.map(\.tag), MobileNavigationTab.allCases.map(\.rawValue))
+            XCTAssertTrue(tabs.selectedViewController === page)
+        }
+    }
+
+    @MainActor
     func testReorderingBothBarsKeepsSelectionAndCustomTabActivationAligned() async throws {
         let defaults = UserDefaults.standard
         let previousOrder = defaults.object(forKey: MobileNavigationOrder.storageKey)
@@ -284,6 +317,16 @@ private final class NavigationPreviewState: ObservableObject {
     @Published var glass = false
     @Published var selection = 2
     @Published var fullscreen = false
+}
+
+private struct VerticalNavigationProbe: View {
+    @ObservedObject var model: NavigationPreviewState
+    @StateObject private var navigation = MobileTabNavigation()
+
+    var body: some View {
+        MobileTabBarAppearance(liquidGlass: model.glass, navigation: navigation, selection: model.selection,
+                               fullscreen: model.fullscreen, compact: true, verticalBars: true)
+    }
 }
 
 private struct NavigationStylePreview: View {

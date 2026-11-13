@@ -1287,6 +1287,7 @@ struct MobileGuideViewport<Content: View>: View {
 /// under the native glass bar. Reserve the measured overlap as a content
 /// margin on the actual scroller, not by shortening its outer SwiftUI region.
 struct MobileGuideChannelScroll<Content: View>: View {
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
     @State private var topClearance: CGFloat = 0
     @State private var bottomClearance: CGFloat = 0
     @Environment(\.mobileUsesLineupNavigation) private var usesLineupNavigation
@@ -1305,6 +1306,7 @@ struct MobileGuideChannelScroll<Content: View>: View {
         ScrollView(.vertical) {
             content.background(MobileGuideScrollConfiguration(horizontal: false,
                 usesLineupNavigation: usesLineupNavigation, keepsNativeBarLayout: keepsNativeBarLayout,
+                verticalBars: verticalBars,
                 resetToken: resetToken,
                 onTopOverlap: protectsTop ? { updateClearance($0, at: .top) } : nil,
                 onBottomOverlap: { updateClearance($0, at: .bottom) }))
@@ -1341,6 +1343,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     let horizontal: Bool
     var usesLineupNavigation: Bool? = nil
     var keepsNativeBarLayout = false
+    var verticalBars = false
     var resetToken: UUID? = nil
     var onTopOverlap: ((CGFloat) -> Void)? = nil
     var onBottomOverlap: ((CGFloat) -> Void)? = nil
@@ -1351,6 +1354,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         probe.resetToken = resetToken
         probe.usesLineupNavigation = usesLineupNavigation
         probe.keepsNativeBarLayout = keepsNativeBarLayout
+        probe.verticalBars = verticalBars
         probe.onTopOverlap = onTopOverlap
         probe.onBottomOverlap = onBottomOverlap
         probe.isUserInteractionEnabled = false
@@ -1361,6 +1365,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         probe.horizontal = horizontal
         probe.usesLineupNavigation = usesLineupNavigation
         probe.keepsNativeBarLayout = keepsNativeBarLayout
+        probe.verticalBars = verticalBars
         probe.resetToken = resetToken
         probe.onTopOverlap = onTopOverlap
         probe.onBottomOverlap = onBottomOverlap
@@ -1391,9 +1396,12 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     /// The channel list measures its UIScrollView, not an outer hosting view
     /// or the much taller scrolling content.
     static func bottomOverlap(of view: UIView, usesLineupNavigation: Bool? = nil,
-                              keepsNativeBarLayout: Bool = false) -> CGFloat {
+                              keepsNativeBarLayout: Bool = false, verticalBars: Bool = false) -> CGFloat {
         guard let window = view.window else { return 0 }
         let viewBottom = view.convert(view.bounds, to: window).maxY
+        if verticalBars {
+            return max(0, (viewBottom - window.safeAreaLayoutGuide.layoutFrame.maxY).rounded())
+        }
         let customTop = usesLineupNavigation == false ? nil : MobileLineupNavigationBoundary.find(in: window).map {
             $0.convert($0.bounds, to: window).minY
         }
@@ -1420,9 +1428,12 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     /// scroll viewport. SwiftUI's zero scroll-content margin can let the first
     /// row slide beneath a translucent toolbar, so List mode reserves only
     /// the overlap that is physically present.
-    static func topOverlap(of view: UIView) -> CGFloat {
+    static func topOverlap(of view: UIView, verticalBars: Bool = false) -> CGFloat {
         guard let window = view.window else { return 0 }
         let viewport = view.convert(view.bounds, to: window)
+        if verticalBars {
+            return max(0, (window.safeAreaLayoutGuide.layoutFrame.minY - viewport.minY).rounded())
+        }
         var largestOverlap: CGFloat = 0
 
         // A SwiftUI NavigationStack may host its UINavigationBar in a private
@@ -1447,6 +1458,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
         var horizontal = false
         var usesLineupNavigation: Bool?
         var keepsNativeBarLayout = false
+        var verticalBars = false
         var resetToken: UUID?
         var onTopOverlap: ((CGFloat) -> Void)?
         var onBottomOverlap: ((CGFloat) -> Void)?
@@ -1529,7 +1541,7 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
                     name: MobileLineupNavigationBoundary.geometryDidChange, object: window)
             }
             if onTopOverlap != nil {
-                let top = MobileGuideScrollConfiguration.topOverlap(of: scroll)
+                let top = MobileGuideScrollConfiguration.topOverlap(of: scroll, verticalBars: verticalBars)
                 if reportedTop == nil || abs((reportedTop ?? 0) - top) > 0.5 {
                     reportedTop = top
                     onTopOverlap?(top)
@@ -1537,7 +1549,8 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
             }
             if onBottomOverlap != nil {
                 let bottom = MobileGuideScrollConfiguration.bottomOverlap(of: scroll,
-                    usesLineupNavigation: usesLineupNavigation, keepsNativeBarLayout: keepsNativeBarLayout)
+                    usesLineupNavigation: usesLineupNavigation, keepsNativeBarLayout: keepsNativeBarLayout,
+                    verticalBars: verticalBars)
                 if reported == nil || abs((reported ?? 0) - bottom) > 0.5 {
                     reported = bottom
                     onBottomOverlap?(bottom)
