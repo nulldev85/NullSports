@@ -422,6 +422,23 @@ final class GuideScrollLayoutTests: XCTestCase {
         window.rootViewController = UIHostingController(rootView: GuideEndHarness(model: model))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previous?.makeKey() }
+        // The custom bar first lays out with an 8pt gap, then adopts the
+        // window's home-indicator gap. Probe and inset can agree during both
+        // layouts. Measure the installed navigation before starting a scroll.
+        func installedBarTop(glass: Bool) -> CGFloat? {
+            if glass && MobileNavigationStyle.supportsGlass {
+                guard let bar = window.firstSubview(of: UITabBar.self, where: { !$0.isHidden }),
+                      bar.bounds.height > 0 else { return nil }
+                let compactTop = MobileLineupNavigationLayout.compactTop(
+                    windowBottom: window.bounds.maxY, safeAreaBottom: window.safeAreaInsets.bottom)
+                return min(bar.convert(bar.bounds, to: window).minY, compactTop)
+            }
+            guard let boundary = MobileLineupNavigationBoundary.find(in: window) else { return nil }
+            let frame = boundary.convert(boundary.bounds, to: window)
+            let gap = MobileLineupNavigationLayout.bottomGap(safeAreaBottom: window.safeAreaInsets.bottom)
+            guard abs(window.bounds.maxY - frame.maxY - gap) < 1 else { return nil }
+            return frame.minY
+        }
         for glass in [false, true] {
             model.glass = glass
             for count in [40, 3, 80, 7, 40] {
@@ -429,15 +446,18 @@ final class GuideScrollLayoutTests: XCTestCase {
                 model.channelCount = count
                 model.resetToken = UUID()
                 try await settle {
+                    window.layoutIfNeeded()
                     guard let probe = window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self,
                         where: { !$0.horizontal }), probe !== previousProbe,
-                        let list = probe.enclosingScrollView, let clearance = probe.reported else { return false }
+                        let list = probe.enclosingScrollView, let clearance = probe.reported,
+                        let barTop = installedBarTop(glass: glass) else { return false }
                     // The probe reports coverage before SwiftUI installs its
                     // content margin. Computing the end with the old inset
                     // stops exactly that clearance short of the real end.
                     return abs(list.contentSize.height - CGFloat(count) * 56) < 1
                         && abs(list.contentOffset.y + list.adjustedContentInset.top) < 1
                         && abs(list.adjustedContentInset.bottom - clearance) < 1
+                        && abs(list.convert(list.bounds, to: window).maxY - clearance - barTop) < 1
                 }
                 let probe = try XCTUnwrap(window.firstSubview(of: MobileGuideScrollConfiguration.Probe.self) { !$0.horizontal })
                 let list = try XCTUnwrap(probe.enclosingScrollView)
@@ -454,9 +474,11 @@ final class GuideScrollLayoutTests: XCTestCase {
                                "The applied margin must remain stable after scrolling: \(context)")
                 XCTAssertEqual(list.contentOffset.y, end, accuracy: 1,
                                "A layout refresh must preserve the last-row position: \(context)")
-                let usableBottom = list.convert(list.bounds, to: window).maxY - clearance
+                let barTop = try XCTUnwrap(installedBarTop(glass: glass))
+                let usableBottom = list.convert(list.bounds, to: window).maxY - list.adjustedContentInset.bottom
+                XCTAssertEqual(usableBottom, barTop, accuracy: 1, "The viewport must still meet navigation: \(context)")
                 let lastRowBottom = list.convert(CGPoint(x: 0, y: list.contentSize.height), to: window).y
-                XCTAssertLessThanOrEqual(lastRowBottom, usableBottom + 1,
+                XCTAssertLessThanOrEqual(lastRowBottom, barTop + 1,
                                          "The last channel must remain above navigation after a category change: \(context)")
             }
         }
