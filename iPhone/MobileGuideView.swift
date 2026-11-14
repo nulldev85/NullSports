@@ -290,59 +290,24 @@ struct MobileGuideView: View {
     }
 
     private var guideNavigation: some View {
-        guideViewport
+        // The header and the search field are stacked above the guide rather
+        // than laid over it. Laid over it, the list of channels scrolled up
+        // underneath them, and List layout -- which kept clear only of a
+        // system bar -- lost its first channel behind the header.
+        VStack(spacing: 0) {
+            if game == nil && !fillsScreen { guideHeader }
+            if showsSearch && !fillsScreen { guideSearchField }
+            guideViewport
+                .overlay {
+                    MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
+                                        symbol: "list.bullet.rectangle", sections: optionsSections,
+                                        alignment: .topTrailing, transitionAnchor: .topTrailing) {
+                        setOptions(false)
+                    }
+                }
+        }
             .background(Color.black)
             .navigationTitle(game == nil ? "" : title).navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if showsSearch && !fillsScreen {
-                    HStack(spacing: 10) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                            .accessibilityHidden(true)
-                        TextField("Search channels", text: $query)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .submitLabel(.search)
-                            .focused($searchFocused)
-                            .onSubmit {
-                                if MobileGuideSearchPolicy.shouldCloseAfterSubmission(query) {
-                                    closeSearch()
-                                } else {
-                                    searchFocused = false
-                                }
-                            }
-                            .task { searchFocused = true }
-                        Button {
-                            if query.isEmpty {
-                                closeSearch()
-                            } else {
-                                query = ""
-                                searchFocused = true
-                            }
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel(query.isEmpty ? "Close search" : "Clear search")
-                    }
-                    .padding(.leading, 14).padding(.trailing, 4)
-                    .frame(minHeight: 44)
-                    .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(LineupStyle.background)
-                }
-            }
-            .overlay {
-                MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
-                                    symbol: "list.bullet.rectangle", sections: optionsSections,
-                                    alignment: .topTrailing, transitionAnchor: .topTrailing) {
-                    setOptions(false)
-                }
-            }
-            // A category's guide has no bar either: the way back, its name
-            // and its options float over the page, as on a title's page.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if game == nil && !fillsScreen { guideHeader }
-            }
             .toolbar {
                 if game != nil {
                     LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
@@ -357,6 +322,43 @@ struct MobileGuideView: View {
             .toolbar(fillsScreen || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
+    }
+
+    private var guideSearchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search channels", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($searchFocused)
+                .onSubmit {
+                    if MobileGuideSearchPolicy.shouldCloseAfterSubmission(query) {
+                        closeSearch()
+                    } else {
+                        searchFocused = false
+                    }
+                }
+                .task { searchFocused = true }
+            Button {
+                if query.isEmpty {
+                    closeSearch()
+                } else {
+                    query = ""
+                    searchFocused = true
+                }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel(query.isEmpty ? "Close search" : "Clear search")
+        }
+        .padding(.leading, 14).padding(.trailing, 4)
+        .frame(minHeight: 44)
+        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(LineupStyle.background)
     }
 
     /// Over a category's guide, in place of a bar: back to the categories,
