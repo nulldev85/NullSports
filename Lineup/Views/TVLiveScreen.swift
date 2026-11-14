@@ -74,6 +74,8 @@ struct LiveGameMenu: ViewModifier {
 struct LiveLeagueFilter: View {
     @Binding var selectedLeague: SportsLeague?
     @State private var choosing = false
+    /// Sports turned off in Settings aren't offered.
+    @AppStorage(SportsVisibility.storageKey) private var hiddenLeaguesRaw = ""
 
     private var title: String {
         selectedLeague.map(liveLeagueName) ?? "All sports"
@@ -89,7 +91,7 @@ struct LiveLeagueFilter: View {
         }
         .tvChoices("Show which sport?", symbol: "sportscourt", isPresented: $choosing) {
             [TVChoice("All Sports", id: "all", isSelected: selectedLeague == nil) { selectedLeague = nil }]
-                + SportsLeague.allCases.map { league in
+                + SportsLeague.allCases.filter { !SportsVisibility.hidden(hiddenLeaguesRaw).contains($0) }.map { league in
                     TVChoice(liveLeagueName(league), id: league.rawValue, isSelected: selectedLeague == league) {
                         selectedLeague = league
                     }

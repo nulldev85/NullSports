@@ -69,10 +69,10 @@ struct MobileLiveView: View {
     }
     /// The sports list, dropped from the pill under the masthead.
     @State private var leagueMenuOpen = false
-    /// Sports turned off for this tab; see `MobileSportsVisibility`.
-    @AppStorage(MobileSportsVisibility.storageKey) private var hiddenLeaguesRaw = ""
+    /// Sports turned off for this tab; see `SportsVisibility`.
+    @AppStorage(SportsVisibility.storageKey) private var hiddenLeaguesRaw = ""
     @State private var choosingSports = false
-    private var hiddenLeagues: Set<SportsLeague> { MobileSportsVisibility.hidden(hiddenLeaguesRaw) }
+    private var hiddenLeagues: Set<SportsLeague> { SportsVisibility.hidden(hiddenLeaguesRaw) }
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
     let onPlay: (XtreamStream) -> Void

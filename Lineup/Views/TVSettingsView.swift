@@ -24,6 +24,9 @@ struct AccountView: View {
     @State private var showingTracking = false
     @State private var managingTeamChannels = false
     @State private var managingTeams = false
+    @State private var choosingPoll = false
+    @AppStorage(SportsVisibility.storageKey) private var hiddenSports = ""
+    @AppStorage(CollegeFootballRankings.Poll.storageKey) private var collegePoll = CollegeFootballRankings.Poll.ap.rawValue
     @State private var choosingAccent = false
     @State private var choosingEngineFor: TVPlaybackPlace?
     @State private var showingCollections = false
@@ -114,6 +117,15 @@ struct AccountView: View {
             }
             .lineupFullScreenCover(isPresented: $managingTeams) {
                 SportsTeamsSettingsView().environment(library)
+            }
+            .tvChoices("College Football Ranking", symbol: "list.number", isPresented: $choosingPoll,
+                       message: "The ranking shown beside college football teams. Playoff Rankings start in November; until then the AP Top 25 stands in.") {
+                CollegeFootballRankings.Poll.allCases.map { poll in
+                    TVChoice(poll.title, id: poll.rawValue, isSelected: collegePoll == poll.rawValue) {
+                        collegePoll = poll.rawValue
+                        library.refreshSchedule()
+                    }
+                }
             }
             .lineupFullScreenCover(isPresented: $choosingAccent, onDismiss: {
                 if let hex = pendingAccent {
@@ -383,6 +395,15 @@ struct AccountView: View {
                                  detail: "Manage the channels saved for your teams. Hold Select on a game to save a different channel.",
                                  value: "\(library.teamPreferences.count) saved") { managingTeamChannels = true }
             }
+            TVSettingsSection("Sports")
+            TVSettingsLink(symbol: "sportscourt", title: "Sports Shown",
+                           detail: "Turn off sports you don't watch. They leave the Sports tab and its list of sports.",
+                           value: "\(SportsLeague.allCases.count - SportsVisibility.hidden(hiddenSports).count) of \(SportsLeague.allCases.count)") {
+                TVSportsShownView()
+            }
+            TVSettingsAction(symbol: "list.number", title: "College Football Ranking",
+                             detail: "Choose the Top 25 shown beside college football teams.",
+                             value: (CollegeFootballRankings.Poll(rawValue: collegePoll) ?? .ap).title) { choosingPoll = true }
         }
     }
 
@@ -736,5 +757,69 @@ private struct MatchDiagnosticsRow: View {
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .focusable().focused($focused).focusEffectDisabled()
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// A row for each sport: Select turns it on or off for the Sports tab. One
+/// always stays on.
+private struct TVSportsShownView: View {
+    @AppStorage(SportsVisibility.storageKey) private var hiddenRaw = ""
+
+    var body: some View {
+        let hidden = SportsVisibility.hidden(hiddenRaw)
+        let lastShown = hidden.count == SportsLeague.allCases.count - 1
+        ScrollView {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Sports Shown")
+                    .font(.inter(44, .heavy)).foregroundStyle(LineupPresentationStyle.text)
+                    .padding(.horizontal, 18)
+                Text("Sports you turn off leave the Sports tab and its list of sports. Teams you follow in them stay followed.")
+                    .font(.inter(22)).foregroundStyle(TVSettingsPalette.secondary)
+                    .padding(.horizontal, 18).padding(.bottom, 18)
+                    .fixedSize(horizontal: false, vertical: true)
+                ForEach(SportsLeague.allCases) { league in
+                    let shown = !hidden.contains(league)
+                    TVSelectable(scale: 1, drawsFocusChrome: false, action: {
+                        hiddenRaw = SportsVisibility.setting(league, hidden: shown, in: hiddenRaw)
+                    }) {
+                        TVSportsShownRow(league: league, shown: shown)
+                    }
+                    .disabled(shown && lastShown)
+                    .accessibilityLabel(liveLeagueName(league))
+                    .accessibilityValue(shown ? "On" : "Off")
+                }
+            }
+            .frame(maxWidth: 1100)
+            .padding(.horizontal, 80).padding(.vertical, 60)
+            .frame(maxWidth: .infinity)
+        }
+        .background(LineupPresentationStyle.ground)
+    }
+}
+
+private struct TVSportsShownRow: View {
+    @Environment(\.lineupTVSelectableFocused) private var focused
+    @Environment(\.isEnabled) private var enabled
+    let league: SportsLeague
+    let shown: Bool
+
+    var body: some View {
+        HStack(spacing: 20) {
+            LeagueLogo(league: league, size: 40)
+                .frame(width: 48, height: 48)
+                .opacity(shown ? 1 : 0.45)
+            Text(liveLeagueName(league)).font(.inter(26, .medium))
+                .foregroundStyle(shown ? TVSettingsPalette.text : TVSettingsPalette.secondary)
+            Spacer(minLength: 20)
+            Text(shown ? "On" : "Off").font(.inter(22, .semibold))
+                .foregroundStyle(shown ? LineupStyle.highlight : TVSettingsPalette.secondary)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 14)
+        .frame(minHeight: 76)
+        .background(focused ? TVSettingsPalette.focus : .clear,
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .opacity(enabled ? 1 : 0.5)
+        .animation(.easeOut(duration: 0.16), value: focused)
     }
 }

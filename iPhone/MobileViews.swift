@@ -941,7 +941,7 @@ struct MobileAccountView: View {
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
     @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.aether.rawValue
     @AppStorage(AppSearchGenre.visibilityKey) private var showsSearchGenres = true
-    @AppStorage(MobileSportsVisibility.storageKey) private var hiddenSports = ""
+    @AppStorage(SportsVisibility.storageKey) private var hiddenSports = ""
     @AppStorage(CollegeFootballRankings.Poll.storageKey) private var collegePoll = CollegeFootballRankings.Poll.ap.rawValue
     @State private var choosingAccent = false
     @State private var settingUpTV = false
@@ -1031,7 +1031,7 @@ struct MobileAccountView: View {
                     NavigationLink {
                         MobileSportsVisibilityView()
                     } label: {
-                        let shown = SportsLeague.allCases.count - MobileSportsVisibility.hidden(hiddenSports).count
+                        let shown = SportsLeague.allCases.count - SportsVisibility.hidden(hiddenSports).count
                         SettingsRow("Sports Shown", symbol: "sportscourt",
                                     value: shown == SportsLeague.allCases.count ? "All" : "\(shown) of \(SportsLeague.allCases.count)")
                     }
