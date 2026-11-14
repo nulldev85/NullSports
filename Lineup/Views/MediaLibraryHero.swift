@@ -125,7 +125,7 @@ struct MediaLibraryHero: View {
         .frame(height: heroHeight)
         .clipped()
         #else
-        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .aspectRatio(Self.phoneHeroAspect, contentMode: .fit)
         #endif
         .onAppear { isVisible = true }
         .onDisappear { isVisible = false; isDragging = false }
@@ -175,8 +175,13 @@ struct MediaLibraryHero: View {
             let readableWidth = min(copyWidth, contentWidth)
             #if os(tvOS)
             let artworkWidth = slide.size.width
+            let artworkHeight = slide.size.height
             #else
             let artworkWidth = slide.size.width + artworkMargins.leading + artworkMargins.trailing
+            // The backdrop at the detail page's own shape, across the top,
+            // rather than a landscape picture filled into this tall box --
+            // which cropped it to a zoomed-in middle.
+            let artworkHeight = min(slide.size.height, artworkWidth / Self.phoneArtworkRatio)
             #endif
 
             ZStack(alignment: .bottomLeading) {
@@ -192,7 +197,7 @@ struct MediaLibraryHero: View {
                         else { Color.clear }
                     }
                 }
-                .frame(width: artworkWidth, height: slide.size.height)
+                .frame(width: artworkWidth, height: artworkHeight)
                 #if !os(tvOS)
                 .mobileLibraryArtworkZoom()
                 .overlay {
@@ -205,6 +210,7 @@ struct MediaLibraryHero: View {
                     }
                 }
                 .mobileHeroArtworkMargins(artworkMargins)
+                .frame(height: slide.size.height, alignment: .top)
                 #endif
                 #if os(tvOS)
                 LinearGradient(stops: [
@@ -223,13 +229,14 @@ struct MediaLibraryHero: View {
                     .init(color: LineupStyle.background, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
                 #else
-                // A long portrait fade keeps the upper artwork clear, then
-                // blends behind the copy into the first shelf's background.
+                // The art fades into the page over its lower half, as on the
+                // detail page, and the title and its details sit on the
+                // Library's own ground below it.
+                let artEnd = artworkHeight / max(slide.size.height, 1)
                 LinearGradient(stops: [
-                    .init(color: .clear, location: 0.38),
-                    .init(color: LineupStyle.background.opacity(0.08), location: 0.52),
-                    .init(color: LineupStyle.background.opacity(0.45), location: 0.67),
-                    .init(color: LineupStyle.background.opacity(0.88), location: 0.84),
+                    .init(color: .clear, location: artEnd * 0.5),
+                    .init(color: LineupStyle.background.opacity(0.62), location: artEnd * 0.8),
+                    .init(color: LineupStyle.background, location: artEnd * 0.98),
                     .init(color: LineupStyle.background, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
                 .mobileHeroArtworkMargins(artworkMargins)
@@ -321,6 +328,15 @@ struct MediaLibraryHero: View {
          item.formattedRuntime]
             .compactMap { $0 }.filter { !$0.isEmpty }
     }
+
+    #if !os(tvOS)
+    /// The detail page's backdrop shape, so a title looks the same in both.
+    static let phoneArtworkRatio: CGFloat = 16 / 10
+    /// The hero's width to its height: the art across the top, then the
+    /// title and its details rising into the art's fade, as on the detail
+    /// page. A 2:3 box was the shape of the poster it used to show.
+    static let phoneHeroAspect: CGFloat = 7 / 8
+    #endif
 
     private func artworkURL(for item: MediaItem) -> URL? {
         #if os(tvOS)

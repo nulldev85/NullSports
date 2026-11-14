@@ -842,13 +842,13 @@ struct MediaCatalogsScreen: View {
                                 libraryShelves
                             }
                             .environment(\.mobileShelfBleed, margins)
-                            // Behind every row, scrolling with them: the hero
-                            // is a 2:3 picture the stack's width.
+                            // Behind every row, scrolling with them, from the
+                            // hero's foot down.
                             .background(alignment: .top) {
                                 GeometryReader { stack in
                                     MobileLibraryGlassBackdrop(
                                         item: media.heroCatalog == nil ? nil : heroBackdropItem,
-                                        top: media.heroCatalog == nil ? 0 : stack.size.width * 1.5)
+                                        top: media.heroCatalog == nil ? 0 : stack.size.width / MediaLibraryHero.phoneHeroAspect)
                                         .environment(\.mobileShelfBleed, margins)
                                 }
                             }
