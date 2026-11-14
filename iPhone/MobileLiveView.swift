@@ -9,6 +9,10 @@ struct MobileLiveView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.mobileUsesNativeTabBarLayout) private var usesNativeTabBarLayout
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
+    /// On the unfolded Duo, the header sits up in the band beside the clock.
+    @State private var topBand = false
+    @State private var screenWidth: CGFloat = 0
     @State private var league: SportsLeague?
     @State private var soccerCompetition: String?
     @State private var onlyFollowed = false
@@ -181,6 +185,7 @@ struct MobileLiveView: View {
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
                         masthead(slate)
+                            .padding(.trailing, topBand ? MobileTopBand.clockCorner(screenWidth) : 0)
                         leagueBar
                         if previewStream != nil {
                             Color.clear.frame(height: 4 + videoHeight + providerHeight + metadataHeight + timelineHeight)
@@ -314,6 +319,14 @@ struct MobileLiveView: View {
                     }
                 }
             }
+            .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+                screenWidth = size.width
+                topBand = MobileTopBand.isOpen(size, verticalBars: verticalBars)
+            }
+            // Up into the band beside the clock, which is otherwise empty
+            // above the header. The full-screen player takes the whole
+            // screen whichever way.
+            .ignoresSafeArea(.container, edges: topBand && !fillsScreen ? .top : [])
             .background(Color.black)
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(fillsScreen || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)

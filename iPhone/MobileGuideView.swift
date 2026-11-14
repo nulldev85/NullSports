@@ -33,6 +33,10 @@ struct MobileGuideView: View {
     @Environment(\.mobileUsesNativeTabBarLayout) private var usesNativeTabBarLayout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.mobileUsesVerticalBars) private var verticalBars
+    /// On the unfolded Duo, the categories' header sits up in the band
+    /// beside the clock, level with Sports'.
+    @State private var topBand = false
+    @State private var screenWidth: CGFloat = 0
     @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
     @AppStorage(MobileGuideDefaultCategory.storageKey) private var defaultCategories = "{}"
     @AppStorage(MobileGuideCategoryVisibility.storageKey) private var hiddenCategories = "{}"
@@ -458,12 +462,72 @@ struct MobileGuideView: View {
             // No bar above the categories, as on Settings: the list starts
             // under the clock, and its options are rows at its foot.
             .modifier(MobileSettingsClearHeader())
+            // On the unfolded Duo: a header up in the band beside the clock,
+            // as Sports has, with search and the options to hand.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if topBand { categoriesHeader }
+            }
+            .ignoresSafeArea(.container, edges: topBand ? .top : [])
+            .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+                screenWidth = size.width
+                topBand = MobileTopBand.isOpen(size, verticalBars: verticalBars)
+            }
+            .overlay {
+                MobileDropdownLayer(isPresented: optionsOpen && !showsChannels && topBand, title: "TV Guide",
+                                    symbol: "list.bullet.rectangle", sections: optionsSections,
+                                    alignment: .topTrailing, transitionAnchor: .topTrailing) {
+                    setOptions(false)
+                }
+            }
             .toolbar(usesNativeTabBarLayout ? .visible : .hidden, for: .tabBar)
             // Shown from whichever page is on screen; see `guidePresentations`.
             .lineupSheet(isPresented: Binding(get: { managingCategories && !showsChannels },
                                               set: { managingCategories = $0 })) {
                 MobileGuideCategoryVisibilityView().environment(library).preferredColorScheme(.dark)
             }
+    }
+
+    /// The categories' header in the Duo's top band: the page's name, set as
+    /// Sports sets its own, and round search and options buttons, all clear
+    /// of the clock's corner.
+    private var categoriesHeader: some View {
+        HStack(alignment: .bottom) {
+            HStack(spacing: 10) {
+                Rectangle().fill(LineupStyle.highlight).frame(width: 3, height: 31)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("TV GUIDE").font(.inter(20, .black)).tracking(-0.5)
+                        .foregroundStyle(LineupStyle.text.opacity(0.84))
+                    Text("\(visibleCategories.count) CATEGORIES")
+                        .font(.inter(10, .bold)).lineLimit(1)
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.76))
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            Spacer()
+            HStack(spacing: 8) {
+                Button {
+                    showsSearch = true
+                    showsChannels = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(LineupPresentationStyle.text)
+                        .frame(width: 36, height: 36)
+                        .background(LineupPresentationStyle.card, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Search channels")
+                MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                    setOptions(!optionsOpen)
+                }
+            }
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, 16 + MobileTopBand.clockCorner(screenWidth))
+        .padding(.bottom, 12)
+        .frame(height: 62, alignment: .bottom)
     }
 
     /// The categories under the provider each came from, when channels from
