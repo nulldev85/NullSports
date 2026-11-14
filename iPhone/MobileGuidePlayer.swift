@@ -120,7 +120,7 @@ struct MobileGuidePlayer: View {
                 if expanded && (channelBanner != nil || visibleAlert != nil) {
                     messages
                 }
-                if controlsVisible {
+                if controlsVisible && !MobileScreenLock.shared.isLocked {
                     if expanded { shade }
                     topBar
                     if !expanded {
@@ -154,6 +154,11 @@ struct MobileGuidePlayer: View {
             // inline, where the picture is a preview over the guide.
             .coordinateSpace(name: "GuidePlayer")
             .simultaneousGesture(channelSwipe, including: canSwipe ? .all : .subviews)
+            // Full screen and locked, the picture plays on under a layer that
+            // takes every touch.
+            .overlay {
+                if expanded && MobileScreenLock.shared.isLocked { MobileScreenLockOverlay() }
+            }
             if !expanded, let providerName {
                 providerIdentity(providerName)
                     .foregroundStyle(LineupStyle.secondary)
@@ -224,7 +229,15 @@ struct MobileGuidePlayer: View {
         .onChange(of: controller.finished) { _, finished in
             if finished { onClose() }
         }
-        .onDisappear { hideControlsTask?.cancel() }
+        // The lock is for a picture filling the screen, and goes with it:
+        // back over the guide, or closed, nothing is left locked.
+        .onChange(of: expanded) { _, full in
+            if !full { MobileScreenLock.shared.unlock() }
+        }
+        .onDisappear {
+            hideControlsTask?.cancel()
+            MobileScreenLock.shared.unlock()
+        }
     }
 
     // MARK: Controls
@@ -247,6 +260,15 @@ struct MobileGuidePlayer: View {
                     control("list.bullet", label: "Choose another channel") {
                         showControls()
                         onChooseChannel()
+                    }
+                }
+                // The lock is for a picture that fills the screen; over the
+                // guide there is the guide itself to touch.
+                if expanded {
+                    control("lock", label: "Lock screen") {
+                        hideControlsTask?.cancel()
+                        controlsVisible = false
+                        MobileScreenLock.shared.lock()
                     }
                 }
                 if controller.canOfferPictureInPicture {
@@ -517,7 +539,7 @@ struct MobileGuidePlayer: View {
 
     // MARK: Gestures
 
-    private var canSwipe: Bool { expanded && onStepChannel != nil }
+    private var canSwipe: Bool { expanded && onStepChannel != nil && !MobileScreenLock.shared.isLocked }
 
     private var channelSwipe: some Gesture {
         DragGesture(minimumDistance: 18, coordinateSpace: .named("GuidePlayer"))

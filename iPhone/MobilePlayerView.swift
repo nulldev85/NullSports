@@ -119,7 +119,7 @@ struct MobilePlayerView: View {
                     Spacer()
                 }
             }
-            if controlsVisible {
+            if controlsVisible && !MobileScreenLock.shared.isLocked {
                 // A shade at the top and the foot, so white controls read on
                 // any picture without a panel behind them.
                 VStack(spacing: 0) {
@@ -170,7 +170,9 @@ struct MobilePlayerView: View {
         // Next Episode, in the bottom-right corner while the controls are
         // away, as on the television.
         .overlay(alignment: .bottomTrailing) {
-            if showsNextEpisode, let offer = nextEpisode {
+            if MobileScreenLock.shared.isLocked {
+                EmptyView()
+            } else if showsNextEpisode, let offer = nextEpisode {
                 MobileNextEpisodeCard(offer: offer, play: { playNext(offer) },
                                       decline: { nextEpisodeDeclined = true })
                     .padding(.trailing, 16).padding(.bottom, 24)
@@ -181,6 +183,11 @@ struct MobilePlayerView: View {
                 postCreditsNotice.padding(.trailing, 16).padding(.bottom, 24)
             }
         }
+        // Locked, the picture plays on under a layer that takes every touch.
+        .overlay {
+            if MobileScreenLock.shared.isLocked { MobileScreenLockOverlay() }
+        }
+        .onDisappear { MobileScreenLock.shared.unlock() }
         .task(id: urls) {
             segments = nil
             nextEpisodeDeclined = false
@@ -357,6 +364,12 @@ struct MobilePlayerView: View {
         exit()
     }
 
+    private func lockScreen() {
+        hideControlsTask?.cancel()
+        controlsVisible = false
+        MobileScreenLock.shared.lock()
+    }
+
     private func toggleControls() {
         if controlsVisible {
             hideControlsTask?.cancel()
@@ -432,6 +445,7 @@ struct MobilePlayerView: View {
                 LineupGlassGroup(spacing: 10) {
                     HStack(spacing: 10) {
                         if isLive, controller.error == nil, !controller.loading { statusBadge }
+                        control("lock", label: "Lock screen") { lockScreen() }
                         if controller.canOfferPictureInPicture {
                             control("pip.enter", label: "Picture in Picture") {
                                 showControls()
