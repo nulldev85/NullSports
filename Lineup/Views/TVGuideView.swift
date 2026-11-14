@@ -55,8 +55,8 @@ struct GuideView: View {
     @State private var returnGridFocus: GuideGridFocus?
     @State private var selectedCategoryID: String?
     @State private var favoritesOnly = true
-    /// One provider's channels, or recently watched ones; see `TVGuideScope`.
-    @State private var scope = TVGuideScope()
+    /// Recently watched channels in place of every one.
+    @State private var recentsOnly = false
     @AppStorage(TVGuideViewMode.storageKey) private var guideViewModeValue = TVGuideViewMode.defaultMode.rawValue
     @State private var searchActive = false
     @State private var query = ""
@@ -92,13 +92,11 @@ struct GuideView: View {
                 favoritesOnly: !searchActive && favoritesOnly,
                 recentsOnly: !searchActive && showsRecents, text: query,
                 favorites: !searchActive && favoritesOnly ? library.favoriteStreamOrder : [],
-                recents: !searchActive && showsRecents ? library.recentStreamOrder : [],
-                categoryPrefix: searchActive || selectedCategoryID != nil
-                    ? nil : scope.provider.map { $0.uuidString + "|" }))
+                recents: !searchActive && showsRecents ? library.recentStreamOrder : []))
     }
     /// Recently watched channels are what's listed: not while a category or
-    /// favorites are chosen, whatever the scope still says.
-    private var showsRecents: Bool { scope.recents && !favoritesOnly && selectedCategoryID == nil }
+    /// favorites are chosen.
+    private var showsRecents: Bool { recentsOnly && !favoritesOnly && selectedCategoryID == nil }
     private var filtered: [XtreamStream] {
         let request = channelRequest
         guard let installedChannels, installedChannels.library == request.library,
@@ -143,22 +141,7 @@ struct GuideView: View {
     private var selectedTitle: String {
         if favoritesOnly { return "Favorites" }
         if showsRecents { return "Recently Watched" }
-        guard let category = library.categories.first(where: { $0.id == selectedCategoryID }) else { return "All channels" }
-        return selectedProviderName == nil ? category.categoryName : (category.sourceCategoryName ?? category.categoryName)
-    }
-    /// The provider whose channels are listed, where several are combined:
-    /// shown over the title instead of in front of every category's name.
-    private var selectedProviderName: String? {
-        let id: UUID?
-        if let selectedCategoryID {
-            // Only a combined list's categories carry their provider.
-            guard selectedCategoryID.contains("|") else { return nil }
-            id = library.categorySource(for: selectedCategoryID).profileID
-        } else {
-            id = scope.provider
-        }
-        guard let id else { return nil }
-        return library.providerRoot.enabledProfiles.first { $0.id == id }?.name
+        return library.categories.first { $0.id == selectedCategoryID }?.categoryName ?? "All channels"
     }
     private var guideViewMode: TVGuideViewMode { TVGuideViewMode.restored(guideViewModeValue) }
     private var previewItem: GuideFocusItem? {
@@ -174,7 +157,6 @@ struct GuideView: View {
     private var controlBar: GuideControlBar {
         GuideControlBar(
             title: selectedTitle,
-            providerName: selectedProviderName,
             channelCount: filtered.count,
             searchActive: $searchActive,
             query: $query,
@@ -183,7 +165,7 @@ struct GuideView: View {
             guideViewModeValue: $guideViewModeValue,
             selectedCategoryID: $selectedCategoryID,
             favoritesOnly: $favoritesOnly,
-            scope: $scope,
+            recentsOnly: $recentsOnly,
             onCancelMultiview: { multiviewPrimary = nil }
         )
     }
@@ -323,7 +305,7 @@ struct GuideView: View {
                             GuideSidebar(
                                 selectedCategoryID: $selectedCategoryID,
                                 favoritesOnly: $favoritesOnly,
-                                scope: $scope,
+                                recentsOnly: $recentsOnly,
                                 focus: $sidebarFocus,
                                 onCollapse: closeSidebar
                             )
@@ -601,7 +583,6 @@ private struct GuideFocusItem: Equatable {
 
 private struct GuideControlBar: View {
     let title: String
-    let providerName: String?
     let channelCount: Int
     @Binding var searchActive: Bool
     @Binding var query: String
@@ -610,7 +591,7 @@ private struct GuideControlBar: View {
     @Binding var guideViewModeValue: String
     @Binding var selectedCategoryID: String?
     @Binding var favoritesOnly: Bool
-    @Binding var scope: TVGuideScope
+    @Binding var recentsOnly: Bool
     let onCancelMultiview: () -> Void
 
     var body: some View {
@@ -629,13 +610,13 @@ private struct GuideControlBar: View {
                 .padding(.horizontal, 18).frame(maxWidth: 620, minHeight: 52)
                 .background(GuidePalette.surface, in: Capsule())
             } else {
-                GuideTitleBlock(eyebrow: providerName.map { "TV GUIDE  ·  \($0.uppercased())" } ?? "TV GUIDE", title: title)
+                GuideTitleBlock(eyebrow: "TV GUIDE", title: title)
             }
             if !searchActive && multiviewTitle == nil {
                 GuideChannelFilterPicker(title: title,
                                          selectedCategoryID: $selectedCategoryID,
                                          favoritesOnly: $favoritesOnly,
-                                         scope: $scope)
+                                         recentsOnly: $recentsOnly)
             }
             Spacer(minLength: 12)
             Text("\(channelCount) CHANNELS")
@@ -661,62 +642,15 @@ private struct GuideControlBar: View {
     }
 }
 
-/// What the Guide lists besides a category: every provider's channels or one
-/// provider's, and recently watched ones instead of every one. Favorites and
-/// categories keep their own state; a choice in the picker or sidebar sets
-/// all of it at once.
-struct TVGuideScope: Hashable {
-    var provider: UUID?
-    var recents = false
-}
-
-/// The providers whose channels are combined, each with its categories, in
-/// the viewer's order. Empty with only one: its categories need no grouping.
-enum TVGuideProviders {
-    struct Provider: Identifiable {
-        let id: UUID
-        let name: String
-        let categories: [XtreamCategory]
-        var hasFavorites = false
-        var hasRecents = false
-    }
-
-    @MainActor
-    static func make(_ library: SportsLibrary) -> [Provider] {
-        var byProvider: [UUID: [XtreamCategory]] = [:]
-        for category in library.categories {
-            guard let id = library.categorySource(for: category.id).profileID else { continue }
-            byProvider[id, default: []].append(category)
-        }
-        guard byProvider.count > 1 else { return [] }
-        // A channel's provider is at the front of its category's ID.
-        func provider(of streamID: Int) -> String? {
-            guard let category = library.stream(withID: streamID)?.categoryID,
-                  let split = category.firstIndex(of: "|") else { return nil }
-            return String(category[..<split])
-        }
-        let favorites = Set(library.favoriteStreamOrder.compactMap(provider(of:)))
-        let recents = Set(library.recentStreamOrder.compactMap(provider(of:)))
-        return library.providerRoot.enabledProfiles.compactMap { profile in
-            byProvider[profile.id].map {
-                Provider(id: profile.id, name: profile.name, categories: $0,
-                         hasFavorites: favorites.contains(profile.id.uuidString),
-                         hasRecents: recents.contains(profile.id.uuidString))
-            }
-        }
-    }
-}
-
 /// Favorites and IPTV categories sit in the Guide's top control row, with the
-/// left-edge sidebar kept as an alternate way to browse on the remote. With
-/// several providers, each has a group of its own: its favorites, what was
-/// watched from it, all its channels, then its categories by their own names.
+/// left-edge sidebar kept as an alternate way to browse on the remote.
+/// Favorites, Recently Watched and All Channels come first, as on iPhone.
 private struct GuideChannelFilterPicker: View {
     @Environment(SportsLibrary.self) private var library
     let title: String
     @Binding var selectedCategoryID: String?
     @Binding var favoritesOnly: Bool
-    @Binding var scope: TVGuideScope
+    @Binding var recentsOnly: Bool
     @State private var choosing = false
 
     private var currentTitle: String { favoritesOnly ? "Favorites" : title }
@@ -742,66 +676,32 @@ private struct GuideChannelFilterPicker: View {
         .accessibilityLabel("TV Guide channels: \(currentTitle)")
     }
 
-    private func show(category: String? = nil, favorites: Bool = false, recents: Bool = false, provider: UUID? = nil) {
+    private func show(category: String? = nil, favorites: Bool = false, recents: Bool = false) {
         selectedCategoryID = category
         favoritesOnly = favorites
-        scope = TVGuideScope(provider: provider, recents: recents)
-    }
-
-    private func isShowing(favorites: Bool = false, recents: Bool = false, provider: UUID? = nil) -> Bool {
-        selectedCategoryID == nil && favoritesOnly == favorites
-            && scope.recents == recents && scope.provider == provider
+        recentsOnly = recents
     }
 
     private var choices: [TVChoice] {
-        let providers = TVGuideProviders.make(library)
+        let listing = selectedCategoryID == nil
         var items = [
-            TVChoice("Favorites", symbol: "star", id: "favorites", isSelected: isShowing(favorites: true)) {
+            TVChoice("Favorites", symbol: "star", id: "favorites", isSelected: favoritesOnly) {
                 show(favorites: true)
             }
         ]
         if !library.recentStreamOrder.isEmpty {
             items.append(TVChoice("Recently Watched", symbol: "clock.arrow.circlepath", id: "recents",
-                                  isSelected: isShowing(recents: true)) { show(recents: true) })
+                                  isSelected: listing && !favoritesOnly && recentsOnly) { show(recents: true) })
         }
-        items.append(TVChoice("All Channels", symbol: "tv", id: "all", isSelected: isShowing()) { show() })
-
-        guard !providers.isEmpty else {
-            return items + library.categories.map { category in
-                TVChoice(category.categoryName, symbol: "rectangle.grid.1x2", id: "category-\(category.id)",
-                         isSelected: selectedCategoryID == category.id && !favoritesOnly,
-                         section: "Categories") {
-                    show(category: category.id)
-                }
+        items.append(TVChoice("All Channels", symbol: "tv", id: "all",
+                              isSelected: listing && !favoritesOnly && !recentsOnly) { show() })
+        return items + library.categories.map { category in
+            TVChoice(category.categoryName, symbol: "rectangle.grid.1x2", id: "category-\(category.id)",
+                     isSelected: selectedCategoryID == category.id && !favoritesOnly,
+                     section: "Categories") {
+                show(category: category.id)
             }
         }
-        for provider in providers {
-            let id = provider.id, section = provider.name
-            if provider.hasFavorites {
-                items.append(TVChoice("Favorites", symbol: "star", id: "favorites-\(id)",
-                                      isSelected: isShowing(favorites: true, provider: id), section: section) {
-                    show(favorites: true, provider: id)
-                })
-            }
-            if provider.hasRecents {
-                items.append(TVChoice("Recently Watched", symbol: "clock.arrow.circlepath", id: "recents-\(id)",
-                                      isSelected: isShowing(recents: true, provider: id), section: section) {
-                    show(recents: true, provider: id)
-                })
-            }
-            items.append(TVChoice("All Channels", symbol: "tv", id: "all-\(id)",
-                                  isSelected: isShowing(provider: id), section: section) {
-                show(provider: id)
-            })
-            items += provider.categories.map { category in
-                TVChoice(category.sourceCategoryName ?? category.categoryName, symbol: "rectangle.grid.1x2",
-                         id: "category-\(category.id)",
-                         isSelected: selectedCategoryID == category.id && !favoritesOnly, section: section) {
-                    show(category: category.id)
-                }
-            }
-        }
-        return items
     }
 }
 
@@ -1016,25 +916,25 @@ private struct GuideSidebar: View {
     @Environment(SportsLibrary.self) private var library
     @Binding var selectedCategoryID: String?
     @Binding var favoritesOnly: Bool
-    @Binding var scope: TVGuideScope
+    @Binding var recentsOnly: Bool
     let focus: FocusState<String?>.Binding
     let onCollapse: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             GuideSidebarHeading(title: "BROWSE")
-            GuideSidebarButton(title: "All channels", symbol: "square.grid.2x2", selected: selectedCategoryID == nil && !favoritesOnly && scope == TVGuideScope(), focus: focus, focusID: "all") {
-                selectedCategoryID = nil; favoritesOnly = false; scope = TVGuideScope()
+            GuideSidebarButton(title: "All channels", symbol: "square.grid.2x2", selected: selectedCategoryID == nil && !favoritesOnly && !recentsOnly, focus: focus, focusID: "all") {
+                selectedCategoryID = nil; favoritesOnly = false; recentsOnly = false
             }
-            GuideSidebarButton(title: "Favorites", symbol: "star", selected: favoritesOnly && scope.provider == nil, focus: focus, focusID: "favorites") {
-                selectedCategoryID = nil; favoritesOnly = true; scope = TVGuideScope()
+            GuideSidebarButton(title: "Favorites", symbol: "star", selected: favoritesOnly, focus: focus, focusID: "favorites") {
+                selectedCategoryID = nil; favoritesOnly = true; recentsOnly = false
             }
             GuideSidebarHeading(title: "CATEGORIES").padding(.top, 10)
             ScrollView {
                 LazyVStack(spacing: 4) {
                     ForEach(library.categories) { category in
                         GuideSidebarButton(title: category.categoryName, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly, focus: focus, focusID: "category-" + category.id) {
-                            selectedCategoryID = category.id; favoritesOnly = false; scope = TVGuideScope()
+                            selectedCategoryID = category.id; favoritesOnly = false; recentsOnly = false
                         }
                     }
                 }
