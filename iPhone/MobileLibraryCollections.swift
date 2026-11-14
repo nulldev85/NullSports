@@ -176,6 +176,7 @@ struct MobilePersonalCollectionView: View {
 /// row. No eager fetching of every collection's members on Library startup.
 struct MobileLibraryCollectionsRow: View {
     @Environment(MediaLibrary.self) private var media
+    @Environment(\.mobileShelfBleed) private var bleed
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -202,11 +203,14 @@ struct MobileLibraryCollectionsRow: View {
                             tile(collection.name, detail: "Server collection", symbol: "rectangle.stack.fill", serverCollection: collection)
                         }.lineupFlatButton()
                     }
-                }.padding(.horizontal, 18)
+                }
+                .padding(.leading, 18 + bleed.leading)
+                .padding(.trailing, 18 + bleed.trailing)
             }
+            .mobileShelfRowBleed(bleed)
         }
         .padding(.vertical, 12)
-        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .modifier(MobileShelfSurface(shape: RoundedRectangle(cornerRadius: 24, style: .continuous)))
         .padding(.horizontal, 18)
     }
 

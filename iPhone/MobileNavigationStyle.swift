@@ -560,9 +560,11 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     func makeUIView(context: Context) -> Probe { Probe() }
 
     func updateUIView(_ probe: Probe, context: Context) {
-        // Let the floating Library tabs draw their own surface above the hero.
-        // An opaque full-height tab-bar background hides the artwork beside them.
-        probe.usesNativeAppearance = liquidGlass || (verticalBars && selection == MobileNavigationTab.library.rawValue)
+        // Side tabs float in their own capsule. The column around them is
+        // left clear on every tab, so headers, the guide and the Library's
+        // artwork and shelves read through to the screen's edge.
+        probe.usesNativeAppearance = liquidGlass
+        probe.clearsBackground = verticalBars
         let hidden = fullscreen || (!verticalBars && (!liquidGlass || compact))
         if probe.nativeBarShouldBeHidden != hidden {
             // Layout follow-ups must not turn an in-flight scroll animation
@@ -589,6 +591,7 @@ struct MobileTabBarAppearance: UIViewRepresentable {
 
     final class Probe: UIView {
         var usesNativeAppearance = false
+        var clearsBackground = false
         // Presentation visibility; compact glass still participates in layout.
         var nativeBarShouldBeHidden = true
         var keepsNativeBarLayout = false
@@ -636,7 +639,7 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             // transition. Keep styling and visibility on the live instance.
             if let current = navigation?.tabs?.tabBar { bar = current }
             guard let bar else { return }
-            style.apply(to: bar, liquidGlass: usesNativeAppearance)
+            style.apply(to: bar, liquidGlass: usesNativeAppearance, clear: clearsBackground)
             requestNativeVisibilityUpdate()
             navigation?.requestScrollObservationUpdate(enabled: scrollInteractionEnabled)
             navigation?.requestContentInsetsUpdate()
@@ -692,12 +695,13 @@ struct MobileTabBarAppearance: UIViewRepresentable {
 final class MobileTabBarStyle {
     private weak var bar: UITabBar?
     private var appliedGlass: Bool?
+    private var appliedClear: Bool?
     private var nativeAppearance: UITabBarAppearance?
     private var nativeScrollEdgeAppearance: UITabBarAppearance?
 
-    func apply(to bar: UITabBar, liquidGlass: Bool) {
+    func apply(to bar: UITabBar, liquidGlass: Bool, clear: Bool = false) {
         let enabled = liquidGlass && MobileNavigationStyle.supportsGlass
-        guard self.bar !== bar || appliedGlass != enabled else { return }
+        guard self.bar !== bar || appliedGlass != enabled || appliedClear != clear else { return }
         if self.bar !== bar {
             // Preserve UIKit's untouched appearance before applying the solid
             // option. Restore it for On so Apple owns all glass and selection
@@ -707,8 +711,17 @@ final class MobileTabBarStyle {
         }
         self.bar = bar
         appliedGlass = enabled
+        appliedClear = clear
 
-        if enabled {
+        if clear {
+            // The side column on a wide screen: no slab behind the tabs, so
+            // nothing interrupts a header or artwork beside them. The tabs'
+            // own capsule and item styling are untouched.
+            let appearance = nativeAppearance?.copy() as? UITabBarAppearance ?? UITabBarAppearance()
+            appearance.configureWithTransparentBackground()
+            bar.standardAppearance = appearance
+            bar.scrollEdgeAppearance = appearance
+        } else if enabled {
             bar.standardAppearance = nativeAppearance ?? UITabBarAppearance()
             bar.scrollEdgeAppearance = nativeScrollEdgeAppearance
         } else {

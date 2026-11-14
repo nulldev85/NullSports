@@ -821,7 +821,9 @@ struct MediaCatalogsScreen: View {
                     }
                     .scrollClipDisabled()
                     #else
-                    MobileLibraryHeroViewport(extendsArtwork: verticalBars && media.heroCatalog != nil) { margins in
+                    // With side tabs the hero's artwork and every shelf's
+                    // panel run on into the margin the tabs sit in.
+                    MobileLibraryHeroViewport(extendsArtwork: verticalBars) { margins in
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                                 if let heroCatalog = media.heroCatalog {
@@ -835,6 +837,7 @@ struct MediaCatalogsScreen: View {
                                 }
                                 libraryShelves
                             }
+                            .environment(\.mobileShelfBleed, margins)
                             .padding(margins)
                             .padding(.top, headsWithShelf ? 12 : 0)
                             .padding(.bottom, 44)
@@ -1940,7 +1943,8 @@ struct PhoneDetailPanel: ViewModifier {
     }
 }
 
-/// Main Library shelves keep their existing approved panel appearance.
+/// Main Library shelves: a Liquid Glass panel, run into the side margins
+/// beside the Duo's tabs as the hero is.
 struct PhoneShelfPanel: ViewModifier {
     /// Under the last row: posters bring 8 of their own, other rows none.
     var bottom: CGFloat = 6
@@ -1952,7 +1956,7 @@ struct PhoneShelfPanel: ViewModifier {
         content
             .padding(.bottom, bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+            .modifier(MobileShelfSurface())
             .padding(.horizontal, LineupPanelStyle.margin)
         #endif
     }

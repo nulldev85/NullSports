@@ -40,8 +40,9 @@ struct MobileGuideView: View {
     @State private var showsSearch = false
     /// The TV Guide's options, dropped from the bar's ellipsis.
     @State private var optionsOpen = false
-    /// Channel categories and favorites live in the centered selector pill.
-    @State private var filterMenuOpen = false
+    /// The tab opens on its list of categories; this is whether one of
+    /// them -- or a search -- has been opened over it.
+    @State private var showsChannels = false
     @FocusState private var searchFocused: Bool
     /// What the viewer picked; until they pick, `filter` decides.
     @State private var chosenFilter: MobileGuideFilter?
@@ -181,7 +182,7 @@ struct MobileGuideView: View {
 
     var body: some View {
         NavigationStack {
-            guidePresentations
+            guideObservations
         }
         .mobileTabHome(.guide) { restoreDefaultCategoryOnEntry() }
         .task(id: channelRequest) { await updateChannels() }
@@ -221,7 +222,7 @@ struct MobileGuideView: View {
                         ProgressView("Loading channels…").frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if channels.isEmpty && filter == .favorites && !searching {
                         LineupUnavailableView("No favorites", systemImage: "star",
-                            description: Text("Touch and hold a channel to add it to your favorites, or pick All channels from the menu."))
+                            description: Text("Touch and hold a channel to add it to your favorites. All Channels is back on the TV Guide's first page."))
                     } else if channels.isEmpty, game == nil, !library.categories.isEmpty, visibleCategories.isEmpty, filter == .all {
                         LineupUnavailableView(title: "Categories Hidden", symbol: "eye.slash",
                             description: Text("Choose which categories you want to see in TV Guide.")) {
@@ -330,18 +331,10 @@ struct MobileGuideView: View {
                 }
             }
             .overlay {
-                ZStack {
-                    MobileDropdownLayer(isPresented: filterMenuOpen && !fillsScreen && game == nil && !showsSearch,
-                                        title: "Channels", symbol: "tv", sections: filterSections,
-                                        alignment: .top, horizontalInset: 0, backdropOpacity: 0.2,
-                                        transitionAnchor: .top) {
-                        setFilterMenu(false)
-                    }
-                    MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
-                                        symbol: "list.bullet.rectangle", sections: optionsSections,
-                                        alignment: .topLeading, transitionAnchor: .topLeading) {
-                        setOptions(false)
-                    }
+                MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
+                                    symbol: "list.bullet.rectangle", sections: optionsSections,
+                                    alignment: .topTrailing, transitionAnchor: .topTrailing) {
+                    setOptions(false)
                 }
             }
             .toolbar {
@@ -353,16 +346,14 @@ struct MobileGuideView: View {
                         }
                     }
                 } else {
-                    LineupToolbarItem(placement: .navigationBarLeading) {
+                    LineupToolbarItem(placement: .principal) {
+                        Text(showsSearch ? "Search" : filterTitle)
+                            .font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text.opacity(0.82))
+                            .lineLimit(1).truncationMode(.tail)
+                    }
+                    LineupToolbarItem(placement: .primaryAction) {
                         MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
                             setOptions(!optionsOpen)
-                        }
-                    }
-                    LineupToolbarItem(placement: .principal) {
-                        if showsSearch {
-                            Text("Search").font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text.opacity(0.82))
-                        } else {
-                            guideFilterButton
                         }
                     }
                 }
@@ -373,8 +364,90 @@ struct MobileGuideView: View {
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
     }
 
+    /// Picking a channel for a game goes straight to the channels. The tab
+    /// itself starts on its categories, each opening its own guide.
+    @ViewBuilder
+    private var guideRoot: some View {
+        if game != nil {
+            guidePresentations
+        } else {
+            categoryPage
+                .navigationDestination(isPresented: $showsChannels) { guidePresentations }
+        }
+    }
+
+    private var categoryPage: some View {
+        MobileGuideCategoryList(
+            categories: visibleCategories,
+            hasFavorites: !library.favoriteStreamOrder.isEmpty,
+            hasRecents: !library.recentStreams.isEmpty,
+            defaultCategoryID: savedDefaultFilter?.categoryID,
+            allowsDefault: { library.categorySource(for: $0.id).profileID != nil },
+            open: openChannels,
+            setDefault: setDefaultCategory,
+            hide: { setCategory($0.id, hidden: true) },
+            manageCategories: { managingCategories = true })
+            .navigationTitle("TV Guide").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                LineupToolbarItem(placement: .navigationBarLeading) {
+                    MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                        setOptions(!optionsOpen)
+                    }
+                }
+                LineupToolbarItem(placement: .principal) {
+                    Text("TV Guide").font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text.opacity(0.82))
+                }
+            }
+            .overlay {
+                MobileDropdownLayer(isPresented: optionsOpen && !showsChannels, title: "TV Guide",
+                                    symbol: "list.bullet.rectangle", sections: optionsSections,
+                                    alignment: .topLeading, transitionAnchor: .topLeading) {
+                    setOptions(false)
+                }
+            }
+            .toolbar(usesNativeTabBarLayout ? .visible : .hidden, for: .tabBar)
+            // Shown from whichever page is on screen; see `guidePresentations`.
+            .lineupSheet(isPresented: Binding(get: { managingCategories && !showsChannels },
+                                              set: { managingCategories = $0 })) {
+                MobileGuideCategoryVisibilityView().environment(library).preferredColorScheme(.dark)
+            }
+    }
+
+    /// The category the tab opens on, when one is saved and still listed.
+    private var savedDefaultFilter: MobileGuideFilter? {
+        guard game == nil else { return nil }
+        let saved = MobileGuideDefaultCategory.initialFilter(for: defaultCategoryProfile, in: defaultCategories,
+            categoryIDs: visibleCategories.map(\.id), hasFavorites: false)
+        return saved.categoryID == nil ? nil : saved
+    }
+
+    private func openChannels(_ filter: MobileGuideFilter) {
+        optionsOpen = false
+        chosenFilter = filter
+        showsChannels = true
+    }
+
+    private func setDefaultCategory(_ category: XtreamCategory, _ on: Bool) {
+        let source = library.categorySource(for: category.id)
+        guard let profileID = source.profileID, library.isProviderEnabled(profileID),
+              library.categories.contains(where: { $0.id == category.id }) else { return }
+        defaultCategories = MobileGuideDefaultCategory.setting(on ? source.categoryID : nil, for: profileID, in: defaultCategories)
+        defaultProviderValue = on ? profileID.uuidString : ""
+    }
+
+    /// Back on the categories: the guide that was open, its player and its
+    /// search go with it, unless the picture is out in Picture in Picture.
+    private func leaveChannels() {
+        closeSearch()
+        optionsOpen = false
+        if !playback.pictureInPictureActive { closePlayer() }
+    }
+
     private var guideObservations: some View {
-        guideNavigation
+        guideRoot
+            .onChange(of: showsChannels) { _, shown in
+                if !shown && game == nil { leaveChannels() }
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background, qualityRequest != nil { cancelQualityCheck(); closePlayer() }
                 if phase == .active { returnToNow() }
@@ -387,7 +460,7 @@ struct MobileGuideView: View {
                 if playing, let stream = selectedStream { library.recordRecentChannel(stream) }
             }
             .onChange(of: fillsScreen) { _, value in
-                if value { searchFocused = false; optionsOpen = false; filterMenuOpen = false }
+                if value { searchFocused = false; optionsOpen = false }
                 onFullscreenChange(value)
             }
             .onChange(of: sideways) { _, value in
@@ -413,7 +486,6 @@ struct MobileGuideView: View {
                 if !active {
                     closeSearch()
                     optionsOpen = false
-                    filterMenuOpen = false
                     if !playback.pictureInPictureActive { closePlayer() }
                 } else {
                     restoreDefaultCategoryOnEntry()
@@ -427,8 +499,10 @@ struct MobileGuideView: View {
             }
     }
 
+    /// The guide's own presentations, on the guide page itself: under the
+    /// category list they would be off screen while a category is open.
     private var guidePresentations: some View {
-        guideObservations
+        guideNavigation
             .overlay(alignment: .top) {
                 if qualityRequest != nil { LiveQualityProgress { cancelQualityCheck(); closePlayer() } }
             }
@@ -457,7 +531,8 @@ struct MobileGuideView: View {
                     .tint(LineupStyle.highlight)
                     .preferredColorScheme(.dark)
             }
-            .lineupSheet(isPresented: $managingCategories) {
+            .lineupSheet(isPresented: Binding(get: { managingCategories && (game != nil || showsChannels) },
+                                              set: { managingCategories = $0 })) {
                 MobileGuideCategoryVisibilityView().environment(library).preferredColorScheme(.dark)
             }
     }
@@ -466,6 +541,7 @@ struct MobileGuideView: View {
 
     private func guideDidAppear() {
         returnToNow()
+        if savedDefaultFilter != nil, !showsChannels { showsChannels = true }
         guard let game = game else { return }
         let recommended: XtreamStream? = library.verifiedStream(for: game)
         recommendedStreamID = recommended?.streamID
@@ -547,46 +623,10 @@ struct MobileGuideView: View {
         if open {
             if showsSearch && query.isEmpty { closeSearch() }
             else { searchFocused = false }
-            filterMenuOpen = false
         }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
             optionsOpen = open
         }
-    }
-
-    private func setFilterMenu(_ open: Bool) {
-        guard filterMenuOpen != open else { return }
-        if open { optionsOpen = false }
-        withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
-            filterMenuOpen = open
-        }
-    }
-
-    private var guideFilterButton: some View {
-        Button { setFilterMenu(!filterMenuOpen) } label: {
-            HStack(spacing: 7) {
-                Image(systemName: filterSymbol)
-                    .font(.system(size: 12, weight: .heavy, design: .rounded))
-                    .foregroundStyle(LineupStyle.highlight)
-                Text(filterTitle)
-                    .font(.inter(14, .heavy))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(LineupStyle.text.opacity(0.78))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .heavy, design: .rounded))
-                    .foregroundStyle(LineupPanelStyle.quiet)
-            }
-            .padding(.horizontal, 13)
-            .frame(height: 36)
-            .frame(maxWidth: 220)
-            .background(LineupPanelStyle.fill, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Channel filter: \(filterTitle)")
-        .accessibilityHint("Choose favorites, a category, or all channels")
     }
 
     private var filterTitle: String {
@@ -595,15 +635,6 @@ struct MobileGuideView: View {
         case .recents: "Recently Watched"
         case .all: "All Channels"
         case .category(let id): library.categories.first { $0.id == id }?.categoryName ?? "TV Guide"
-        }
-    }
-
-    private var filterSymbol: String {
-        switch filter {
-        case .favorites: "star.fill"
-        case .recents: "clock.arrow.circlepath"
-        case .all: "tv"
-        case .category: "square.stack.3d.up.fill"
         }
     }
 
@@ -621,7 +652,6 @@ struct MobileGuideView: View {
                 defaultCategories = MobileGuideDefaultCategory.setting(categoryID == nil ? nil : source.categoryID, for: profileID, in: defaultCategories)
                 defaultProviderValue = categoryID == nil ? "" : profileID.uuidString
                 chosenFilter = nil
-                setFilterMenu(false)
             })
             if game == nil {
                 item.holdItems.append(MobileMenuItem("Hide Category", symbol: "eye.slash") { setCategory(category.id, hidden: true) })
@@ -652,6 +682,9 @@ struct MobileGuideView: View {
     private func restoreDefaultCategoryOnEntry() {
         chosenFilter = MobileGuideDefaultCategory.selectionOnEntry(chosenFilter,
             for: defaultCategoryProfile, in: defaultCategories, isGamePicker: game != nil)
+        // A category saved to open on is opened over the list, so Back
+        // still leads to every other category.
+        if savedDefaultFilter != nil, !showsChannels { showsChannels = true }
     }
 
     private func setCategory(_ category: String, hidden: Bool) {
@@ -659,7 +692,6 @@ struct MobileGuideView: View {
         if let raw = MobileGuideCategoryVisibility(hiddenCategories).setting(hidden, category: source.categoryID, provider: source.profileID) {
             hiddenCategories = raw
         }
-        setFilterMenu(false)
     }
 
     /// What the TV Guide's dropdown offers: getting about, which channels the
@@ -667,6 +699,19 @@ struct MobileGuideView: View {
     /// belong to the centered selector on the main Guide, and remain in this
     /// menu while picking a channel for a sports event.
     private var optionsSections: [MobileMenuSection] {
+        // Return to Now belongs to a guide; the category list has none.
+        var moveItems: [MobileMenuItem] = []
+        if showsChannels || game != nil {
+            moveItems.append(MobileMenuItem("Return to Now", symbol: "clock") { returnToNow() })
+        }
+        moveItems.append(MobileMenuItem(showsSearch ? "Close Search" : "Search Channels",
+                                        symbol: showsSearch ? "xmark" : "magnifyingglass") {
+            if showsSearch { closeSearch() }
+            else {
+                showsSearch = true
+                if game == nil { optionsOpen = false; showsChannels = true }
+            }
+        })
         var sections = [
             MobileMenuSection(id: "view-mode", title: "View Mode", items: MobileGuideViewMode.allCases.map { mode in
                 MobileMenuItem(mode.title, symbol: mode.symbol, id: "view-\(mode.rawValue)",
@@ -674,13 +719,7 @@ struct MobileGuideView: View {
                     guideViewModeValue = mode.rawValue
                 }
             }),
-            MobileMenuSection(id: "move", items: [
-                MobileMenuItem("Return to Now", symbol: "clock") { returnToNow() },
-                MobileMenuItem(showsSearch ? "Close Search" : "Search Channels",
-                               symbol: showsSearch ? "xmark" : "magnifyingglass") {
-                    if showsSearch { closeSearch() } else { showsSearch = true }
-                }
-            ])
+            MobileMenuSection(id: "move", items: moveItems)
         ]
         if game != nil { sections.append(contentsOf: filterSections) }
         else {
@@ -1431,10 +1470,10 @@ struct MobileGuideScrollConfiguration: UIViewRepresentable {
     static func topOverlap(of view: UIView, verticalBars: Bool = false) -> CGFloat {
         guard let window = view.window else { return 0 }
         let viewport = view.convert(view.bounds, to: window)
-        if verticalBars {
-            return max(0, (window.safeAreaLayoutGuide.layoutFrame.minY - viewport.minY).rounded())
-        }
-        var largestOverlap: CGFloat = 0
+        // Side tabs leave the top to the status bar and the Guide's own
+        // header; the list clears whichever reaches lower.
+        var largestOverlap: CGFloat = verticalBars
+            ? max(0, window.safeAreaLayoutGuide.layoutFrame.minY - viewport.minY) : 0
 
         // A SwiftUI NavigationStack may host its UINavigationBar in a private
         // controller that is not in the scroll view's responder chain. Search
