@@ -59,7 +59,9 @@ struct MobileLibraryShelfMetrics: Equatable {
     let ratio: CGFloat
     let titleHeight: CGFloat
     let metadataHeight: CGFloat
-    var cardHeight: CGFloat { width / ratio + titleHeight + metadataHeight + 20 }
+    /// Art to title, and title to the line under it.
+    var gaps: CGFloat = 20
+    var cardHeight: CGFloat { width / ratio + titleHeight + metadataHeight + gaps }
     var height: CGFloat { cardHeight + 16 }
 }
 
@@ -77,6 +79,8 @@ struct MobileLibraryShelf: View {
     @Environment(\.mobileShelfBleed) private var bleed
     @ScaledMetric(relativeTo: .subheadline) private var titleHeight: CGFloat = 40
     @ScaledMetric(relativeTo: .caption2) private var metadataHeight: CGFloat = 16
+    /// One line of a card's title, for rows whose cards hold no more.
+    @ScaledMetric(relativeTo: .subheadline) private var titleLineHeight: CGFloat = 20
     @State private var position = MobileLibraryShelfPosition()
     let items: [MediaItem]
     let shape: MediaArtShape
@@ -86,13 +90,27 @@ struct MobileLibraryShelf: View {
     let onSelect: (MediaItem) -> Void
 
     var body: some View {
-        let metrics = MobileLibraryShelfMetrics(width: width ?? (shape.isPoster ? 150 : 232),
-            ratio: shape.ratio, titleHeight: titleHeight, metadataHeight: metadataHeight)
+        let metrics = self.metrics
         MobileLibraryShelfView(items: items, shape: shape, metrics: metrics, media: media,
             position: position, holdMenu: holdMenu, showsResumeProgress: showsResumeProgress, discoversSources: discoversSources,
             bleed: bleed, onSelect: onSelect)
             .frame(height: metrics.height)
             .mobileShelfRowBleed(bleed)
+    }
+
+    private var metrics: MobileLibraryShelfMetrics {
+        let width = self.width ?? (shape.isPoster ? 150 : 232)
+        guard !items.isEmpty, items.allSatisfy({ MediaItemCard.isGrouping($0) }) else {
+            return MobileLibraryShelfMetrics(width: width, ratio: shape.ratio,
+                titleHeight: titleHeight, metadataHeight: metadataHeight)
+        }
+        // Collections and services: their art and a one-line name, with a
+        // count under it only where a card has one. Room for a second title
+        // line and a year left a band of empty panel under a row of
+        // landscape collections.
+        let counts = items.contains { ($0.childCount ?? 0) > 0 }
+        return MobileLibraryShelfMetrics(width: width, ratio: shape.ratio, titleHeight: titleLineHeight,
+            metadataHeight: counts ? metadataHeight : 0, gaps: counts ? 20 : 10)
     }
 }
 

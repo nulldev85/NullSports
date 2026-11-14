@@ -240,7 +240,9 @@ struct MediaItemCard: View {
 
     /// A streaming service, a collection or a folder: a card that stands for
     /// a group of titles rather than one.
-    private var isGrouping: Bool {
+    private var isGrouping: Bool { Self.isGrouping(item) }
+
+    static func isGrouping(_ item: MediaItem) -> Bool {
         StreamingService.service(for: item) != nil
             || ["BoxSet", "CollectionFolder", "Folder", "UserView"].contains(item.type)
     }
@@ -311,7 +313,8 @@ struct MediaItemCard: View {
                 // A service or a collection is its artwork and its name. A row
                 // of them is all one kind, so nothing below has to line up
                 // with a film's year, and no empty lines are held for it.
-                Text(item.name).font(titleFont).lineLimit(2)
+                // One line, so a row of them is only as tall as it needs.
+                Text(item.name).font(titleFont).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 if let count = groupingCount {
                     Text(count)

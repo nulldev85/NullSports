@@ -237,8 +237,10 @@ struct MobileLibraryCollectionsRow: View {
                     }
                 }
             }
-            .frame(height: 110).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            Text(name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
+            // The tile's width at a landscape picture's shape, so a
+            // collection's wide art fits without being cut down.
+            .frame(height: 205 * 9 / 16).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Text(name).font(.inter(.subheadline, .bold)).lineLimit(1)
             Text(detail).font(.inter(.caption2)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
         }
         .frame(width: 205, alignment: .leading).padding(14)
