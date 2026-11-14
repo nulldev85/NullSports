@@ -24,6 +24,12 @@ struct MobileShelfSurface: ViewModifier {
     func body(content: Content) -> some View {
         content.background {
             surface
+                // A light rim, brightest at the top edge, so a panel keeps
+                // its outline where nothing bright lies behind the glass.
+                .overlay {
+                    shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.18), .white.opacity(0.05), .white.opacity(0.03)],
+                                                      startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
+                }
                 .padding(.leading, -bleed.leading)
                 .padding(.trailing, -bleed.trailing)
                 .allowsHitTesting(false)

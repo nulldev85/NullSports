@@ -708,6 +708,9 @@ struct MediaCatalogsScreen: View {
     #if !os(tvOS)
     @State private var phoneScrollActivity = MobileLibraryScrollActivity()
     @Environment(\.mobileUsesVerticalBars) private var verticalBars
+    /// The hero's current title, whose colours wash the page behind the
+    /// shelves' glass.
+    @State private var heroBackdropItem: MediaItem?
     #endif
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
@@ -828,7 +831,8 @@ struct MediaCatalogsScreen: View {
                             LazyVStack(alignment: .leading, spacing: catalogSpacing) {
                                 if let heroCatalog = media.heroCatalog {
                                     MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem,
-                                                     scrollActivity: phoneScrollActivity, artworkMargins: margins)
+                                                     scrollActivity: phoneScrollActivity, artworkMargins: margins,
+                                                     onCurrentItem: { heroBackdropItem = $0 })
                                 }
                                 if let onAddServer {
                                     MobileAddServerPrompt(action: onAddServer)
@@ -838,6 +842,16 @@ struct MediaCatalogsScreen: View {
                                 libraryShelves
                             }
                             .environment(\.mobileShelfBleed, margins)
+                            // Behind every row, scrolling with them: the hero
+                            // is a 2:3 picture the stack's width.
+                            .background(alignment: .top) {
+                                GeometryReader { stack in
+                                    MobileLibraryGlassBackdrop(
+                                        item: media.heroCatalog == nil ? nil : heroBackdropItem,
+                                        top: media.heroCatalog == nil ? 0 : stack.size.width * 1.5)
+                                        .environment(\.mobileShelfBleed, margins)
+                                }
+                            }
                             .padding(margins)
                             .padding(.top, headsWithShelf ? 12 : 0)
                             .padding(.bottom, 44)
