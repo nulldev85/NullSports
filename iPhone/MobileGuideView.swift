@@ -460,7 +460,11 @@ struct MobileGuideView: View {
     private func openChannels(_ filter: MobileGuideFilter) {
         optionsOpen = false
         chosenFilter = filter
-        showsChannels = true
+        guard showsChannels else { showsChannels = true; return }
+        // Already marked open though the list is what's showing: reset it,
+        // then open, so the tap always lands.
+        showsChannels = false
+        DispatchQueue.main.async { showsChannels = true }
     }
 
     private func setDefaultCategory(_ category: XtreamCategory, _ on: Bool) {
@@ -577,6 +581,12 @@ struct MobileGuideView: View {
     private var enabledProviderIDs: [UUID] { library.providerRoot.enabledProfiles.map(\.id) }
 
     private func guideDidAppear() {
+        // The categories are on screen, so no guide is open over them,
+        // whatever the flag says. The tab's own button can return the stack
+        // to its first page from UIKit, which leaves the flag set; a row
+        // tapped after that set it to what it already was, and nothing
+        // opened.
+        if game == nil && showsChannels { showsChannels = false }
         returnToNow()
         openDefaultCategoryOnce()
         guard let game = game else { return }
