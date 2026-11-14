@@ -62,7 +62,9 @@ struct MediaServersView: View {
             #if os(tvOS)
             .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
-            .lineupSheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            // Full screen, as the streams found are the whole of what the
+            // viewer is choosing between, edge to edge on every iPhone.
+            .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             .lineupSheet(item: $choosingProfile) { source in
                 MobileJellyfinProfilePicker(source: source).environment(media)
             }
@@ -867,7 +869,7 @@ struct MediaCatalogsScreen: View {
         #if os(tvOS)
         .lineupFullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
         #else
-        .lineupSheet(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
+        .lineupFullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
         #endif
         .task(id: searchRequestID) {
             let value = submittedQuery.trimmingCharacters(in: .whitespacesAndNewlines)

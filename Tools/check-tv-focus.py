@@ -96,7 +96,14 @@ def tvos_lines(source):
         opened = re.match(r"^#if\s+(.*)$", text)
         if opened:
             condition = opened.group(1)
-            live = ("!" not in condition) if "os(tvOS)" in condition else True
+            # iPhone-only code is no more tvOS's than tvOS-only code is the
+            # phone's: `#if os(iOS)` is dead here, `#if !os(iOS)` live.
+            if "os(tvOS)" in condition:
+                live = "!" not in condition
+            elif "os(iOS)" in condition:
+                live = "!" in condition
+            else:
+                live = True
             stack.append([live, live])
             continue
         if re.match(r"^#elseif\b", text):

@@ -20,7 +20,12 @@ struct MobileStreamPickerBoard: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
+        // The panel runs edge to edge, into the side margins a Duo keeps for
+        // its clock and tabs and a phone on its side for the island; only
+        // what is read and touched stays inside them.
+        GeometryReader { viewport in
+            let sides = EdgeInsets(top: 0, leading: viewport.safeAreaInsets.leading,
+                                   bottom: 0, trailing: viewport.safeAreaInsets.trailing)
             VStack(spacing: 10) {
                 ScrollView {
                     VStack(spacing: 0) {
@@ -29,6 +34,7 @@ struct MobileStreamPickerBoard: View {
                             .padding(.horizontal, LineupPanelStyle.inset)
                         rows
                     }
+                    .padding(sides)
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .scrollIndicators(.hidden)
@@ -40,6 +46,7 @@ struct MobileStreamPickerBoard: View {
                     Text("Cancel")
                         .font(.inter(17, .bold)).foregroundStyle(LineupStyle.text)
                         .fixedSize()
+                        .padding(sides)
                         .frame(maxWidth: .infinity, minHeight: 54)
                         .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
                         .overlay(LineupPanelStyle.shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
@@ -50,7 +57,7 @@ struct MobileStreamPickerBoard: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .padding(.horizontal, 12).padding(.vertical, 12)
-            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+            .ignoresSafeArea(.container, edges: .horizontal)
         }
         .accessibilityAddTraits(.isModal)
         .accessibilityAction(.escape) { cancel() }

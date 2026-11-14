@@ -435,7 +435,7 @@ struct MobileGuideView: View {
             .onDisappear { cancelQualityCheck() }
             // Played once the list has gone, so the player doesn't open
             // under a sheet that is still closing.
-            .lineupSheet(item: $catchUpChannel, onDismiss: {
+            .lineupFullScreenCover(item: $catchUpChannel, onDismiss: {
                 guard let pending = pendingRecording else { return }
                 pendingRecording = nil
                 openRecording(pending.stream, programme: pending.programme)

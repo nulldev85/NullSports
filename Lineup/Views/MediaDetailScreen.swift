@@ -169,7 +169,8 @@ struct MediaDetailScreen: View {
             TVMediaSummarySheet(item: item).presentationBackground(.clear)
         }
         #else
-        .lineupSheet(item: $chosen) { episode in MediaSourcePicker(item: episode) }
+        // From the start means from the start here too, as on the TV.
+        .lineupFullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver) }
         #endif
     }
 
@@ -1337,7 +1338,7 @@ struct MediaPlayableCard: View {
         MediaItemCard(item: item, shape: shape)
             .lineupHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film",
                             items: { media.cardMenuItems(for: item) }, action: choose)
-            .lineupSheet(isPresented: $choosingSource) {
+            .lineupFullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
         #endif
