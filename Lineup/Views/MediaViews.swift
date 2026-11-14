@@ -705,6 +705,7 @@ struct MediaCatalogsScreen: View {
     @State private var isVisible = false
     #if !os(tvOS)
     @State private var phoneScrollActivity = MobileLibraryScrollActivity()
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
     #endif
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
@@ -818,27 +819,28 @@ struct MediaCatalogsScreen: View {
                     }
                     .scrollClipDisabled()
                     #else
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: catalogSpacing) {
-                            if let heroCatalog = media.heroCatalog {
-                                // The first panel starts a gap below the
-                                // hero, as each starts a gap below the last.
-                                MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem,
-                                                 scrollActivity: phoneScrollActivity)
+                    MobileLibraryHeroViewport(extendsArtwork: verticalBars && media.heroCatalog != nil) { margins in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: catalogSpacing) {
+                                if let heroCatalog = media.heroCatalog {
+                                    MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem,
+                                                     scrollActivity: phoneScrollActivity, artworkMargins: margins)
+                                }
+                                if let onAddServer {
+                                    MobileAddServerPrompt(action: onAddServer)
+                                        .padding(.horizontal, horizontalPadding)
+                                        .padding(.top, media.heroCatalog == nil ? 110 : 0)
+                                }
+                                libraryShelves
                             }
-                            if let onAddServer {
-                                MobileAddServerPrompt(action: onAddServer)
-                                    .padding(.horizontal, horizontalPadding)
-                                    .padding(.top, media.heroCatalog == nil ? 110 : 0)
-                            }
-                            libraryShelves
+                            .padding(margins)
+                            .padding(.top, headsWithShelf ? 12 : 0)
+                            .padding(.bottom, 44)
                         }
-                        .padding(.top, headsWithShelf ? 12 : 0)
-                        .padding(.bottom, 44)
+                        .scrollBounceBehavior(.always, axes: .vertical)
+                        .onScrollPhaseChange { _, phase in phoneScrollActivity.isActive = phase != .idle }
+                        .onDisappear { phoneScrollActivity.isActive = false }
                     }
-                    .scrollBounceBehavior(.always, axes: .vertical)
-                    .onScrollPhaseChange { _, phase in phoneScrollActivity.isActive = phase != .idle }
-                    .onDisappear { phoneScrollActivity.isActive = false }
                     // The hero runs up under the status bar on purpose. With
                     // no hero -- before any shelf or chart is in, or on a
                     // server with nothing to feature -- the first row would

@@ -4,6 +4,35 @@ import Observation
 import UIKit
 #endif
 
+#if os(iOS)
+/// Measure the foreground safe area before the Library scroller expands.
+/// A fold or a split-window move can change either margin independently.
+struct MobileLibraryHeroViewport<Content: View>: View {
+    let extendsArtwork: Bool
+    @ViewBuilder let content: (EdgeInsets) -> Content
+
+    var body: some View {
+        GeometryReader { viewport in
+            let safe = viewport.safeAreaInsets
+            let margins = EdgeInsets(top: 0, leading: extendsArtwork ? safe.leading : 0,
+                                     bottom: 0, trailing: extendsArtwork ? safe.trailing : 0)
+            content(margins)
+                .ignoresSafeArea(.container, edges: extendsArtwork ? .horizontal : [])
+        }
+    }
+}
+
+extension View {
+    /// Return an artwork layer to the scroller's full width after the stack
+    /// has inset its foreground content around the system controls.
+    func mobileHeroArtworkMargins(_ margins: EdgeInsets) -> some View {
+        padding(.leading, -margins.leading)
+            .padding(.trailing, -margins.trailing)
+            .allowsHitTesting(false)
+    }
+}
+#endif
+
 /// A full-bleed top-ten carousel sourced from the catalog chosen in Account.
 /// It advances gently when left alone. Changing the page by touch restarts the
 /// four-second interval, so it never fights a swipe or immediately skips the
@@ -17,6 +46,7 @@ struct MediaLibraryHero: View {
     let onOpen: (MediaItem) -> Void
     #if !os(tvOS)
     let scrollActivity: MobileLibraryScrollActivity
+    var artworkMargins = EdgeInsets()
     #endif
     @State private var index = 0
     @State private var isDragging = false
@@ -43,7 +73,7 @@ struct MediaLibraryHero: View {
                     let current = min(index, items.count - 1)
                     let rotates = isVisible && scenePhase == .active && !voiceOver
                         && !isDragging && !scrollActivity.isActive
-                    let pixels = LineupArt.pixels(for: viewport.size.width)
+                    let pixels = LineupArt.pixels(for: viewport.size.width + artworkMargins.leading + artworkMargins.trailing)
                     // Two overlapping slides fade together, including last to
                     // first. A page controller otherwise jumps across the list.
                     ZStack {
@@ -131,6 +161,11 @@ struct MediaLibraryHero: View {
             let contentWidth = max(0, slide.size.width - heroHorizontalPadding * 2)
             let contentHeight = max(0, slide.size.height - heroTopPadding - heroBottomPadding)
             let readableWidth = min(copyWidth, contentWidth)
+            #if os(tvOS)
+            let artworkWidth = slide.size.width
+            #else
+            let artworkWidth = slide.size.width + artworkMargins.leading + artworkMargins.trailing
+            #endif
 
             ZStack(alignment: .bottomLeading) {
                 ZStack {
@@ -140,14 +175,24 @@ struct MediaLibraryHero: View {
                                   // Decode for the resting viewport. Pulling
                                   // transforms the cached picture, without
                                   // changing the loader's pixel/cache key.
-                                  width: slide.size.width) { image in
+                                  width: artworkWidth) { image in
                         if let image { image.resizable().scaledToFill() }
                         else { Color.clear }
                     }
                 }
-                .frame(width: slide.size.width, height: slide.size.height)
+                .frame(width: artworkWidth, height: slide.size.height)
                 #if !os(tvOS)
                 .mobileLibraryArtworkZoom()
+                .overlay {
+                    HStack(spacing: 0) {
+                        LinearGradient(colors: [.black.opacity(0.36), .clear], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: artworkMargins.leading)
+                        Spacer(minLength: 0)
+                        LinearGradient(colors: [.clear, .black.opacity(0.36)], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: artworkMargins.trailing)
+                    }
+                }
+                .mobileHeroArtworkMargins(artworkMargins)
                 #endif
                 #if os(tvOS)
                 LinearGradient(stops: [
@@ -175,6 +220,7 @@ struct MediaLibraryHero: View {
                     .init(color: LineupStyle.background.opacity(0.88), location: 0.84),
                     .init(color: LineupStyle.background, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
+                .mobileHeroArtworkMargins(artworkMargins)
                 #endif
 
                 VStack(alignment: .center, spacing: heroSpacing) {

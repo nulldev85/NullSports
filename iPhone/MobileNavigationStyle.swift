@@ -560,7 +560,9 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     func makeUIView(context: Context) -> Probe { Probe() }
 
     func updateUIView(_ probe: Probe, context: Context) {
-        probe.liquidGlass = liquidGlass
+        // Let the floating Library tabs draw their own surface above the hero.
+        // An opaque full-height tab-bar background hides the artwork beside them.
+        probe.usesNativeAppearance = liquidGlass || (verticalBars && selection == MobileNavigationTab.library.rawValue)
         let hidden = fullscreen || (!verticalBars && (!liquidGlass || compact))
         if probe.nativeBarShouldBeHidden != hidden {
             // Layout follow-ups must not turn an in-flight scroll animation
@@ -586,7 +588,7 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     }
 
     final class Probe: UIView {
-        var liquidGlass = false
+        var usesNativeAppearance = false
         // Presentation visibility; compact glass still participates in layout.
         var nativeBarShouldBeHidden = true
         var keepsNativeBarLayout = false
@@ -634,7 +636,7 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             // transition. Keep styling and visibility on the live instance.
             if let current = navigation?.tabs?.tabBar { bar = current }
             guard let bar else { return }
-            style.apply(to: bar, liquidGlass: liquidGlass)
+            style.apply(to: bar, liquidGlass: usesNativeAppearance)
             requestNativeVisibilityUpdate()
             navigation?.requestScrollObservationUpdate(enabled: scrollInteractionEnabled)
             navigation?.requestContentInsetsUpdate()

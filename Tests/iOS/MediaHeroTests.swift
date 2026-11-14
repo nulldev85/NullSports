@@ -1,7 +1,55 @@
 import XCTest
+import SwiftUI
+import UIKit
 @testable import LineupiOS
 
 final class MediaHeroTests: XCTestCase {
+    @MainActor
+    func testHeroArtworkReachesBothEdgesWhileForegroundRespectsSideInsets() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let artwork = UIView()
+        let foreground = UIView()
+        let host = UIHostingController(rootView: MobileLibraryHeroViewport(extendsArtwork: true) { margins in
+            ScrollView {
+                LazyVStack {
+                    ZStack {
+                        HeroLayoutMarker(view: artwork).mobileHeroArtworkMargins(margins)
+                        HeroLayoutMarker(view: foreground)
+                    }
+                    .frame(height: 140)
+                }
+                .padding(margins)
+            }
+        })
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+
+        for (left, right) in [(0, 52), (38, 0), (0, 0)] {
+            host.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: CGFloat(left), bottom: 0, right: CGFloat(right))
+            let deadline = ContinuousClock.now + .seconds(3)
+            var art = CGRect.zero
+            var copy = CGRect.zero
+            var safe = CGRect.zero
+            repeat {
+                window.layoutIfNeeded()
+                safe = host.view.convert(host.view.safeAreaLayoutGuide.layoutFrame, to: window)
+                art = artwork.convert(artwork.bounds, to: window)
+                copy = foreground.convert(foreground.bounds, to: window)
+                if artwork.window === window && foreground.window === window &&
+                    abs(copy.minX - safe.minX) <= 1 && abs(copy.maxX - safe.maxX) <= 1 &&
+                    abs(art.minX - window.bounds.minX) <= 1 && abs(art.maxX - window.bounds.maxX) <= 1 { break }
+                try await Task.sleep(for: .milliseconds(20))
+            } while ContinuousClock.now < deadline
+            XCTAssertEqual(art.minX, window.bounds.minX, accuracy: 1)
+            XCTAssertEqual(art.maxX, window.bounds.maxX, accuracy: 1)
+            XCTAssertEqual(copy.minX, safe.minX, accuracy: 1)
+            XCTAssertEqual(copy.maxX, safe.maxX, accuracy: 1)
+        }
+    }
+
     func testContinueWatchingIdentifiesShowWhenEveryCardIsAnEpisode() {
         let episode = MediaItem(id: "e", name: "Pilot", type: "Episode", overview: nil,
             productionYear: nil, primaryImageAspectRatio: 1.78, childCount: nil, indexNumber: 1,
@@ -106,4 +154,10 @@ final class MediaHeroTests: XCTestCase {
         reopened.setHeroMode(.single)
         XCTAssertEqual(reopened.selectedHeroCatalogID, "previous")
     }
+}
+
+private struct HeroLayoutMarker: UIViewRepresentable {
+    let view: UIView
+    func makeUIView(context: Context) -> UIView { view }
+    func updateUIView(_ view: UIView, context: Context) {}
 }
