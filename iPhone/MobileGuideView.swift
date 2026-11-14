@@ -32,6 +32,7 @@ struct MobileGuideView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.mobileUsesNativeTabBarLayout) private var usesNativeTabBarLayout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
     @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
     @AppStorage(MobileGuideDefaultCategory.storageKey) private var defaultCategories = "{}"
     @AppStorage(MobileGuideCategoryVisibility.storageKey) private var hiddenCategories = "{}"
@@ -337,6 +338,11 @@ struct MobileGuideView: View {
                     setOptions(false)
                 }
             }
+            // A category's guide has no bar either: the way back, its name
+            // and its options float over the page, as on a title's page.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if game == nil && !fillsScreen { guideHeader }
+            }
             .toolbar {
                 if game != nil {
                     LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
@@ -345,23 +351,46 @@ struct MobileGuideView: View {
                             setOptions(!optionsOpen)
                         }
                     }
-                } else {
-                    LineupToolbarItem(placement: .principal) {
-                        Text(showsSearch ? "Search" : filterTitle)
-                            .font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text.opacity(0.82))
-                            .lineLimit(1).truncationMode(.tail)
-                    }
-                    LineupToolbarItem(placement: .primaryAction) {
-                        MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
-                            setOptions(!optionsOpen)
-                        }
-                    }
                 }
             }
-            .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
+            .toolbar(fillsScreen || game == nil ? .hidden : .visible, for: .navigationBar)
             .toolbar(fillsScreen || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
+    }
+
+    /// Over a category's guide, in place of a bar: back to the categories,
+    /// the category's name, and the guide's options.
+    private var guideHeader: some View {
+        HStack(spacing: 12) {
+            Button { showsChannels = false } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(LineupPresentationStyle.text)
+                    .frame(width: 36, height: 36)
+                    .background(LineupPresentationStyle.card, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Categories")
+            .accessibilityHint("Goes back to the list of categories")
+            Text(showsSearch ? "Search" : filterTitle)
+                .font(.inter(20, .heavy))
+                .foregroundStyle(LineupStyle.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                setOptions(!optionsOpen)
+            }
+        }
+        .padding(.horizontal, 16)
+        // With the tabs at the side the clock moves there too, leaving no
+        // top margin of its own.
+        .padding(.top, verticalBars ? 12 : 4)
+        .frame(minHeight: 48)
+        .background(Color.black)
     }
 
     /// Picking a channel for a game goes straight to the channels. The tab
