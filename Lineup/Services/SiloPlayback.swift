@@ -78,7 +78,7 @@ final class SiloPlaybackSession {
         catch {
             if let session = decision.session_id {
                 try? await client.transport.mutate(["playback", session], method: "DELETE",
-                    body: ["installation_id": installationID, "stop_id": UUID().uuidString,
+                    body: ["installation_id": installationID, "stop_id": UUID().uuidString.lowercased(),
                         "sequence": 1, "position": position, "is_paused": true])
             }
             throw error
@@ -272,7 +272,7 @@ final class SiloPlaybackSession {
     private func stopAsset(_ asset: SiloPlaybackAsset, client: SiloClient, position: Double, paused: Bool) async throws {
         sequence += 1
         let reply: SiloPlaybackAcknowledgement = try await client.transport.get(["playback", asset.lease.sessionID], method: "DELETE",
-            body: ["installation_id": asset.lease.installationID, "stop_id": UUID().uuidString, "sequence": sequence,
+            body: ["installation_id": asset.lease.installationID, "stop_id": UUID().uuidString.lowercased(), "sequence": sequence,
                 "position": position, "is_paused": paused])
         guard ["stopped", "replayed"].contains(reply.outcome) else { throw MediaIntegrationError.invalidResponse }
     }

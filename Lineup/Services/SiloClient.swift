@@ -193,7 +193,21 @@ struct SiloClient: MediaServerClient {
     let http: MediaIntegrationHTTP
     init(address: String, credential: SiloCredential, profileID: String?, deviceID: String,
          session: URLSession? = nil, persist: (@Sendable (SiloCredential) async -> Void)? = nil) throws {
-        let http = try MediaIntegrationHTTP(address: address, session: session)
+        let input = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty, !input.hasPrefix("/") else { throw MediaIntegrationError.invalidAddress }
+        let absolute = input.contains("://") ? input : "https://" + input
+        guard var parts = URLComponents(string: absolute) else { throw MediaIntegrationError.invalidAddress }
+        // Silo publishes its native reference at <server prefix>/api/v2/docs.
+        // Accept that address as well as the server root without doubling the API path.
+        var path = parts.percentEncodedPath
+        while path.hasSuffix("/") { path.removeLast() }
+        for suffix in ["/api/v2/docs", "/api/v2/openapi.json", "/api/v2"] where path.hasSuffix(suffix) {
+            path.removeLast(suffix.count)
+            break
+        }
+        parts.percentEncodedPath = path
+        guard let base = parts.string else { throw MediaIntegrationError.invalidAddress }
+        let http = try MediaIntegrationHTTP(address: base, session: session)
         self.http = http
         transport = SiloTransport(http: http, credential: credential, profileID: profileID, deviceID: deviceID, persist: persist)
     }
@@ -230,6 +244,18 @@ struct SiloClient: MediaServerClient {
         return all
     }
     func items(userID: String, parentID: String, sortBy: String, limit: Int) async throws -> [MediaItem] {
+        try await children(userID: userID, parentID: parentID, sortBy: sortBy, limit: limit, filter: .all)
+    }
+
+    func items(userID: String, parent: MediaItem, sortBy: String, limit: Int, filter: CatalogMediaFilter) async throws -> [MediaItem] {
+        guard filter != .all else { return try await items(userID: userID, parent: parent, sortBy: sortBy, limit: limit) }
+        let items = try await children(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit, filter: filter)
+        return filter.apply(to: items)
+    }
+
+    private func children(userID: String, parentID: String, sortBy: String, limit: Int, filter: CatalogMediaFilter) async throws -> [MediaItem] {
+        let type = filter.itemType?.lowercased()
+        let typeQuery = type.map { [URLQueryItem(name: "type", value: $0)] } ?? []
         if parentID.hasPrefix("silo-curated:") {
             let parts = parentID.dropFirst("silo-curated:".count).split(separator: ":", omittingEmptySubsequences: false)
             guard parts.count == 2, let libraryBytes = Data(base64Encoded: String(parts[0])),
@@ -238,15 +264,15 @@ struct SiloClient: MediaServerClient {
                 throw MediaIntegrationError.invalidResponse
             }
             return try await catalog([.init(name: "source", value: "library_collection"), .init(name: "library_id", value: library),
-                .init(name: "collection_id", value: collection)], limit: limit)
+                .init(name: "collection_id", value: collection)] + typeQuery, limit: limit)
         }
         if parentID.hasPrefix("silo-library:") {
             return try await catalog([.init(name: "library_id", value: String(parentID.dropFirst("silo-library:".count))),
-                .init(name: "type", value: "video"), .init(name: "sort", value: "title")], limit: limit)
+                .init(name: "type", value: type ?? "video"), .init(name: "sort", value: "title")], limit: limit)
         }
         if parentID.hasPrefix("silo-collection:") {
             return try await catalog([.init(name: "source", value: "user_collection"),
-                .init(name: "collection_id", value: String(parentID.dropFirst("silo-collection:".count)))], limit: limit)
+                .init(name: "collection_id", value: String(parentID.dropFirst("silo-collection:".count)))] + typeQuery, limit: limit)
         }
         let parent = try await item(userID: userID, itemID: parentID)
         return try await items(userID: userID, parent: parent, sortBy: sortBy, limit: limit)
@@ -405,6 +431,7 @@ actor SiloTransport {
     private struct Tokens: Decodable { let access_token: String; let refresh_token: String; let expires_in: Int; let user: SiloAccount? }
     func signIn(username: String, password: String) async throws -> SiloAccount {
         let (data, _) = try await http.send(["api", "v2", "auth", "login"], method: "POST",
+            headers: ["X-Silo-Device-Id": deviceID],
             body: MediaIntegrationHTTP.body(["username": username, "password": password]))
         let tokens = try JSONDecoder().decode(Tokens.self, from: data)
         guard let user = tokens.user, !tokens.access_token.isEmpty else { throw MediaIntegrationError.invalidResponse }

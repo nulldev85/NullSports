@@ -320,11 +320,11 @@ struct MobileLiveView: View {
                 if value { expanded = false }
             }
             .lineupSheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
-            .lineupSheet(item: $teamPage) { MobileTeamPage(target: $0) }
+            .lineupFullScreenCover(item: $teamPage) { MobileTeamPage(target: $0) }
             .lineupFullScreenCover(item: $multiview) { session in
                 MobileMultiviewView(session: session).environment(library)
             }
-            .lineupSheet(item: $multiviewPicking, onDismiss: {
+            .lineupFullScreenCover(item: $multiviewPicking, onDismiss: {
                 // Opened once the picker has gone: one full-screen cover
                 // can't come up while a sheet is still leaving.
                 if let first = multiviewFirst, let second = multiviewSecond { launchMultiview([first, second]) }
@@ -362,7 +362,7 @@ struct MobileLiveView: View {
             .lineupFullScreenCover(item: $selectedGameReplay) { selection in
                 MobileGameReplayPlayer(selection: selection).environment(library)
             }
-            .lineupSheet(item: $catchUpChannel, onDismiss: finishCatchUpSelection) { channel in
+            .lineupFullScreenCover(item: $catchUpChannel, onDismiss: finishCatchUpSelection) { channel in
                 sportsCatchUpSheet(channel)
             }
             .overlay(alignment: .top) {
@@ -411,7 +411,7 @@ struct MobileLiveView: View {
                            isPresented: $showsChannelSyncMessage,
                            message: "Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.",
                            cancelTitle: "OK") { [] }
-            .lineupSheet(item: $choosingChannel, onDismiss: finishChannelSelection) { game in
+            .lineupFullScreenCover(item: $choosingChannel, onDismiss: finishChannelSelection) { game in
                 MobileChannelPicker(library: library, game: game) { stream in
                     pendingStream = stream
                     pendingGame = game

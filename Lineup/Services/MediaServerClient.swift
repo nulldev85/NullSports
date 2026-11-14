@@ -1,5 +1,24 @@
 import Foundation
 
+enum CatalogMediaFilter: String, CaseIterable, Sendable {
+    case all = "All"
+    case movies = "Movies"
+    case shows = "TV Shows"
+
+    var itemType: String? {
+        switch self {
+        case .all: nil
+        case .movies: "Movie"
+        case .shows: "Series"
+        }
+    }
+
+    func apply(to items: [MediaItem]) -> [MediaItem] {
+        guard let itemType else { return items }
+        return items.filter { $0.type == itemType }
+    }
+}
+
 /// What the Library asks of a media server, whatever software it runs.
 ///
 /// Jellyfin and Emby answer through `JellyfinClient` -- Emby's API is the one
@@ -14,6 +33,7 @@ protocol MediaServerClient: Sendable {
     func views(userID: String) async throws -> [MediaItem]
     func items(userID: String, parentID: String, sortBy: String, limit: Int) async throws -> [MediaItem]
     func items(userID: String, parent: MediaItem, sortBy: String, limit: Int) async throws -> [MediaItem]
+    func items(userID: String, parent: MediaItem, sortBy: String, limit: Int, filter: CatalogMediaFilter) async throws -> [MediaItem]
     func allCollections(userID: String, pageSize: Int, maxPages: Int) async throws -> [MediaItem]
     func episodes(userID: String, seriesID: String) async throws -> [MediaItem]
     func allTitles(userID: String, pageSize: Int, maxPages: Int) async throws -> [MediaItem]

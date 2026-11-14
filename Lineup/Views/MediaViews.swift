@@ -62,7 +62,9 @@ struct MediaServersView: View {
             #if os(tvOS)
             .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             #else
-            .lineupSheet(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            // Full screen, as the streams found are the whole of what the
+            // viewer is choosing between, edge to edge on every iPhone.
+            .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
             .lineupSheet(item: $choosingProfile) { source in
                 MobileJellyfinProfilePicker(source: source).environment(media)
             }
@@ -705,6 +707,7 @@ struct MediaCatalogsScreen: View {
     @State private var isVisible = false
     #if !os(tvOS)
     @State private var phoneScrollActivity = MobileLibraryScrollActivity()
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
     #endif
     #if os(tvOS)
     @StateObject private var tvPreview = TVMediaPreviewState()
@@ -818,27 +821,31 @@ struct MediaCatalogsScreen: View {
                     }
                     .scrollClipDisabled()
                     #else
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: catalogSpacing) {
-                            if let heroCatalog = media.heroCatalog {
-                                // The first panel starts a gap below the
-                                // hero, as each starts a gap below the last.
-                                MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem,
-                                                 scrollActivity: phoneScrollActivity)
+                    // With side tabs the hero's artwork and every shelf's
+                    // panel run on into the margin the tabs sit in.
+                    MobileLibraryHeroViewport(extendsArtwork: verticalBars) { margins in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: catalogSpacing) {
+                                if let heroCatalog = media.heroCatalog {
+                                    MediaLibraryHero(catalog: heroCatalog, onOpen: openHeroItem,
+                                                     scrollActivity: phoneScrollActivity, artworkMargins: margins)
+                                }
+                                if let onAddServer {
+                                    MobileAddServerPrompt(action: onAddServer)
+                                        .padding(.horizontal, horizontalPadding)
+                                        .padding(.top, media.heroCatalog == nil ? 110 : 0)
+                                }
+                                libraryShelves
                             }
-                            if let onAddServer {
-                                MobileAddServerPrompt(action: onAddServer)
-                                    .padding(.horizontal, horizontalPadding)
-                                    .padding(.top, media.heroCatalog == nil ? 110 : 0)
-                            }
-                            libraryShelves
+                            .environment(\.mobileShelfBleed, margins)
+                            .padding(margins)
+                            .padding(.top, headsWithShelf ? 12 : 0)
+                            .padding(.bottom, 44)
                         }
-                        .padding(.top, headsWithShelf ? 12 : 0)
-                        .padding(.bottom, 44)
+                        .scrollBounceBehavior(.always, axes: .vertical)
+                        .onScrollPhaseChange { _, phase in phoneScrollActivity.isActive = phase != .idle }
+                        .onDisappear { phoneScrollActivity.isActive = false }
                     }
-                    .scrollBounceBehavior(.always, axes: .vertical)
-                    .onScrollPhaseChange { _, phase in phoneScrollActivity.isActive = phase != .idle }
-                    .onDisappear { phoneScrollActivity.isActive = false }
                     // The hero runs up under the status bar on purpose. With
                     // no hero -- before any shelf or chart is in, or on a
                     // server with nothing to feature -- the first row would
@@ -865,7 +872,7 @@ struct MediaCatalogsScreen: View {
         #if os(tvOS)
         .lineupFullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
         #else
-        .lineupSheet(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
+        .lineupFullScreenCover(item: $heroPlayableItem) { item in MediaSourcePicker(item: item) }
         #endif
         .task(id: searchRequestID) {
             let value = submittedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1936,7 +1943,8 @@ struct PhoneDetailPanel: ViewModifier {
     }
 }
 
-/// Main Library shelves keep their existing approved panel appearance.
+/// Main Library shelves: a Liquid Glass panel, run into the side margins
+/// beside the Duo's tabs as the hero is.
 struct PhoneShelfPanel: ViewModifier {
     /// Under the last row: posters bring 8 of their own, other rows none.
     var bottom: CGFloat = 6
@@ -1948,7 +1956,7 @@ struct PhoneShelfPanel: ViewModifier {
         content
             .padding(.bottom, bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LineupPanelStyle.fill, in: LineupPanelStyle.shape)
+            .modifier(MobileShelfSurface())
             .padding(.horizontal, LineupPanelStyle.margin)
         #endif
     }

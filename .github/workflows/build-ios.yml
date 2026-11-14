@@ -43,7 +43,7 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "27.0"
+          xcode-version: "27.1"
       - name: Check Swift syntax and shared source membership
         run: |
           set -euo pipefail
@@ -134,7 +134,7 @@ jobs:
       - name: Check playback lifecycle in iPhone simulator
         run: |
           set -euo pipefail
-          configuration=$(xcrun simctl list --json | python3 -B Tools/select-ios-simulator.py)
+          configuration=$(xcrun simctl list --json | python3 -B Tools/select-ios-simulator.py --model standard)
           IFS=$'\t' read -r device_type runtime <<< "$configuration"
           device=$(xcrun simctl create "Lineup-iPhone-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$device_type" "$runtime")
           cleanup_simulator() {
@@ -149,6 +149,27 @@ jobs:
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
             -parallel-testing-enabled NO \
             -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+      - name: Check navigation and slow MPV startup on iPhone Duo
+        run: |
+          set -euo pipefail
+          configuration=$(xcrun simctl list --json | python3 -B Tools/select-ios-simulator.py --model duo)
+          IFS=$'\t' read -r device_type runtime <<< "$configuration"
+          device=$(xcrun simctl create "Lineup-Duo-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$device_type" "$runtime")
+          cleanup_simulator() {
+            xcrun simctl shutdown "$device" >/dev/null 2>&1 || true
+            xcrun simctl delete "$device" >/dev/null 2>&1 || true
+          }
+          trap cleanup_simulator EXIT
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          echo "Testing Duo navigation and playback: $device_type / $runtime"
+          xcodebuild test-without-building -project Lineup.xcodeproj -scheme LineupiOS \
+            -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+            -parallel-testing-enabled NO -derivedDataPath build-tests -resultBundlePath duo-checks.xcresult \
+            -only-testing:LineupiOSTests/NavigationStyleTests/testVerticalNavigationKeepsAllNativeTabsAvailableAcrossStyleAndFullscreenChanges \
+            -only-testing:LineupiOSTests/MediaHeroTests/testHeroArtworkReachesBothEdgesWhileForegroundRespectsSideInsets \
+            -only-testing:LineupiOSTests/AetherPlaybackTests/testSlowExtensionlessMovieOpeningRetainsTheSameMPVInput \
+            CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
       - name: Export navigation preview screenshots
         if: always()
         run: |
@@ -215,10 +236,10 @@ jobs:
     # Packaging an installable build is for the shipping branches and for
     # anyone who asks for one by hand. Every other branch stops after the
     # tests, so a check costs a fraction of the runner time.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone' }}
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/iphone')
     runs-on: xcode-27
     timeout-minutes: 30
-    steps:
+    steps: &iphone_package_steps
       - name: Checkout source
         uses: actions/checkout@v5
       - name: Configure Library metadata services
@@ -233,7 +254,7 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "27.0"
+          xcode-version: "27.1"
       - name: Generate project
         run: |
           set -euo pipefail
@@ -279,6 +300,7 @@ jobs:
           printf '%s\n' "Commit: $GITHUB_SHA" "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             > device-symbols/build.txt
       - name: Upload iPhone diagnostic symbols
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v6
         with:
           name: Lineup-iPhone-symbols-${{ github.run_number }}
@@ -332,12 +354,40 @@ jobs:
           cd package
           zip -qry ../Lineup-iPhone-unsigned.ipa Payload
       - name: Upload IPA for the tests to clear
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v6
         with:
           name: Lineup-iPhone-unsigned-IPA-candidate
           path: Lineup-iPhone-unsigned.ipa
           if-no-files-found: error
           retention-days: 1
+
+      - name: Deliver manual iPhone build and symbols
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_TAG: test-iphone-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          ipa=Lineup-iPhone-unsigned.ipa
+          symbols=Lineup-iPhone-symbols.zip
+          test -s "$ipa"
+          unzip -tq "$ipa"
+          zip -qry "$symbols" device-symbols
+          shasum -a 256 "$ipa" "$symbols" > SHA256SUMS.txt
+          url=$(gh release create "$TEST_TAG" "$ipa" "$symbols" SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft --latest=false \
+            --title "Lineup iPhone test build $GITHUB_RUN_NUMBER" \
+            --notes "Manual iPhone test build from $GITHUB_SHA.")
+          test -n "$url"
+          printf 'Download **%s** from the [draft test release](%s).\n' "$ipa" "$url" >> "$GITHUB_STEP_SUMMARY"
+
+  manual-package:
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps: *iphone_package_steps
 
   # The installable build is published only once the tests have passed, as
   # it was when one job did both in turn. The candidate is renamed, not

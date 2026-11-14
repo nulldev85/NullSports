@@ -1559,17 +1559,17 @@ final class MediaLibrary {
         return item
     }
 
-    func items(in parent: MediaItem) async throws -> [MediaItem] {
+    func items(in parent: MediaItem, filter: CatalogMediaFilter = .all) async throws -> [MediaItem] {
         if let place = ProviderItem(id: parent.id), let provider = parent.serverID {
-            return try await providerChildren(of: place, provider: provider)
+            return filter.apply(to: try await providerChildren(of: place, provider: provider))
         }
         if Self.isMDBListShelfID(parent.id) {
-            return catalogs.first { $0.id == parent.id }?.items ?? []
+            return filter.apply(to: catalogs.first { $0.id == parent.id }?.items ?? [])
         }
         guard let profile = profile(for: parent) else { return [] }
         return try await client(for: profile).items(userID: profile.userID, parent: parent,
                                                     sortBy: MediaServerQuery.shelfSort,
-                                                    limit: MediaServerQuery.shelfLimit)
+                                                    limit: MediaServerQuery.shelfLimit, filter: filter)
             .map { $0.servedBy(profile.id) }
     }
 

@@ -53,6 +53,11 @@ private struct MobileNativeTabBarLayoutKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    var mobileUsesVerticalBars: Bool {
+        if #available(iOS 27.1, *) { return toolbarVerticalEdge != nil }
+        return false
+    }
+
     fileprivate var mobileTabNavigation: MobileTabNavigation? {
         get { self[MobileTabNavigationKey.self] }
         set { self[MobileTabNavigationKey.self] = newValue }
@@ -457,6 +462,7 @@ private struct MobileNavigationChrome: ViewModifier {
     let liquidGlass: Bool
     let fullscreen: Bool
     @StateObject private var navigation = MobileTabNavigation()
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(MobileNavigationOrder.storageKey) private var savedOrder = MobileNavigationOrder.defaultValue
@@ -464,16 +470,17 @@ private struct MobileNavigationChrome: ViewModifier {
     func body(content: Content) -> some View {
         let glass = liquidGlass && MobileNavigationStyle.supportsGlass
         content
-            .environment(\.mobileUsesLineupNavigation, !glass || navigation.isCompact)
-            .environment(\.mobileUsesNativeTabBarLayout, glass && !fullscreen)
+            .environment(\.mobileUsesLineupNavigation, !verticalBars && (!glass || navigation.isCompact))
+            .environment(\.mobileUsesNativeTabBarLayout, (verticalBars || glass) && !fullscreen)
             .environment(\.mobileTabNavigation, navigation)
             // Glass compaction fades the bar without changing its layout.
             // Removing UIKit's reservation resizes/re-anchors a SwiftUI List.
-            .toolbar(glass && !fullscreen ? .visible : .hidden, for: .tabBar)
+            .toolbar((verticalBars || glass) && !fullscreen ? .visible : .hidden, for: .tabBar)
             .background(MobileTabBarAppearance(liquidGlass: glass, navigation: navigation,
                                               order: MobileNavigationOrder.tabs(in: savedOrder),
                                               selection: selection, fullscreen: fullscreen,
-                                              active: scenePhase == .active, compact: navigation.isCompact)
+                                              active: scenePhase == .active, compact: navigation.isCompact,
+                                              verticalBars: verticalBars)
                 .frame(width: 0, height: 0).allowsHitTesting(false))
             // UIKit's navigation container owns the measured reservation.
             // A second outer SwiftUI inset would count the same panel twice.
@@ -481,7 +488,7 @@ private struct MobileNavigationChrome: ViewModifier {
             // Page clearance still comes from the actual capsule boundary.
             .overlay(alignment: .bottom) {
                 ZStack {
-                    if (!glass || navigation.isCompact) && !fullscreen {
+                    if !verticalBars && (!glass || navigation.isCompact) && !fullscreen {
                         MobileLineupNavigationBar(selection: $selection, navigation: navigation,
                                                   compact: navigation.isCompact, liquidGlass: glass) { tab in
                             navigation.activate(tab) { selection = tab.rawValue }
@@ -500,10 +507,11 @@ private struct MobileNavigationChrome: ViewModifier {
 }
 
 private struct MobileNativeTabBarVisibility: ViewModifier {
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
     let liquidGlass: Bool
     let fullscreen: Bool
     func body(content: Content) -> some View {
-        content.toolbar(liquidGlass && MobileNavigationStyle.supportsGlass && !fullscreen
+        content.toolbar((verticalBars || (liquidGlass && MobileNavigationStyle.supportsGlass)) && !fullscreen
                         ? .visible : .hidden, for: .tabBar)
     }
 }
@@ -546,13 +554,18 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     // Keep this a value input: changing a property on the same navigation
     // object does not invalidate a UIViewRepresentable's unchanged inputs.
     var compact = false
+    var verticalBars = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeUIView(context: Context) -> Probe { Probe() }
 
     func updateUIView(_ probe: Probe, context: Context) {
-        probe.liquidGlass = liquidGlass
-        let hidden = !liquidGlass || fullscreen || compact
+        // Side tabs float in their own capsule. The column around them is
+        // left clear on every tab, so headers, the guide and the Library's
+        // artwork and shelves read through to the screen's edge.
+        probe.usesNativeAppearance = liquidGlass
+        probe.clearsBackground = verticalBars
+        let hidden = fullscreen || (!verticalBars && (!liquidGlass || compact))
         if probe.nativeBarShouldBeHidden != hidden {
             // Layout follow-ups must not turn an in-flight scroll animation
             // back into an immediate visibility change.
@@ -560,12 +573,14 @@ struct MobileTabBarAppearance: UIViewRepresentable {
                 && !context.transaction.disablesAnimations && !reduceMotion && active && !fullscreen
         }
         probe.nativeBarShouldBeHidden = hidden
-        probe.keepsNativeBarLayout = liquidGlass && !fullscreen
-        probe.scrollInteractionEnabled = active && !fullscreen
+        // A vertical system bar supplies its own side inset. Both custom
+        // reservations below are exclusively for horizontal bottom bars.
+        probe.keepsNativeBarLayout = !verticalBars && liquidGlass && !fullscreen
+        probe.scrollInteractionEnabled = !verticalBars && active && !fullscreen
         probe.navigation = navigation
         navigation?.order = order
         navigation?.currentSelection = selection
-        navigation?.showsCustomNavigation = (!liquidGlass || compact) && !fullscreen
+        navigation?.showsCustomNavigation = !verticalBars && (!liquidGlass || compact) && !fullscreen
         navigation?.keepsNativeBarLayout = probe.keepsNativeBarLayout
         probe.refresh()
     }
@@ -575,7 +590,8 @@ struct MobileTabBarAppearance: UIViewRepresentable {
     }
 
     final class Probe: UIView {
-        var liquidGlass = false
+        var usesNativeAppearance = false
+        var clearsBackground = false
         // Presentation visibility; compact glass still participates in layout.
         var nativeBarShouldBeHidden = true
         var keepsNativeBarLayout = false
@@ -623,7 +639,7 @@ struct MobileTabBarAppearance: UIViewRepresentable {
             // transition. Keep styling and visibility on the live instance.
             if let current = navigation?.tabs?.tabBar { bar = current }
             guard let bar else { return }
-            style.apply(to: bar, liquidGlass: liquidGlass)
+            style.apply(to: bar, liquidGlass: usesNativeAppearance, clear: clearsBackground)
             requestNativeVisibilityUpdate()
             navigation?.requestScrollObservationUpdate(enabled: scrollInteractionEnabled)
             navigation?.requestContentInsetsUpdate()
@@ -679,12 +695,13 @@ struct MobileTabBarAppearance: UIViewRepresentable {
 final class MobileTabBarStyle {
     private weak var bar: UITabBar?
     private var appliedGlass: Bool?
+    private var appliedClear: Bool?
     private var nativeAppearance: UITabBarAppearance?
     private var nativeScrollEdgeAppearance: UITabBarAppearance?
 
-    func apply(to bar: UITabBar, liquidGlass: Bool) {
+    func apply(to bar: UITabBar, liquidGlass: Bool, clear: Bool = false) {
         let enabled = liquidGlass && MobileNavigationStyle.supportsGlass
-        guard self.bar !== bar || appliedGlass != enabled else { return }
+        guard self.bar !== bar || appliedGlass != enabled || appliedClear != clear else { return }
         if self.bar !== bar {
             // Preserve UIKit's untouched appearance before applying the solid
             // option. Restore it for On so Apple owns all glass and selection
@@ -694,8 +711,17 @@ final class MobileTabBarStyle {
         }
         self.bar = bar
         appliedGlass = enabled
+        appliedClear = clear
 
-        if enabled {
+        if clear {
+            // The side column on a wide screen: no slab behind the tabs, so
+            // nothing interrupts a header or artwork beside them. The tabs'
+            // own capsule and item styling are untouched.
+            let appearance = nativeAppearance?.copy() as? UITabBarAppearance ?? UITabBarAppearance()
+            appearance.configureWithTransparentBackground()
+            bar.standardAppearance = appearance
+            bar.scrollEdgeAppearance = appearance
+        } else if enabled {
             bar.standardAppearance = nativeAppearance ?? UITabBarAppearance()
             bar.scrollEdgeAppearance = nativeScrollEdgeAppearance
         } else {

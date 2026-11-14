@@ -445,7 +445,22 @@ private struct MobileSettingsBackdrop: View {
 /// names it: the rows start under the clock, and the ground and its glow
 /// carry on up behind it. The pages it opens keep their bar and back button.
 private struct MobileSettingsClearHeader: ViewModifier {
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
+    /// With the tabs at the side the clock moves there too, leaving almost
+    /// no top margin, and the first card sat hard against the screen's top.
+    static let sideTabsTopGap: CGFloat = 40
+
+    @ViewBuilder
     func body(content: Content) -> some View {
+        if verticalBars {
+            clearHeader(content.safeAreaPadding(.top, Self.sideTabsTopGap))
+        } else {
+            clearHeader(content)
+        }
+    }
+
+    @ViewBuilder
+    private func clearHeader(_ content: some View) -> some View {
         if #available(iOS 26.0, *) {
             // The fade stands in for the system's edge, so every version looks the same.
             content.toolbar(.hidden, for: .navigationBar)

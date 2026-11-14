@@ -21,8 +21,8 @@ struct SeerrUser: Codable, Sendable, Equatable {
     func permits(_ flag: Int) -> Bool { ((permissions ?? 0) & 2) != 0 || ((permissions ?? 0) & flag) != 0 }
     var managesRequests: Bool { permits(16) }
     func canRequest(_ kind: SeerrMediaKind, is4k: Bool = false) -> Bool {
-        guard permits(32) || permits(kind == .movie ? 262144 : 524288) else { return false }
-        return !is4k || permits(1024) || permits(kind == .movie ? 2048 : 4096)
+        if is4k { return permits(1024) || permits(kind == .movie ? 2048 : 4096) }
+        return permits(32) || permits(kind == .movie ? 262144 : 524288)
     }
 }
 
@@ -40,6 +40,28 @@ struct SeerrTitle: Decodable, Identifiable, Sendable {
     let seasons: [SeerrSeason]?
     var displayName: String { title ?? name ?? "Untitled" }
     var kind: SeerrMediaKind { mediaType == "tv" || (title == nil && name != nil) ? .tv : .movie }
+    func requestBlockReason(kind: SeerrMediaKind, is4k: Bool, season: Int? = nil) -> String? {
+        let quality = is4k ? "4K" : "standard quality"
+        let titleStatus = is4k ? mediaInfo?.status4k : mediaInfo?.status
+        if titleStatus == 6 { return "Seerr has blocked this title in \(quality)." }
+        let status: Int?
+        switch kind {
+        case .movie:
+            status = titleStatus
+        case .tv:
+            guard let season else { return nil }
+            let record = mediaInfo?.seasons?.first { $0.seasonNumber == season }
+            status = is4k ? record?.status4k : record?.status
+        }
+        if status == 5 || (kind == .tv && [2, 3, 4, 6].contains(status ?? 0)) {
+            return "\(SeerrMediaInfo.statusTitle(status)) · \(quality)"
+        }
+        let existing = mediaInfo?.requests?.first { request in
+            guard (request.is4k ?? false) == is4k, [1, 2, 4].contains(request.status) else { return false }
+            return kind == .movie || request.seasons?.contains { $0.seasonNumber == season } == true
+        }
+        return existing.map { "Existing request · \($0.statusTitle) · \(quality)" }
+    }
     var posterURL: URL? {
         guard let posterPath, posterPath.hasPrefix("/"), !posterPath.hasPrefix("//") else { return nil }
         return URL(string: "https://image.tmdb.org/t/p/w342" + posterPath)
@@ -241,8 +263,9 @@ actor SeerrClient {
         let limit = kind == .movie ? quotas.movie : quotas.tv
         guard limit?.restricted != true else { throw MediaIntegrationError.unavailable("Your Seerr request quota is currently reached.") }
         let latest = try await details(id: id, kind: kind)
-        let status = is4k ? latest.mediaInfo?.status4k : latest.mediaInfo?.status
-        guard status != 5 else { throw MediaIntegrationError.unavailable("This title is already available in that quality.") }
+        if let reason = latest.requestBlockReason(kind: kind, is4k: is4k) {
+            throw MediaIntegrationError.unavailable(reason)
+        }
         var body: [String: Any] = ["mediaId": id, "mediaType": kind.rawValue, "is4k": is4k]
         if let options {
             guard user.permits(8192) || user.managesRequests else { throw MediaIntegrationError.http(403, retryAfter: nil) }
@@ -270,13 +293,10 @@ actor SeerrClient {
             let known = Set((latest.seasons ?? []).map(\.seasonNumber))
             let eligible = seasons.filter { number in
                 guard number >= 0, known.contains(number) else { return false }
-                let existing = latest.mediaInfo?.seasons?.first { $0.seasonNumber == number }
-                return ![2, 3, 5].contains((is4k ? existing?.status4k : existing?.status) ?? 0)
+                return latest.requestBlockReason(kind: .tv, is4k: is4k, season: number) == nil
             }
             guard !eligible.isEmpty else { throw MediaIntegrationError.unavailable("Choose at least one season that is not already available.") }
             body["seasons"] = eligible.sorted()
-        } else if (latest.mediaInfo?.requests ?? []).contains(where: { [1, 2].contains($0.status) && ($0.is4k ?? false) == is4k }) {
-            throw MediaIntegrationError.unavailable("A request already exists. Refresh to see its current status.")
         }
         return try await send(["request"], method: "POST", body: body)
     }

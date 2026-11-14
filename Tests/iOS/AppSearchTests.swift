@@ -34,8 +34,37 @@ final class AppSearchTests: XCTestCase {
             case .airing(let program, let channel, let more, _): "airing: \(program.title) on \(channel.name) +\(more)"
             case .title(let item, let servers): "title: \(item.name) on \(servers.joined(separator: ", "))"
             case .vod(let item, _): "vod: " + item.name
+            case .personalCollection(_, let name): "collection: " + name
+            case .serverCollection(let item, let server): "collection: \(item.name) on \(server)"
             }
         }
+    }
+
+    func testCollectionFilterKeepsPersonalAndServerDestinationsDistinct() {
+        let personal = MobileLibraryCollection(name: "Café Classics")
+        let box = MediaItem(id: "1", name: "Café Classics", type: "BoxSet", overview: nil,
+                            productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        let first = UUID(), second = UUID()
+        let found = AppSearch.collections(matching: "class cafe", personal: [personal, .init(name: "Other")],
+            serverItems: [box.servedBy(first), box.servedBy(second)]) { $0 == first ? "A" : "B" }
+        var results = AppSearchResults()
+        results.collections = found
+        XCTAssertEqual(results.total, 3)
+        XCTAssertEqual(Set(found.map(\.id)).count, 3)
+        XCTAssertEqual(lines(results.hits(in: .collections)),
+                       ["collection: Café Classics", "collection: Café Classics on A", "collection: Café Classics on B"])
+        XCTAssertTrue(found.allSatisfy { $0.category == .collections })
+        XCTAssertTrue(results.hits(in: .movies).isEmpty)
+        guard case .personalCollection(let id, _) = found.first?.kind else { return XCTFail("Missing personal collection") }
+        XCTAssertEqual(id, personal.id)
+    }
+
+    func testServerVideosAndProviderTitlesBothUseVOD() {
+        let video = MediaItem(id: "clip", name: "Highlights", type: "Video", overview: nil,
+                              productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        let titles = AppSearch.titles(from: [.init(serverID: UUID(), serverName: "Home", items: [video])])
+        XCTAssertEqual(titles.map(\.category), [.vod])
+        XCTAssertEqual(AppSearchHit(id: "provider", kind: .vod(video, group: nil)).category, .vod)
     }
 
     // Games first, then channels -- a name that starts with the query, then

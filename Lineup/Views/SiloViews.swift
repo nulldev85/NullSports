@@ -94,7 +94,7 @@ struct SiloSignInPanel: View {
         #if os(tvOS)
         Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 22) {
             GridRow {
-                MediaServerField(label: "Server address", prompt: "192.168.1.50:8096", text: $address, kind: .address)
+                MediaServerField(label: "Server address", prompt: "https://silo.example.com", text: $address, kind: .address)
                 MediaServerField(label: "Display name", prompt: "Optional", text: $name)
             }
             GridRow {
@@ -109,7 +109,7 @@ struct SiloSignInPanel: View {
         }
         #else
         VStack(spacing: 0) {
-            MediaServerField(label: "Address", prompt: "192.168.1.50:8096", text: $address, kind: .address)
+            MediaServerField(label: "Address", prompt: "https://silo.example.com", text: $address, kind: .address)
             MediaServerFieldDivider()
             MediaServerField(label: "Name", prompt: "Optional", text: $name)
             MediaServerFieldDivider()

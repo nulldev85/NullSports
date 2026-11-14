@@ -183,10 +183,8 @@ struct MediaSourcePicker: View {
             }
         #else
         board
-        .presentationBackground(.clear)
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .task(id: media.metadataRequestKey(for: originalItem)) { await media.resolveMetadata(for: originalItem) }
-        .presentationDragIndicator(.hidden)
-        .presentationDetents([.large])
         .task(id: item.libraryKey) { await loadSources() }
         .task(id: item.libraryKey) {
             nextEpisode = nil

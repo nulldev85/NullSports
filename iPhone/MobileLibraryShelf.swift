@@ -1,6 +1,53 @@
 import SwiftUI
 import UIKit
 
+private struct MobileShelfBleedKey: EnvironmentKey {
+    static let defaultValue = EdgeInsets()
+}
+
+extension EnvironmentValues {
+    /// How far a Library panel may run past the column it is laid out in:
+    /// the side margins the Duo's tabs sit in. Headers keep to the column;
+    /// the panel's surface and its rows of cards run on to the screen's edge.
+    var mobileShelfBleed: EdgeInsets {
+        get { self[MobileShelfBleedKey.self] }
+        set { self[MobileShelfBleedKey.self] = newValue }
+    }
+}
+
+/// A Library panel's surface: Apple's Liquid Glass from iOS 26, the app's
+/// solid card before it, carried into the side margins with the rows.
+struct MobileShelfSurface: ViewModifier {
+    @Environment(\.mobileShelfBleed) private var bleed
+    var shape = LineupPanelStyle.shape
+
+    func body(content: Content) -> some View {
+        content.background {
+            surface
+                .padding(.leading, -bleed.leading)
+                .padding(.trailing, -bleed.trailing)
+                .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder private var surface: some View {
+        if #available(iOS 26.0, *) {
+            Color.clear.glassEffect(.regular, in: shape)
+        } else {
+            shape.fill(LineupPanelStyle.fill)
+        }
+    }
+}
+
+extension View {
+    /// A row inside a Library panel that scrolls sideways: it runs into the
+    /// margins the panel's surface does, its first card still level with
+    /// the header and its last able to scroll clear of the tabs.
+    func mobileShelfRowBleed(_ bleed: EdgeInsets) -> some View {
+        padding(.leading, -bleed.leading).padding(.trailing, -bleed.trailing)
+    }
+}
+
 struct MobileLibraryShelfMetrics: Equatable {
     let width: CGFloat
     let ratio: CGFloat
@@ -21,6 +68,7 @@ final class MobileLibraryShelfPosition {
 struct MobileLibraryShelf: View {
     @Environment(MediaLibrary.self) private var media
     @Environment(\.mobileHoldMenu) private var holdMenu
+    @Environment(\.mobileShelfBleed) private var bleed
     @ScaledMetric(relativeTo: .subheadline) private var titleHeight: CGFloat = 40
     @ScaledMetric(relativeTo: .caption2) private var metadataHeight: CGFloat = 16
     @State private var position = MobileLibraryShelfPosition()
@@ -35,8 +83,10 @@ struct MobileLibraryShelf: View {
         let metrics = MobileLibraryShelfMetrics(width: width ?? (shape.isPoster ? 150 : 232),
             ratio: shape.ratio, titleHeight: titleHeight, metadataHeight: metadataHeight)
         MobileLibraryShelfView(items: items, shape: shape, metrics: metrics, media: media,
-            position: position, holdMenu: holdMenu, showsResumeProgress: showsResumeProgress, discoversSources: discoversSources, onSelect: onSelect)
+            position: position, holdMenu: holdMenu, showsResumeProgress: showsResumeProgress, discoversSources: discoversSources,
+            bleed: bleed, onSelect: onSelect)
             .frame(height: metrics.height)
+            .mobileShelfRowBleed(bleed)
     }
 }
 
@@ -51,6 +101,7 @@ struct MobileLibraryShelfView: UIViewRepresentable {
     let holdMenu: MobileHoldMenu?
     var showsResumeProgress = false
     var discoversSources = false
+    var bleed = EdgeInsets()
     let onSelect: (MediaItem) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -84,13 +135,17 @@ struct MobileLibraryShelfView: UIViewRepresentable {
 
         init(_ owner: MobileLibraryShelfView) { self.owner = owner }
 
+        static func sectionInset(_ bleed: EdgeInsets) -> UIEdgeInsets {
+            UIEdgeInsets(top: 8, left: LineupPanelStyle.inset + bleed.leading,
+                         bottom: 8, right: LineupPanelStyle.inset + bleed.trailing)
+        }
+
         func makeCollectionView() -> UICollectionView {
             let layout = UICollectionViewFlowLayout()
             layout.scrollDirection = .horizontal
             layout.estimatedItemSize = .zero
             layout.minimumLineSpacing = 14
-            layout.sectionInset = UIEdgeInsets(top: 8, left: LineupPanelStyle.inset,
-                                              bottom: 8, right: LineupPanelStyle.inset)
+            layout.sectionInset = Self.sectionInset(owner.bleed)
             let view = MobileLibraryCollectionView(frame: .zero, collectionViewLayout: layout)
             view.backgroundColor = .clear
             view.showsHorizontalScrollIndicator = false
@@ -115,6 +170,10 @@ struct MobileLibraryShelfView: UIViewRepresentable {
         func update(_ next: MobileLibraryShelfView, initial: Bool = false) {
             guard let collection else { return }
             let styleChanged = owner.showsResumeProgress != next.showsResumeProgress
+            if let layout = collection.collectionViewLayout as? UICollectionViewFlowLayout,
+               layout.sectionInset != Self.sectionInset(next.bleed) {
+                layout.sectionInset = Self.sectionInset(next.bleed)
+            }
             owner = next // Actions always use the current screen and item.
             let geometryChanged = metrics != next.metrics || shape != next.shape
             let dataChanged = items != next.items
