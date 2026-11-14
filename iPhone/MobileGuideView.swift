@@ -44,6 +44,10 @@ struct MobileGuideView: View {
     /// The tab opens on its list of categories; this is whether one of
     /// them -- or a search -- has been opened over it.
     @State private var showsChannels = false
+    /// The saved category has been opened on this visit to the tab. Back
+    /// from it reaches the list and stays there until the tab is left;
+    /// opening it again whenever the list appeared locked the viewer in.
+    @State private var openedDefaultThisVisit = false
     @FocusState private var searchFocused: Bool
     /// What the viewer picked; until they pick, `filter` decides.
     @State private var chosenFilter: MobileGuideFilter?
@@ -518,6 +522,7 @@ struct MobileGuideView: View {
                 if !active {
                     closeSearch()
                     optionsOpen = false
+                    openedDefaultThisVisit = false
                     if !playback.pictureInPictureActive { closePlayer() }
                 } else {
                     restoreDefaultCategoryOnEntry()
@@ -573,7 +578,7 @@ struct MobileGuideView: View {
 
     private func guideDidAppear() {
         returnToNow()
-        if savedDefaultFilter != nil, !showsChannels { showsChannels = true }
+        openDefaultCategoryOnce()
         guard let game = game else { return }
         let recommended: XtreamStream? = library.verifiedStream(for: game)
         recommendedStreamID = recommended?.streamID
@@ -714,8 +719,15 @@ struct MobileGuideView: View {
     private func restoreDefaultCategoryOnEntry() {
         chosenFilter = MobileGuideDefaultCategory.selectionOnEntry(chosenFilter,
             for: defaultCategoryProfile, in: defaultCategories, isGamePicker: game != nil)
-        // A category saved to open on is opened over the list, so Back
-        // still leads to every other category.
+        openDefaultCategoryOnce()
+    }
+
+    /// A category saved to open on is opened over the list, so Back still
+    /// leads to every other category -- once a visit to the tab, not every
+    /// time the list comes back into view, which is what Back does.
+    private func openDefaultCategoryOnce() {
+        guard !openedDefaultThisVisit else { return }
+        openedDefaultThisVisit = true
         if savedDefaultFilter != nil, !showsChannels { showsChannels = true }
     }
 
