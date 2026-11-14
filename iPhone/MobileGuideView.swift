@@ -1086,15 +1086,13 @@ struct MobileGuideView: View {
 
     private func ruler(now: Date, logoWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
-            VStack(spacing: 2) {
-                Text("NOW").font(.inter(8, .bold)).tracking(1)
-                Text(now, format: .dateTime.hour().minute())
-                    .font(.interDigits(.caption2, .semibold))
-            }
-                .foregroundStyle(LineupStyle.secondary.opacity(0.74))
+            // The corner over the channel column, empty: the phone's own
+            // clock already says what time it is. It stays, so the ruler's
+            // times slide under it rather than over the logos' column.
+            Color.black
                 .frame(width: logoWidth, height: 40)
-                .background(Color.black)
                 .offset(x: horizontalOffset).zIndex(2)
+                .accessibilityHidden(true)
             ZStack(alignment: .topLeading) {
                 ForEach(window.ticks, id: \.self) { date in
                     Text(date, format: .dateTime.hour().minute())
