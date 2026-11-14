@@ -386,25 +386,23 @@ struct MobileGuideView: View {
             open: openChannels,
             setDefault: setDefaultCategory,
             hide: { setCategory($0.id, hidden: true) },
-            manageCategories: { managingCategories = true })
-            .navigationTitle("TV Guide").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                LineupToolbarItem(placement: .navigationBarLeading) {
-                    MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
-                        setOptions(!optionsOpen)
-                    }
-                }
-                LineupToolbarItem(placement: .principal) {
-                    Text("TV Guide").font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text.opacity(0.82))
-                }
-            }
-            .overlay {
-                MobileDropdownLayer(isPresented: optionsOpen && !showsChannels, title: "TV Guide",
-                                    symbol: "list.bullet.rectangle", sections: optionsSections,
-                                    alignment: .topLeading, transitionAnchor: .topLeading) {
-                    setOptions(false)
-                }
-            }
+            manageCategories: { managingCategories = true },
+            viewModeTitle: guideViewMode.title,
+            isRefreshing: library.channelsAreSyncing,
+            search: {
+                showsSearch = true
+                showsChannels = true
+            },
+            changeViewMode: {
+                let modes = MobileGuideViewMode.allCases
+                let next = modes[((modes.firstIndex(of: guideViewMode) ?? 0) + 1) % modes.count]
+                guideViewModeValue = next.rawValue
+            },
+            refresh: { Task { await library.reload() } })
+            .navigationTitle("TV Guide")
+            // No bar above the categories, as on Settings: the list starts
+            // under the clock, and its options are rows at its foot.
+            .modifier(MobileSettingsClearHeader())
             .toolbar(usesNativeTabBarLayout ? .visible : .hidden, for: .tabBar)
             // Shown from whichever page is on screen; see `guidePresentations`.
             .lineupSheet(isPresented: Binding(get: { managingCategories && !showsChannels },

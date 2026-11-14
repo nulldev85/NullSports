@@ -18,6 +18,12 @@ struct MobileGuideCategoryList: View {
     let setDefault: (XtreamCategory, Bool) -> Void
     let hide: (XtreamCategory) -> Void
     let manageCategories: () -> Void
+    /// What the TV Guide's options menu held, now that the page has no bar.
+    let viewModeTitle: String
+    let isRefreshing: Bool
+    let search: () -> Void
+    let changeViewMode: () -> Void
+    let refresh: () -> Void
 
     var body: some View {
         List {
@@ -49,6 +55,30 @@ struct MobileGuideCategoryList: View {
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
+
+            Section {
+                row("Search Channels", symbol: "magnifyingglass", action: search)
+                row("Layout", symbol: "rectangle.grid.1x2", detail: viewModeTitle, action: changeViewMode)
+                    .accessibilityHint("Switches between the TV Guide grid and a list")
+                row("Manage Categories", symbol: "eye.slash", action: manageCategories)
+                Button(action: refresh) {
+                    HStack(spacing: 12) {
+                        LineupIconTile(symbol: "arrow.clockwise", size: 30)
+                        Text(isRefreshing ? "Refreshing Guide…" : "Refresh Guide")
+                            .font(.inter(.body, .semibold))
+                            .foregroundStyle(LineupStyle.text)
+                        Spacer(minLength: 8)
+                        if isRefreshing { ProgressView() }
+                    }
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.plain)
+                .disabled(isRefreshing)
+            } header: {
+                Text("Guide").lineupSettingsHeader()
+            }
+            .lineupSettingsRows()
         }
         .lineupSettingsList()
     }
@@ -59,7 +89,6 @@ struct MobileGuideCategoryList: View {
             label(title, symbol: symbol, detail: detail)
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Opens the TV Guide")
     }
 
     private func categoryRow(_ category: XtreamCategory) -> some View {

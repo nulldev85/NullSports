@@ -53,6 +53,8 @@ struct MobileLeagueMenu: View {
     let selected: SportsLeague?
     /// The room under the header; past it the list scrolls.
     let maxHeight: CGFloat
+    /// Opens the switches for which sports the tab shows.
+    var onChooseSports: (() -> Void)? = nil
     let onChoose: (SportsLeague?) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -80,7 +82,7 @@ struct MobileLeagueMenu: View {
 
     var body: some View {
         let shape = LineupPanelStyle.shape
-        let content = CGFloat(entries.count) * Self.rowHeight + Self.inset * 2 + 9
+        let content = CGFloat(entries.count + (onChooseSports == nil ? 0 : 1)) * Self.rowHeight + Self.inset * 2 + 9
         // A panel like every other: its header and hairline inside it, then
         // the leagues.
         VStack(spacing: 0) {
@@ -103,6 +105,29 @@ struct MobileLeagueMenu: View {
                             Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                                 .padding(.horizontal, 12).padding(.vertical, 4)
                         }
+                    }
+                    if let onChooseSports {
+                        Button(action: onChooseSports) {
+                            HStack(spacing: 11) {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .foregroundStyle(LineupStyle.highlight)
+                                    .frame(width: 30, height: 30)
+                                Text("Choose Sports")
+                                    .font(.inter(16, .bold)).foregroundStyle(LineupPresentationStyle.text)
+                                Spacer(minLength: 6)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(LineupPresentationStyle.secondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: Self.rowHeight - Self.cardInset * 2)
+                            .contentShape(Rectangle())
+                            .padding(.vertical, Self.cardInset)
+                        }
+                        .buttonStyle(MobileLeagueRowStyle())
+                        .accessibilityHint("Turn sports on or off for this tab")
                     }
                 }
                 .padding(Self.inset)
