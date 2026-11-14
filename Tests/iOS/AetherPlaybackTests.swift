@@ -80,7 +80,9 @@ final class AetherPlaybackTests: XCTestCase {
         let sessionID = controller.subtitleSessionID
         XCTAssertTrue(host.pictureHeld)
         try await waitUntil("Delayed native MPV input did not render a picture", diagnostics: {
-            "MPV phase=\(input.phase), clock=\(input.position)"
+            "MPV phase=\(input.phase), clock=\(input.position), video=\(input.hasVideoOut), "
+                + "same input=\(controller.mpvSession === input), engine=\(controller.engineTitle), "
+                + "loading=\(controller.loading), error=\(controller.error ?? input.errorMessage ?? "none")"
         }) {
             controller.engine == .mpv && controller.isPlaying && !controller.loading
                 && input.hasVideoOut && input.position > 0

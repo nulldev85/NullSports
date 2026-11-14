@@ -134,7 +134,7 @@ jobs:
       - name: Check playback lifecycle in iPhone simulator
         run: |
           set -euo pipefail
-          configuration=$(xcrun simctl list --json | python3 -B Tools/select-ios-simulator.py)
+          configuration=$(xcrun simctl list --json | python3 -B Tools/select-ios-simulator.py --model standard)
           IFS=$'\t' read -r device_type runtime <<< "$configuration"
           device=$(xcrun simctl create "Lineup-iPhone-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$device_type" "$runtime")
           cleanup_simulator() {
@@ -149,6 +149,26 @@ jobs:
             -configuration Debug -destination "platform=iOS Simulator,id=$device" \
             -parallel-testing-enabled NO \
             -derivedDataPath build-tests CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
+      - name: Check navigation and slow MPV startup on iPhone Duo
+        run: |
+          set -euo pipefail
+          configuration=$(xcrun simctl list --json | python3 -B Tools/select-ios-simulator.py --model duo)
+          IFS=$'\t' read -r device_type runtime <<< "$configuration"
+          device=$(xcrun simctl create "Lineup-Duo-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$device_type" "$runtime")
+          cleanup_simulator() {
+            xcrun simctl shutdown "$device" >/dev/null 2>&1 || true
+            xcrun simctl delete "$device" >/dev/null 2>&1 || true
+          }
+          trap cleanup_simulator EXIT
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          echo "Testing Duo navigation and playback: $device_type / $runtime"
+          xcodebuild test-without-building -project Lineup.xcodeproj -scheme LineupiOS \
+            -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+            -parallel-testing-enabled NO -derivedDataPath build-tests -resultBundlePath duo-checks.xcresult \
+            -only-testing:LineupiOSTests/NavigationStyleTests/testVerticalNavigationKeepsAllNativeTabsAvailableAcrossStyleAndFullscreenChanges \
+            -only-testing:LineupiOSTests/AetherPlaybackTests/testSlowExtensionlessMovieOpeningRetainsTheSameMPVInput \
+            CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS=LINEUP_UNSIGNED_BUILD
       - name: Export navigation preview screenshots
         if: always()
         run: |

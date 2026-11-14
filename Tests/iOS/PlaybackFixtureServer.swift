@@ -11,6 +11,7 @@ final class PlaybackFixtureServer: @unchecked Sendable {
     private let live: Bool
     private let stallsBeforeHeaders: Bool
     private let headerDelay: TimeInterval
+    private var openingDeadline: DispatchTime?
     private let onStalledRequest: (@Sendable () -> Void)?
     private var reportedStall = false
     private var connections: [NWConnection] = []
@@ -76,11 +77,17 @@ final class PlaybackFixtureServer: @unchecked Sendable {
             return
         }
         if headerDelay > 0, !delayApplied {
-            queue.asyncAfter(deadline: .now() + headerDelay) { [weak self] in
-                guard case .ready = connection.state else { return }
-                self?.respond(connection, request: request, delayApplied: true)
+            // Delay the opening of this source once. A demuxer may read the
+            // end of an MP4 and seek back with separate HTTP range requests.
+            let deadline = openingDeadline ?? (.now() + headerDelay)
+            openingDeadline = deadline
+            if DispatchTime.now() < deadline {
+                queue.asyncAfter(deadline: deadline) { [weak self] in
+                    guard case .ready = connection.state else { return }
+                    self?.respond(connection, request: request, delayApplied: true)
+                }
+                return
             }
-            return
         }
         if live {
             let header = "HTTP/1.1 200 OK\r\nContent-Type: video/mp2t\r\nConnection: close\r\n\r\n"
