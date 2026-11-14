@@ -388,7 +388,7 @@ struct SeerrTitleView: View {
                 if let overview = title.overview { Text(overview).font(.inter(.body)).foregroundStyle(LineupPresentationStyle.secondary) }
                 Text(SeerrMediaInfo.statusTitle(is4k ? title.mediaInfo?.status4k : title.mediaInfo?.status)).font(.inter(.title3, .heavy))
                 if media.seerr.user?.canRequest(kind, is4k: true) == true {
-                    IntegrationAction(title: is4k ? "✓ 4K Request" : "Standard Request · Switch to 4K", symbol: "4k.tv") { is4k.toggle() }
+                    Toggle("Request in 4K", isOn: $is4k).disabled(busy)
                 }
                 if media.seerr.user?.permits(8192) == true || media.seerr.user?.managesRequests == true {
                     IntegrationAction(title: options.map { "Request Options · " + $0.serverName } ?? "Request Options · Server Defaults", symbol: "slider.horizontal.3") {
@@ -398,12 +398,10 @@ struct SeerrTitleView: View {
                 if kind == .tv {
                     Text("Choose seasons").font(.inter(.headline, .heavy))
                     ForEach(title.seasons ?? []) { season in
-                        let status = title.mediaInfo?.seasons?.first { $0.seasonNumber == season.seasonNumber }
-                        let available = (is4k ? status?.status4k : status?.status) == 5
-                        let queued = [2, 3].contains((is4k ? status?.status4k : status?.status) ?? 0)
-                        IntegrationAction(title: (seasons.contains(season.seasonNumber) ? "✓ " : "") + (season.name ?? "Season \(season.seasonNumber)") + (available ? " · Available" : ""), symbol: "rectangle.stack") {
+                        let reason = title.requestBlockReason(kind: .tv, is4k: is4k, season: season.seasonNumber)
+                        IntegrationAction(title: (seasons.contains(season.seasonNumber) && reason == nil ? "✓ " : "") + (season.name ?? "Season \(season.seasonNumber)") + (reason.map { " · " + $0 } ?? ""), symbol: "rectangle.stack") {
                             if !seasons.insert(season.seasonNumber).inserted { seasons.remove(season.seasonNumber) }
-                        }.disabled(available || queued || busy)
+                        }.disabled(reason != nil || busy)
                     }
                 }
                 if let limit = kind == .movie ? quota?.movie : quota?.tv, let remaining = limit.remaining {
@@ -411,8 +409,14 @@ struct SeerrTitleView: View {
                         .font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.secondary)
                 }
                 if media.seerr.user?.canRequest(kind, is4k: is4k) == true {
+                    let blocked = title.requestBlockReason(kind: kind, is4k: is4k)
+                    let hasSelection = kind == .movie || (title.seasons ?? []).contains {
+                        seasons.contains($0.seasonNumber) && title.requestBlockReason(kind: .tv, is4k: is4k, season: $0.seasonNumber) == nil
+                    }
                     IntegrationAction(title: busy ? "Submitting…" : "Request \(is4k ? "4K " : "")\(kind == .movie ? "Movie" : "Selected Seasons")", symbol: "tray.and.arrow.down") { confirming = true }
-                        .disabled(busy || (kind == .tv && seasons.isEmpty) || (is4k ? title.mediaInfo?.status4k : title.mediaInfo?.status) == 5)
+                        .disabled(busy || !hasSelection || blocked != nil)
+                    if let blocked { Text(blocked).foregroundStyle(LineupPresentationStyle.secondary) }
+                    else if !hasSelection { Text("Choose a season to request.").foregroundStyle(LineupPresentationStyle.secondary) }
                 } else { Text("Requests for this type or quality are not enabled for your account.").foregroundStyle(LineupPresentationStyle.secondary) }
                 ForEach(title.mediaInfo?.requests ?? []) { request in
                     Text("\(request.is4k == true ? "4K · " : "")\(request.statusTitle) · \(request.requestedBy?.name ?? "Seerr user")")
@@ -424,11 +428,11 @@ struct SeerrTitleView: View {
             IntegrationAction(title: "Refresh Status", symbol: "arrow.clockwise") { Task { await load() } }.disabled(busy)
         }
         .task(id: media.seerr.connectionID) { await load() }
-        .onChange(of: is4k) { _, _ in options = nil }
+        .onChange(of: is4k) { _, _ in options = nil; seasons = []; notice = nil; error = nil }
         .lineupSheet(isPresented: $showingOptions) {
             SeerrRequestOptionsView(kind: kind, is4k: is4k, selection: $options).environment(media)
         }
-        .integrationConfirm("Send this request to Seerr?", isPresented: $confirming) { Task { await submit() } }
+        .integrationConfirm(is4k ? "Send this 4K request to Seerr?" : "Send this standard request to Seerr?", isPresented: $confirming) { Task { await submit() } }
     }
     private var posterHeight: CGFloat {
         #if os(tvOS)
@@ -453,6 +457,8 @@ struct SeerrTitleView: View {
             guard loadID == request, media.seerr.connectionID == connection else { return }
             title = latest
             dataConnection = connection
+            // The quota display is supplemental. Submission checks the current quota again.
+            busy = false
             if let user = media.seerr.user {
                 let fetched = try? await api.quota(userID: user.id)
                 if loadID == request, media.seerr.connectionID == connection { quota = fetched }

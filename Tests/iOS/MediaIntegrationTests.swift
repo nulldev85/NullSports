@@ -303,11 +303,72 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertTrue(try user(262144).canRequest(.movie))
         XCTAssertFalse(try user(262144).canRequest(.tv))
         XCTAssertFalse(try user(262144).canRequest(.movie, is4k: true))
+        XCTAssertFalse(try user(2048).canRequest(.movie))
+        XCTAssertTrue(try user(2048).canRequest(.movie, is4k: true))
         XCTAssertTrue(try user(262144 | 2048).canRequest(.movie, is4k: true))
         XCTAssertFalse(try user(32 | 4096).canRequest(.movie, is4k: true))
         XCTAssertTrue(try user(32 | 4096).canRequest(.tv, is4k: true))
         XCTAssertTrue(try user(2).managesRequests)
         XCTAssertFalse(try user(32).managesRequests)
+    }
+
+    func testSeerrStandardMovieUsesServerDefaultsWithExisting4KCopy() async throws {
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let api = try SeerrClient(address: "https://seerr-contract.test", credential: .init(apiKey: "fixture"), session: network)
+        MediaIntegrationProtocol.install { request in
+            switch request.url?.path {
+            case "/api/v1/auth/me": return .json(#"{"id":7,"permissions":32}"#)
+            case "/api/v1/user/7/quota": return .json(#"{"movie":{"restricted":false}}"#)
+            case "/api/v1/movie/42":
+                return .json(#"{"id":42,"title":"Example","mediaInfo":{"status":1,"status4k":5,"requests":[{"id":8,"status":2,"is4k":true}]}}"#)
+            case "/api/v1/request":
+                let body = try MediaIntegrationProtocol.body(request)
+                XCTAssertEqual(Set(body.keys), ["mediaId", "mediaType", "is4k"])
+                XCTAssertEqual(body["mediaType"] as? String, "movie")
+                XCTAssertEqual(body["is4k"] as? Bool, false)
+                return .json(#"{"id":9,"status":2}"#, status: 201)
+            default: throw URLError(.badURL)
+            }
+        }
+        let result = try await api.request(id: 42, kind: .movie, seasons: [], is4k: false)
+        XCTAssertEqual(result.id, 9)
+        XCTAssertEqual(MediaIntegrationProtocol.requests.filter { $0.httpMethod == "POST" }.count, 1)
+    }
+
+    func testSeerrServerDefaultsAllowMissingStandardSeasonInAvailableSeries() async throws {
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let api = try SeerrClient(address: "https://seerr-contract.test", credential: .init(apiKey: "fixture"), session: network)
+        let series = #"""
+        {"id":42,"name":"Example","seasons":[{"id":1,"seasonNumber":1},{"id":2,"seasonNumber":2},{"id":3,"seasonNumber":3}],
+         "mediaInfo":{"status":5,"seasons":[{"seasonNumber":1,"status":5},{"seasonNumber":2,"status4k":5}],
+         "requests":[{"id":8,"status":1,"is4k":false,"seasons":[{"seasonNumber":3}]}]}}
+        """#
+        let title = try JSONDecoder().decode(SeerrTitle.self, from: Data(series.utf8))
+        XCTAssertNil(title.requestBlockReason(kind: .tv, is4k: false))
+        XCTAssertNil(title.requestBlockReason(kind: .tv, is4k: false, season: 2))
+        XCTAssertNotNil(title.requestBlockReason(kind: .tv, is4k: false, season: 1))
+        XCTAssertNotNil(title.requestBlockReason(kind: .tv, is4k: false, season: 3))
+        XCTAssertNotNil(title.requestBlockReason(kind: .tv, is4k: true, season: 2))
+        MediaIntegrationProtocol.install { request in
+            switch request.url?.path {
+            case "/api/v1/auth/me": return .json(#"{"id":7,"permissions":524288}"#)
+            case "/api/v1/user/7/quota": return .json(#"{"tv":{"restricted":false}}"#)
+            case "/api/v1/tv/42": return .json(series)
+            case "/api/v1/request":
+                XCTAssertEqual(request.httpMethod, "POST")
+                let body = try MediaIntegrationProtocol.body(request)
+                XCTAssertEqual(Set(body.keys), ["mediaId", "mediaType", "is4k", "seasons"])
+                XCTAssertEqual(body["is4k"] as? Bool, false)
+                XCTAssertEqual(body["seasons"] as? [Int], [2])
+                return .json(#"{"id":9,"status":1}"#, status: 201)
+            default: throw URLError(.badURL)
+            }
+        }
+        let result = try await api.request(id: 42, kind: .tv, seasons: [1, 2, 3], is4k: false)
+        XCTAssertEqual(result.id, 9)
+        XCTAssertEqual(MediaIntegrationProtocol.requests.filter { $0.httpMethod == "POST" }.count, 1)
     }
 
     func testSeerrCreatesExactSeasonRequestWithHeaderAuthAndNoQuotaBypass() async throws {
