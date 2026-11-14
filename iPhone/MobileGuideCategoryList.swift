@@ -34,6 +34,8 @@ struct MobileGuideCategoryList: View {
         let id: UUID
         let name: String
         let categories: [XtreamCategory]
+        var hasFavorites = false
+        var hasRecents = false
     }
 
     /// Providers closed by the viewer, kept between visits.
@@ -44,6 +46,13 @@ struct MobileGuideCategoryList: View {
         List {
             Section {
                 row("Favorites", symbol: "star.fill", detail: hasFavorites ? nil : "None yet") { open(.favorites) }
+                // Each provider's own favorites under them all, with several.
+                if providers.count > 1 {
+                    ForEach(providers) { provider in
+                        row("Favorites · \(provider.name)", symbol: "star",
+                            detail: provider.hasFavorites ? nil : "None yet") { open(.providerFavorites(provider.id)) }
+                    }
+                }
                 if hasRecents {
                     row("Recently Watched", symbol: "clock.arrow.circlepath") { open(.recents) }
                 }
@@ -56,6 +65,14 @@ struct MobileGuideCategoryList: View {
                     let isOpen = !closed.contains(provider.id.uuidString)
                     Section {
                         if isOpen {
+                            // The provider's own lists first, then its
+                            // categories.
+                            if provider.hasRecents {
+                                row("Recently Watched", symbol: "clock.arrow.circlepath") {
+                                    open(.providerRecents(provider.id))
+                                }
+                            }
+                            row("All Channels", symbol: "tv") { open(.providerAll(provider.id)) }
                             ForEach(provider.categories) { category in
                                 categoryRow(category, name: category.sourceCategoryName ?? category.categoryName)
                             }

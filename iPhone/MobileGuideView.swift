@@ -13,6 +13,26 @@ enum MobileGuideFilter: Hashable {
     case recents
     case all
     case category(String)
+    /// One provider's favorites, recently watched or every channel, where
+    /// channels from several are combined.
+    case providerFavorites(UUID)
+    case providerRecents(UUID)
+    case providerAll(UUID)
+
+    var providerID: UUID? {
+        switch self {
+        case .providerFavorites(let id), .providerRecents(let id), .providerAll(let id): id
+        default: nil
+        }
+    }
+    var isFavorites: Bool {
+        if case .providerFavorites = self { return true }
+        return self == .favorites
+    }
+    var isRecents: Bool {
+        if case .providerRecents = self { return true }
+        return self == .recents
+    }
 
     var categoryID: String? {
         if case .category(let id) = self { return id }
@@ -157,12 +177,13 @@ struct MobileGuideView: View {
         ChannelRequest(library: ObjectIdentifier(library), revision: library.streamsRevision,
             active: isActive && scenePhase == .active,
             query: .init(categoryID: searching ? nil : filter.categoryID,
-                favoritesOnly: !searching && filter == .favorites,
-                recentsOnly: !searching && filter == .recents, text: query,
-                favorites: !searching && filter == .favorites ? library.favoriteStreamOrder : [],
-                recents: !searching && filter == .recents ? library.recentStreamOrder : [],
+                favoritesOnly: !searching && filter.isFavorites,
+                recentsOnly: !searching && filter.isRecents, text: query,
+                favorites: !searching && filter.isFavorites ? library.favoriteStreamOrder : [],
+                recents: !searching && filter.isRecents ? library.recentStreamOrder : [],
                 hiddenCategories: hiddenCategoryIDs, gamePicker: game != nil,
-                recommendedID: recommendedStreamID))
+                recommendedID: recommendedStreamID,
+                categoryPrefix: searching ? nil : filter.providerID.map { $0.uuidString + "|" }))
     }
     private func updateChannels() async {
         let request = channelRequest
@@ -182,9 +203,9 @@ struct MobileGuideView: View {
         if game != nil { return "Choose a channel" }
         if searching { return "Search" }
         switch filter {
-        case .favorites: return "Favorites"
-        case .recents: return "Recent"
-        case .all: return "TV Guide"
+        case .favorites, .providerFavorites: return "Favorites"
+        case .recents, .providerRecents: return "Recent"
+        case .all, .providerAll: return "TV Guide"
         case .category(let id): return library.categories.first { $0.id == id }?.categoryName ?? "TV Guide"
         }
     }
@@ -233,7 +254,7 @@ struct MobileGuideView: View {
                             description: Text("Enable a service in Settings → IPTV."))
                     } else if channels.isEmpty && !library.streams.isEmpty && installedChannelRequest != channelRequest {
                         ProgressView("Loading channels…").frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if channels.isEmpty && filter == .favorites && !searching {
+                    } else if channels.isEmpty && filter.isFavorites && !searching {
                         LineupUnavailableView("No favorites", systemImage: "star",
                             description: Text("Touch and hold a channel to add it to your favorites. All Channels is back on the TV Guide's first page."))
                     } else if channels.isEmpty, game == nil, !library.categories.isEmpty, visibleCategories.isEmpty, filter == .all {
@@ -540,16 +561,36 @@ struct MobileGuideView: View {
             byProvider[id, default: []].append(category)
         }
         guard byProvider.count > 1 else { return [] }
+        // A channel's provider is in its category's ID; favorites and
+        // recents are counted per provider for their rows.
+        func provider(of streamID: Int) -> String? {
+            guard let category = library.stream(withID: streamID)?.categoryID,
+                  let split = category.firstIndex(of: "|") else { return nil }
+            return String(category[..<split])
+        }
+        let favorites = Set(library.favoriteStreamOrder.compactMap(provider(of:)))
+        let recents = Set(library.recentStreamOrder.compactMap(provider(of:)))
         return library.providerRoot.enabledProfiles.compactMap { profile in
-            byProvider[profile.id].map { .init(id: profile.id, name: profile.name, categories: $0) }
+            byProvider[profile.id].map {
+                .init(id: profile.id, name: profile.name, categories: $0,
+                      hasFavorites: favorites.contains(profile.id.uuidString),
+                      hasRecents: recents.contains(profile.id.uuidString))
+            }
         }
     }
 
     /// A category by its own name, not "Provider · Name", with the provider
     /// beside it when channels from more than one are combined.
     private var filterProviderName: String? {
-        guard case .category(let id) = filter, !categoryProviders.isEmpty,
-              let profileID = library.categorySource(for: id).profileID else { return nil }
+        let profileID: UUID?
+        if let provider = filter.providerID {
+            profileID = provider
+        } else if case .category(let id) = filter, !categoryProviders.isEmpty {
+            profileID = library.categorySource(for: id).profileID
+        } else {
+            profileID = nil
+        }
+        guard let profileID else { return nil }
         return library.providerRoot.enabledProfiles.first { $0.id == profileID }?.name
     }
 
@@ -622,7 +663,7 @@ struct MobileGuideView: View {
             // Adding, removing or moving a favorite keeps the list where it is.
             // Only the Recents list reorders itself under a new play.
             .onChange(of: library.recentStreamOrder) { _, _ in
-                if filter == .recents { resetGuideScrollPosition() }
+                if filter.isRecents { resetGuideScrollPosition() }
             }
             .onChange(of: library.streamsRevision) { _, _ in guideStreamsChanged() }
             .onChange(of: enabledProviderIDs) { _, _ in closeRetiredProvider() }
@@ -786,9 +827,9 @@ struct MobileGuideView: View {
 
     private var filterTitle: String {
         switch filter {
-        case .favorites: "Favorites"
-        case .recents: "Recently Watched"
-        case .all: "All Channels"
+        case .favorites, .providerFavorites: "Favorites"
+        case .recents, .providerRecents: "Recently Watched"
+        case .all, .providerAll: "All Channels"
         case .category(let id):
             library.categories.first { $0.id == id }.map { $0.sourceCategoryName ?? $0.categoryName } ?? "TV Guide"
         }
