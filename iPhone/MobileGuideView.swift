@@ -202,7 +202,11 @@ struct MobileGuideView: View {
             let providerHeight: CGFloat = library.activeProfile == nil ? 0 : providerInfoHeight
             let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
                 ? MobilePlayerLayout.inlineTimelineHeight : 0
-            let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight - providerHeight))
+            // Width bounds the picture upright on a phone; on a wide screen
+            // its share of the height does, and two thirds of it -- with the
+            // header out of the way while it plays -- still leaves rows of
+            // the guide beneath.
+            let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.64 - metadataHeight - providerHeight))
             let fullHeight = MobilePlayerLayout.fullscreenHeight(containerHeight: viewport.size.height,
                                                                 safeAreaTop: viewport.safeAreaInsets.top,
                                                                 safeAreaBottom: viewport.safeAreaInsets.bottom)
