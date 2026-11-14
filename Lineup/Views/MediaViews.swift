@@ -242,7 +242,10 @@ struct MediaServersView: View {
         }
         return [
             MobileMenuSection(id: "shelves", items: [
-                MobileMenuItem("Search", symbol: "magnifyingglass", isEnabled: !media.shelves.isEmpty) {
+                // Search asks the servers and the IPTV provider, not the
+                // shelves: a Library of only built-in rows -- Trending,
+                // Continue Watching -- has every bit as much to search.
+                MobileMenuItem("Search", symbol: "magnifyingglass") {
                     searchingLibrary = true
                 },
                 MobileMenuItem("Collections", symbol: "folder.fill") { collectionsOpen = true },
