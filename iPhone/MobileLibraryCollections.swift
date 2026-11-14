@@ -187,7 +187,7 @@ struct MobileLibraryCollectionsRow: View {
                 NavigationLink { MobileLibraryCollectionsView() } label: {
                     Label("See All", systemImage: "chevron.right").font(.inter(14, .bold))
                 }.lineupFlatButton()
-            }.padding(.horizontal, 18)
+            }.padding(.horizontal, LineupPanelStyle.inset)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
                     NavigationLink { MobileLibraryCollectionsView() } label: {
@@ -204,14 +204,12 @@ struct MobileLibraryCollectionsRow: View {
                         }.lineupFlatButton()
                     }
                 }
-                .padding(.leading, 18 + bleed.leading)
-                .padding(.trailing, 18 + bleed.trailing)
+                .padding(.leading, LineupPanelStyle.inset + bleed.leading)
+                .padding(.trailing, LineupPanelStyle.inset + bleed.trailing)
             }
             .mobileShelfRowBleed(bleed)
         }
-        .padding(.vertical, 12)
-        .modifier(MobileShelfSurface(shape: RoundedRectangle(cornerRadius: 24, style: .continuous)))
-        .padding(.horizontal, 18)
+        .padding(.vertical, 4)
     }
 
     private func tile(_ name: String, detail: String, symbol: String,

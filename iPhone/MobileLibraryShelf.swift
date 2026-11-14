@@ -6,49 +6,19 @@ private struct MobileShelfBleedKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// How far a Library panel may run past the column it is laid out in:
-    /// the side margins the Duo's tabs sit in. Headers keep to the column;
-    /// the panel's surface and its rows of cards run on to the screen's edge.
+    /// How far a Library row may run past the column it is laid out in: the
+    /// side margins the Duo's tabs sit in. Headers keep to the column; the
+    /// rows of cards scroll on to the screen's edge.
     var mobileShelfBleed: EdgeInsets {
         get { self[MobileShelfBleedKey.self] }
         set { self[MobileShelfBleedKey.self] = newValue }
     }
 }
 
-/// A Library panel's surface: Apple's Liquid Glass from iOS 26, the app's
-/// solid card before it, carried into the side margins with the rows.
-struct MobileShelfSurface: ViewModifier {
-    @Environment(\.mobileShelfBleed) private var bleed
-    var shape = LineupPanelStyle.shape
-
-    func body(content: Content) -> some View {
-        content.background {
-            surface
-                // A light rim, brightest at the top edge, so a panel keeps
-                // its outline where nothing bright lies behind the glass.
-                .overlay {
-                    shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.18), .white.opacity(0.05), .white.opacity(0.03)],
-                                                      startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
-                }
-                .padding(.leading, -bleed.leading)
-                .padding(.trailing, -bleed.trailing)
-                .allowsHitTesting(false)
-        }
-    }
-
-    @ViewBuilder private var surface: some View {
-        if #available(iOS 26.0, *) {
-            Color.clear.glassEffect(.regular, in: shape)
-        } else {
-            shape.fill(LineupPanelStyle.fill)
-        }
-    }
-}
-
 extension View {
-    /// A row inside a Library panel that scrolls sideways: it runs into the
-    /// margins the panel's surface does, its first card still level with
-    /// the header and its last able to scroll clear of the tabs.
+    /// A Library row that scrolls sideways: it runs into the side margins,
+    /// its first card still level with the header and its last able to
+    /// scroll clear of the tabs.
     func mobileShelfRowBleed(_ bleed: EdgeInsets) -> some View {
         padding(.leading, -bleed.leading).padding(.trailing, -bleed.trailing)
     }

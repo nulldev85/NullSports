@@ -47,8 +47,6 @@ struct MediaLibraryHero: View {
     #if !os(tvOS)
     let scrollActivity: MobileLibraryScrollActivity
     var artworkMargins = EdgeInsets()
-    /// The title on screen, for the wash of its colours behind the shelves.
-    var onCurrentItem: (MediaItem?) -> Void = { _ in }
     #endif
     @State private var index = 0
     @State private var isDragging = false
@@ -58,11 +56,6 @@ struct MediaLibraryHero: View {
 
     private var items: [MediaItem] {
         MediaHeroCatalogSelection.featuredItems(in: catalog).map { media.displayItem($0) }
-    }
-
-    private var currentItem: MediaItem? {
-        let items = items
-        return items.isEmpty ? nil : items[min(index, items.count - 1)]
     }
 
     var body: some View {
@@ -142,9 +135,6 @@ struct MediaLibraryHero: View {
         }
         #endif
         #if !os(tvOS)
-        // Kept when the hero scrolls away: the shelves below still sit on
-        // its colours.
-        .onChange(of: currentItem?.libraryKey, initial: true) { _, _ in onCurrentItem(currentItem) }
         #endif
         .onChange(of: catalog.id) { _, _ in index = 0 }
         .onChange(of: items.count) { _, count in
