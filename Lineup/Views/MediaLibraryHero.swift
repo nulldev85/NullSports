@@ -331,12 +331,11 @@ struct MediaLibraryHero: View {
             LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
                 .frame(width: width, height: reach)
-            LineupArtView(url: url, width: 120) { image in
-                if let image { image.resizable().scaledToFill() } else { Color.clear }
-            }
-            .frame(width: width, height: reach)
-            .clipped()
-            .blur(radius: 34, opaque: true)
+            // Blurred once, ahead of time: a live blur here was redrawn on
+            // every frame of a scroll.
+            MobileBlurredArtwork(url: url)
+                .frame(width: width, height: reach)
+                .clipped()
             LineupArtView(url: url,
                           // Decode for the resting viewport. Pulling
                           // transforms the cached picture, without
