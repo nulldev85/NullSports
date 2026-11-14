@@ -22,6 +22,14 @@ struct MobileLibraryHeroViewport<Content: View>: View {
     }
 }
 
+/// The iPhone hero's ratings row, which the picture behind it reaches down to.
+struct MobileHeroRatingsAnchor: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>?
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
 extension View {
     /// Return an artwork layer to the scroller's full width after the stack
     /// has inset its foreground content around the system controls.
@@ -173,6 +181,7 @@ struct MediaLibraryHero: View {
             #endif
 
             ZStack(alignment: .bottomLeading) {
+                #if os(tvOS)
                 ZStack {
                     LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -186,21 +195,6 @@ struct MediaLibraryHero: View {
                     }
                 }
                 .frame(width: artworkWidth, height: artworkHeight)
-                #if !os(tvOS)
-                .mobileLibraryArtworkZoom()
-                .overlay {
-                    HStack(spacing: 0) {
-                        LinearGradient(colors: [.black.opacity(0.36), .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: artworkMargins.leading)
-                        Spacer(minLength: 0)
-                        LinearGradient(colors: [.clear, .black.opacity(0.36)], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: artworkMargins.trailing)
-                    }
-                }
-                .mobileHeroArtworkMargins(artworkMargins)
-                .frame(height: slide.size.height, alignment: .top)
-                #endif
-                #if os(tvOS)
                 LinearGradient(stops: [
                     .init(color: .black.opacity(0.9), location: 0),
                     .init(color: .black.opacity(0.5), location: 0.5),
@@ -216,18 +210,6 @@ struct MediaLibraryHero: View {
                     .init(color: LineupStyle.background.opacity(0.25), location: 0.98),
                     .init(color: LineupStyle.background, location: 1)
                 ], startPoint: .top, endPoint: .bottom)
-                #else
-                // The art fades into the page over its lower half, as on the
-                // detail page, and the title and its details sit on the
-                // Library's own ground below it.
-                let artEnd = artworkHeight / max(slide.size.height, 1)
-                LinearGradient(stops: [
-                    .init(color: .clear, location: artEnd * 0.5),
-                    .init(color: LineupStyle.background.opacity(0.62), location: artEnd * 0.8),
-                    .init(color: LineupStyle.background, location: artEnd * 0.98),
-                    .init(color: LineupStyle.background, location: 1)
-                ], startPoint: .top, endPoint: .bottom)
-                .mobileHeroArtworkMargins(artworkMargins)
                 #endif
 
                 VStack(alignment: .center, spacing: heroSpacing) {
@@ -254,11 +236,17 @@ struct MediaLibraryHero: View {
                     }
                     #endif
 
-                    if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
-                        MediaRatingChips(ratings: shown)
-                    } else {
-                        Color.clear.frame(height: MediaRatingMetrics.height)
+                    Group {
+                        if let shown = ratings[item.libraryKey] ?? media.knownRatings(for: item), !shown.isEmpty {
+                            MediaRatingChips(ratings: shown)
+                        } else {
+                            Color.clear.frame(height: MediaRatingMetrics.height)
+                        }
                     }
+                    #if !os(tvOS)
+                    // Where the picture ends: the black is full by here.
+                    .anchorPreference(key: MobileHeroRatingsAnchor.self, value: .bounds) { $0 }
+                    #endif
 
                     if !metadata(for: item).isEmpty {
                         Text(metadata(for: item).joined(separator: "  ·  "))
@@ -297,6 +285,15 @@ struct MediaLibraryHero: View {
             .frame(width: slide.size.width, height: slide.size.height)
             #if os(tvOS)
             .clipped()
+            #else
+            .backgroundPreferenceValue(MobileHeroRatingsAnchor.self) { anchor in
+                GeometryReader { proxy in
+                    let ratingsBottom = anchor.map { proxy[$0].maxY } ?? artworkHeight
+                    phoneArtwork(for: item, width: artworkWidth, sharpHeight: artworkHeight,
+                                 reach: min(proxy.size.height, max(ratingsBottom, artworkHeight)),
+                                 slideHeight: proxy.size.height)
+                }
+            }
             #endif
         }
         .contentShape(Rectangle())
@@ -318,6 +315,66 @@ struct MediaLibraryHero: View {
     }
 
     #if !os(tvOS)
+    /// The picture behind the iPhone hero's title: the backdrop sharp across
+    /// the top at the detail page's shape, then the same picture blurred,
+    /// carrying its colours on down behind the logo to the ratings, where the
+    /// page's black has risen to meet it. Taller sharp art would have to be
+    /// cut down at the sides -- zoomed in again -- to reach that far.
+    @ViewBuilder
+    private func phoneArtwork(for item: MediaItem, width: CGFloat, sharpHeight: CGFloat,
+                              reach: CGFloat, slideHeight: CGFloat) -> some View {
+        let url = artworkURL(for: item)
+        let height = max(slideHeight, 1)
+        // The black rises from the ratings over half the picture's reach.
+        let fadeTop = max(0, reach - max(180, reach * 0.5))
+        ZStack(alignment: .top) {
+            LinearGradient(colors: [LineupStyle.raised, LineupStyle.surface],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .frame(width: width, height: reach)
+            LineupArtView(url: url, width: 120) { image in
+                if let image { image.resizable().scaledToFill() } else { Color.clear }
+            }
+            .frame(width: width, height: reach)
+            .clipped()
+            .blur(radius: 34, opaque: true)
+            LineupArtView(url: url,
+                          // Decode for the resting viewport. Pulling
+                          // transforms the cached picture, without
+                          // changing the loader's pixel/cache key.
+                          width: width) { image in
+                if let image { image.resizable().scaledToFill() } else { Color.clear }
+            }
+            .frame(width: width, height: sharpHeight)
+            .clipped()
+            // Melts into its blurred self rather than ending on a line.
+            .mask {
+                LinearGradient(stops: [.init(color: .black, location: 0.62), .init(color: .clear, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+            }
+        }
+        .frame(width: width, height: reach, alignment: .top)
+        .mobileLibraryArtworkZoom()
+        .overlay {
+            HStack(spacing: 0) {
+                LinearGradient(colors: [.black.opacity(0.36), .clear], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: artworkMargins.leading)
+                Spacer(minLength: 0)
+                LinearGradient(colors: [.clear, .black.opacity(0.36)], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: artworkMargins.trailing)
+            }
+        }
+        .frame(height: slideHeight, alignment: .top)
+        .overlay {
+            LinearGradient(stops: [
+                .init(color: .clear, location: fadeTop / height),
+                .init(color: LineupStyle.background.opacity(0.55), location: (fadeTop + reach) / 2 / height),
+                .init(color: LineupStyle.background, location: reach / height),
+                .init(color: LineupStyle.background, location: 1)
+            ], startPoint: .top, endPoint: .bottom)
+        }
+        .mobileHeroArtworkMargins(artworkMargins)
+    }
+
     /// The detail page's backdrop shape, so a title looks the same in both.
     static let phoneArtworkRatio: CGFloat = 16 / 10
     /// The hero's width to its height: the art across the top, then the
