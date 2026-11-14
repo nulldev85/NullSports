@@ -176,6 +176,33 @@ jobs:
           result=$(find build-tests/Logs/Test -maxdepth 1 -name '*.xcresult' -print -quit 2>/dev/null || true)
           if [ -n "$result" ]; then
             xcrun xcresulttool export attachments --path "$result" --output-path navigation-previews || echo "::warning::Could not export test screenshots"
+            # A failing test's own message, and the reason and stack of any
+            # crash report attached to it, in the log itself: the quiet test
+            # run prints only the failing test's name, and a crash report
+            # in the artifact is a download away.
+            echo "::group::Test failure messages"
+            xcrun xcresulttool get test-results summary --path "$result" --compact 2>/dev/null \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); [print(f.get("testIdentifierString") or f.get("testName"), "--", f.get("failureText")) for f in d.get("testFailures", [])]' \
+              || echo "No failure summary"
+            echo "::endgroup::"
+            find navigation-previews -name '*.ips' -print 2>/dev/null | while read -r report; do
+              echo "::group::Crash report $report"
+              python3 - "$report" <<'PY' || head -c 4000 "$report"
+          import json, sys
+          text = open(sys.argv[1]).read()
+          body = json.loads(text[text.index("\n") + 1:])
+          print("Process:", body.get("procName"), "Exception:", json.dumps(body.get("exception")))
+          print("Termination:", json.dumps(body.get("termination")))
+          print("ASI:", json.dumps(body.get("asi")))
+          images = body.get("usedImages", [])
+          threads = body.get("threads", [])
+          index = body.get("faultingThread", 0)
+          for frame in (threads[index].get("frames", []) if index < len(threads) else [])[:40]:
+              image = images[frame.get("imageIndex", 0)].get("name", "?") if frame.get("imageIndex", 0) < len(images) else "?"
+              print(f"  {image:28} {frame.get('symbol', hex(frame.get('imageOffset', 0)))}")
+          PY
+              echo "::endgroup::"
+            done
           fi
       - name: Upload navigation previews
         if: always()
