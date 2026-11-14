@@ -387,12 +387,21 @@ struct MobileGuideView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Categories")
             .accessibilityHint("Goes back to the list of categories")
-            Text(showsSearch ? "Search" : filterTitle)
-                .font(.inter(20, .heavy))
-                .foregroundStyle(LineupStyle.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 0) {
+                if !showsSearch, let provider = filterProviderName {
+                    Text(provider.uppercased())
+                        .font(.inter(11, .heavy)).tracking(0.6)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
+                        .lineLimit(1)
+                }
+                Text(showsSearch ? "Search" : filterTitle)
+                    .font(.inter(20, .heavy))
+                    .foregroundStyle(LineupStyle.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
             MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
                 setOptions(!optionsOpen)
@@ -443,7 +452,8 @@ struct MobileGuideView: View {
                 let next = modes[((modes.firstIndex(of: guideViewMode) ?? 0) + 1) % modes.count]
                 guideViewModeValue = next.rawValue
             },
-            refresh: { Task { await library.reload() } })
+            refresh: { Task { await library.reload() } },
+            providers: categoryProviders)
             .navigationTitle("TV Guide")
             // No bar above the categories, as on Settings: the list starts
             // under the clock, and its options are rows at its foot.
@@ -454,6 +464,29 @@ struct MobileGuideView: View {
                                               set: { managingCategories = $0 })) {
                 MobileGuideCategoryVisibilityView().environment(library).preferredColorScheme(.dark)
             }
+    }
+
+    /// The categories under the provider each came from, when channels from
+    /// more than one are combined; empty with one, where they need no
+    /// grouping.
+    private var categoryProviders: [MobileGuideCategoryList.Provider] {
+        var byProvider: [UUID: [XtreamCategory]] = [:]
+        for category in visibleCategories {
+            guard let id = library.categorySource(for: category.id).profileID else { continue }
+            byProvider[id, default: []].append(category)
+        }
+        guard byProvider.count > 1 else { return [] }
+        return library.providerRoot.enabledProfiles.compactMap { profile in
+            byProvider[profile.id].map { .init(id: profile.id, name: profile.name, categories: $0) }
+        }
+    }
+
+    /// A category by its own name, not "Provider · Name", with the provider
+    /// beside it when channels from more than one are combined.
+    private var filterProviderName: String? {
+        guard case .category(let id) = filter, !categoryProviders.isEmpty,
+              let profileID = library.categorySource(for: id).profileID else { return nil }
+        return library.providerRoot.enabledProfiles.first { $0.id == profileID }?.name
     }
 
     /// The category the tab opens on, when one is saved and still listed.
@@ -692,7 +725,8 @@ struct MobileGuideView: View {
         case .favorites: "Favorites"
         case .recents: "Recently Watched"
         case .all: "All Channels"
-        case .category(let id): library.categories.first { $0.id == id }?.categoryName ?? "TV Guide"
+        case .category(let id):
+            library.categories.first { $0.id == id }.map { $0.sourceCategoryName ?? $0.categoryName } ?? "TV Guide"
         }
     }
 
