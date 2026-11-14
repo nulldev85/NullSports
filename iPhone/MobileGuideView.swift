@@ -299,7 +299,10 @@ struct MobileGuideView: View {
         // underneath them, and List layout -- which kept clear only of a
         // system bar -- lost its first channel behind the header.
         VStack(spacing: 0) {
-            if game == nil && !fillsScreen { guideHeader }
+            // Out of the way while a channel plays above the guide: the
+            // picture takes the room, and what is on and where it comes from
+            // are under it already. Closing the picture brings it back.
+            if game == nil && !fillsScreen && selectedStream == nil { guideHeader }
             if showsSearch && !fillsScreen { guideSearchField }
             guideViewport
                 .overlay {
@@ -498,6 +501,10 @@ struct MobileGuideView: View {
             .onChange(of: playback.isPlaying) { _, playing in
                 // Genuinely playing, not merely selected.
                 if playing, let stream = selectedStream { library.recordRecentChannel(stream) }
+            }
+            .onChange(of: selectedStream?.id) { _, id in
+                // Its menu goes with the header it hangs from.
+                if id != nil && game == nil { optionsOpen = false }
             }
             .onChange(of: fillsScreen) { _, value in
                 if value { searchFocused = false; optionsOpen = false }
