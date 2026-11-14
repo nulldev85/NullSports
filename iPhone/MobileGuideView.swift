@@ -387,8 +387,11 @@ struct MobileGuideView: View {
         }
         .padding(.horizontal, 16)
         // With the tabs at the side the clock moves there too, leaving no
-        // top margin of its own.
-        .padding(.top, verticalBars ? 12 : 4)
+        // top margin of its own: the same gap the categories list and
+        // Settings keep, which also holds the round buttons clear of the
+        // screen's rounded corners. Elsewhere it sits under the clock.
+        .padding(.top, verticalBars ? MobileSettingsClearHeader.sideTabsTopGap : 8)
+        .padding(.bottom, 6)
         .frame(minHeight: 48)
         .background(Color.black)
     }
