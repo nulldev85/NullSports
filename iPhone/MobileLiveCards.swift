@@ -62,11 +62,13 @@ struct MobileLiveScoreboard: View {
     /// while the first game's copy rolls into view.
     @State private var position = 0
 
-    static let interval: Duration = .seconds(3)
-    /// The roll from one game to the next: unhurried, and settling without
-    /// a bounce, as a stadium board's would.
-    private static let roll = Animation.spring(response: 0.7, dampingFraction: 0.92)
-    private static let rollTime: Duration = .seconds(1)
+    /// How long a game rests on the board before the next rolls up.
+    static let interval: Duration = .seconds(4)
+    /// The roll from one game to the next: slow to start, long and soft to
+    /// land, so no part of it reads as a jump.
+    private static let roll = Animation.timingCurve(0.42, 0, 0.18, 1, duration: 1.15)
+    /// The roll's length and a little over, before the loop starts over.
+    private static let rollTime: Duration = .milliseconds(1_250)
 
     var body: some View {
         let games = [watching] + live.filter { $0.id != watching.id }
@@ -86,6 +88,10 @@ struct MobileLiveScoreboard: View {
         // on the end again, so the roll from the last game to the first
         // carries on upward, then quietly starts over.
         let looped = games.count > 1 ? games + [games[0]] : games
+        // Plain values for the fade below, which is worked out off the main
+        // actor while the board moves.
+        let stripHeight = MobileNowPlayingStrip.height
+        let board = Self.board
         Button {
             if shown.id != watching.id { onWatch(shown) }
         } label: {
@@ -103,6 +109,18 @@ struct MobileLiveScoreboard: View {
                         ForEach(Array(looped.enumerated()), id: \.offset) { offset, game in
                             MobileNowPlayingStrip(game: game)
                                 .accessibilityHidden(offset != position)
+                                // The game leaving fades and softens as it
+                                // goes, and the one arriving sharpens as it
+                                // comes, so the two cross rather than one
+                                // shoving the other out.
+                                .visualEffect { content, proxy in
+                                    let middle = proxy.frame(in: .named(board)).midY
+                                    let away = min(1, abs(middle - stripHeight / 2) / stripHeight)
+                                    return content
+                                        .opacity(1 - away * 0.95)
+                                        .blur(radius: away * 4)
+                                        .scaleEffect(1 - away * 0.04)
+                                }
                         }
                     }
                     .offset(y: -CGFloat(position) * MobileNowPlayingStrip.height)
@@ -110,6 +128,7 @@ struct MobileLiveScoreboard: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: MobileNowPlayingStrip.height, alignment: .top)
+            .coordinateSpace(name: board)
             .background(LineupPanelStyle.fill)
             .clipShape(shape)
             .contentShape(shape)
@@ -141,6 +160,8 @@ struct MobileLiveScoreboard: View {
         // A newly opened game starts the board again from itself.
         .onChange(of: watching.id) { settle(at: 0) }
     }
+
+    private static let board = "MobileLiveScoreboard.board"
 
     /// Moves the board without a roll.
     private func settle(at place: Int) {
