@@ -134,8 +134,6 @@ struct MediaLibraryHero: View {
             }
         }
         #endif
-        #if !os(tvOS)
-        #endif
         .onChange(of: catalog.id) { _, _ in index = 0 }
         .onChange(of: items.count) { _, count in
             if count == 0 { index = 0 }
