@@ -942,6 +942,7 @@ struct MobileAccountView: View {
     @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.aether.rawValue
     @AppStorage(AppSearchGenre.visibilityKey) private var showsSearchGenres = true
     @AppStorage(MobileSportsVisibility.storageKey) private var hiddenSports = ""
+    @AppStorage(CollegeFootballRankings.Poll.storageKey) private var collegePoll = CollegeFootballRankings.Poll.ap.rawValue
     @State private var choosingAccent = false
     @State private var settingUpTV = false
     /// Done in the picker, applied once it has gone: the change redraws this
@@ -1033,6 +1034,13 @@ struct MobileAccountView: View {
                         let shown = SportsLeague.allCases.count - MobileSportsVisibility.hidden(hiddenSports).count
                         SettingsRow("Sports Shown", symbol: "sportscourt",
                                     value: shown == SportsLeague.allCases.count ? "All" : "\(shown) of \(SportsLeague.allCases.count)")
+                    }
+                    NavigationLink {
+                        // Picked up straight away rather than at the next refresh.
+                        MobileCollegePollView { library.refreshSchedule() }
+                    } label: {
+                        SettingsRow("College Football Ranking", symbol: "list.number",
+                                    value: (CollegeFootballRankings.Poll(rawValue: collegePoll) ?? .ap).title)
                     }
                 } header: {
                     Text("Sports").lineupSettingsHeader()

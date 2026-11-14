@@ -71,3 +71,39 @@ struct MobileSportsVisibilityView: View {
         }
     }
 }
+
+/// Which Top 25 sits beside college football teams.
+struct MobileCollegePollView: View {
+    @AppStorage(CollegeFootballRankings.Poll.storageKey) private var poll = CollegeFootballRankings.Poll.ap.rawValue
+    var onChange: () -> Void = {}
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(CollegeFootballRankings.Poll.allCases) { choice in
+                    Button {
+                        poll = choice.rawValue
+                        onChange()
+                    } label: {
+                        HStack {
+                            Text(choice.title).font(.inter(17, .medium)).foregroundStyle(LineupStyle.text)
+                            Spacer()
+                            if poll == choice.rawValue {
+                                Image(systemName: "checkmark").foregroundStyle(LineupStyle.highlight)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(poll == choice.rawValue ? .isSelected : [])
+                }
+            } footer: {
+                Text("The latest week of the ranking you choose appears beside college football teams. Playoff Rankings start in November; until then the AP Top 25 stands in.")
+                    .lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+        }
+        .lineupSettingsList()
+        .navigationTitle("College Football Ranking").navigationBarTitleDisplayMode(.inline)
+    }
+}
