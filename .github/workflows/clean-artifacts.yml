@@ -1,0 +1,40 @@
+name: Clean up build artifacts
+
+# One-off: pushing this branch deletes the repository's stored build
+# artifacts to free Actions storage. Builds still running keep theirs.
+# Testers' IPAs live in AppSource's releases, not here.
+on:
+  push:
+    branches: ['maintenance/clean-artifacts']
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const running = new Set([context.runId]);
+            for (const status of ['in_progress', 'queued', 'waiting']) {
+              const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo,
+                { owner, repo, status, per_page: 100 });
+              for (const run of runs) running.add(run.id);
+            }
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 });
+            let deleted = 0, freed = 0, kept = 0;
+            for (const artifact of artifacts) {
+              if (artifact.expired) continue;
+              if (running.has(artifact.workflow_run?.id)) { kept++; continue; }
+              await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id });
+              deleted++;
+              freed += artifact.size_in_bytes;
+            }
+            const line = `Deleted ${deleted} artifacts, ${(freed / 1e9).toFixed(2)} GB; kept ${kept} from builds still running.`;
+            core.info(line);
+            await core.summary.addRaw(line).write();
