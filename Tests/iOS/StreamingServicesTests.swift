@@ -159,4 +159,15 @@ final class StreamingServicesTests: XCTestCase {
         XCTAssertEqual(decoded.services["netflix"]?.movies.first?.popularRank, 1)
         XCTAssertEqual(decoded.sources, [server.uuidString])
     }
+
+    /// A build with every row empty is the servers not having answered yet,
+    /// never the day's rows: kept, it left the Library with no shelves.
+    func testAnEmptyBuildHoldsNoTitles() {
+        let empty = ["netflix": StreamingServiceTitles()]
+        XCTAssertFalse(MediaLibrary.holdsTitles(empty, ["builtin:trending-movies": []]))
+        XCTAssertFalse(MediaLibrary.holdsTitles([:], [:]))
+        XCTAssertTrue(MediaLibrary.holdsTitles(empty, ["builtin:trending-movies": [item("a", "Alpha")]]))
+        XCTAssertTrue(MediaLibrary.holdsTitles(
+            ["netflix": StreamingServiceTitles(movies: [StreamingTitle(item: item("a", "Alpha"), popularRank: 1)])], [:]))
+    }
 }
