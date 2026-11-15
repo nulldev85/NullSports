@@ -35,95 +35,132 @@ struct MobileGameStatsPanel: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                LineupIconTile(symbol: "chart.bar.fill", size: 26)
-                Text("LIVE STATS").font(.inter(13, .heavy)).tracking(LineupPanelStyle.headerTracking)
-                    .foregroundStyle(LineupPanelStyle.caption)
-                Spacer(minLength: 8)
-                if let onClose {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark").font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundStyle(LineupStyle.text)
-                            .frame(width: 30, height: 30)
-                            .background(LineupPanelStyle.well, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close stats")
+        Group {
+            if sideways {
+                // Beside a full-screen picture, the panel is the screen's
+                // height: the score stays put and the plays scroll under it.
+                VStack(spacing: 0) {
+                    header
+                    summary(scrolls: true)
                 }
-            }
-            .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
-
-            if let reveal = stats.reveal {
-                let options = sections
-                let shown = section.flatMap { options.contains($0) ? $0 : nil } ?? options[0]
-                headline(reveal)
-                syncChip(reveal).padding(.horizontal, 16).padding(.top, 10)
-                if let home = reveal.homeWinProbability {
-                    WinProbabilityBar(reveal: reveal, home: home).padding(.horizontal, 16).padding(.top, 14)
-                }
-                // One section needs no tabs to choose it.
-                if options.count > 1 {
-                    HStack(spacing: 8) {
-                        ForEach(options) { option in
-                            Button { withAnimation(.easeInOut(duration: 0.16)) { section = option } } label: {
-                                Text(option.rawValue).lineupChip(shown == option)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
-                } else {
-                    Color.clear.frame(height: 12)
-                }
-                Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+            } else {
+                // Under an upright picture, the panel is one page: the score,
+                // its chances and the plays scroll together, rather than
+                // leaving a strip at the bottom to scroll in.
                 ScrollView {
-                    switch shown {
-                    case .plays: plays(reveal)
-                    case .box: box(reveal)
-                    case .leaders: leaders(reveal)
-                    case .courts:
-                        // The newest draw, at once: only the match on
-                        // screen waits for the picture.
-                        if let latest = reveal.latestBoard?.tennis {
-                            let onScreen = latest.focus ?? stats.focus
-                            // A tournament asks which match is on screen; a
-                            // match's own panel already knows.
-                            let pick: ((String) -> Void)? = latest.focus == nil ? { (id: String) in stats.focus = id } : nil
-                            MobileTennisCourts(courts: GameStatsTennisBoard.courts(latest: latest, shown: reveal.board?.tennis,
-                                                                                   onScreen: onScreen),
-                                               onScreen: onScreen, onPick: pick)
-                        } else {
-                            message("No courts yet.", symbol: "sportscourt")
-                        }
-                    case .card:
-                        if let card = reveal.board?.card {
-                            MobileFightCardList(card: card)
-                        } else {
-                            message("The card appears once your stream reaches it.", symbol: "list.bullet")
-                        }
-                    case .positions:
-                        if let race = reveal.board?.race {
-                            MobileRacePositions(race: race, earlier: reveal.earlierBoard?.race)
-                        } else {
-                            message("The order appears once your stream reaches it.", symbol: "list.bullet")
-                        }
+                    VStack(spacing: 0) {
+                        header
+                        summary(scrolls: false)
                     }
+                    // Clear of the tab bar, so the last row can be read.
+                    .padding(.bottom, 90)
                 }
                 .scrollIndicators(.hidden)
-            } else if stats.unavailable {
-                message("Stats aren't available for this game.", symbol: "chart.bar")
-            } else {
-                VStack(spacing: 10) {
-                    ProgressView().tint(LineupStyle.text)
-                    Text("Loading stats…").font(.inter(14)).foregroundStyle(LineupPanelStyle.quiet)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .foregroundStyle(LineupStyle.text)
         .background(LineupPanelStyle.fill)
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            LineupIconTile(symbol: "chart.bar.fill", size: 26)
+            Text("LIVE STATS").font(.inter(13, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                .foregroundStyle(LineupPanelStyle.caption)
+            Spacer(minLength: 8)
+            if let onClose {
+                Button(action: onClose) {
+                    Image(systemName: "xmark").font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(LineupStyle.text)
+                        .frame(width: 30, height: 30)
+                        .background(LineupPanelStyle.well, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close stats")
+            }
+        }
+        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+    }
+
+    /// The score, its chances and the chosen section. `scrolls`: the section
+    /// scrolls on its own under a fixed score; otherwise the whole panel
+    /// scrolls as one.
+    @ViewBuilder
+    private func summary(scrolls: Bool) -> some View {
+        if let reveal = stats.reveal {
+            let options = sections
+            let shown = section.flatMap { options.contains($0) ? $0 : nil } ?? options[0]
+            headline(reveal)
+            syncChip(reveal).padding(.horizontal, 16).padding(.top, 10)
+            if let home = reveal.homeWinProbability {
+                WinProbabilityBar(reveal: reveal, home: home).padding(.horizontal, 16).padding(.top, 14)
+            }
+            // One section needs no tabs to choose it.
+            if options.count > 1 {
+                HStack(spacing: 8) {
+                    ForEach(options) { option in
+                        Button { withAnimation(.easeInOut(duration: 0.16)) { section = option } } label: {
+                            Text(option.rawValue).lineupChip(shown == option)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+            } else {
+                Color.clear.frame(height: 12)
+            }
+            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+            if scrolls {
+                ScrollView { sectionContent(shown, reveal) }
+                    .scrollIndicators(.hidden)
+            } else {
+                sectionContent(shown, reveal)
+            }
+        } else if stats.unavailable {
+            message("Stats aren't available for this game.", symbol: "chart.bar")
+        } else {
+            VStack(spacing: 10) {
+                ProgressView().tint(LineupStyle.text)
+                Text("Loading stats…").font(.inter(14)).foregroundStyle(LineupPanelStyle.quiet)
+            }
+            .frame(maxWidth: .infinity, minHeight: scrolls ? nil : 220, maxHeight: scrolls ? .infinity : nil)
+        }
+    }
+
+    @ViewBuilder
+    private func sectionContent(_ shown: StatsSection, _ reveal: GameStatsReveal) -> some View {
+        switch shown {
+        case .plays: plays(reveal)
+        case .box: box(reveal)
+        case .leaders: leaders(reveal)
+        case .courts:
+            // The newest draw, at once: only the match on
+            // screen waits for the picture.
+            if let latest = reveal.latestBoard?.tennis {
+                let onScreen = latest.focus ?? stats.focus
+                // A tournament asks which match is on screen; a
+                // match's own panel already knows.
+                let pick: ((String) -> Void)? = latest.focus == nil ? { (id: String) in stats.focus = id } : nil
+                MobileTennisCourts(courts: GameStatsTennisBoard.courts(latest: latest, shown: reveal.board?.tennis,
+                                                                       onScreen: onScreen),
+                                   onScreen: onScreen, onPick: pick)
+            } else {
+                message("No courts yet.", symbol: "sportscourt")
+            }
+        case .card:
+            if let card = reveal.board?.card {
+                MobileFightCardList(card: card)
+            } else {
+                message("The card appears once your stream reaches it.", symbol: "list.bullet")
+            }
+        case .positions:
+            if let race = reveal.board?.race {
+                MobileRacePositions(race: race, earlier: reveal.earlierBoard?.race)
+            } else {
+                message("The order appears once your stream reaches it.", symbol: "list.bullet")
+            }
+        }
     }
 
     // MARK: Score
