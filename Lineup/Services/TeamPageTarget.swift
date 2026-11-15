@@ -43,6 +43,7 @@ struct MobileTeamPageTarget: Identifiable, Hashable {
         case .nfl: return ("football", "nfl")
         case .ncaaf: return ("football", "college-football")
         case .nba: return ("basketball", "nba")
+        case .ncaab: return ("basketball", "mens-college-basketball")
         case .nhl: return ("hockey", "nhl")
         case .mlb: return ("baseball", "mlb")
         case .soccer: return competition.map { ("soccer", $0) }

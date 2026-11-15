@@ -134,7 +134,7 @@ struct LiveChipLabel: View {
 
 /// A league as the sport filter names it.
 func liveLeagueName(_ league: SportsLeague) -> String {
-    league == .ncaaf ? "College" : league.shortName
+    league.isCollege ? league.fullName : league.shortName
 }
 
 /// The matchup in a line: "BOS 3 – NYY 5", "BOS @ MIL", or an event's name.
@@ -180,7 +180,7 @@ func nonempty(_ value: String?) -> String? {
 func sportsSymbol(_ league: SportsLeague) -> String {
     switch league {
     case .nfl, .ncaaf: "football.fill"
-    case .nba: "basketball.fill"
+    case .nba, .ncaab: "basketball.fill"
     case .nhl: "hockey.puck.fill"
     case .mlb: "baseball.fill"
     case .ufc: "figure.martial.arts"
@@ -198,7 +198,7 @@ struct LeagueLogo: View {
     var width: CGFloat?
 
     private var logoURL: URL? {
-        guard league != .ncaaf && league != .ufc && !league.isTennis else { return nil }
+        guard !league.isCollege && league != .ufc && !league.isTennis else { return nil }
         return URL(string: "https://a.espncdn.com/i/teamlogos/leagues/500/\(league.rawValue).png")
     }
 
@@ -208,7 +208,7 @@ struct LeagueLogo: View {
             // tennis tours' come with the app.
             if league == .soccer || league.isRacing {
                 SportsMark(league: league, size: size)
-            } else if league == .ufc || league == .ncaaf || league.isTennis {
+            } else if league == .ufc || league.isCollege || league.isTennis {
                 Image("League-\(league.rawValue)").resizable().scaledToFit()
             } else {
                 LineupArtView(url: logoURL, width: size) { loaded in

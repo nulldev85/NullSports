@@ -72,12 +72,12 @@ struct MobileLeagueMenu: View {
 
     static func title(_ league: SportsLeague?) -> String {
         guard let league else { return "All Sports" }
-        return league == .ncaaf ? "College Football" : league.shortName
+        return league.isCollege ? league.fullName : league.shortName
     }
 
     static func subtitle(_ league: SportsLeague?) -> String {
         guard let league else { return "Every league" }
-        return league == .ncaaf ? "NCAA" : league.fullName
+        return league.isCollege ? "NCAA" : league.fullName
     }
 
     var body: some View {
@@ -272,7 +272,7 @@ extension SportsLeague {
         case .nba: ["#1D428A", "#C8102E", "#FFFFFF"]
         case .nhl: ["#111111", "#A2AAAD", "#FFFFFF"]
         case .mlb: ["#041E42", "#BF0D3E", "#FFFFFF"]
-        case .ncaaf: ["#0078C0", "#FFFFFF"]
+        case .ncaaf, .ncaab: ["#0078C0", "#FFFFFF"]
         case .ufc: ["#D20A0A"]
         case .atp: ["#002865", "#FFFFFF"]
         case .wta: ["#5B2C8F", "#FFFFFF"]

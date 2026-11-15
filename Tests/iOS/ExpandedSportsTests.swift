@@ -190,6 +190,22 @@ final class ExpandedSportsTests: XCTestCase {
         XCTAssertFalse(GameAlertRules.isOvertime(final))
     }
 
+    func testCollegeBasketballReadsESPNsDivisionOneScoreboardWithItsRanks() throws {
+        let games = try ExpandedSportsScheduleClient.collegeBasketballGames(data: fixture("ncaab-scoreboard"))
+        XCTAssertEqual(games.map(\.id), ["ncaab-401921689", "ncaab-401925108", "ncaab-401920961"])
+        XCTAssertTrue(games.allSatisfy { $0.league == .ncaab && $0.league.isCollege })
+        let gonzaga = games[0]
+        XCTAssertEqual(gonzaga.awayTeam, "LSU Tigers")
+        XCTAssertEqual(gonzaga.homeTeam, "Gonzaga Bulldogs")
+        XCTAssertEqual(gonzaga.homeRank, 14)
+        XCTAssertNil(gonzaga.awayRank, "ESPN's 99 means unranked")
+        XCTAssertEqual(gonzaga.state, "post")
+        XCTAssertEqual(gonzaga.broadcast, "USA Net")
+        XCTAssertEqual(gonzaga.start, SportsScheduleClient.parseDate("2026-11-14T20:30Z"))
+        XCTAssertEqual(games[1].state, "in")
+        XCTAssertEqual(games[1].broadcast, "ESPN+")
+    }
+
     func testRacingUsesEachSessionsActualTimeAndPreservesOfficialDriverData() throws {
         let weekend = try ExpandedSportsScheduleClient.racingGames(data: fixture("f1-weekend"), league: .f1)
         XCTAssertEqual(weekend.count, 5)

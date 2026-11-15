@@ -78,7 +78,7 @@ struct SportsScheduleClient: Sendable {
 
     /// The leagues with a feed of their own rather than a place in the
     /// combined schedule.
-    private static let ownFeeds: Set<SportsLeague> = [.ufc, .atp, .wta, .soccer, .f1, .nascar]
+    private static let ownFeeds: Set<SportsLeague> = [.ufc, .atp, .wta, .soccer, .f1, .nascar, .ncaab]
 
     private static func merging(_ extra: Snapshot, into base: Snapshot) -> Snapshot {
         var games = base.games

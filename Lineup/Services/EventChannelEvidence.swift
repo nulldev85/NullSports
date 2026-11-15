@@ -49,6 +49,7 @@ enum EventChannelEvidence {
         "nba": ["nba", "basketball", "nba basketball", "nba preseason", "nba preseason basketball", "nba basketball preseason", "nba playoffs", "nba finals", "national basketball association"],
         "nfl": ["nfl", "football", "nfl football", "nfl preseason", "nfl playoffs", "super bowl", "national football league"],
         "ncaaf": ["ncaaf", "cfb", "football", "college football", "ncaa football", "ncaa college football"],
+        "ncaab": ["ncaab", "cbb", "basketball", "college basketball", "ncaa basketball", "ncaa college basketball", "mens college basketball"],
         "nhl": ["nhl", "hockey", "nhl hockey", "nhl preseason", "stanley cup playoffs", "national hockey league"],
         "mlb": ["mlb", "baseball", "mlb baseball", "mlb playoffs", "world series", "major league baseball"],
         "soccer": ["soccer", "football", "mls", "nwsl", "premier league", "la liga", "bundesliga", "serie a", "champions league", "uefa champions league", "uefa europa league", "uefa conference league", "fifa world cup"],

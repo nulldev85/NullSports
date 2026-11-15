@@ -545,7 +545,7 @@ enum LineupStyle {
         let leagues = palette.leagues
         switch league {
         case .nfl: return leagues.football
-        case .ncaaf: return leagues.college
+        case .ncaaf, .ncaab: return leagues.college
         case .nba: return leagues.basketball
         case .nhl: return leagues.hockey
         case .mlb: return leagues.baseball
