@@ -261,7 +261,7 @@ final class ExpandedSportsTests: XCTestCase {
         let start = try XCTUnwrap(SportsScheduleClient.parseDate("2026-10-17T04:00Z")), end = start.addingTimeInterval(2 * 86_400)
         let client = ExpandedSportsScheduleClient(competitions: catalog, now: { start }, transport: { try await source.load($0) })
         let first = await client.games(from: start, to: end, racingTo: end.addingTimeInterval(14 * 86_400))
-        XCTAssertEqual(first.loadedLeagues, [.soccer, .f1])
+        XCTAssertEqual(first.loadedLeagues, [.soccer, .f1, .ncaab])
         XCTAssertEqual(first.games[.soccer]?.count, 1, "A match returned on multiple feed days must appear once")
         XCTAssertEqual(first.games[.f1]?.count, 5, "The racing window must include the next weekend")
         XCTAssertTrue(first.errorMessage?.contains("NASCAR") == true)
@@ -305,6 +305,9 @@ private actor FixtureTransport {
             return nascar
         }
         if url.path.contains("racing/f1") { return f1 }
+        // College basketball has a feed of its own; these tests are about
+        // soccer and racing, so it answers with an empty day.
+        if url.path.contains("mens-college-basketball") { return Data(#"{"events": []}"#.utf8) }
         return url.path.contains("soccer/all/") ? (capped ?? soccer) : soccer
     }
 }
