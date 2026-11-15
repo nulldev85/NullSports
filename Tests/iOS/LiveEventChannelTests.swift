@@ -110,6 +110,40 @@ final class LiveEventChannelTests: XCTestCase {
         }
     }
 
+    /// UFC 334 as a tester's provider carried it: ESPN dates the card by its
+    /// early prelims, and the provider's event channel was listed from the
+    /// main card, two hours later. Only the guide-free multiview channel was
+    /// offered; the event channel he watched it on was turned away.
+    private func ufc(live: Bool) -> SportsGame {
+        SportsGame(id: "ufc-334", league: .ufc, start: live ? now.addingTimeInterval(-3 * 3600) : now.addingTimeInterval(3600),
+            awayTeam: "Josh Hokit", homeTeam: "Ciryl Gane", awayAbbreviation: "HOK", homeAbbreviation: "GAN",
+            awayLogo: "", homeLogo: "", awayScore: "", homeScore: "", awayColor: nil, homeColor: nil,
+            awayRecord: nil, homeRecord: nil, venue: nil, location: nil,
+            status: live ? "In Progress" : "Scheduled", state: live ? "in" : "pre",
+            broadcast: "Paramount+", eventName: "UFC 334: Gane vs. Hokit")
+    }
+
+    func testAUFCEventChannelListedFromTheMainCardIsOfferedBeforeAndDuringTheCard() {
+        let candidates = [stream(1, "EVENT 06: UFC 334 Gane vs. Hokit (11.14 9:00 PM ET)", epg: "event06"),
+                          stream(2, "Paramount+ 29: ufc: UFC 334: Multiview @ 14 Nov 10:00 PM ET", epg: nil),
+                          stream(3, "EVENT 07: UFC 333 Somebody vs. Someone", epg: "event07")]
+        for live in [false, true] {
+            let card = ufc(live: live)
+            let mainCard = card.start.addingTimeInterval(2 * 3600)
+            let programs = [
+                "event06": [CurrentProgram(channelID: "event06", title: "Off Air", detail: "",
+                                           start: mainCard.addingTimeInterval(-4 * 3600), end: mainCard),
+                            CurrentProgram(channelID: "event06", title: "UFC 334: Gane vs. Hokit", detail: "",
+                                           start: mainCard, end: mainCard.addingTimeInterval(4 * 3600))],
+                "event07": [CurrentProgram(channelID: "event07", title: "UFC 333", detail: "",
+                                           start: card.start.addingTimeInterval(-86_400), end: card.start.addingTimeInterval(-80_000))]
+            ]
+            let channels = SportsLibrary.matchingEventChannels(for: card, candidates: candidates,
+                programs: programs, categories: [], now: now)
+            XCTAssertEqual(Set(channels.map(\.id)), [1, 2], live ? "During the card" : "Before the card")
+        }
+    }
+
     func testExpiredOverlappingAndHistoricalEvidenceDoesNotFillEventChannels() {
         let expired = CurrentProgram(channelID: "expired", title: "Orlando Magic at Miami Heat", detail: "",
             start: now.addingTimeInterval(-6000), end: now.addingTimeInterval(-1))

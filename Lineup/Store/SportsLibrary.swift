@@ -2235,6 +2235,10 @@ final class SportsLibrary {
         return score
     }
 
+    /// How long a UFC card runs from the early prelims ESPN dates it by to the
+    /// end of the main event, with room to spare.
+    nonisolated private static let ufcCardLength: TimeInterval = 7 * 60 * 60
+
     nonisolated private static func ufcScore(channel: String, listings: [CurrentProgram],
                                               game: SportsGame, now: Date) -> Int? {
         func normalized(_ value: String) -> String {
@@ -2257,11 +2261,17 @@ final class SportsLibrary {
             (contains(text, away) && contains(text, home))
                 || (!numberedCard.isEmpty && contains(text, numberedCard))
         }
-        let point = game.isLive ? now : game.start
-        let current = listings.filter { $0.start <= point && point < $0.end }
+        // ESPN dates a card by its early prelims, and an event channel is as
+        // often listed from the main card, hours later: a listing naming the
+        // card anywhere across it counts. Before the card, what the guide has
+        // across it is read, not just what it has as the prelims begin.
+        let cardEnd = game.start.addingTimeInterval(ufcCardLength)
+        let current = game.isLive
+            ? listings.filter { $0.start <= now && now < $0.end }
+            : listings.filter { $0.start < cardEnd && $0.end > game.start }
         let listingConfirms = current.contains {
             identifiesCard(normalized($0.title + " " + $0.detail))
-                && $0.start <= game.start.addingTimeInterval(60 * 60) && $0.end > game.start
+                && $0.start < cardEnd && $0.end > game.start
         }
         let guideSilent = current.isEmpty || current.allSatisfy {
             let title = normalized($0.title)
@@ -2535,7 +2545,16 @@ final class SportsLibrary {
         guard EventChannelEvidence.allowsSource(league: game.league.rawValue, channel: stream.name,
             category: category, date: game.start, participants: participants, teams: teams) else { return nil }
         let point = game.isLive ? now : game.start
-        let current = listings.filter { $0.end > $0.start && $0.start <= point && point < $0.end }
+        var current = listings.filter { $0.end > $0.start && $0.start <= point && point < $0.end }
+        if game.league == .ufc, !game.isLive {
+            // Before a card, its channel is often off air or counting down
+            // until the main card: what it lists across the card that names
+            // the card is what counts, not what is on as the prelims begin.
+            let cardEnd = game.start.addingTimeInterval(ufcCardLength)
+            let card = listings.filter { $0.end > $0.start && $0.start < cardEnd && $0.end > game.start }
+            current = card.filter { score([$0]) != nil }
+            guard !current.isEmpty else { return card.isEmpty && listings.isEmpty ? evidence : nil }
+        }
         // A truly guide-free, explicit event feed remains usable. An expired
         // guide is not evidence of what an old event-channel name carries now.
         guard !current.isEmpty else { return listings.isEmpty ? evidence : nil }
