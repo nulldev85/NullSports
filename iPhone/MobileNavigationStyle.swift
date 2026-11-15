@@ -734,3 +734,19 @@ final class MobileTabBarStyle {
         bar.setNeedsLayout()
     }
 }
+
+/// The band across the top of a wide, upright screen -- the unfolded Duo --
+/// where the clock and battery sit alone in the right-hand corner. Pages that
+/// head themselves (Sports, the TV Guide) move their header up into it,
+/// clear of that corner, rather than leave it empty above them.
+enum MobileTopBand {
+    /// Wide and upright, with the tabs along the foot.
+    static func isOpen(_ size: CGSize, verticalBars: Bool) -> Bool {
+        !verticalBars && size.width >= 560 && size.height > size.width
+    }
+
+    /// The right-hand corner kept clear for the clock and battery.
+    static func clockCorner(_ width: CGFloat) -> CGFloat {
+        max(170, width * 0.24)
+    }
+}

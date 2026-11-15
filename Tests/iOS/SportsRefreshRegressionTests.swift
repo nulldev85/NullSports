@@ -180,6 +180,19 @@ final class SportsRefreshRegressionTests: XCTestCase {
         XCTAssertEqual(picker.map(\.id), [3, 2, 1, 4, 5])
     }
 
+    func testOneProvidersChannelsAreFoundByTheirCategoriesPrefix() async throws {
+        let purple = "11111111-1111-1111-1111-111111111111|", blue = "22222222-2222-2222-2222-222222222222|"
+        let streams = [(1, purple + "sports"), (2, blue + "sports"), (3, purple + "news"), (4, blue + "news")].map {
+            XtreamStream(num: $0.0, name: "Channel \($0.0)", streamType: "live", streamID: $0.0,
+                         streamIcon: nil, epgChannelID: nil, categoryID: $0.1)
+        }
+        let all = try await GuideChannelList.load(streams, query: .init(categoryPrefix: purple))
+        XCTAssertEqual(all.map(\.id), [1, 3])
+        let favorites = try await GuideChannelList.load(streams, query: .init(favoritesOnly: true,
+            favorites: [4, 3, 2, 1], categoryPrefix: blue))
+        XCTAssertEqual(favorites.map(\.id), [4, 2], "A provider's favorites keep the saved order")
+    }
+
     func testThirtyThousandChannelQueriesLeaveTheUIActorAvailableAndCancelSupersededWork() async throws {
         let streams = (0..<30_000).map { id in
             XtreamStream(num: nil, name: "Sports \(30_000 - id)", streamType: "live", streamID: id,

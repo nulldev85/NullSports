@@ -9,6 +9,10 @@ struct MobileLiveView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.mobileUsesNativeTabBarLayout) private var usesNativeTabBarLayout
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
+    /// On the unfolded Duo, the header sits up in the band beside the clock.
+    @State private var topBand = false
+    @State private var screenWidth: CGFloat = 0
     @State private var league: SportsLeague?
     @State private var soccerCompetition: String?
     @State private var onlyFollowed = false
@@ -65,6 +69,10 @@ struct MobileLiveView: View {
     }
     /// The sports list, dropped from the pill under the masthead.
     @State private var leagueMenuOpen = false
+    /// Sports turned off for this tab; see `SportsVisibility`.
+    @AppStorage(SportsVisibility.storageKey) private var hiddenLeaguesRaw = ""
+    @State private var choosingSports = false
+    private var hiddenLeagues: Set<SportsLeague> { SportsVisibility.hidden(hiddenLeaguesRaw) }
     var isActive = true
     var onFullscreenChange: (Bool) -> Void = { _ in }
     let onPlay: (XtreamStream) -> Void
@@ -87,8 +95,10 @@ struct MobileLiveView: View {
     }
 
     private func slate() -> Slate {
+        let hidden = league == nil ? hiddenLeagues : []
         let all = library.games(for: league).map(gameStats.shield).filter {
-            (!onlyFollowed || library.isFollowing($0))
+            !hidden.contains($0.league)
+                && (!onlyFollowed || library.isFollowing($0))
                 && (league != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
         }
         let calendar = Calendar.current
@@ -110,7 +120,8 @@ struct MobileLiveView: View {
     /// Everything on now in every league, for the scoreboard under the
     /// preview, whichever league or teams the list below it is showing.
     private func liveEverywhere() -> [SportsGame] {
-        library.games(for: nil).map(gameStats.shield).filter(\.isLive)
+        let hidden = hiddenLeagues
+        return library.games(for: nil).map(gameStats.shield).filter { $0.isLive && !hidden.contains($0.league) }
             .map { (game: $0, followed: library.isFollowing($0)) }
             .sorted { left, right in
                 if left.followed != right.followed { return left.followed }
@@ -174,6 +185,7 @@ struct MobileLiveView: View {
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
                         masthead(slate)
+                            .padding(.trailing, topBand ? MobileTopBand.clockCorner(screenWidth) : 0)
                         leagueBar
                         if previewStream != nil {
                             Color.clear.frame(height: 4 + videoHeight + providerHeight + metadataHeight + timelineHeight)
@@ -281,7 +293,11 @@ struct MobileLiveView: View {
                             .transition(.opacity)
                             .accessibilityHidden(true)
                         MobileLeagueMenu(entries: leagueEntries(), selected: league,
-                                         maxHeight: viewport.size.height - Self.headerHeight - 20) { choice in
+                                         maxHeight: viewport.size.height - Self.headerHeight - 20,
+                                         onChooseSports: {
+                                             setLeagueMenu(false)
+                                             choosingSports = true
+                                         }) { choice in
                             league = choice
                             setLeagueMenu(false)
                         }
@@ -303,6 +319,14 @@ struct MobileLiveView: View {
                     }
                 }
             }
+            .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+                screenWidth = size.width
+                topBand = MobileTopBand.isOpen(size, verticalBars: verticalBars)
+            }
+            // Up into the band beside the clock, which is otherwise empty
+            // above the header. The full-screen player takes the whole
+            // screen whichever way.
+            .ignoresSafeArea(.container, edges: topBand && !fillsScreen ? .top : [])
             .background(Color.black)
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(fillsScreen || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)
@@ -320,6 +344,16 @@ struct MobileLiveView: View {
                 if value { expanded = false }
             }
             .lineupSheet(item: $racingDetails) { RacingSessionDetails(game: $0) }
+            .lineupSheet(isPresented: $choosingSports) {
+                NavigationStack { MobileSportsVisibilityView(showsDone: true) }
+                    .tint(LineupStyle.highlight)
+                    .preferredColorScheme(.dark)
+            }
+            // A sport turned off while it is the one on screen gives way to
+            // every sport.
+            .onChange(of: hiddenLeaguesRaw) { _, _ in
+                if let league, hiddenLeagues.contains(league) { self.league = nil }
+            }
             .lineupFullScreenCover(item: $teamPage) { MobileTeamPage(target: $0) }
             .lineupFullScreenCover(item: $multiview) { session in
                 MobileMultiviewView(session: session).environment(library)
@@ -566,7 +600,10 @@ struct MobileLiveView: View {
 
     /// Every league with what it has on, counted once for the open list.
     private func leagueEntries() -> [MobileLeagueMenu.Entry] {
-        let all = library.games(for: nil).filter { !onlyFollowed || library.isFollowing($0) }
+        let hidden = hiddenLeagues
+        let all = library.games(for: nil).filter {
+            !hidden.contains($0.league) && (!onlyFollowed || library.isFollowing($0))
+        }
         var games: [SportsLeague: Int] = [:]
         var live: [SportsLeague: Int] = [:]
         for game in all {
@@ -574,7 +611,7 @@ struct MobileLiveView: View {
             if game.isLive { live[game.league, default: 0] += 1 }
         }
         return [MobileLeagueMenu.Entry(league: nil, games: all.count, live: live.values.reduce(0, +))]
-            + SportsLeague.allCases.map {
+            + SportsLeague.allCases.filter { !hidden.contains($0) }.map {
                 MobileLeagueMenu.Entry(league: $0, games: games[$0] ?? 0, live: live[$0] ?? 0)
             }
     }

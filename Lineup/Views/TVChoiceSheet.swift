@@ -17,12 +17,17 @@ struct TVChoice: Identifiable {
     var isSelected = false
     var isDestructive = false
     var isEnabled = true
+    /// A heading the sheet draws above this choice when it starts a new
+    /// group, such as one provider's channels.
+    var section: String?
     let action: () -> Void
 
     init(_ title: String, symbol: String? = nil, imageName: String? = nil, namesEngine: Bool = false,
          version: String? = nil,
          id: String? = nil, isSelected: Bool = false,
-         isDestructive: Bool = false, isEnabled: Bool = true, action: @escaping () -> Void) {
+         isDestructive: Bool = false, isEnabled: Bool = true, section: String? = nil,
+         action: @escaping () -> Void) {
+        self.section = section
         self.id = id ?? title
         self.title = title
         self.symbol = symbol
@@ -245,14 +250,17 @@ private struct TVChoiceSheet: View {
                 if !items.isEmpty {
                     ScrollView {
                         VStack(spacing: 6) {
-                            ForEach(items) { item in
+                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                                if let section = item.section, index == 0 || items[index - 1].section != section {
+                                    sectionHeading(section, first: index == 0)
+                                }
                                 row(item, focusedFirst: item.id == firstFocus)
                             }
                         }
                         .padding(.horizontal, 14).padding(.vertical, 14)
                     }
                     .scrollIndicators(.hidden)
-                    .frame(maxHeight: min(CGFloat(items.count) * (Self.rowHeight + 6) + 28, 560))
+                    .frame(maxHeight: min(CGFloat(items.count) * (Self.rowHeight + 6) + CGFloat(sectionCount) * 52 + 28, 560))
                     Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1)
                         .padding(.horizontal, 30)
                 }
@@ -273,6 +281,25 @@ private struct TVChoiceSheet: View {
         }
         .onExitCommand(perform: cancel)
         .lineupPresentation(tint: tint)
+    }
+
+    /// How many headings the list draws.
+    private var sectionCount: Int {
+        items.indices.filter { index in
+            guard let section = items[index].section else { return false }
+            return index == 0 || items[index - 1].section != section
+        }.count
+    }
+
+    private func sectionHeading(_ title: String, first: Bool) -> some View {
+        Text(title.uppercased())
+            .font(.inter(17, .heavy)).tracking(1.2)
+            .foregroundStyle(LineupPresentationStyle.secondary)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.top, first ? 4 : 20).padding(.bottom, 4)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private func row(_ item: TVChoice, focusedFirst: Bool) -> some View {

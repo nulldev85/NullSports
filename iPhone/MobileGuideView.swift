@@ -13,6 +13,26 @@ enum MobileGuideFilter: Hashable {
     case recents
     case all
     case category(String)
+    /// One provider's favorites, recently watched or every channel, where
+    /// channels from several are combined.
+    case providerFavorites(UUID)
+    case providerRecents(UUID)
+    case providerAll(UUID)
+
+    var providerID: UUID? {
+        switch self {
+        case .providerFavorites(let id), .providerRecents(let id), .providerAll(let id): id
+        default: nil
+        }
+    }
+    var isFavorites: Bool {
+        if case .providerFavorites = self { return true }
+        return self == .favorites
+    }
+    var isRecents: Bool {
+        if case .providerRecents = self { return true }
+        return self == .recents
+    }
 
     var categoryID: String? {
         if case .category(let id) = self { return id }
@@ -32,6 +52,11 @@ struct MobileGuideView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.mobileUsesNativeTabBarLayout) private var usesNativeTabBarLayout
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.mobileUsesVerticalBars) private var verticalBars
+    /// On the unfolded Duo, the categories' header sits up in the band
+    /// beside the clock, level with Sports'.
+    @State private var topBand = false
+    @State private var screenWidth: CGFloat = 0
     @AppStorage(MobileGuideViewMode.storageKey) private var guideViewModeValue = MobileGuideViewMode.defaultMode.rawValue
     @AppStorage(MobileGuideDefaultCategory.storageKey) private var defaultCategories = "{}"
     @AppStorage(MobileGuideCategoryVisibility.storageKey) private var hiddenCategories = "{}"
@@ -43,6 +68,10 @@ struct MobileGuideView: View {
     /// The tab opens on its list of categories; this is whether one of
     /// them -- or a search -- has been opened over it.
     @State private var showsChannels = false
+    /// The saved category has been opened on this visit to the tab. Back
+    /// from it reaches the list and stays there until the tab is left;
+    /// opening it again whenever the list appeared locked the viewer in.
+    @State private var openedDefaultThisVisit = false
     @FocusState private var searchFocused: Bool
     /// What the viewer picked; until they pick, `filter` decides.
     @State private var chosenFilter: MobileGuideFilter?
@@ -148,12 +177,13 @@ struct MobileGuideView: View {
         ChannelRequest(library: ObjectIdentifier(library), revision: library.streamsRevision,
             active: isActive && scenePhase == .active,
             query: .init(categoryID: searching ? nil : filter.categoryID,
-                favoritesOnly: !searching && filter == .favorites,
-                recentsOnly: !searching && filter == .recents, text: query,
-                favorites: !searching && filter == .favorites ? library.favoriteStreamOrder : [],
-                recents: !searching && filter == .recents ? library.recentStreamOrder : [],
+                favoritesOnly: !searching && filter.isFavorites,
+                recentsOnly: !searching && filter.isRecents, text: query,
+                favorites: !searching && filter.isFavorites ? library.favoriteStreamOrder : [],
+                recents: !searching && filter.isRecents ? library.recentStreamOrder : [],
                 hiddenCategories: hiddenCategoryIDs, gamePicker: game != nil,
-                recommendedID: recommendedStreamID))
+                recommendedID: recommendedStreamID,
+                categoryPrefix: searching ? nil : filter.providerID.map { $0.uuidString + "|" }))
     }
     private func updateChannels() async {
         let request = channelRequest
@@ -173,9 +203,9 @@ struct MobileGuideView: View {
         if game != nil { return "Choose a channel" }
         if searching { return "Search" }
         switch filter {
-        case .favorites: return "Favorites"
-        case .recents: return "Recent"
-        case .all: return "TV Guide"
+        case .favorites, .providerFavorites: return "Favorites"
+        case .recents, .providerRecents: return "Recent"
+        case .all, .providerAll: return "TV Guide"
         case .category(let id): return library.categories.first { $0.id == id }?.categoryName ?? "TV Guide"
         }
     }
@@ -197,7 +227,11 @@ struct MobileGuideView: View {
             let providerHeight: CGFloat = library.activeProfile == nil ? 0 : providerInfoHeight
             let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
                 ? MobilePlayerLayout.inlineTimelineHeight : 0
-            let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.52 - metadataHeight - providerHeight))
+            // Width bounds the picture upright on a phone; on a wide screen
+            // its share of the height does, and two thirds of it -- with the
+            // header out of the way while it plays -- still leaves rows of
+            // the guide beneath.
+            let videoHeight = min(viewport.size.width * 9 / 16, max(80, viewport.size.height * 0.64 - metadataHeight - providerHeight))
             let fullHeight = MobilePlayerLayout.fullscreenHeight(containerHeight: viewport.size.height,
                                                                 safeAreaTop: viewport.safeAreaInsets.top,
                                                                 safeAreaBottom: viewport.safeAreaInsets.bottom)
@@ -220,7 +254,7 @@ struct MobileGuideView: View {
                             description: Text("Enable a service in Settings → IPTV."))
                     } else if channels.isEmpty && !library.streams.isEmpty && installedChannelRequest != channelRequest {
                         ProgressView("Loading channels…").frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if channels.isEmpty && filter == .favorites && !searching {
+                    } else if channels.isEmpty && filter.isFavorites && !searching {
                         LineupUnavailableView("No favorites", systemImage: "star",
                             description: Text("Touch and hold a channel to add it to your favorites. All Channels is back on the TV Guide's first page."))
                     } else if channels.isEmpty, game == nil, !library.categories.isEmpty, visibleCategories.isEmpty, filter == .all {
@@ -289,54 +323,27 @@ struct MobileGuideView: View {
     }
 
     private var guideNavigation: some View {
-        guideViewport
+        // The header and the search field are stacked above the guide rather
+        // than laid over it. Laid over it, the list of channels scrolled up
+        // underneath them, and List layout -- which kept clear only of a
+        // system bar -- lost its first channel behind the header.
+        VStack(spacing: 0) {
+            // Out of the way while a channel plays above the guide: the
+            // picture takes the room, and what is on and where it comes from
+            // are under it already. Closing the picture brings it back.
+            if game == nil && !fillsScreen && selectedStream == nil { guideHeader }
+            if showsSearch && !fillsScreen { guideSearchField }
+            guideViewport
+                .overlay {
+                    MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
+                                        symbol: "list.bullet.rectangle", sections: optionsSections,
+                                        alignment: .topTrailing, transitionAnchor: .topTrailing) {
+                        setOptions(false)
+                    }
+                }
+        }
             .background(Color.black)
             .navigationTitle(game == nil ? "" : title).navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if showsSearch && !fillsScreen {
-                    HStack(spacing: 10) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                            .accessibilityHidden(true)
-                        TextField("Search channels", text: $query)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .submitLabel(.search)
-                            .focused($searchFocused)
-                            .onSubmit {
-                                if MobileGuideSearchPolicy.shouldCloseAfterSubmission(query) {
-                                    closeSearch()
-                                } else {
-                                    searchFocused = false
-                                }
-                            }
-                            .task { searchFocused = true }
-                        Button {
-                            if query.isEmpty {
-                                closeSearch()
-                            } else {
-                                query = ""
-                                searchFocused = true
-                            }
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel(query.isEmpty ? "Close search" : "Clear search")
-                    }
-                    .padding(.leading, 14).padding(.trailing, 4)
-                    .frame(minHeight: 44)
-                    .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(LineupStyle.background)
-                }
-            }
-            .overlay {
-                MobileDropdownLayer(isPresented: optionsOpen && !fillsScreen, title: "TV Guide",
-                                    symbol: "list.bullet.rectangle", sections: optionsSections,
-                                    alignment: .topTrailing, transitionAnchor: .topTrailing) {
-                    setOptions(false)
-                }
-            }
             .toolbar {
                 if game != nil {
                     LineupToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.buttonStyle(LineupBarButtonStyle()) }
@@ -345,23 +352,95 @@ struct MobileGuideView: View {
                             setOptions(!optionsOpen)
                         }
                     }
-                } else {
-                    LineupToolbarItem(placement: .principal) {
-                        Text(showsSearch ? "Search" : filterTitle)
-                            .font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text.opacity(0.82))
-                            .lineLimit(1).truncationMode(.tail)
-                    }
-                    LineupToolbarItem(placement: .primaryAction) {
-                        MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
-                            setOptions(!optionsOpen)
-                        }
-                    }
                 }
             }
-            .toolbar(fillsScreen ? .hidden : .visible, for: .navigationBar)
+            .toolbar(fillsScreen || game == nil ? .hidden : .visible, for: .navigationBar)
             .toolbar(fillsScreen || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)
             .statusBarHidden(fillsScreen)
             .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
+    }
+
+    private var guideSearchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField("Search channels", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .focused($searchFocused)
+                .onSubmit {
+                    if MobileGuideSearchPolicy.shouldCloseAfterSubmission(query) {
+                        closeSearch()
+                    } else {
+                        searchFocused = false
+                    }
+                }
+                .task { searchFocused = true }
+            Button {
+                if query.isEmpty {
+                    closeSearch()
+                } else {
+                    query = ""
+                    searchFocused = true
+                }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel(query.isEmpty ? "Close search" : "Clear search")
+        }
+        .padding(.leading, 14).padding(.trailing, 4)
+        .frame(minHeight: 44)
+        .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: LineupStyle.compactRadius, style: .continuous))
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(LineupStyle.background)
+    }
+
+    /// Over a category's guide, in place of a bar: back to the categories,
+    /// the category's name, and the guide's options.
+    private var guideHeader: some View {
+        HStack(spacing: 12) {
+            Button { showsChannels = false } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(LineupPresentationStyle.text)
+                    .frame(width: 36, height: 36)
+                    .background(LineupPresentationStyle.card, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Categories")
+            .accessibilityHint("Goes back to the list of categories")
+            VStack(alignment: .leading, spacing: 0) {
+                if !showsSearch, let provider = filterProviderName {
+                    Text(provider.uppercased())
+                        .font(.inter(11, .heavy)).tracking(0.6)
+                        .foregroundStyle(LineupPresentationStyle.secondary)
+                        .lineLimit(1)
+                }
+                Text(showsSearch ? "Search" : filterTitle)
+                    .font(.inter(20, .heavy))
+                    .foregroundStyle(LineupStyle.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                setOptions(!optionsOpen)
+            }
+        }
+        .padding(.horizontal, 16)
+        // With the tabs at the side the clock moves there too, leaving no
+        // top margin of its own: the same gap the categories list and
+        // Settings keep, which also holds the round buttons clear of the
+        // screen's rounded corners. Elsewhere it sits under the clock.
+        .padding(.top, verticalBars ? MobileSettingsClearHeader.sideTabsTopGap : 8)
+        .padding(.bottom, 6)
+        .frame(minHeight: 48)
+        .background(Color.black)
     }
 
     /// Picking a channel for a game goes straight to the channels. The tab
@@ -386,22 +465,38 @@ struct MobileGuideView: View {
             open: openChannels,
             setDefault: setDefaultCategory,
             hide: { setCategory($0.id, hidden: true) },
-            manageCategories: { managingCategories = true })
-            .navigationTitle("TV Guide").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                LineupToolbarItem(placement: .navigationBarLeading) {
-                    MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
-                        setOptions(!optionsOpen)
-                    }
-                }
-                LineupToolbarItem(placement: .principal) {
-                    Text("TV Guide").font(.inter(17, .heavy)).foregroundStyle(LineupStyle.text.opacity(0.82))
-                }
+            manageCategories: { managingCategories = true },
+            viewModeTitle: guideViewMode.title,
+            isRefreshing: library.channelsAreSyncing,
+            search: {
+                showsSearch = true
+                showsChannels = true
+            },
+            changeViewMode: {
+                let modes = MobileGuideViewMode.allCases
+                let next = modes[((modes.firstIndex(of: guideViewMode) ?? 0) + 1) % modes.count]
+                guideViewModeValue = next.rawValue
+            },
+            refresh: { Task { await library.reload() } },
+            providers: categoryProviders)
+            .navigationTitle("TV Guide")
+            // No bar above the categories, as on Settings: the list starts
+            // under the clock, and its options are rows at its foot.
+            .modifier(MobileSettingsClearHeader())
+            // On the unfolded Duo: a header up in the band beside the clock,
+            // as Sports has, with search and the options to hand.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if topBand { categoriesHeader }
+            }
+            .ignoresSafeArea(.container, edges: topBand ? .top : [])
+            .onGeometryChange(for: CGSize.self, of: { $0.size }) { size in
+                screenWidth = size.width
+                topBand = MobileTopBand.isOpen(size, verticalBars: verticalBars)
             }
             .overlay {
-                MobileDropdownLayer(isPresented: optionsOpen && !showsChannels, title: "TV Guide",
+                MobileDropdownLayer(isPresented: optionsOpen && !showsChannels && topBand, title: "TV Guide",
                                     symbol: "list.bullet.rectangle", sections: optionsSections,
-                                    alignment: .topLeading, transitionAnchor: .topLeading) {
+                                    alignment: .topTrailing, transitionAnchor: .topTrailing) {
                     setOptions(false)
                 }
             }
@@ -411,6 +506,92 @@ struct MobileGuideView: View {
                                               set: { managingCategories = $0 })) {
                 MobileGuideCategoryVisibilityView().environment(library).preferredColorScheme(.dark)
             }
+    }
+
+    /// The categories' header in the Duo's top band: the page's name, set as
+    /// Sports sets its own, and round search and options buttons, all clear
+    /// of the clock's corner.
+    private var categoriesHeader: some View {
+        HStack(alignment: .bottom) {
+            HStack(spacing: 10) {
+                Rectangle().fill(LineupStyle.highlight).frame(width: 3, height: 31)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("TV GUIDE").font(.inter(20, .black)).tracking(-0.5)
+                        .foregroundStyle(LineupStyle.text.opacity(0.84))
+                    Text("\(visibleCategories.count) CATEGORIES")
+                        .font(.inter(10, .bold)).lineLimit(1)
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.76))
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+            Spacer()
+            HStack(spacing: 8) {
+                Button {
+                    showsSearch = true
+                    showsChannels = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(LineupPresentationStyle.text)
+                        .frame(width: 36, height: 36)
+                        .background(LineupPresentationStyle.card, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Search channels")
+                MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                    setOptions(!optionsOpen)
+                }
+            }
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, 16 + MobileTopBand.clockCorner(screenWidth))
+        .padding(.bottom, 12)
+        .frame(height: 62, alignment: .bottom)
+    }
+
+    /// The categories under the provider each came from, when channels from
+    /// more than one are combined; empty with one, where they need no
+    /// grouping.
+    private var categoryProviders: [MobileGuideCategoryList.Provider] {
+        var byProvider: [UUID: [XtreamCategory]] = [:]
+        for category in visibleCategories {
+            guard let id = library.categorySource(for: category.id).profileID else { continue }
+            byProvider[id, default: []].append(category)
+        }
+        guard byProvider.count > 1 else { return [] }
+        // A channel's provider is in its category's ID; favorites and
+        // recents are counted per provider for their rows.
+        func provider(of streamID: Int) -> String? {
+            guard let category = library.stream(withID: streamID)?.categoryID,
+                  let split = category.firstIndex(of: "|") else { return nil }
+            return String(category[..<split])
+        }
+        let favorites = Set(library.favoriteStreamOrder.compactMap(provider(of:)))
+        let recents = Set(library.recentStreamOrder.compactMap(provider(of:)))
+        return library.providerRoot.enabledProfiles.compactMap { profile in
+            byProvider[profile.id].map {
+                .init(id: profile.id, name: profile.name, categories: $0,
+                      hasFavorites: favorites.contains(profile.id.uuidString),
+                      hasRecents: recents.contains(profile.id.uuidString))
+            }
+        }
+    }
+
+    /// A category by its own name, not "Provider · Name", with the provider
+    /// beside it when channels from more than one are combined.
+    private var filterProviderName: String? {
+        let profileID: UUID?
+        if let provider = filter.providerID {
+            profileID = provider
+        } else if case .category(let id) = filter, !categoryProviders.isEmpty {
+            profileID = library.categorySource(for: id).profileID
+        } else {
+            profileID = nil
+        }
+        guard let profileID else { return nil }
+        return library.providerRoot.enabledProfiles.first { $0.id == profileID }?.name
     }
 
     /// The category the tab opens on, when one is saved and still listed.
@@ -424,7 +605,11 @@ struct MobileGuideView: View {
     private func openChannels(_ filter: MobileGuideFilter) {
         optionsOpen = false
         chosenFilter = filter
-        showsChannels = true
+        guard showsChannels else { showsChannels = true; return }
+        // Already marked open though the list is what's showing: reset it,
+        // then open, so the tap always lands.
+        showsChannels = false
+        DispatchQueue.main.async { showsChannels = true }
     }
 
     private func setDefaultCategory(_ category: XtreamCategory, _ on: Bool) {
@@ -459,6 +644,10 @@ struct MobileGuideView: View {
                 // Genuinely playing, not merely selected.
                 if playing, let stream = selectedStream { library.recordRecentChannel(stream) }
             }
+            .onChange(of: selectedStream?.id) { _, id in
+                // Its menu goes with the header it hangs from.
+                if id != nil && game == nil { optionsOpen = false }
+            }
             .onChange(of: fillsScreen) { _, value in
                 if value { searchFocused = false; optionsOpen = false }
                 onFullscreenChange(value)
@@ -474,7 +663,7 @@ struct MobileGuideView: View {
             // Adding, removing or moving a favorite keeps the list where it is.
             // Only the Recents list reorders itself under a new play.
             .onChange(of: library.recentStreamOrder) { _, _ in
-                if filter == .recents { resetGuideScrollPosition() }
+                if filter.isRecents { resetGuideScrollPosition() }
             }
             .onChange(of: library.streamsRevision) { _, _ in guideStreamsChanged() }
             .onChange(of: enabledProviderIDs) { _, _ in closeRetiredProvider() }
@@ -486,6 +675,7 @@ struct MobileGuideView: View {
                 if !active {
                     closeSearch()
                     optionsOpen = false
+                    openedDefaultThisVisit = false
                     if !playback.pictureInPictureActive { closePlayer() }
                 } else {
                     restoreDefaultCategoryOnEntry()
@@ -540,8 +730,14 @@ struct MobileGuideView: View {
     private var enabledProviderIDs: [UUID] { library.providerRoot.enabledProfiles.map(\.id) }
 
     private func guideDidAppear() {
+        // The categories are on screen, so no guide is open over them,
+        // whatever the flag says. The tab's own button can return the stack
+        // to its first page from UIKit, which leaves the flag set; a row
+        // tapped after that set it to what it already was, and nothing
+        // opened.
+        if game == nil && showsChannels { showsChannels = false }
         returnToNow()
-        if savedDefaultFilter != nil, !showsChannels { showsChannels = true }
+        openDefaultCategoryOnce()
         guard let game = game else { return }
         let recommended: XtreamStream? = library.verifiedStream(for: game)
         recommendedStreamID = recommended?.streamID
@@ -631,10 +827,11 @@ struct MobileGuideView: View {
 
     private var filterTitle: String {
         switch filter {
-        case .favorites: "Favorites"
-        case .recents: "Recently Watched"
-        case .all: "All Channels"
-        case .category(let id): library.categories.first { $0.id == id }?.categoryName ?? "TV Guide"
+        case .favorites, .providerFavorites: "Favorites"
+        case .recents, .providerRecents: "Recently Watched"
+        case .all, .providerAll: "All Channels"
+        case .category(let id):
+            library.categories.first { $0.id == id }.map { $0.sourceCategoryName ?? $0.categoryName } ?? "TV Guide"
         }
     }
 
@@ -682,8 +879,15 @@ struct MobileGuideView: View {
     private func restoreDefaultCategoryOnEntry() {
         chosenFilter = MobileGuideDefaultCategory.selectionOnEntry(chosenFilter,
             for: defaultCategoryProfile, in: defaultCategories, isGamePicker: game != nil)
-        // A category saved to open on is opened over the list, so Back
-        // still leads to every other category.
+        openDefaultCategoryOnce()
+    }
+
+    /// A category saved to open on is opened over the list, so Back still
+    /// leads to every other category -- once a visit to the tab, not every
+    /// time the list comes back into view, which is what Back does.
+    private func openDefaultCategoryOnce() {
+        guard !openedDefaultThisVisit else { return }
+        openedDefaultThisVisit = true
         if savedDefaultFilter != nil, !showsChannels { showsChannels = true }
     }
 
@@ -1056,15 +1260,13 @@ struct MobileGuideView: View {
 
     private func ruler(now: Date, logoWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
-            VStack(spacing: 2) {
-                Text("NOW").font(.inter(8, .bold)).tracking(1)
-                Text(now, format: .dateTime.hour().minute())
-                    .font(.interDigits(.caption2, .semibold))
-            }
-                .foregroundStyle(LineupStyle.secondary.opacity(0.74))
+            // The corner over the channel column, empty: the phone's own
+            // clock already says what time it is. It stays, so the ruler's
+            // times slide under it rather than over the logos' column.
+            Color.black
                 .frame(width: logoWidth, height: 40)
-                .background(Color.black)
                 .offset(x: horizontalOffset).zIndex(2)
+                .accessibilityHidden(true)
             ZStack(alignment: .topLeading) {
                 ForEach(window.ticks, id: \.self) { date in
                     Text(date, format: .dateTime.hour().minute())

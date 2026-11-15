@@ -187,7 +187,7 @@ struct MobileLibraryCollectionsRow: View {
                 NavigationLink { MobileLibraryCollectionsView() } label: {
                     Label("See All", systemImage: "chevron.right").font(.inter(14, .bold))
                 }.lineupFlatButton()
-            }.padding(.horizontal, 18)
+            }.padding(.horizontal, LineupPanelStyle.inset)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
                     NavigationLink { MobileLibraryCollectionsView() } label: {
@@ -204,14 +204,12 @@ struct MobileLibraryCollectionsRow: View {
                         }.lineupFlatButton()
                     }
                 }
-                .padding(.leading, 18 + bleed.leading)
-                .padding(.trailing, 18 + bleed.trailing)
+                .padding(.leading, LineupPanelStyle.inset + bleed.leading)
+                .padding(.trailing, LineupPanelStyle.inset + bleed.trailing)
             }
             .mobileShelfRowBleed(bleed)
         }
-        .padding(.vertical, 12)
-        .modifier(MobileShelfSurface(shape: RoundedRectangle(cornerRadius: 24, style: .continuous)))
-        .padding(.horizontal, 18)
+        .padding(.vertical, 4)
     }
 
     private func tile(_ name: String, detail: String, symbol: String,
@@ -237,8 +235,10 @@ struct MobileLibraryCollectionsRow: View {
                     }
                 }
             }
-            .frame(height: 110).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            Text(name).font(.inter(.subheadline, .bold)).lineLimit(2, reservesSpace: true)
+            // The tile's width at a landscape picture's shape, so a
+            // collection's wide art fits without being cut down.
+            .frame(height: 205 * 9 / 16).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Text(name).font(.inter(.subheadline, .bold)).lineLimit(1)
             Text(detail).font(.inter(.caption2)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(1)
         }
         .frame(width: 205, alignment: .leading).padding(14)

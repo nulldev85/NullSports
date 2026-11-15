@@ -242,7 +242,10 @@ struct MediaServersView: View {
         }
         return [
             MobileMenuSection(id: "shelves", items: [
-                MobileMenuItem("Search", symbol: "magnifyingglass", isEnabled: !media.shelves.isEmpty) {
+                // Search asks the servers and the IPTV provider, not the
+                // shelves: a Library of only built-in rows -- Trending,
+                // Continue Watching -- has every bit as much to search.
+                MobileMenuItem("Search", symbol: "magnifyingglass") {
                     searchingLibrary = true
                 },
                 MobileMenuItem("Collections", symbol: "folder.fill") { collectionsOpen = true },
@@ -1002,7 +1005,7 @@ struct MediaCatalogsScreen: View {
             }
             .padding(.horizontal, horizontalPadding)
             #else
-            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: Self.shelfSymbol(catalog.id)) {
+            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: Self.shelfSymbol(catalog.id), divided: false) {
                 // Which server a shelf comes from, once there is more than
                 // one: two of them can each have a "Trending Movies".
                 if let server = media.serverName(for: catalog) {
@@ -1671,7 +1674,7 @@ struct MediaCatalogsScreen: View {
             .padding(.horizontal, horizontalPadding)
             .lineupFocusRegion()
             #else
-            PhoneShelfHeader(title: title, symbol: Self.shelfSymbol(id)) { EmptyView() }
+            PhoneShelfHeader(title: title, symbol: Self.shelfSymbol(id), divided: false) { EmptyView() }
             #endif
             #if !os(tvOS)
             let shape = MediaArtShape.forItems(items, shelfID: id)
@@ -1886,11 +1889,13 @@ struct MediaCatalogsScreen: View {
 }
 
 #if !os(tvOS)
-/// A Library shelf's header in its panel: icon and caption over a hairline,
-/// with the server and See All on the right.
+/// A shelf's header: icon and caption, with the server and See All on the
+/// right. Over a hairline inside a detail page's panel; on the Library, where
+/// the rows sit straight on the page, without one.
 struct PhoneShelfHeader<Accessory: View>: View {
     let title: String
     let symbol: String
+    var divided = true
     @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
@@ -1898,8 +1903,10 @@ struct PhoneShelfHeader<Accessory: View>: View {
             LineupPanelHeader(title: title, systemImage: symbol) {
                 HStack(spacing: 10) { accessory() }
             }
-            .padding(.top, 12).padding(.bottom, 8)
-            Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+            .padding(.top, divided ? 12 : 4).padding(.bottom, divided ? 8 : 2)
+            if divided {
+                Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+            }
         }
         .padding(.horizontal, LineupPanelStyle.inset)
     }
@@ -1943,8 +1950,10 @@ struct PhoneDetailPanel: ViewModifier {
     }
 }
 
-/// Main Library shelves: a Liquid Glass panel, run into the side margins
-/// beside the Duo's tabs as the hero is.
+/// Main Library shelves sit straight on the page, as the TV app's rows do:
+/// the header and the first card level with the screen's margin, and each
+/// row scrolling out to the edge. Liquid Glass panels behind them had nothing
+/// behind themselves to show and read as flat grey cards.
 struct PhoneShelfPanel: ViewModifier {
     /// Under the last row: posters bring 8 of their own, other rows none.
     var bottom: CGFloat = 6
@@ -1956,8 +1965,6 @@ struct PhoneShelfPanel: ViewModifier {
         content
             .padding(.bottom, bottom)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(MobileShelfSurface())
-            .padding(.horizontal, LineupPanelStyle.margin)
         #endif
     }
 }

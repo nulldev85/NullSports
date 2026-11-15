@@ -444,7 +444,7 @@ private struct MobileSettingsBackdrop: View {
 /// The Settings tab has no bar or title above its rows, the tab bar already
 /// names it: the rows start under the clock, and the ground and its glow
 /// carry on up behind it. The pages it opens keep their bar and back button.
-private struct MobileSettingsClearHeader: ViewModifier {
+struct MobileSettingsClearHeader: ViewModifier {
     @Environment(\.mobileUsesVerticalBars) private var verticalBars
     /// With the tabs at the side the clock moves there too, leaving almost
     /// no top margin, and the first card sat hard against the screen's top.
@@ -941,6 +941,8 @@ struct MobileAccountView: View {
     @AppStorage(MobileNavigationStyle.glassKey) private var navigationGlass = false
     @AppStorage(MobilePlaybackPreference.storageKey) private var playbackEngine = MobilePlaybackPreference.aether.rawValue
     @AppStorage(AppSearchGenre.visibilityKey) private var showsSearchGenres = true
+    @AppStorage(SportsVisibility.storageKey) private var hiddenSports = ""
+    @AppStorage(CollegeFootballRankings.Poll.storageKey) private var collegePoll = CollegeFootballRankings.Poll.ap.rawValue
     @State private var choosingAccent = false
     @State private var settingUpTV = false
     /// Done in the picker, applied once it has gone: the change redraws this
@@ -1026,10 +1028,24 @@ struct MobileAccountView: View {
                     } label: {
                         SettingsRow("My Teams", symbol: "star.fill", value: library.followedTeams.count.formatted())
                     }
+                    NavigationLink {
+                        MobileSportsVisibilityView()
+                    } label: {
+                        let shown = SportsLeague.allCases.count - SportsVisibility.hidden(hiddenSports).count
+                        SettingsRow("Sports Shown", symbol: "sportscourt",
+                                    value: shown == SportsLeague.allCases.count ? "All" : "\(shown) of \(SportsLeague.allCases.count)")
+                    }
+                    NavigationLink {
+                        // Picked up straight away rather than at the next refresh.
+                        MobileCollegePollView { library.refreshSchedule() }
+                    } label: {
+                        SettingsRow("College Football Ranking", symbol: "list.number",
+                                    value: (CollegeFootballRankings.Poll(rawValue: collegePoll) ?? .ap).title)
+                    }
                 } header: {
                     Text("Sports").lineupSettingsHeader()
                 } footer: {
-                    Text("Find and follow your teams at any time. Their games appear in Sports.").lineupSettingsFooter()
+                    Text("Find and follow your teams at any time. Their games appear in Sports. Turn off the sports you don't watch to leave them out of the Sports tab.").lineupSettingsFooter()
                 }
                 .lineupSettingsRows()
                 Section {

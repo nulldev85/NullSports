@@ -21,7 +21,9 @@ struct MobileDismissGesture: ViewModifier {
     let onDismiss: () -> Void
 
     func body(content: Content) -> some View {
-        content
+        // A locked screen can't be pulled closed.
+        let enabled = self.enabled && !MobileScreenLock.shared.isLocked
+        return content
             .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height = $0 }
             .offset(y: reduceMotion ? 0 : (completing ? exitOffset : drag))
             .scaleEffect(reduceMotion ? 1 : 1 - min((completing ? exitOffset : drag) / 1800, 0.08))

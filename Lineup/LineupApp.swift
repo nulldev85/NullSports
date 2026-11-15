@@ -3,6 +3,10 @@ import UIKit
 
 @main
 struct LineupApp: App {
+    #if os(iOS)
+    /// Only for which ways the screen may turn; see `MobileScreenLock`.
+    @UIApplicationDelegateAdaptor(LineupAppDelegate.self) private var appDelegate
+    #endif
     @State private var library = SportsLibrary()
     @State private var media = MediaLibrary()
     @StateObject private var cloud = CloudSettingsSync.shared

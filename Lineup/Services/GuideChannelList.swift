@@ -13,6 +13,9 @@ enum GuideChannelList {
         var hiddenCategories: Set<String> = []
         var gamePicker = false
         var recommendedID: Int? = nil
+        /// One provider's channels only, where several are combined: their
+        /// categories' IDs begin with it.
+        var categoryPrefix: String? = nil
     }
 
     @MainActor
@@ -35,6 +38,7 @@ enum GuideChannelList {
                   !query.favoritesOnly || favorites.contains(stream.id),
                   !query.recentsOnly || recents.contains(stream.id),
                   query.categoryID == nil || stream.categoryID == query.categoryID,
+                  query.categoryPrefix.map({ stream.categoryID?.hasPrefix($0) == true }) ?? true,
                   query.gamePicker || personal || !query.hiddenCategories.contains(stream.categoryID ?? ""),
                   query.text.isEmpty || stream.name.localizedCaseInsensitiveContains(query.text) else { continue }
             filtered.append(stream)

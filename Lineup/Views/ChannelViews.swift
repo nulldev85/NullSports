@@ -11,6 +11,8 @@ struct LiveView: View {
     @State private var soccerCompetition: String?
     /// Only the teams the viewer follows, as the phone's My Teams.
     @State private var onlyFollowed = false
+    /// Sports turned off in Settings; see `SportsVisibility`.
+    @AppStorage(SportsVisibility.storageKey) private var hiddenLeaguesRaw = ""
     /// What is full screen. One value carries the channel, the game and the
     /// preview's player together: read from state of their own inside the
     /// cover, the game and the player could come through as they were a
@@ -48,7 +50,9 @@ struct LiveView: View {
     private var dayStart: Date { Calendar.current.startOfDay(for: Date()) }
     private var horizon: Date { Calendar.current.date(byAdding: .day, value: 2, to: dayStart) ?? dayStart }
     private var events: [SportsGame] {
-        library.games(for: selectedLeague).filter {
+        let hidden = SportsVisibility.hidden(hiddenLeaguesRaw)
+        return library.games(for: selectedLeague).filter {
+            guard !hidden.contains($0.league) else { return false }
             let end = $0.league.isRacing ? (Calendar.current.date(byAdding: .day, value: 14, to: dayStart) ?? horizon) : horizon
             return ($0.isLive || ($0.start >= dayStart && $0.start < end))
                 && (selectedLeague != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
@@ -182,6 +186,12 @@ struct LiveView: View {
                 }
             }
             .onChange(of: library.eventChannelsInputs) { retryPendingLiveSelection() }
+            // A sport turned off while it was the one shown: back to all.
+            .onChange(of: hiddenLeaguesRaw) { _, raw in
+                if let league = selectedLeague, SportsVisibility.hidden(raw).contains(league) {
+                    selectedLeague = nil
+                }
+            }
             .onDisappear { catchUpLookup?.cancel() }
     }
 

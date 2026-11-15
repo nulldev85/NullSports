@@ -76,6 +76,47 @@ final class CollegeFootballRankingsTests: XCTestCase {
         XCTAssertNil(pro.homeRank)
     }
 
+    // ESPN's rankings, cut down: the committee's, the AP poll, the coaches'.
+    private let polls = """
+    {"rankings": [
+      {"type": "cfp", "ranks": [
+        {"current": 3, "team": {"location": "Alabama", "name": "Crimson Tide", "nickname": "Alabama", "abbreviation": "ALA"}},
+        {"current": 5, "team": {"location": "Notre Dame", "name": "Fighting Irish", "nickname": "Notre Dame", "abbreviation": "ND"}}
+      ]},
+      {"type": "ap", "ranks": [
+        {"current": 3, "team": {"location": "Notre Dame", "name": "Fighting Irish", "nickname": "Notre Dame", "abbreviation": "ND"}},
+        {"current": 7, "team": {"location": "Alabama", "name": "Crimson Tide", "nickname": "Alabama", "abbreviation": "ALA"}},
+        {"current": 26, "team": {"location": "Nowhere", "name": "State", "abbreviation": "NOW"}}
+      ]},
+      {"type": "usa", "ranks": [
+        {"current": 4, "team": {"location": "Notre Dame", "name": "Fighting Irish", "abbreviation": "ND"}}
+      ]}
+    ]}
+    """
+
+    func testThePollTheViewerFollowsGivesTheRanks() throws {
+        let data = Data(polls.utf8)
+        let matchup = game(id: "ncaaf-other", away: "Notre Dame Fighting Irish", awayCode: "ND",
+                           home: "Alabama", homeCode: "ALA")
+        let ap = try CollegeFootballRankings.Ranks.parse(polls: data, poll: .ap).applied(to: matchup)
+        XCTAssertEqual(ap.awayRank, 3, "Found by the full name")
+        XCTAssertEqual(ap.homeRank, 7, "Found by the school alone")
+        let playoff = try CollegeFootballRankings.Ranks.parse(polls: data, poll: .playoff).applied(to: matchup)
+        XCTAssertEqual(playoff.awayRank, 5)
+        XCTAssertEqual(playoff.homeRank, 3)
+        let coaches = try CollegeFootballRankings.Ranks.parse(polls: data, poll: .coaches).applied(to: matchup)
+        XCTAssertEqual(coaches.awayRank, 4)
+        XCTAssertNil(coaches.homeRank)
+    }
+
+    func testTheAPPollStandsInBeforeTheCommitteeRanks() throws {
+        let early = Data(#"{"rankings": [{"type": "ap", "ranks": [{"current": 1, "team": {"location": "Georgia", "name": "Bulldogs", "abbreviation": "UGA"}}]}]}"#.utf8)
+        let ranked = try CollegeFootballRankings.Ranks.parse(polls: early, poll: .playoff).applied(to: game(
+            id: "ncaaf-1", away: "Georgia Bulldogs", awayCode: "UGA", home: "Somebody", homeCode: "SOME"))
+        XCTAssertEqual(ranked.awayRank, 1)
+        XCTAssertNil(ranked.homeRank)
+    }
+
     func testAnOldSavedScheduleWithoutRanksStillLoads() throws {
         let saved = try JSONEncoder().encode(game(
             id: "ncaaf-1", away: "Alabama Crimson Tide", awayCode: "ALA",
