@@ -402,8 +402,10 @@ final class DeviceSetupTests: XCTestCase {
         defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [OfflineServer.self]
+        // Left open: the Library carries on loading in the background after
+        // the test, and a task asked of a closed session crashes whichever
+        // test is running then.
         let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel() }
         var made = 0
         let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""),
                                  trackingKey: { nil }, serverClientFactory: { profile in
@@ -411,6 +413,7 @@ final class DeviceSetupTests: XCTestCase {
             return try JellyfinClient(serverURL: profile.serverURL, accessToken: "sign-in \(made)",
                                       deviceID: "test", session: session)
         })
+        defer { media.remove(profile) }
         await media.reload()
         let before = made
         XCTAssertGreaterThan(before, 0)
