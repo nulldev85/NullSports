@@ -42,7 +42,10 @@ struct TVDeviceSetupView: View {
         .padding(80)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear(perform: start)
-        .onDisappear { receiver?.stop() }
+        .onDisappear {
+            receiver?.stop()
+            DeviceSetupHold.shared.keepsWelcome = false
+        }
         .task(id: receiver?.pairing.service) { codeImage = receiver.flatMap { Self.image(for: $0.pairing.url) } }
     }
 
@@ -93,9 +96,12 @@ struct TVDeviceSetupView: View {
             case .waiting:
                 ProgressView()
                 Text("Waiting for your iPhone…")
-            case .receiving, .settling:
+            case .receiving:
                 ProgressView()
                 Text("Setting up…")
+            case .settling:
+                ProgressView()
+                Text("Loading your channels and library…")
             case .finished(let applied):
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(LineupIconTile.green)
                 Text(Self.summary(applied))
@@ -140,20 +146,42 @@ struct TVDeviceSetupView: View {
 
     private func start() {
         guard receiver == nil else { return }
+        // On a TV with nothing yet, this screen covers the first one: keep
+        // that there until Done, or the first provider to arrive swaps it
+        // for the tabs and takes this screen with it.
+        if !library.hasProfile && !media.hasProfile { DeviceSetupHold.shared.keepsWelcome = true }
         let receiver = DeviceSetupReceiver(
             take: { payload in try DeviceSetup.apply(payload) },
             settle: { [library, media] payload, applied in
-                // Loading runs on past this screen: on a TV set up for the
-                // first time the Library and Sports tabs take its place as soon
-                // as a source arrives.
-                Task { await library.restoreCloudSettings() }
-                Task {
+                // Everything the setup wrote is read again, as at launch, and
+                // loaded: the providers, the servers with any new sign-ins,
+                // the Library's choices. The screen says All set once that's
+                // done, or after a minute, when the loading carries on behind.
+                let sports = Task { await library.adoptSetup() }
+                let shelves = Task {
                     await media.adoptSetup(payload.library, renamed: applied.renamed)
                     GameReminders.shared.restore()
                 }
+                await Self.wait(for: Task { await sports.value; await shelves.value }, atMost: .seconds(60))
             })
         self.receiver = receiver
         receiver.start()
+    }
+
+    /// Waits for `work`, or for `limit`, whichever comes first. The work
+    /// isn't stopped either way.
+    private static func wait(for work: Task<Void, Never>, atMost limit: Duration) async {
+        let once = DeviceSetupOnce()
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            Task {
+                await work.value
+                once.run { done.resume() }
+            }
+            Task {
+                try? await Task.sleep(for: limit)
+                once.run { done.resume() }
+            }
+        }
     }
 
     static func summary(_ applied: DeviceSetup.Applied) -> String {

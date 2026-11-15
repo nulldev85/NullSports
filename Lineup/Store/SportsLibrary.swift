@@ -4678,4 +4678,24 @@ final class SportsLibrary {
             restoreRecentChannels()
         }
     }
+
+    /// After a setup from the phone: everything saved read again, as it is at
+    /// launch, and the provider connected afresh. Its sign-in may be new even
+    /// where its address isn't, and a provider that failed to load before
+    /// gets another go, rather than waiting for the app to be opened again.
+    func adoptSetup() async {
+        disabledProviderIDs = Set((profileDefaults.stringArray(forKey: "Lineup.disabledIPTVProviders.v1") ?? [])
+            .compactMap(UUID.init(uuidString:)))
+        guard let data = profileDefaults.data(forKey: profilesKey),
+              let saved = try? JSONDecoder().decode([XtreamProfile].self, from: data) else { return }
+        let activeID = profileDefaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
+        resetProviderState()
+        profiles = saved
+        activeProfile = saved.first { $0.id == activeID } ?? saved.first
+        restoreFavorites()
+        restoreTeamPreferences()
+        restoreGameChannelSelections()
+        restoreRecentChannels()
+        if activeProfile != nil { await bootstrap() }
+    }
 }

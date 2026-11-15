@@ -337,14 +337,15 @@ extension DeviceSetupPayload.LibraryChoices {
 
 extension MediaLibrary {
     /// Takes the Library's part of a setup sent from the phone, after its
-    /// settings are written: the servers and shelves as iCloud's do, then
-    /// each choice through the path the Library's own settings use.
+    /// settings are written: each choice through the path the Library's own
+    /// settings use, then the servers, loaded once with every choice already
+    /// in place. Loading the servers first, as this used to, ran their first
+    /// load on the TV's old choices and left the rest for the next launch.
     func adoptSetup(_ choices: DeviceSetupPayload.LibraryChoices, renamed: [String: String] = [:]) async {
         // The TV's copies of the phone's servers go by the phone's ids now:
         // its history, favorites and collections first, before anything
         // reloads, so each title is one record rather than one per copy.
         adoptProfileIDs(renamed)
-        await restoreCloudSettings()
         seerr.restore()
         if let source = choices.metadataSource.flatMap(LibraryMetadataSource.init(rawValue:)) {
             setMetadataSource(source)
@@ -380,6 +381,7 @@ extension MediaLibrary {
             _ = await connectMDBList(apiKey: key)
         }
         setMDBListTrackingEnabled(choices.mdbListTracking && isMDBListConnected)
+        await reloadAfterSetup()
     }
 }
 

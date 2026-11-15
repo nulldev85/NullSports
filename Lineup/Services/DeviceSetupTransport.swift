@@ -85,6 +85,16 @@ final class DeviceSetupFlag: @unchecked Sendable {
     var isRaised: Bool { lock.withLock { raised } }
 }
 
+/// Keeps a TV that had nothing on its first screen while a setup from the
+/// phone is under way there. The setup screen is laid over that first screen,
+/// and the first provider to arrive used to swap it for the tabs, taking the
+/// setup screen with it halfway through loading.
+@MainActor @Observable
+final class DeviceSetupHold {
+    static let shared = DeviceSetupHold()
+    var keepsWelcome = false
+}
+
 /// The phone's side.
 enum DeviceSetupSender {
     /// Where a send has got to, for the phone to say.
@@ -107,22 +117,10 @@ enum DeviceSetupSender {
         let target = endpoint ?? .service(name: pairing.service, type: DeviceSetupPairing.serviceType,
                                           domain: "local.", interface: nil)
         let body = try pairing.seal(JSONEncoder().encode(payload), .toTV)
-        let connection = NWConnection(to: target, using: .tcp)
-        defer { connection.cancel() }
-        let denied = DeviceSetupFlag()
 
         await stage(.connecting)
-        do {
-            try await DeviceSetupWire.within(reach, cancelling: connection) {
-                try await ready(connection, denied: denied)
-            }
-        } catch DeviceSetupError.timedOut {
-            throw denied.isRaised ? DeviceSetupError.localNetworkDenied : DeviceSetupError.unreachable
-        } catch let error as DeviceSetupError {
-            throw error
-        } catch {
-            throw DeviceSetupError.unreachable
-        }
+        let connection = try await connect(to: target, reach: reach)
+        defer { connection.cancel() }
 
         await stage(.sending)
         do {
@@ -148,6 +146,37 @@ enum DeviceSetupSender {
             throw DeviceSetupError.unconfirmed
         }
         guard reply.ok else { throw DeviceSetupError.refused(reply.message ?? "") }
+    }
+
+    /// A connection to the TV, ready to send on. One turned down at once,
+    /// before the TV was found, is often the network still settling, or the
+    /// TV's listing not yet seen: it is tried again a moment later, up to
+    /// three times, rather than leaving the person to tap Try Again. Running
+    /// out of time is not tried again; that has already waited long enough.
+    private static func connect(to target: NWEndpoint, reach: Duration) async throws -> NWConnection {
+        var attempt = 1
+        while true {
+            let connection = NWConnection(to: target, using: .tcp)
+            let denied = DeviceSetupFlag()
+            do {
+                try await DeviceSetupWire.within(reach, cancelling: connection) {
+                    try await ready(connection, denied: denied)
+                }
+                return connection
+            } catch DeviceSetupError.timedOut {
+                throw denied.isRaised ? DeviceSetupError.localNetworkDenied : DeviceSetupError.unreachable
+            } catch DeviceSetupError.unreachable where attempt < 3 {
+                connection.cancel()
+                attempt += 1
+                try await Task.sleep(for: .seconds(2))
+            } catch let error as DeviceSetupError {
+                connection.cancel()
+                throw error
+            } catch {
+                connection.cancel()
+                throw DeviceSetupError.unreachable
+            }
+        }
     }
 
     private static func ready(_ connection: NWConnection, denied: DeviceSetupFlag) async throws {
@@ -194,7 +223,10 @@ final class DeviceSetupReceiver {
     private(set) var phase: Phase = .starting
     private(set) var pairing: DeviceSetupPairing
     @ObservationIgnored private var listener: NWListener?
-    @ObservationIgnored private var busy = false
+    /// A setup sealed with this screen's code has arrived. Until one has,
+    /// every connection is heard out: a phone trying again must not be turned
+    /// away by one that never sent anything.
+    @ObservationIgnored private var taken = false
     @ObservationIgnored private let advertises: Bool
     @ObservationIgnored private let take: @MainActor (DeviceSetupPayload) throws -> DeviceSetup.Applied
     @ObservationIgnored private let settle: @MainActor (DeviceSetupPayload, DeviceSetup.Applied) async -> Void
@@ -242,7 +274,7 @@ final class DeviceSetupReceiver {
     /// A new code, for another try.
     func restart() {
         stop()
-        busy = false
+        taken = false
         pairing = .make()
         phase = .starting
         start()
@@ -264,37 +296,34 @@ final class DeviceSetupReceiver {
     }
 
     private func accept(_ connection: NWConnection) {
-        guard listener != nil, !busy else { connection.cancel(); return }
-        busy = true
+        guard listener != nil, !taken else { connection.cancel(); return }
         connection.start(queue: DeviceSetupWire.queue)
         let pairing = pairing
         Task {
             defer { connection.cancel() }
             guard let sealed = try? await DeviceSetupWire.within(.seconds(20), cancelling: connection, {
                 try await DeviceSetupWire.receive(on: connection)
-            }) else {
-                busy = false
-                return
-            }
-            guard let opened = try? pairing.open(sealed, .toTV) else {
+            }) else { return }
+            guard pairing == self.pairing, let opened = try? pairing.open(sealed, .toTV) else {
                 // Sealed with another code, an older screen's or another TV's.
                 // The answer can't be sealed with a key this TV doesn't have,
                 // so it is a byte the phone can't open, and the phone says to
-                // scan the code showing now. This TV keeps waiting, free for
-                // the right code at once, before the answer is out.
-                busy = false
+                // scan the code showing now. This TV keeps waiting.
                 _ = try? await DeviceSetupWire.within(.seconds(5), cancelling: connection) {
                     try await DeviceSetupWire.send(Data([0]), on: connection)
                 }
                 return
             }
+            // Another connection with the same setup got here first.
+            guard !taken else { return }
+            taken = true
             phase = .receiving
-            var taken: (DeviceSetupPayload, DeviceSetup.Applied)?
+            var adopted: (DeviceSetupPayload, DeviceSetup.Applied)?
             let reply: DeviceSetupReply
             do {
                 let payload = try JSONDecoder().decode(DeviceSetupPayload.self, from: opened)
                 let applied = try take(payload)
-                taken = (payload, applied)
+                adopted = (payload, applied)
                 reply = DeviceSetupReply(ok: true)
             } catch {
                 reply = DeviceSetupReply(ok: false, message: (error as? LocalizedError)?.errorDescription)
@@ -304,9 +333,9 @@ final class DeviceSetupReceiver {
                     try await DeviceSetupWire.send(answer, on: connection)
                 }
             }
-            guard case let (payload, applied)? = taken else {
+            guard case let (payload, applied)? = adopted else {
                 phase = .failed(reply.message ?? DeviceSetupError.unreadable.errorDescription ?? "")
-                busy = false
+                taken = false
                 return
             }
             stop()
