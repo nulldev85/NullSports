@@ -21,6 +21,8 @@ struct SportsScheduleClient: Sendable {
         // the feed answers with whole tournaments either way.
         async let tennis = tennisSchedule(from: Calendar.current.startOfDay(for: Date()),
                                           days: includeTomorrow ? 2 : 1)
+        // College basketball's poll, alongside its schedule, as football's is.
+        async let basketballPoll = CollegeFootballRankings.shared.latestPoll(.basketball)
         let start = Calendar.current.startOfDay(for: Date())
         let end = Calendar.current.date(byAdding: .day, value: includeTomorrow ? 2 : 1, to: start) ?? start
         let racingEnd = Calendar.current.date(byAdding: .day, value: 14, to: start) ?? end
@@ -34,7 +36,8 @@ struct SportsScheduleClient: Sendable {
         async let yesterdaySnapshot = snapshot(forOptional: overnight)
         guard includeTomorrow else {
             let base = Self.adding(await tennis, to: await todaySnapshot)
-            return Self.merging(await expanded, into: Self.addingOvernight(await yesterdaySnapshot, to: base))
+            return Self.ranking(Self.merging(await expanded, into: Self.addingOvernight(await yesterdaySnapshot, to: base)),
+                                with: await basketballPoll)
         }
 
         async let tomorrowSnapshot = snapshot(for: tomorrow)
@@ -46,11 +49,20 @@ struct SportsScheduleClient: Sendable {
             merged[league] = Dictionary(grouping: games, by: \.id).values.compactMap { $0.first }.sorted { $0.start < $1.start }
         }
         let errors = [first.errorMessage, second.errorMessage].compactMap { $0 }
-        return Self.merging(await expanded, into: Self.adding(await tennis, to: Snapshot(
+        return Self.ranking(Self.merging(await expanded, into: Self.adding(await tennis, to: Snapshot(
             games: merged,
             loadedLeagues: first.loadedLeagues.intersection(second.loadedLeagues),
             errorMessage: errors.isEmpty ? nil : Array(Set(errors)).sorted().joined(separator: " ")
-        )))
+        ))), with: await basketballPoll)
+    }
+
+    /// College basketball's ranks from its latest poll rather than the
+    /// scoreboard's, as football's are. Without a poll, the scoreboard's stay.
+    private static func ranking(_ snapshot: Snapshot, with poll: CollegeFootballRankings.Ranks?) -> Snapshot {
+        guard let poll, let games = snapshot.games[.ncaab], !games.isEmpty else { return snapshot }
+        var all = snapshot.games
+        all[.ncaab] = games.map { poll.applied(to: $0) }
+        return Snapshot(games: all, loadedLeagues: snapshot.loadedLeagues, errorMessage: snapshot.errorMessage)
     }
 
     /// Yesterday, in the hours after midnight when one of its games can

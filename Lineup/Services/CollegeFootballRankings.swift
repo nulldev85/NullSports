@@ -11,8 +11,34 @@ import Foundation
 /// Ranks change once a week, so they are kept for a while rather than
 /// fetched again with every live-score poll, and a failed fetch keeps the
 /// ranks already on hand instead of taking them off every card.
+///
+/// College basketball reads its poll the same way, from the same choice: its
+/// AP or coaches' poll, the latest week of it. It has no committee rankings,
+/// so a viewer who follows those sees basketball's AP poll.
 actor CollegeFootballRankings {
     static let shared = CollegeFootballRankings()
+
+    /// Which college sport's polls.
+    enum Sport: String, Sendable {
+        case football, basketball
+
+        /// ESPN's path for the sport.
+        var path: String {
+            switch self {
+            case .football: "football/college-football"
+            case .basketball: "basketball/mens-college-basketball"
+            }
+        }
+
+        /// The scoreboard group holding every game a ranked team plays:
+        /// FBS for football, Division I for basketball.
+        var groups: String {
+            switch self {
+            case .football: "80"
+            case .basketball: "50"
+            }
+        }
+    }
 
     /// The ranking a viewer follows.
     enum Poll: String, CaseIterable, Identifiable, Sendable {
@@ -57,9 +83,10 @@ actor CollegeFootballRankings {
         static let empty = Ranks()
 
         func applied(to game: SportsGame) -> SportsGame {
-            guard game.league == .ncaaf, !game.isEvent else { return game }
+            guard game.league.isCollege, !game.isEvent else { return game }
             var ranked = game
-            let espnID = game.id.hasPrefix("ncaaf-") ? String(game.id.dropFirst(6)) : game.id
+            let prefix = game.league.rawValue + "-"
+            let espnID = game.id.hasPrefix(prefix) ? String(game.id.dropFirst(prefix.count)) : game.id
             if let sides = byGame[espnID] {
                 ranked.awayRank = sides.away
                 ranked.homeRank = sides.home
@@ -150,14 +177,22 @@ actor CollegeFootballRankings {
     /// The ranks for a day's games, `day` in the schedule's own yyyyMMdd
     /// form: the chosen poll's latest week, or the day's scoreboard if the
     /// rankings can't be read.
-    func ranks(for day: String) async -> Ranks {
+    func ranks(for day: String, sport: Sport = .football) async -> Ranks {
         let poll = Poll.chosen
-        if let ranks = await pollRanks(poll), !ranks.byTeam.isEmpty { return ranks }
-        return await scoreboardRanks(for: day)
+        if let ranks = await pollRanks(poll, sport: sport), !ranks.byTeam.isEmpty { return ranks }
+        return await scoreboardRanks(for: day, sport: sport)
     }
 
-    private func pollRanks(_ poll: Poll) async -> Ranks? {
-        let key = "poll|" + poll.rawValue
+    /// The chosen poll's latest week for a sport, or nil if it can't be read
+    /// and none was read before: then a game keeps the rank its scoreboard
+    /// gave it.
+    func latestPoll(_ sport: Sport) async -> Ranks? {
+        guard let ranks = await pollRanks(Poll.chosen, sport: sport), !ranks.byTeam.isEmpty else { return nil }
+        return ranks
+    }
+
+    private func pollRanks(_ poll: Poll, sport: Sport) async -> Ranks? {
+        let key = "poll|" + sport.rawValue + "|" + poll.rawValue
         if let entry = entries[key], entry.succeeded,
            Date().timeIntervalSince(entry.checkedAt) < Self.lifetime { return entry.ranks }
         if let entry = entries[key], !entry.succeeded,
@@ -166,7 +201,7 @@ actor CollegeFootballRankings {
         if let running = inFlight[key] {
             task = running
         } else {
-            task = Task { try? await Self.fetchPolls(poll) }
+            task = Task { try? await Self.fetchPolls(poll, sport: sport) }
             inFlight[key] = task
         }
         let fetched = await task.value
@@ -181,31 +216,32 @@ actor CollegeFootballRankings {
         return kept
     }
 
-    private func scoreboardRanks(for day: String) async -> Ranks {
-        if let entry = entries[day] {
+    private func scoreboardRanks(for day: String, sport: Sport) async -> Ranks {
+        let key = sport.rawValue + "|" + day
+        if let entry = entries[key] {
             let age = Date().timeIntervalSince(entry.checkedAt)
             if age < (entry.succeeded ? Self.lifetime : Self.retryAfterFailure) { return entry.ranks }
         }
         let task: Task<Ranks?, Never>
-        if let running = inFlight[day] {
+        if let running = inFlight[key] {
             task = running
         } else {
-            task = Task { try? await Self.fetch(day) }
-            inFlight[day] = task
+            task = Task { try? await Self.fetch(day, sport: sport) }
+            inFlight[key] = task
         }
         let fetched = await task.value
-        inFlight[day] = nil
+        inFlight[key] = nil
         if let fetched {
-            entries[day] = Entry(ranks: fetched, checkedAt: Date(), succeeded: true)
+            entries[key] = Entry(ranks: fetched, checkedAt: Date(), succeeded: true)
             return fetched
         }
-        let kept = entries[day]?.ranks ?? .empty
-        entries[day] = Entry(ranks: kept, checkedAt: Date(), succeeded: false)
+        let kept = entries[key]?.ranks ?? .empty
+        entries[key] = Entry(ranks: kept, checkedAt: Date(), succeeded: false)
         return kept
     }
 
-    private static func fetchPolls(_ poll: Poll) async throws -> Ranks {
-        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/football/college-football/rankings") else {
+    private static func fetchPolls(_ poll: Poll, sport: Sport) async throws -> Ranks {
+        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/\(sport.path)/rankings") else {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)
@@ -215,9 +251,8 @@ actor CollegeFootballRankings {
         return try Ranks.parse(polls: data, poll: poll)
     }
 
-    private static func fetch(_ day: String) async throws -> Ranks {
-        // Group 80 is every FBS game, which is every game a ranked team plays.
-        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=\(day)&groups=80&limit=300") else {
+    private static func fetch(_ day: String, sport: Sport) async throws -> Ranks {
+        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/\(sport.path)/scoreboard?dates=\(day)&groups=\(sport.groups)&limit=400") else {
             throw URLError(.badURL)
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 12)

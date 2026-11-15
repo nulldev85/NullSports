@@ -1039,7 +1039,7 @@ struct MobileAccountView: View {
                         // Picked up straight away rather than at the next refresh.
                         MobileCollegePollView { library.refreshSchedule() }
                     } label: {
-                        SettingsRow("College Football Ranking", symbol: "list.number",
+                        SettingsRow("College Top 25", symbol: "list.number",
                                     value: (CollegeFootballRankings.Poll(rawValue: collegePoll) ?? .ap).title)
                     }
                 } header: {
