@@ -438,6 +438,10 @@ struct ManualGameChannelPicker: View {
     /// suggest, every channel when there is not.
     @State private var source: Source?
     @FocusState private var sidebarFocus: String?
+    /// Every channel the matcher found carrying the game, as the iPhone's
+    /// picker lists them. Suggested used to hold only the one Lineup chose,
+    /// so a card on a dozen channels showed one.
+    @State private var carrying: [XtreamStream] = []
     let game: SportsGame
     let onSelect: (XtreamStream) -> Void
 
@@ -473,6 +477,11 @@ struct ManualGameChannelPicker: View {
         .padding(.top, 56)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LineupPresentationStyle.ground.ignoresSafeArea())
+        .task(id: game.id) {
+            let found = await library.eventChannels(for: game).map(\.stream)
+            guard !Task.isCancelled else { return }
+            carrying = found
+        }
     }
 
     private var header: some View {
@@ -633,11 +642,13 @@ struct ManualGameChannelPicker: View {
                 notes[saved.streamID] = side.team
             }
         }
+        for stream in carrying where notes[stream.id] == nil { notes[stream.id] = "Carrying it" }
         if let matched = library.verifiedStream(for: game) { notes[matched.id] = "Lineup's match" }
         return notes
     }
 
-    /// Lineup's match and the teams' saved channels, then a few favorites.
+    /// Lineup's match, every other channel found carrying the game, and the
+    /// teams' saved channels, then a few favorites.
     private func suggestions() -> [XtreamStream] {
         var seen: Set<Int> = []
         var out: [XtreamStream] = []
@@ -645,11 +656,14 @@ struct ManualGameChannelPicker: View {
             if let stream, seen.insert(stream.id).inserted { out.append(stream) }
         }
         add(library.verifiedStream(for: game))
+        for stream in carrying { add(stream) }
         for side in library.preferenceSides(for: game) {
             add(library.teamPreferences.preference(for: side.key).flatMap { library.stream(withID: $0.streamID) })
         }
         for showing in library.tennisCoverage(for: game) { add(showing) }
+        let found = out.count
         for favorite in library.guideStreams(categoryID: nil, favoritesOnly: true, query: "") { add(favorite) }
-        return Array(out.prefix(8))
+        // Every channel carrying it, and a few favorites after them.
+        return Array(out.prefix(max(8, found + 4)))
     }
 }

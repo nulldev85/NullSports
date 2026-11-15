@@ -24,7 +24,7 @@ struct SportsTeamDirectory: Decodable, Sendable {
     }
 
     let teams: [Team]
-    static let leagues: [SportsLeague] = [.nfl, .nba, .nhl, .mlb, .ncaaf, .soccer]
+    static let leagues: [SportsLeague] = [.nfl, .nba, .nhl, .mlb, .ncaaf, .ncaab, .soccer]
     static let bundled: SportsTeamDirectory = {
         guard let url = Bundle.main.url(forResource: "SportsTeams", withExtension: "json"),
               let data = try? Data(contentsOf: url),
@@ -51,7 +51,7 @@ struct SportsTeamDirectory: Decodable, Sendable {
     }
 
     static func title(_ league: SportsLeague) -> String {
-        league == .ncaaf ? "College Football" : league.shortName
+        league.isCollege ? league.fullName : league.shortName
     }
 
     private static func normalized(_ text: String) -> String {
