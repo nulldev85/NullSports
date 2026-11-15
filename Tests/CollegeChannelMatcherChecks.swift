@@ -194,6 +194,22 @@ enum CollegeChannelMatcherChecks {
         check(Matcher.score(channel: "USA Network", listings: usaGame, game: usa, now: now) == 400, "USA Network game on USA Network")
         check(Matcher.score(channel: "ESPN", listings: usaGame, game: usa, now: now) == nil, "USA Network game is not on ESPN")
 
+        // College basketball: a guide entry or a channel that says
+        // basketball is the game, not another sport.
+        let hoops = Matcher.Matchup(broadcast: "ESPN+", away: "Abraham Baldwin Agricultural Stallions",
+                                    home: "Florida Gulf Coast Eagles", awayAbbreviation: "ABAC",
+                                    homeAbbreviation: "FGCU", kickoff: kickoff, isLive: true, basketball: true)
+        func hoopsScore(_ channel: String, _ title: String) -> Int? {
+            Matcher.score(channel: channel, listings: [listing(title)], game: hoops, now: now)
+        }
+        check(hoopsScore("US| ESPN+ 045", "Abraham Baldwin Agricultural vs. Florida Gulf Coast (Men's Basketball)") == 400,
+              "Men's basketball guide entry")
+        check(hoopsScore("NCAA Basketball 03", "ABAC at FGCU") != nil, "Basketball channel for a basketball game")
+        check(hoopsScore("NCAA Football 03", "ABAC at FGCU") == nil, "Football channel for a basketball game")
+        check(hoopsScore("US| ESPN+ 045", "Women's Basketball: ABAC at FGCU") == nil, "Women's game is not the men's")
+        check(score("NCAA Basketball 03", [matchup]) == nil, "Basketball channel for a football game")
+        check(score("ESPN", [listing("SMU vs. Florida State (Men's Basketball)")]) == nil, "Basketball listing for a football game")
+
         print("\(checks) college channel matching checks passed")
     }
 }

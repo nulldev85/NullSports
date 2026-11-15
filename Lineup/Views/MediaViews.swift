@@ -1012,7 +1012,7 @@ struct MediaCatalogsScreen: View {
             }
             .padding(.horizontal, horizontalPadding)
             #else
-            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: Self.shelfSymbol(catalog.id), divided: false) {
+            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: nil, divided: false) {
                 // Which server a shelf comes from, once there is more than
                 // one: two of them can each have a "Trending Movies".
                 if let server = media.serverName(for: catalog) {
@@ -1681,7 +1681,7 @@ struct MediaCatalogsScreen: View {
             .padding(.horizontal, horizontalPadding)
             .lineupFocusRegion()
             #else
-            PhoneShelfHeader(title: title, symbol: Self.shelfSymbol(id), divided: false) { EmptyView() }
+            PhoneShelfHeader(title: title, symbol: nil, divided: false) { EmptyView() }
             #endif
             #if !os(tvOS)
             let shape = MediaArtShape.forItems(items, shelfID: id)
@@ -1901,7 +1901,8 @@ struct MediaCatalogsScreen: View {
 /// the rows sit straight on the page, without one.
 struct PhoneShelfHeader<Accessory: View>: View {
     let title: String
-    let symbol: String
+    /// The Library's shelves go without one: their names are the heading.
+    let symbol: String?
     var divided = true
     @ViewBuilder var accessory: () -> Accessory
 

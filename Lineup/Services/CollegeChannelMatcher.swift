@@ -99,6 +99,12 @@ enum CollegeChannelMatcher {
         /// the same name nineteen times over. That was sixteen seconds of
         /// every launch.
         let isBlocked: Bool
+        /// Named for one sport, which rules it out for the other: a football
+        /// feed for a basketball game, a basketball feed for a football one,
+        /// a women's feed for a men's game.
+        let namesFootball: Bool
+        let namesBasketball: Bool
+        let namesWomen: Bool
 
         init(id: Int, name: String, listings: [Listing]) {
             self.id = id
@@ -109,6 +115,9 @@ enum CollegeChannelMatcher {
             networkIDs = CollegeChannelMatcher.networks(name)
             let padded = " " + normalized + " "
             isBlocked = CollegeChannelMatcher.blockedPhrases.contains(where: padded.contains)
+            namesFootball = padded.contains(" football ")
+            namesBasketball = padded.contains(" basketball ")
+            namesWomen = CollegeChannelMatcher.womenPhrases.contains(where: padded.contains)
         }
     }
 
@@ -116,9 +125,22 @@ enum CollegeChannelMatcher {
     /// " text " and padding at the point of comparison allocates two strings
     /// every time it is asked.
     static let blockedPhrases = ["radio", "audio", "sirius", "podcast", "music", "nfhs", "news",
-                                 "business", "high school", "basketball", "baseball", "soccer",
+                                 "business", "high school", "baseball", "soccer",
                                  "volleyball", "softball", "lacrosse", "hockey", "tennis",
                                  "replay", "classic"].map { " " + $0 + " " }
+    /// A women's game, which a men's basketball game shares its schools with.
+    static let womenPhrases = ["women", "womens", "women s", "wbb", "ncaaw"].map { " " + $0 + " " }
+
+    /// Rules a channel out by its name for the game's sport.
+    ///
+    /// "Basketball" was blocked for every college game while college meant
+    /// football, and stayed blocked once basketball came: every channel or
+    /// guide entry that said "Men's Basketball" was thrown out, and with it
+    /// the one channel the TV Guide showed carrying the game.
+    static func blocked(_ candidate: Candidate, for game: Matchup) -> Bool {
+        if candidate.isBlocked { return true }
+        return game.basketball ? candidate.namesFootball || candidate.namesWomen : candidate.namesBasketball
+    }
 
     // Evidence outranks provider ordering. Multiple valid feeds are alternatives,
     // even when the provider gives each quality or affiliate a different EPG ID.
@@ -137,7 +159,8 @@ enum CollegeChannelMatcher {
         let name = candidate.normalizedName
         let listings = candidate.listings
         // Settled when the candidate was built, not here.
-        guard !candidate.isBlocked else { return nil }
+        guard !blocked(candidate, for: game) else { return nil }
+        let markers = nonGameMarkers(game)
         let expected = game.expectedNetworks
         let actual = candidate.networkIDs
         let networkMatch = actual.count == 1 && actual.isSubset(of: expected)
@@ -164,7 +187,7 @@ enum CollegeChannelMatcher {
         }
         if relevant.contains(where: { listing in
             let text = listing.text
-            return !nonGameMarkers.contains(where: { contains(text, phrase: $0) }) && teams(listing)
+            return !markers.contains(where: { contains(text, phrase: $0) }) && teams(listing)
         }) { return networkMatch ? 400 : 300 }
 
         // Generic or absent listings are common. An explicit different program
@@ -193,7 +216,7 @@ enum CollegeChannelMatcher {
         // and the exact advertised network keeps an unrelated feed from qualifying.
         let partialGuide = networkMatch && !current.isEmpty && current.allSatisfy { listing in
             let text = listing.text
-            guard !nonGameMarkers.contains(where: { contains(text, phrase: $0) }) else { return false }
+            guard !markers.contains(where: { contains(text, phrase: $0) }) else { return false }
             return sideMatches(text, names: game.awayAliases) != sideMatches(text, names: game.homeAliases)
         }
         guard genericGuide || delayCoverage || partialGuide else { return nil }
@@ -222,7 +245,15 @@ enum CollegeChannelMatcher {
 
     // Programming that is about a game without being the game itself, or that is
     // plainly another sport. Shared by the evidence and partial-evidence checks.
-    static let nonGameMarkers: [String] = ["replay", "classic", "highlights", "sportscenter", "gameday", "preview", "basketball", "baseball", "soccer", "volleyball", "softball", "lacrosse", "hockey", "tennis"]
+    static let sharedNonGameMarkers: [String] = ["replay", "classic", "highlights", "sportscenter", "gameday", "preview", "baseball", "soccer", "volleyball", "softball", "lacrosse", "hockey", "tennis"]
+    static let footballNonGameMarkers = sharedNonGameMarkers + ["basketball"]
+    static let basketballNonGameMarkers = sharedNonGameMarkers + ["football", "women", "womens", "women s", "wbb", "ncaaw"]
+
+    /// A basketball listing says "basketball", and a football one says
+    /// "football": each is only the other sport's mark.
+    static func nonGameMarkers(_ game: Matchup) -> [String] {
+        game.basketball ? basketballNonGameMarkers : footballNonGameMarkers
+    }
 
     static let mascots: [String] = ["crimson tide", "fighting irish", "yellow jackets", "golden bears", "golden gophers", "red raiders", "blue devils", "tar heels", "nittany lions", "sun devils", "horned frogs", "demon deacons", "fighting illini", "mountaineers", "seminoles", "mustangs", "cougars", "huskies", "bulldogs", "tigers", "wildcats", "cardinals", "owls", "longhorns", "sooners", "buckeyes", "wolverines", "ducks", "beavers", "gators", "volunteers", "razorbacks", "rebels", "aggies", "spartans", "trojans", "bruins", "badgers", "hawkeyes", "cyclones", "jayhawks", "cowboys", "bears", "buffaloes", "utes", "hoosiers", "boilermakers", "terrapins", "scarlet knights", "panthers", "eagles", "hokies", "cavaliers", "orange", "wolfpack", "commodores", "gamecocks", "hurricanes", "knights", "golden knights", "black knights", "midshipmen", "green wave", "golden eagles", "golden flashes", "golden hurricane", "thundering herd", "mean green", "blue raiders", "red wolves", "redhawks", "red hawks", "bobcats", "rockets", "falcons", "zips", "bulls", "broncos", "chippewas", "minutemen", "monarchs", "flames", "hilltoppers", "bearkats", "bearcats", "roadrunners", "miners", "lobos", "wolf pack", "aztecs", "rainbow warriors", "warriors", "rams", "ragin cajuns", "warhawks", "jaguars", "chanticleers", "dukes", "pirates", "blazers", "49ers", "leopards", "bison", "jackrabbits"].sorted { $0.count > $1.count }
 

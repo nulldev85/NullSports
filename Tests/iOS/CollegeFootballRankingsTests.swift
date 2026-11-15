@@ -143,6 +143,32 @@ final class CollegeFootballRankingsTests: XCTestCase {
         XCTAssertEqual(playoff.homeRank, 1)
     }
 
+    func testABasketballGameIsRankedByESPNsTeamIDsAlone() throws {
+        // Miami is ranked; Miami (OH) shares its school name's first word and
+        // a team elsewhere shares its code. Neither is ranked.
+        let poll = Data("""
+        {"rankings": [{"type": "ap", "ranks": [
+          {"current": 17, "team": {"id": "2390", "location": "Miami", "name": "Hurricanes", "nickname": "Miami", "abbreviation": "MIA"}},
+          {"current": 24, "team": {"id": 96, "location": "Kentucky", "name": "Wildcats", "abbreviation": "UK"}}
+        ]}]}
+        """.utf8)
+        let ranks = try CollegeFootballRankings.Ranks.parse(polls: poll, poll: .ap)
+        var matchup = game(id: "ncaab-9", league: .ncaab, away: "Miami", awayCode: "MIA",
+                           home: "Kentucky Wildcats", homeCode: "UK")
+        matchup.awayTeamID = "193"
+        matchup.homeTeamID = "96"
+        let ranked = ranks.applied(to: matchup)
+        XCTAssertNil(ranked.awayRank, "A name or code shared with a ranked team is not its rank")
+        XCTAssertEqual(ranked.homeRank, 24, "An ID written as a number still counts")
+
+        matchup.awayTeamID = "2390"
+        XCTAssertEqual(ranks.applied(to: matchup).awayRank, 17)
+
+        // Without IDs, the names still settle it, as football's schedule has none.
+        matchup.awayTeamID = nil
+        XCTAssertEqual(ranks.applied(to: matchup).awayRank, 17)
+    }
+
     func testAnOldSavedScheduleWithoutRanksStillLoads() throws {
         let saved = try JSONEncoder().encode(game(
             id: "ncaaf-1", away: "Alabama Crimson Tide", awayCode: "ALA",
