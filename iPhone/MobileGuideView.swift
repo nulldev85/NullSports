@@ -76,7 +76,15 @@ struct MobileGuideView: View {
     /// What the viewer picked; until they pick, `filter` decides.
     @State private var chosenFilter: MobileGuideFilter?
     @State private var window = MobileGuideWindow(now: .now)
-    @State private var horizontalOffset: CGFloat = 0
+    /// How far the grid is scrolled sideways. Held in an object of its own
+    /// that only the pinned logo column and each programme's title read:
+    /// as plain state it redrew this whole screen on every frame of a
+    /// sideways scroll -- every row's listings sorted and laid out again --
+    /// to move those few things.
+    @State private var gridScroll = MobileGuideGridScroll()
+    /// The hidden categories and what is left, worked out once per change
+    /// rather than at each of their many mentions in a redraw.
+    @State private var categoryMemo = MobileGuideCategoryMemo()
     @State private var resetPosition = UUID()
     @StateObject private var playbackSlot = MobilePlaybackSlot()
     /// A new selection gets a new controller; see `MobilePlaybackSlot`.
@@ -142,12 +150,27 @@ struct MobileGuideView: View {
 
     private var hiddenCategoryIDs: Set<String> {
         guard game == nil else { return [] }
-        let preferences = MobileGuideCategoryVisibility(hiddenCategories)
-        return preferences.hiddenDisplayIDs(in: library.categories, source: { library.categorySource(for: $0) })
+        return categoryVisibility.hidden
     }
     private var visibleCategories: [XtreamCategory] {
-        let hidden = hiddenCategoryIDs
-        return library.categories.filter { !hidden.contains($0.id) }
+        guard game == nil else { return library.categories }
+        return categoryVisibility.visible
+    }
+    /// Decoding the saved choices and asking every category for its provider
+    /// is the same answer until the choices, the categories or the provider
+    /// change, so it is kept until one does. The library is still read on
+    /// every pass, which is what keeps this screen following it.
+    private var categoryVisibility: MobileGuideCategoryMemo.Value {
+        let categories = library.categories
+        let key = MobileGuideCategoryMemo.Key(raw: hiddenCategories, library: ObjectIdentifier(library),
+                                              profile: library.activeProfile?.id, categories: categories)
+        if let kept = categoryMemo.value(for: key) { return kept }
+        let hidden = MobileGuideCategoryVisibility(hiddenCategories)
+            .hiddenDisplayIDs(in: categories, source: { library.categorySource(for: $0) })
+        let value = MobileGuideCategoryMemo.Value(hidden: hidden,
+                                                  visible: categories.filter { !hidden.contains($0.id) })
+        categoryMemo.keep(value, for: key)
+        return value
     }
 
     private var defaultCategoryProfile: UUID? {
@@ -270,7 +293,7 @@ struct MobileGuideView: View {
                             guide(now: clock.date)
                                 .onChange(of: clock.date) { _, now in
                                     // Keep live in view while preserving deliberate future browsing.
-                                    if horizontalOffset < 1 && window.isStale(at: now) {
+                                    if gridScroll.x < 1 && window.isStale(at: now) {
                                         window = MobileGuideWindow(now: now)
                                     }
                                 }
@@ -1084,7 +1107,7 @@ struct MobileGuideView: View {
     }
 
     private func resetGuideScrollPosition() {
-        horizontalOffset = 0
+        gridScroll.x = 0
         resetPosition = UUID()
     }
 
@@ -1213,8 +1236,10 @@ struct MobileGuideView: View {
                                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
                                     HStack(spacing: 0) {
-                                        channelTile(stream, logoWidth: logoRailWidth)
-                                            .offset(x: horizontalOffset).zIndex(2)
+                                        MobileGuidePinnedColumn(scroll: gridScroll) {
+                                            channelTile(stream, logoWidth: logoRailWidth)
+                                        }
+                                        .zIndex(2)
                                         programRow(stream, now: now, viewportWidth: viewport.size.width - logoRailWidth,
                                                    logoWidth: logoRailWidth)
                                     }
@@ -1252,7 +1277,8 @@ struct MobileGuideView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .coordinateSpace(name: "guideHorizontal")
             .onPreferenceChange(GuideHorizontalPosition.self) { value in
-                horizontalOffset = max(0, -value)
+                let x = max(0, -value)
+                if gridScroll.x != x { gridScroll.x = x }
             }
             .id(resetPosition)
         }
@@ -1263,10 +1289,12 @@ struct MobileGuideView: View {
             // The corner over the channel column, empty: the phone's own
             // clock already says what time it is. It stays, so the ruler's
             // times slide under it rather than over the logos' column.
-            Color.black
-                .frame(width: logoWidth, height: 40)
-                .offset(x: horizontalOffset).zIndex(2)
-                .accessibilityHidden(true)
+            MobileGuidePinnedColumn(scroll: gridScroll) {
+                Color.black
+                    .frame(width: logoWidth, height: 40)
+            }
+            .zIndex(2)
+            .accessibilityHidden(true)
             ZStack(alignment: .topLeading) {
                 ForEach(window.ticks, id: \.self) { date in
                     Text(date, format: .dateTime.hour().minute())
@@ -1344,7 +1372,6 @@ struct MobileGuideView: View {
                 let program = segment.programIndex.map { programs[$0] }
                 let cellX = window.x(segment.start)
                 let width = max(1, window.x(segment.end) - cellX - 5)
-                let textInset = min(max(0, horizontalOffset - cellX), max(0, width - 24))
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
@@ -1365,7 +1392,9 @@ struct MobileGuideView: View {
                                 .allowsHitTesting(false)
                                 .accessibilityHidden(true)
                         }
-                        VStack(alignment: .leading, spacing: 5) {
+                        MobileGuideCellText(scroll: gridScroll, cellX: cellX, width: width,
+                                            viewportWidth: viewportWidth) {
+                          VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
                                 .font(.inter(.caption, program == nil ? .regular : .semibold)).lineLimit(2)
                                 .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.52)
@@ -1392,10 +1421,8 @@ struct MobileGuideView: View {
                                 .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary.opacity(0.68))
                                 .lineLimit(1)
                             }
+                          }
                         }
-                        .padding(.horizontal, 8)
-                        .frame(width: max(1, min(width - textInset, viewportWidth)), alignment: .leading)
-                        .offset(x: textInset)
                     }
                     .frame(width: width, height: cardHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -1433,6 +1460,66 @@ enum MobileGuideSearchPolicy {
     static func shouldCloseAfterSubmission(_ query: String) -> Bool {
         query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+}
+
+/// How far the Guide's grid is scrolled sideways, for the few views that
+/// follow it; see `MobileGuideView.gridScroll`.
+@Observable
+final class MobileGuideGridScroll {
+    var x: CGFloat = 0
+}
+
+/// Something held at the grid's leading edge while the grid scrolls sideways
+/// under it: a channel's logo, the corner over them.
+private struct MobileGuidePinnedColumn<Content: View>: View {
+    let scroll: MobileGuideGridScroll
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content.offset(x: scroll.x)
+    }
+}
+
+/// A programme's title and time, kept in view at the leading edge of its
+/// cell while the cell scrolls out under the channel column.
+private struct MobileGuideCellText<Content: View>: View {
+    let scroll: MobileGuideGridScroll
+    let cellX: CGFloat
+    let width: CGFloat
+    let viewportWidth: CGFloat
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let textInset = min(max(0, scroll.x - cellX), max(0, width - 24))
+        content
+            .padding(.horizontal, 8)
+            .frame(width: max(1, min(width - textInset, viewportWidth)), alignment: .leading)
+            .offset(x: textInset)
+    }
+}
+
+/// The Guide's hidden categories and the ones left to show, kept between
+/// redraws; see `MobileGuideView.categoryVisibility`. Not observed: keeping
+/// an answer must not itself cause a redraw.
+final class MobileGuideCategoryMemo {
+    struct Key: Equatable {
+        let raw: String
+        let library: ObjectIdentifier
+        let profile: UUID?
+        let categories: [XtreamCategory]
+    }
+    struct Value {
+        let hidden: Set<String>
+        let visible: [XtreamCategory]
+    }
+    private var kept: (key: Key, value: Value)?
+
+    func value(for key: Key) -> Value? {
+        guard let kept, kept.key == key else { return nil }
+        return kept.value
+    }
+
+    func keep(_ value: Value, for key: Key) { kept = (key, value) }
 }
 
 private struct GuideHorizontalPosition: PreferenceKey {

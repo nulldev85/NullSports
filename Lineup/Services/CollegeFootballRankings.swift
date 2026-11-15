@@ -79,6 +79,11 @@ actor CollegeFootballRankings {
         var byGame: [String: Sides] = [:]
         /// By team name and abbreviation, for a game whose ID differs.
         var byTeam: [String: Int] = [:]
+        /// By ESPN team. A game that carries ESPN's team IDs is settled by
+        /// them alone: hundreds of schools share a word of a name or a code
+        /// with one in the Top 25, and a guess on either put a number beside
+        /// a team that isn't ranked.
+        var byTeamID: [String: Int] = [:]
 
         static let empty = Ranks()
 
@@ -91,15 +96,17 @@ actor CollegeFootballRankings {
                 ranked.awayRank = sides.away
                 ranked.homeRank = sides.home
             } else {
-                ranked.awayRank = rank(name: game.awayTeam, abbreviation: game.awayAbbreviation)
-                ranked.homeRank = rank(name: game.homeTeam, abbreviation: game.homeAbbreviation)
+                ranked.awayRank = rank(id: game.awayTeamID, name: game.awayTeam, abbreviation: game.awayAbbreviation)
+                ranked.homeRank = rank(id: game.homeTeamID, name: game.homeTeam, abbreviation: game.homeAbbreviation)
             }
             return ranked
         }
 
-        /// The full name first: it is the one no two schools share.
-        private func rank(name: String, abbreviation: String) -> Int? {
-            byTeam[Self.nameKey(name)] ?? byTeam[Self.abbreviationKey(abbreviation)]
+        /// The team's ESPN ID when both sides have one; otherwise the full
+        /// name first, the one no two schools share.
+        private func rank(id: String?, name: String, abbreviation: String) -> Int? {
+            if let id, !id.isEmpty, !byTeamID.isEmpty { return byTeamID[id] }
+            return byTeam[Self.nameKey(name)] ?? byTeam[Self.abbreviationKey(abbreviation)]
         }
 
         fileprivate static func nameKey(_ name: String) -> String {
@@ -131,6 +138,7 @@ actor CollegeFootballRankings {
                 if let code = team.abbreviation, !code.isEmpty {
                     ranks.byTeam[abbreviationKey(code)] = current
                 }
+                if let id = team.id?.value, !id.isEmpty { ranks.byTeamID[id] = current }
             }
             return ranks
         }
@@ -155,6 +163,7 @@ actor CollegeFootballRankings {
                     if let code = competitor.team?.abbreviation, !code.isEmpty {
                         ranks.byTeam[abbreviationKey(code)] = current
                     }
+                    if let id = competitor.team?.id?.value, !id.isEmpty { ranks.byTeamID[id] = current }
                 }
                 if let id = event.id { ranks.byGame[id] = sides }
             }
@@ -278,6 +287,7 @@ private struct Rankings: Decodable {
     }
 
     struct Team: Decodable {
+        let id: TeamID?
         let location: String?
         let name: String?
         let nickname: String?
@@ -306,11 +316,27 @@ private struct Scoreboard: Decodable {
     }
 
     struct Team: Decodable {
+        let id: TeamID?
         let abbreviation: String?
         let displayName: String?
     }
 
     struct CuratedRank: Decodable {
         let current: Int?
+    }
+}
+
+/// ESPN's team ID, written as text but read as a number too, so a feed that
+/// changes how it writes one never loses every rank with it.
+private struct TeamID: Decodable {
+    let value: String
+
+    init(from decoder: Decoder) throws {
+        let single = try decoder.singleValueContainer()
+        if let text = try? single.decode(String.self) {
+            value = text
+        } else {
+            value = String(try single.decode(Int.self))
+        }
     }
 }

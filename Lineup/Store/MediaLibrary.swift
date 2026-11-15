@@ -406,8 +406,14 @@ final class MediaLibrary {
     @ObservationIgnored private var streamingFailedAt: Date?
     /// The last build, read from the device at launch off the main thread.
     @ObservationIgnored private var streamingRestore: Task<StreamingServicesSnapshot?, Never>?
-    /// Counts changes to `streamingServices`, for the memos below.
-    @ObservationIgnored private var streamingVersion = 0
+    /// Counts changes to the built-in rows' titles, for the memos below.
+    ///
+    /// Observed, because the memos are what the Library reads: a redraw
+    /// answered from a memo touches none of the titles, so with this
+    /// ignored the screen stopped listening for them. After a fresh install
+    /// the rows arrived and the Library went on saying they would appear in
+    /// a moment.
+    private var streamingVersion = 0
     /// The charts' own build for the built-in rows, when one is running.
     @ObservationIgnored private var catalogLoad: Task<Void, Never>?
     @ObservationIgnored private var catalogBuiltAt: Date?
@@ -1252,6 +1258,10 @@ final class MediaLibrary {
         heroMixRefresh &+= 1
         #endif
         refreshHeroList()
+        // The servers have just answered: a build that came back empty
+        // while they were still loading is tried again now, not in fifteen
+        // minutes.
+        streamingFailedAt = nil
         refreshStreamingServicesIfNeeded()
     }
 
@@ -5265,7 +5275,7 @@ extension MediaLibrary {
         await adoptRestoredStreaming()
         if !force {
             if let built = streamingBuiltAt, Calendar.current.isDateInToday(built),
-               sources == streamingSources, !trendingTitles.isEmpty { return }
+               sources == streamingSources, Self.holdsTitles(streamingServices, trendingTitles) { return }
             if let failed = streamingFailedAt, Date().timeIntervalSince(failed) < 15 * 60 { return }
             // With nothing yet to show, there are no posters to let go first.
             if !streamingServices.isEmpty || !trendingTitles.isEmpty {
@@ -5373,12 +5383,13 @@ extension MediaLibrary {
             }
             trending[row.id] = LibraryTrendingRow.titles(from: chart, kind: row.kind, resolve: resolve)
         }
-        // Nothing playable anywhere, where there was something before, is a
-        // source that did not answer rather than a day with nothing on.
-        let nothing = built.values.allSatisfy(\.isEmpty) && trending.values.allSatisfy(\.isEmpty)
-        let hadSomething = streamingServices.values.contains(where: { !$0.isEmpty })
-            || trendingTitles.values.contains(where: { !$0.isEmpty })
-        if nothing, hadSomething {
+        // Nothing playable anywhere is never kept as the day's rows. It was
+        // kept the first time, when there was nothing before it: after a
+        // fresh install the build ran before the servers had answered, came
+        // back empty, and was taken as today's -- no rows, and not built
+        // again until tomorrow. Whatever was on hand stays instead, the
+        // charts when that is nothing, and the build is tried again shortly.
+        if !Self.holdsTitles(built, trending) {
             streamingFailedAt = Date()
             return
         }
@@ -5484,11 +5495,19 @@ extension MediaLibrary {
         Task { [weak self] in await self?.adoptRestoredStreaming() }
     }
 
+    /// Whether a build has any title in it at all.
+    nonisolated static func holdsTitles(_ services: [String: StreamingServiceTitles],
+                                        _ trending: [String: [MediaItem]]) -> Bool {
+        services.values.contains { !$0.isEmpty } || trending.values.contains { !$0.isEmpty }
+    }
+
     /// The snapshot read at launch, taken unless a build has already
     /// replaced it.
     private func adoptRestoredStreaming() async {
+        // An empty one is a build that found nothing: earlier versions kept
+        // those, and taking one would stand for today's rows.
         guard let restore = streamingRestore, let snapshot = await restore.value,
-              streamingBuiltAt == nil else { return }
+              streamingBuiltAt == nil, Self.holdsTitles(snapshot.services, snapshot.trending ?? [:]) else { return }
         streamingServices = snapshot.services
         trendingTitles = snapshot.trending ?? [:]
         streamingBuiltAt = snapshot.builtAt

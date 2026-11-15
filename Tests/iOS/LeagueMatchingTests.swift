@@ -279,11 +279,12 @@ final class CollegeBlockedNameTests: XCTestCase {
         CollegeChannelMatcher.Candidate(id: 1, name: name, listings: [])
     }
 
-    /// The check as it was written inside the score.
+    /// The check as it was written inside the score, less "basketball",
+    /// which now rules a channel out of football games only.
     private func legacyBlocked(_ name: String) -> Bool {
         let normalized = CollegeChannelMatcher.normalized(name)
         return ["radio", "audio", "sirius", "podcast", "music", "nfhs", "news", "business",
-                "high school", "basketball", "baseball", "soccer", "volleyball", "softball",
+                "high school", "baseball", "soccer", "volleyball", "softball",
                 "lacrosse", "hockey", "tennis", "replay", "classic"]
             .contains { CollegeChannelMatcher.contains(normalized, phrase: $0) }
     }
@@ -334,5 +335,46 @@ final class PhraseGateTests: XCTestCase {
     func testAPhraseWithAWordMissingIsNeverScannedForAndNeverMatches() {
         XCTAssertFalse(SportsLeague.mlb.matches(listings("an evening of nothing in particular")))
         XCTAssertFalse(SportsLeague.nhl.matches(listings("cooking show reruns")))
+    }
+}
+
+/// College basketball goes through the college matcher, which was written for
+/// football and threw out anything that said "basketball".
+final class CollegeBasketballChannelTests: XCTestCase {
+    private let tipoff = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func game(basketball: Bool = true) -> CollegeChannelMatcher.Matchup {
+        .init(broadcast: "ESPN+", away: "Abraham Baldwin Agricultural Stallions", home: "Florida Gulf Coast Eagles",
+              awayAbbreviation: "ABAC", homeAbbreviation: "FGCU", kickoff: tipoff, isLive: false,
+              basketball: basketball)
+    }
+
+    private func score(_ channel: String, _ title: String, basketball: Bool = true) -> Int? {
+        let listing = CollegeChannelMatcher.Listing(title: title, detail: "", start: tipoff.addingTimeInterval(-300),
+                                                    end: tipoff.addingTimeInterval(2 * 3600))
+        return CollegeChannelMatcher.score(channel: channel, listings: [listing], game: game(basketball: basketball),
+                                           now: tipoff.addingTimeInterval(-3600))
+    }
+
+    func testAGuideEntryThatSaysMensBasketballCarriesTheGame() {
+        XCTAssertEqual(score("US| ESPN+ 045",
+                             "Abraham Baldwin Agricultural vs. Florida Gulf Coast (Men's Basketball)"), 400)
+        XCTAssertEqual(score("US| ESPN+ 12", "NCAA Men's Basketball: ABAC Stallions at FGCU Eagles"), 400)
+    }
+
+    func testAChannelNamedForBasketballCarriesABasketballGame() {
+        XCTAssertNotNil(score("NCAA Basketball 03", "Abraham Baldwin Agricultural at Florida Gulf Coast"))
+    }
+
+    func testFootballAndWomensFeedsAreNotTheMensGame() {
+        XCTAssertNil(score("NCAA Football 03", "Abraham Baldwin Agricultural at Florida Gulf Coast"))
+        XCTAssertNil(score("US| ESPN+ 045", "Women's Basketball: Abraham Baldwin Agricultural at Florida Gulf Coast"))
+        XCTAssertNil(score("ESPN+ Women's Basketball 2", "Abraham Baldwin Agricultural at Florida Gulf Coast"))
+    }
+
+    func testFootballStillTurnsAwayBasketball() {
+        XCTAssertNil(score("NCAA Basketball 03", "Abraham Baldwin Agricultural at Florida Gulf Coast", basketball: false))
+        XCTAssertNil(score("US| ESPN+ 045", "Abraham Baldwin Agricultural vs. Florida Gulf Coast (Men's Basketball)",
+                           basketball: false))
     }
 }

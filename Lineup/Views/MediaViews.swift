@@ -924,18 +924,25 @@ struct MediaCatalogsScreen: View {
         #if !os(tvOS)
         if media.showsCollectionsRow { rows.append(.collections) }
         #endif
-        if !continueWatching.isEmpty {
+        // Each list once. They are worked out afresh at every mention, and
+        // Continue Watching walks the whole watch history to do it: asked
+        // whether it was empty and then for its titles, it did that twice
+        // over on every redraw of the Library.
+        let continuing = continueWatching
+        let titles = favoriteTitles
+        let episodes = favoriteEpisodes
+        if !continuing.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
-                               items: continueWatching.map(\.item), opensPages: true))
+                               items: continuing.map(\.item), opensPages: true))
         }
         rows += media.builtInShelves.map(PhoneRow.catalog)
-        if !favoriteTitles.isEmpty {
+        if !titles.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.favorites, title: "Favorites",
-                               items: favoriteTitles, opensPages: false))
+                               items: titles, opensPages: false))
         }
-        if !favoriteEpisodes.isEmpty {
+        if !episodes.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.favoriteEpisodes, title: "Favorite Episodes",
-                               items: favoriteEpisodes, opensPages: false))
+                               items: episodes, opensPages: false))
         }
         rows += catalogs.map(PhoneRow.catalog)
         return media.arrangedShelves(rows, id: \.id).map { row in
@@ -1005,7 +1012,7 @@ struct MediaCatalogsScreen: View {
             }
             .padding(.horizontal, horizontalPadding)
             #else
-            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: Self.shelfSymbol(catalog.id), divided: false) {
+            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: nil, divided: false) {
                 // Which server a shelf comes from, once there is more than
                 // one: two of them can each have a "Trending Movies".
                 if let server = media.serverName(for: catalog) {
@@ -1674,7 +1681,7 @@ struct MediaCatalogsScreen: View {
             .padding(.horizontal, horizontalPadding)
             .lineupFocusRegion()
             #else
-            PhoneShelfHeader(title: title, symbol: Self.shelfSymbol(id), divided: false) { EmptyView() }
+            PhoneShelfHeader(title: title, symbol: nil, divided: false) { EmptyView() }
             #endif
             #if !os(tvOS)
             let shape = MediaArtShape.forItems(items, shelfID: id)
@@ -1894,7 +1901,8 @@ struct MediaCatalogsScreen: View {
 /// the rows sit straight on the page, without one.
 struct PhoneShelfHeader<Accessory: View>: View {
     let title: String
-    let symbol: String
+    /// The Library's shelves go without one: their names are the heading.
+    let symbol: String?
     var divided = true
     @ViewBuilder var accessory: () -> Accessory
 

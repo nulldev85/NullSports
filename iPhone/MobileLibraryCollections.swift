@@ -180,7 +180,6 @@ struct MobileLibraryCollectionsRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                LineupIconTile(symbol: "folder.fill", size: 24)
                 Text(media.shelfTitle(id: LibraryShelfOrder.collections, default: "Collections").uppercased())
                     .font(.inter(14, .heavy))
                 Spacer()

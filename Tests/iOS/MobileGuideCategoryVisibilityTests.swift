@@ -49,4 +49,28 @@ final class MobileGuideCategoryVisibilityTests: XCTestCase {
         }
         XCTAssertNil(MobileGuideCategoryVisibility("{}").setting(true, category: "7", provider: nil))
     }
+
+    func testTheGuidesKeptCategoryAnswerIsDroppedWhenAnyOfItsInputsChanges() {
+        final class Owner {}
+        let owner = Owner(), other = Owner()
+        let provider = UUID()
+        let sports = XtreamCategory(categoryID: "7", categoryName: "Sports")
+        let news = XtreamCategory(categoryID: "8", categoryName: "News")
+        let memo = MobileGuideCategoryMemo()
+        func key(raw: String = "{}", library: AnyObject? = nil, profile: UUID? = nil,
+                 categories: [XtreamCategory]? = nil) -> MobileGuideCategoryMemo.Key {
+            .init(raw: raw, library: ObjectIdentifier(library ?? owner), profile: profile ?? provider,
+                  categories: categories ?? [sports, news])
+        }
+        XCTAssertNil(memo.value(for: key()))
+        memo.keep(.init(hidden: ["7"], visible: [news]), for: key())
+        XCTAssertEqual(memo.value(for: key())?.hidden, ["7"])
+        XCTAssertEqual(memo.value(for: key())?.visible, [news])
+        // A different saved choice, library, provider or list of categories
+        // is a different question.
+        XCTAssertNil(memo.value(for: key(raw: "{\"x\":[\"7\"]}")))
+        XCTAssertNil(memo.value(for: key(library: other)))
+        XCTAssertNil(memo.value(for: key(profile: UUID())))
+        XCTAssertNil(memo.value(for: key(categories: [sports])))
+    }
 }
