@@ -62,6 +62,14 @@ struct GuideView: View {
     @State private var browsing = true
     /// The row chosen last, for the remote to land on coming back.
     @State private var lastChosen = "favorites"
+    /// Coming back from a guide, where the remote already is: the list takes
+    /// it, onto the row chosen last. Only then -- the list also appears as
+    /// the TV Guide tab is passed over in the tab bar, and taking the remote
+    /// there pulled it down out of the bar.
+    @State private var refocusCategories = false
+    /// A guide just opened from the categories takes the remote once its
+    /// channels are in; see `restoreFilteredGuideFocus`.
+    @State private var takeGuideFocus = false
     @AppStorage(TVGuideViewMode.storageKey) private var guideViewModeValue = TVGuideViewMode.defaultMode.rawValue
     @State private var searchActive = false
     @State private var query = ""
@@ -454,6 +462,7 @@ struct GuideView: View {
     /// Back to the categories, from the top of a guide.
     private func browseCategories() {
         gridFocus = nil
+        refocusCategories = true
         browsing = true
     }
 
@@ -463,9 +472,13 @@ struct GuideView: View {
             hasFavorites: !library.favoriteStreamOrder.isEmpty,
             hasRecents: !library.recentStreamOrder.isEmpty,
             channelCount: library.streams.count,
-            lastChosen: lastChosen
+            lastChosen: lastChosen,
+            takesFocus: refocusCategories,
+            onTookFocus: { refocusCategories = false }
         ) { choice in
             lastChosen = choice.id
+            refocusCategories = false
+            takeGuideFocus = true
             switch choice {
             case .favorites: selectedCategoryID = nil; favoritesOnly = true; recentsOnly = false
             case .recents: selectedCategoryID = nil; favoritesOnly = false; recentsOnly = true
@@ -475,6 +488,12 @@ struct GuideView: View {
             searchActive = false
             query = ""
             browsing = false
+            // The same list as last time is already loaded, and nothing
+            // loads to hand the remote to it: hand it over here.
+            Task { @MainActor in
+                await Task.yield()
+                if installedChannels == channelRequest { restoreFilteredGuideFocus() }
+            }
         }
     }
 
@@ -488,6 +507,13 @@ struct GuideView: View {
     }
 
     private func restoreFilteredGuideFocus() {
+        let requested = takeGuideFocus
+        takeGuideFocus = false
+        // Only where the remote already is: a guide just opened from the
+        // categories, or the grid itself. Channels load as the tab is passed
+        // over in the tab bar too, and taking the remote then pulled it down
+        // out of the bar.
+        guard requested || gridFocus != nil else { return }
         guard channelPosition(gridFocus?.streamID) == nil, let first = filtered.first else { return }
         if guideViewMode == .list {
             gridFocus = GuideGridFocus(streamID: first.id, programStart: nil)
@@ -709,6 +735,10 @@ private struct TVGuideCategoryList: View {
     let channelCount: Int
     /// The row chosen last, where the remote lands coming back.
     let lastChosen: String
+    /// Whether the list takes the remote as it appears: coming back from a
+    /// guide, never as the tab is passed over in the tab bar.
+    let takesFocus: Bool
+    let onTookFocus: () -> Void
     let choose: (TVGuideCategoryChoice) -> Void
 
     var body: some View {
@@ -749,12 +779,20 @@ private struct TVGuideCategoryList: View {
         .padding(.top, 50)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(GuidePalette.background.ignoresSafeArea())
+        .task(id: takesFocus) {
+            // Once the rows have appeared and the chosen one has the remote,
+            // the request is spent: back on this tab later, from the tab bar,
+            // the list leaves the remote where it is.
+            guard takesFocus else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            onTookFocus()
+        }
     }
 
     private func row(_ choice: TVGuideCategoryChoice, _ title: String, symbol: String,
                      detail: String? = nil) -> some View {
         TVSelectable(scale: 1.015, drawsFocusChrome: false, action: { choose(choice) },
-                     requestInitialFocus: choice.id == lastChosen) {
+                     requestInitialFocus: takesFocus && choice.id == lastChosen) {
             TVGuideCategoryRow(title: title, symbol: symbol, detail: detail)
         }
         .accessibilityLabel(detail.map { "\(title), \($0)" } ?? title)
