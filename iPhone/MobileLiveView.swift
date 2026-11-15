@@ -757,6 +757,12 @@ struct MobileLiveView: View {
     private func matchup(_ game: SportsGame, showsDay: Bool = false) -> some View {
         MobileMatchupRow(game: game, showsDay: showsDay,
                          isWatching: previewStream != nil && previewGame?.id == game.id)
+            // A card whose game has not changed is not drawn again. Every
+            // card on screen used to be laid out afresh -- badges, halos and
+            // all -- whenever anything on the tab changed: the sports list
+            // opening, a channel's name appearing over the picture, a score
+            // elsewhere moving.
+            .equatable()
             .accessibilityElement(children: .combine)
             .lineupHoldMenu(game.matchupLine, symbol: "sportscourt", tint: LineupStyle.leagueColor(game.league), press: .well,
                             items: { gameMenuItems(game) },
@@ -1129,7 +1135,11 @@ struct MobileCardButtonStyle: ButtonStyle {
     }
 }
 
-private struct MobileMatchupRow: View {
+private struct MobileMatchupRow: View, Equatable {
+    nonisolated static func == (lhs: MobileMatchupRow, rhs: MobileMatchupRow) -> Bool {
+        lhs.game == rhs.game && lhs.showsDay == rhs.showsDay && lhs.isWatching == rhs.isWatching
+    }
+
     @Environment(\.dynamicTypeSize) private var typeSize
     let game: SportsGame
     /// Set where the row is not under a heading that names the day.

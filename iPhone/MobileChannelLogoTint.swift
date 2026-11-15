@@ -14,15 +14,36 @@ struct MobileChannelLogoTint: View {
     private var pixelSize: Int { LineupArt.pixels(for: width) }
     private var requestKey: String { "\(url?.absoluteString ?? "no-logo")|\(pixelSize)" }
 
+    /// A colour already worked out is there on the first frame. Every cell
+    /// used to start on the fallback and ask a background task for its
+    /// colour, so a row scrolling into the Guide drew grey, then tinted a
+    /// frame or two later -- eight tasks and eight redraws a row for answers
+    /// already in hand.
+    init(url: URL?, width: CGFloat, fallback: Color) {
+        self.url = url
+        self.width = width
+        self.fallback = fallback
+        let key = "\(url?.absoluteString ?? "no-logo")|\(LineupArt.pixels(for: width))"
+        _resolved = State(initialValue: ChannelLogoTintKnown.shared.color(key).map {
+            ResolvedTint(key: key, value: $0)
+        })
+    }
+
     var body: some View {
         Rectangle()
             .fill(displayColor)
             .task(id: requestKey) {
+                let key = requestKey
                 guard let url else {
-                    resolved = ResolvedTint(key: requestKey, value: nil)
+                    resolved = ResolvedTint(key: key, value: nil)
                     return
                 }
-                let key = requestKey
+                if let known = ChannelLogoTintKnown.shared.color(key) {
+                    if resolved?.key != key || resolved?.value != known {
+                        resolved = ResolvedTint(key: key, value: known)
+                    }
+                    return
+                }
                 let tint = await ChannelLogoTintCache.shared.tint(for: url, pixels: pixelSize)
                 guard !Task.isCancelled else { return }
                 resolved = ResolvedTint(key: key, value: tint)
@@ -30,7 +51,17 @@ struct MobileChannelLogoTint: View {
     }
 
     private var displayColor: Color {
-        guard let resolved, resolved.key == requestKey, let value = resolved.value else { return fallback }
+        let key = requestKey
+        let value: UInt32
+        if let resolved, resolved.key == key, let held = resolved.value {
+            value = held
+        } else if let known = ChannelLogoTintKnown.shared.color(key) {
+            // This view kept its place while its channel changed, or its own
+            // task has not run yet: the colour is still in hand.
+            value = known
+        } else {
+            return fallback
+        }
         return Color(red: Double((value >> 16) & 0xFF) / 255,
                      green: Double((value >> 8) & 0xFF) / 255,
                      blue: Double(value & 0xFF) / 255)
@@ -39,6 +70,24 @@ struct MobileChannelLogoTint: View {
     private struct ResolvedTint {
         let key: String
         let value: UInt32?
+    }
+}
+
+/// The colours worked out so far, readable from a view as it is made, without
+/// waiting on the cache's actor. The cache writes it and takes from it.
+private final class ChannelLogoTintKnown: @unchecked Sendable {
+    static let shared = ChannelLogoTintKnown()
+    private var colors: [String: UInt32] = [:]
+    private let lock = NSLock()
+
+    func color(_ key: String) -> UInt32? {
+        lock.lock(); defer { lock.unlock() }
+        return colors[key]
+    }
+
+    func set(_ color: UInt32?, for key: String) {
+        lock.lock(); defer { lock.unlock() }
+        colors[key] = color
     }
 }
 
@@ -73,10 +122,12 @@ private actor ChannelLogoTintCache {
         if colors[key] == nil {
             colors[key] = color
             insertionOrder.append(key)
+            ChannelLogoTintKnown.shared.set(color, for: key)
         }
         if insertionOrder.count > 512 {
             let expired = insertionOrder.removeFirst()
             colors[expired] = nil
+            ChannelLogoTintKnown.shared.set(nil, for: expired)
         }
         return color
     }
