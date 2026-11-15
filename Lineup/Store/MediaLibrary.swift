@@ -5044,6 +5044,52 @@ final class MediaLibrary {
         if heroListCatalog?.id != selectedHeroCatalogID { refreshHeroList() }
         if !arriving.isEmpty { await reload(servers: arriving) }
     }
+
+    /// After a setup from the phone, once its choices are taken: everything
+    /// the Library saved read again, as it is at launch, then every server
+    /// loaded, the TV's own as well -- one it already had may have come with
+    /// a new sign-in, and its old connection would go on using the old one.
+    /// This is the Library's one load: opening the Library meanwhile waits on
+    /// it rather than starting a second.
+    func reloadAfterSetup() async {
+        if let running = libraryLoad { await running.value }
+        await restoreCachedLibrary()
+        isMDBListConnected = MDBListKeychainStore.apiKey() != nil
+        showsStreamingServices = !defaults.bool(forKey: streamingHiddenKey)
+        showsCollectionsRow = !defaults.bool(forKey: collectionsRowHiddenKey)
+        hiddenTrendingRows = Set(defaults.stringArray(forKey: trendingHiddenKey) ?? [])
+        shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
+        shelfNames = defaults.dictionary(forKey: shelfNamesKey) as? [String: String] ?? [:]
+        guard let data = defaults.data(forKey: profilesKey),
+              let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) else { return }
+        let known = Set(profiles.map(\.id))
+        let kept = Set(saved.map(\.id))
+        for gone in profiles where !kept.contains(gone.id) { servers[gone.id] = nil }
+        // Each connection holds the sign-in it was made with.
+        clients = [:]
+        // From here to the load's start nothing waits, so no view can start
+        // a load of its own in between.
+        savedProfiles = saved
+        updateActiveAccounts()
+        migrateLibraryChoices()
+        selectedHeroCatalogID = savedHeroCatalogs()[Self.libraryWide]
+        let arriving = profiles.filter { !known.contains($0.id) }
+        let load = Task { [weak self] in
+            guard let self else { return }
+            for profile in arriving {
+                let snapshot = await Task.detached(priority: .userInitiated) { () -> LibrarySnapshot? in
+                    guard let data = try? Data(contentsOf: Self.snapshotURL(profileID: profile.id)) else { return nil }
+                    return try? JSONDecoder().decode(LibrarySnapshot.self, from: data).scoped(to: profile)
+                }.value
+                if let snapshot { self.installLibrarySnapshot(snapshot, for: profile, adoptingLists: false) }
+            }
+            if self.heroListCatalog?.id != self.selectedHeroCatalogID { self.refreshHeroList() }
+            await self.reload()
+        }
+        libraryLoad = load
+        await load.value
+        if libraryLoad == load { libraryLoad = nil }
+    }
 }
 
 /// Whether opening the Media Servers tab should start a load for a server.

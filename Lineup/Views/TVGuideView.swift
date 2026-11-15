@@ -57,6 +57,19 @@ struct GuideView: View {
     @State private var favoritesOnly = true
     /// Recently watched channels in place of every one.
     @State private var recentsOnly = false
+    /// The Guide opens on its categories, as the iPhone's does; choosing one
+    /// opens its guide, and Back from the top of that comes back here.
+    @State private var browsing = true
+    /// The row chosen last, for the remote to land on coming back.
+    @State private var lastChosen = "favorites"
+    /// Coming back from a guide, where the remote already is: the list takes
+    /// it, onto the row chosen last. Only then -- the list also appears as
+    /// the TV Guide tab is passed over in the tab bar, and taking the remote
+    /// there pulled it down out of the bar.
+    @State private var refocusCategories = false
+    /// A guide just opened from the categories takes the remote once its
+    /// channels are in; see `restoreFilteredGuideFocus`.
+    @State private var takeGuideFocus = false
     @AppStorage(TVGuideViewMode.storageKey) private var guideViewModeValue = TVGuideViewMode.defaultMode.rawValue
     @State private var searchActive = false
     @State private var query = ""
@@ -87,7 +100,7 @@ struct GuideView: View {
     }
     private var channelRequest: ChannelRequest {
         ChannelRequest(library: ObjectIdentifier(library), revision: library.streamsRevision,
-            active: isActive && scenePhase == .active && fullScreen == nil && multiviewSession == nil,
+            active: isActive && !browsing && scenePhase == .active && fullScreen == nil && multiviewSession == nil,
             query: .init(categoryID: searchActive ? nil : selectedCategoryID,
                 favoritesOnly: !searchActive && favoritesOnly,
                 recentsOnly: !searchActive && showsRecents, text: query,
@@ -166,6 +179,7 @@ struct GuideView: View {
             selectedCategoryID: $selectedCategoryID,
             favoritesOnly: $favoritesOnly,
             recentsOnly: $recentsOnly,
+            onBrowse: browseCategories,
             onCancelMultiview: { multiviewPrimary = nil }
         )
     }
@@ -174,6 +188,10 @@ struct GuideView: View {
         GeometryReader { container in
             let layout = GuideLayout(width: container.size.width - 2 * GuideLayout.margin)
             NavigationStack {
+                ZStack {
+                if browsing {
+                    categoryList.transition(.opacity)
+                } else {
                 VStack(alignment: .leading, spacing: 18) {
                     if let previewItem {
                         GuidePreviewPanel(
@@ -327,6 +345,10 @@ struct GuideView: View {
                 }
                 .padding(.horizontal, GuideLayout.margin).padding(.top, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .transition(.opacity)
+                }
+                }
+                .animation(.easeInOut(duration: 0.25), value: browsing)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .background(GuidePalette.background.ignoresSafeArea())
                 .lineupFullScreenCover(item: $fullScreen) { item in
@@ -428,11 +450,51 @@ struct GuideView: View {
     /// down the Guide, Back twice reaches the tabs, where it used to take
     /// holding Up all the way.
     private var backAction: (() -> Void)? {
+        if browsing { return nil }
         if sidebarVisible && !searchActive { return { closeSidebar() } }
         if let row = channelPosition(gridFocus?.streamID), row > 0 {
             return { topRequest &+= 1 }
         }
-        return nil
+        if searchActive { return nil }
+        return { browseCategories() }
+    }
+
+    /// Back to the categories, from the top of a guide.
+    private func browseCategories() {
+        gridFocus = nil
+        refocusCategories = true
+        browsing = true
+    }
+
+    private var categoryList: some View {
+        TVGuideCategoryList(
+            categories: library.categories,
+            hasFavorites: !library.favoriteStreamOrder.isEmpty,
+            hasRecents: !library.recentStreamOrder.isEmpty,
+            channelCount: library.streams.count,
+            lastChosen: lastChosen,
+            takesFocus: refocusCategories,
+            onTookFocus: { refocusCategories = false }
+        ) { choice in
+            lastChosen = choice.id
+            refocusCategories = false
+            takeGuideFocus = true
+            switch choice {
+            case .favorites: selectedCategoryID = nil; favoritesOnly = true; recentsOnly = false
+            case .recents: selectedCategoryID = nil; favoritesOnly = false; recentsOnly = true
+            case .all: selectedCategoryID = nil; favoritesOnly = false; recentsOnly = false
+            case .category(let id): selectedCategoryID = id; favoritesOnly = false; recentsOnly = false
+            }
+            searchActive = false
+            query = ""
+            browsing = false
+            // The same list as last time is already loaded, and nothing
+            // loads to hand the remote to it: hand it over here.
+            Task { @MainActor in
+                await Task.yield()
+                if installedChannels == channelRequest { restoreFilteredGuideFocus() }
+            }
+        }
     }
 
     /// The first channel's cell: what is on now in the Guide, the row itself
@@ -445,6 +507,13 @@ struct GuideView: View {
     }
 
     private func restoreFilteredGuideFocus() {
+        let requested = takeGuideFocus
+        takeGuideFocus = false
+        // Only where the remote already is: a guide just opened from the
+        // categories, or the grid itself. Channels load as the tab is passed
+        // over in the tab bar too, and taking the remote then pulled it down
+        // out of the bar.
+        guard requested || gridFocus != nil else { return }
         guard channelPosition(gridFocus?.streamID) == nil, let first = filtered.first else { return }
         if guideViewMode == .list {
             gridFocus = GuideGridFocus(streamID: first.id, programStart: nil)
@@ -592,6 +661,7 @@ private struct GuideControlBar: View {
     @Binding var selectedCategoryID: String?
     @Binding var favoritesOnly: Bool
     @Binding var recentsOnly: Bool
+    let onBrowse: () -> Void
     let onCancelMultiview: () -> Void
 
     var body: some View {
@@ -613,10 +683,7 @@ private struct GuideControlBar: View {
                 GuideTitleBlock(eyebrow: "TV GUIDE", title: title)
             }
             if !searchActive && multiviewTitle == nil {
-                GuideChannelFilterPicker(title: title,
-                                         selectedCategoryID: $selectedCategoryID,
-                                         favoritesOnly: $favoritesOnly,
-                                         recentsOnly: $recentsOnly)
+                GuideHeaderButton(title: "Categories", symbol: "list.bullet", action: onBrowse)
             }
             Spacer(minLength: 12)
             Text("\(channelCount) CHANNELS")
@@ -642,66 +709,124 @@ private struct GuideControlBar: View {
     }
 }
 
-/// Favorites and IPTV categories sit in the Guide's top control row, with the
-/// left-edge sidebar kept as an alternate way to browse on the remote.
-/// Favorites, Recently Watched and All Channels come first, as on iPhone.
-private struct GuideChannelFilterPicker: View {
-    @Environment(SportsLibrary.self) private var library
-    let title: String
-    @Binding var selectedCategoryID: String?
-    @Binding var favoritesOnly: Bool
-    @Binding var recentsOnly: Bool
-    @State private var choosing = false
+/// What the Guide's first page offers.
+enum TVGuideCategoryChoice: Equatable {
+    case favorites, recents, all
+    case category(String)
 
-    private var currentTitle: String { favoritesOnly ? "Favorites" : title }
+    var id: String {
+        switch self {
+        case .favorites: "favorites"
+        case .recents: "recents"
+        case .all: "all"
+        case .category(let id): "category-" + id
+        }
+    }
+}
+
+/// The TV Guide's first page, as the iPhone's: Favorites, what was watched
+/// lately and every channel, then the provider's categories in its order.
+/// Choosing one opens its guide. This replaced a menu over the guide, which
+/// hid the categories behind a button and a long list of them in a sheet.
+private struct TVGuideCategoryList: View {
+    let categories: [XtreamCategory]
+    let hasFavorites: Bool
+    let hasRecents: Bool
+    let channelCount: Int
+    /// The row chosen last, where the remote lands coming back.
+    let lastChosen: String
+    /// Whether the list takes the remote as it appears: coming back from a
+    /// guide, never as the tab is passed over in the tab bar.
+    let takesFocus: Bool
+    let onTookFocus: () -> Void
+    let choose: (TVGuideCategoryChoice) -> Void
 
     var body: some View {
-        TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
-                     action: { choosing = true }) {
-            HStack(spacing: 9) {
-                Image(systemName: favoritesOnly ? "star.fill" : "tv")
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundStyle(favoritesOnly ? LineupStyle.highlight : GuidePalette.channelText)
-                Text(currentTitle).font(.inter(18, .semibold)).lineLimit(1).frame(maxWidth: 250)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 12, weight: .heavy, design: .rounded))
-                    .foregroundStyle(GuidePalette.channelText)
+        VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("TV GUIDE")
+                    .font(.inter(15, .heavy)).tracking(LineupPanelStyle.headerTracking)
+                    .foregroundStyle(LineupPanelStyle.caption)
+                Text("Categories")
+                    .font(.inter(46, .heavy))
+                    .foregroundStyle(GuidePalette.text)
+                Text(channelCount == 1 ? "1 channel" : "\(channelCount) channels")
+                    .font(.inter(20, .medium))
+                    .foregroundStyle(GuidePalette.secondary)
             }
-            .foregroundStyle(GuidePalette.rowText)
-            .padding(.horizontal, 16).frame(height: 48)
-            .background(GuidePalette.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(GuidePalette.line, lineWidth: 1))
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    row(.favorites, "Favorites", symbol: "star.fill", detail: hasFavorites ? nil : "None yet")
+                    if hasRecents { row(.recents, "Recently Watched", symbol: "clock.arrow.circlepath") }
+                    row(.all, "All Channels", symbol: "tv")
+                    if !categories.isEmpty {
+                        Text("CATEGORIES")
+                            .font(.inter(15, .heavy)).tracking(1.2)
+                            .foregroundStyle(GuidePalette.secondary)
+                            .padding(.top, 22).padding(.bottom, 4).padding(.leading, 6)
+                            .accessibilityAddTraits(.isHeader)
+                    }
+                    ForEach(categories) { category in
+                        row(.category(category.id), category.categoryName, symbol: "folder.fill")
+                    }
+                }
+                .padding(.vertical, 20).padding(.horizontal, 30)
+            }
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
         }
-        .tvChoices("TV Guide Channels", symbol: "tv", isPresented: $choosing) { choices }
-        .accessibilityLabel("TV Guide channels: \(currentTitle)")
+        .frame(width: 1240, alignment: .leading)
+        .padding(.top, 50)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(GuidePalette.background.ignoresSafeArea())
+        .task(id: takesFocus) {
+            // Once the rows have appeared and the chosen one has the remote,
+            // the request is spent: back on this tab later, from the tab bar,
+            // the list leaves the remote where it is.
+            guard takesFocus else { return }
+            try? await Task.sleep(for: .milliseconds(400))
+            onTookFocus()
+        }
     }
 
-    private func show(category: String? = nil, favorites: Bool = false, recents: Bool = false) {
-        selectedCategoryID = category
-        favoritesOnly = favorites
-        recentsOnly = recents
+    private func row(_ choice: TVGuideCategoryChoice, _ title: String, symbol: String,
+                     detail: String? = nil) -> some View {
+        TVSelectable(scale: 1.015, drawsFocusChrome: false, action: { choose(choice) },
+                     requestInitialFocus: takesFocus && choice.id == lastChosen) {
+            TVGuideCategoryRow(title: title, symbol: symbol, detail: detail)
+        }
+        .accessibilityLabel(detail.map { "\(title), \($0)" } ?? title)
+        .accessibilityHint("Opens the TV Guide on this")
     }
+}
 
-    private var choices: [TVChoice] {
-        let listing = selectedCategoryID == nil
-        var items = [
-            TVChoice("Favorites", symbol: "star", id: "favorites", isSelected: favoritesOnly) {
-                show(favorites: true)
+private struct TVGuideCategoryRow: View {
+    @Environment(\.lineupTVSelectableFocused) private var focused
+    let title: String
+    let symbol: String
+    let detail: String?
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        HStack(spacing: 20) {
+            LineupIconTile(symbol: symbol, size: 44)
+            Text(title)
+                .font(.inter(26, .semibold))
+                .lineLimit(1)
+            Spacer(minLength: 20)
+            if let detail {
+                Text(detail).font(.inter(21)).foregroundStyle(GuidePalette.secondary).lineLimit(1)
             }
-        ]
-        if !library.recentStreamOrder.isEmpty {
-            items.append(TVChoice("Recently Watched", symbol: "clock.arrow.circlepath", id: "recents",
-                                  isSelected: listing && !favoritesOnly && recentsOnly) { show(recents: true) })
+            Image(systemName: "chevron.right")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundStyle(GuidePalette.secondary)
         }
-        items.append(TVChoice("All Channels", symbol: "tv", id: "all",
-                              isSelected: listing && !favoritesOnly && !recentsOnly) { show() })
-        return items + library.categories.map { category in
-            TVChoice(category.categoryName, symbol: "rectangle.grid.1x2", id: "category-\(category.id)",
-                     isSelected: selectedCategoryID == category.id && !favoritesOnly,
-                     section: "Categories") {
-                show(category: category.id)
-            }
-        }
+        .foregroundStyle(GuidePalette.text)
+        .padding(.horizontal, 22)
+        .frame(height: 84)
+        .background(focused ? LineupStyle.focused : GuidePalette.surface, in: shape)
+        .lineupFocusLayer(focused, in: shape)
+        .animation(.easeOut(duration: 0.16), value: focused)
     }
 }
 

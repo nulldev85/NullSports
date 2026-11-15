@@ -20,7 +20,7 @@ struct LineupApp: App {
         Task.detached(priority: .utility) { OnlineSubtitleFiles.removeLeftovers(before: launched) }
         #if os(tvOS)
         applyLineupTabBarTheme()
-        PlaybackJournal.shared.note("Lineup opened")
+        PlaybackJournal.shared.appLaunched()
         #else
         // Apple's daily report on how the app ran, for Diagnostics.
         MobileDeviceReports.shared.start()
@@ -103,6 +103,7 @@ struct LineupApp: App {
                 // player, so the playback log says when the app left the
                 // front and came back.
                 .onChange(of: scenePhase) { _, phase in
+                    PlaybackJournal.shared.appInFront(phase != .background)
                     switch phase {
                     case .active: PlaybackJournal.shared.note("App back in front")
                     case .inactive: PlaybackJournal.shared.note("App covered: the screen saver, or the TV's own menus")

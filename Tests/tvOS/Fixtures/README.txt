@@ -19,3 +19,8 @@ Domestic cup fixtures captured from the same base on 2026-10-30:
 - soccer-esp.super_cup.json: soccer/esp.super_cup/scoreboard?limit=1
 These four captures retain the original ESPN JSON. Tests additionally construct
 explicit replay/unknown-competition cases without altering the captures.
+
+College basketball fixture captured from the same base on 2026-11-14:
+- ncaab-scoreboard.json: basketball/mens-college-basketball/scoreboard?dates=20261114&groups=50&limit=400
+Three games kept: a finished one with a ranked side (14 Gonzaga) and two
+live ones. Links, statistics, leaders and line scores are removed.

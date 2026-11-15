@@ -40,9 +40,14 @@ enum CollegeChannelMatcher {
         /// against.
         let awayAliasNeedles: [String]
         let homeAliasNeedles: [String]
+        /// A basketball game rather than a football one: which guide titles
+        /// say nothing more than the sport, and which say another sport.
+        let basketball: Bool
 
         init(broadcast: String, away: String, home: String, awayAbbreviation: String,
-             homeAbbreviation: String, kickoff: Date, isLive: Bool, status: String = "") {
+             homeAbbreviation: String, kickoff: Date, isLive: Bool, status: String = "",
+             basketball: Bool = false) {
+            self.basketball = basketball
             self.broadcast = broadcast
             self.away = away
             self.home = home
@@ -164,11 +169,14 @@ enum CollegeChannelMatcher {
 
         // Generic or absent listings are common. An explicit different program
         // must not be overridden by the channel's event name or network label.
-        let generic: Set<String> = ["", "college football", "ncaa football", "ncaaf", "cfb", "football", "live", "no information", "no program information", "to be announced", "tba"]
+        let generic: Set<String> = game.basketball
+            ? ["", "college basketball", "ncaa basketball", "mens college basketball", "men s college basketball", "ncaab", "cbb", "basketball", "live", "no information", "no program information", "to be announced", "tba"]
+            : ["", "college football", "ncaa football", "ncaaf", "cfb", "football", "live", "no information", "no program information", "to be announced", "tba"]
+        let otherSport = game.basketball ? "football" : "basketball"
         let genericGuide = current.allSatisfy({
             let detail = normalized($0.detail)
             return generic.contains(normalized($0.title)) &&
-                !["vs", "versus", "at", "replay", "highlights", "basketball"].contains(where: { contains(detail, phrase: $0) })
+                !["vs", "versus", "at", "replay", "highlights", otherSport].contains(where: { contains(detail, phrase: $0) })
         })
         // Only known interruption/studio coverage may stand in for a delayed
         // game. Another named game still requires manual selection.
@@ -201,7 +209,7 @@ enum CollegeChannelMatcher {
         // Affiliates, regional feeds and multiplex services still need a matchup.
         let national: Set<String> = ["espn", "espn2", "espnu", "fs1", "fs2", "cbssn", "accn", "secn"]
         guard allowNetworkFallback, networkMatch, actual.isSubset(of: national),
-              !["uk", "au", "australia", "ca", "can", "canada", "caribbean", "deportes", "extra", "alternate", "alt", "ncaa", "ncaaf", "cfb", "vs", "versus", "at", "event"].contains(where: { contains(name, phrase: $0) }),
+              !["uk", "au", "australia", "ca", "can", "canada", "caribbean", "deportes", "extra", "alternate", "alt", "ncaa", "ncaaf", "ncaab", "cfb", "cbb", "vs", "versus", "at", "event"].contains(where: { contains(name, phrase: $0) }),
               !candidate.name.contains("@") else { return nil }
         // Numbered event slots (ESPN 01, SEC Network 3, etc.) are not the
         // main linear channel. Only ESPN 2 / Fox Sports 1 / Fox Sports 2 use digits.

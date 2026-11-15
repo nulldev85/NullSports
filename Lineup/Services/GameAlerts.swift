@@ -93,6 +93,8 @@ enum GameAlertRules {
         let late = moment.clockSeconds.map { $0 <= 5 * 60 } ?? false
         switch game.league {
         case .nba: return period >= 4 && late && margin <= 6
+        // Two halves, not four quarters.
+        case .ncaab: return period >= 2 && late && margin <= 6
         case .nfl, .ncaaf: return period >= 4 && late && margin <= 8
         case .nhl: return period >= 3 && (moment.clockSeconds.map { $0 <= 10 * 60 } ?? false) && margin <= 1
         case .mlb: return period >= 8 && margin <= 2

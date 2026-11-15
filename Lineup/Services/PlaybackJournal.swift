@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 /// What the player did, and when, kept between launches so it can be read
 /// after the fact.
@@ -28,6 +29,18 @@ final class PlaybackJournal: ObservableObject {
 
     @Published private(set) var entries: [Entry] = []
     private let defaults: UserDefaults
+    /// Whether the app was on screen, kept as it changes: still set at the
+    /// next launch, the app didn't leave by going to the background. It
+    /// crashed, or tvOS ended it, most often for using too much memory.
+    private static let inFrontKey = "Lineup.playbackJournal.inFront.v1"
+    /// What was playing, for saying so if the app goes down with it.
+    private static let watchingKey = "Lineup.playbackJournal.watching.v1"
+    /// While something plays, a note every few minutes of the memory in use:
+    /// where the trail ends says when the app went, and whether it was
+    /// climbing.
+    private static let heartbeatInterval: Duration = .seconds(5 * 60)
+    private var heartbeat: Task<Void, Never>?
+    private var memoryWarnings: NSObjectProtocol?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -37,7 +50,67 @@ final class PlaybackJournal: ObservableObject {
         }
     }
 
+    /// At launch: says if the last run ended without leaving the screen,
+    /// then that the app opened, and listens for tvOS's memory warnings.
+    func appLaunched() {
+        if defaults.bool(forKey: Self.inFrontKey) {
+            let watching = defaults.string(forKey: Self.watchingKey)
+            note(watching.map { "Lineup closed unexpectedly while watching \($0)" }
+                 ?? "Lineup closed unexpectedly")
+        }
+        defaults.removeObject(forKey: Self.watchingKey)
+        note("Lineup opened, \(Self.memoryInUse) in use")
+        defaults.set(true, forKey: Self.inFrontKey)
+        guard memoryWarnings == nil else { return }
+        memoryWarnings = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                PlaybackJournal.shared.note("Memory warning from tvOS, \(PlaybackJournal.memoryInUse) in use")
+            }
+        }
+    }
+
+    /// The app came to the front or left it. Ended in the background, a run
+    /// is tvOS tidying up, not something going wrong.
+    func appInFront(_ inFront: Bool) {
+        defaults.set(inFront, forKey: Self.inFrontKey)
+    }
+
+    /// The memory the app is using, as tvOS counts it when deciding whether
+    /// to end it.
+    nonisolated static var memoryInUse: String {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return "unknown memory" }
+        return "\(info.phys_footprint / 1_048_576) MB"
+    }
+
+    private func followPlayback(_ text: String) {
+        if text.hasPrefix("Watching ") || text.hasPrefix("Changed channel to ") {
+            let title = text.hasPrefix("Watching ") ? String(text.dropFirst("Watching ".count))
+                : String(text.dropFirst("Changed channel to ".count))
+            defaults.set(title, forKey: Self.watchingKey)
+            guard heartbeat == nil else { return }
+            heartbeat = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: Self.heartbeatInterval) } catch { return }
+                    self?.note("Still playing, \(Self.memoryInUse) in use")
+                }
+            }
+        } else if text.hasPrefix("Closed") || text.hasPrefix("Split screen closed") {
+            defaults.removeObject(forKey: Self.watchingKey)
+            heartbeat?.cancel()
+            heartbeat = nil
+        }
+    }
+
     func note(_ text: String, at date: Date = Date()) {
+        followPlayback(text)
         entries.append(Entry(at: date, text: text))
         // The oldest go first: the trail that matters is the latest one.
         if entries.count > Self.limit { entries.removeFirst(entries.count - Self.limit) }

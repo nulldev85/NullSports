@@ -118,8 +118,8 @@ struct AccountView: View {
             .lineupFullScreenCover(isPresented: $managingTeams) {
                 SportsTeamsSettingsView().environment(library)
             }
-            .tvChoices("College Football Ranking", symbol: "list.number", isPresented: $choosingPoll,
-                       message: "The ranking shown beside college football teams. Playoff Rankings start in November; until then the AP Top 25 stands in.") {
+            .tvChoices("College Top 25", symbol: "list.number", isPresented: $choosingPoll,
+                       message: "The poll shown beside college football and basketball teams. Playoff Rankings are football's alone and start in November; until then, and for basketball, the AP Top 25 stands in.") {
                 CollegeFootballRankings.Poll.allCases.map { poll in
                     TVChoice(poll.title, id: poll.rawValue, isSelected: collegePoll == poll.rawValue) {
                         collegePoll = poll.rawValue
@@ -401,8 +401,8 @@ struct AccountView: View {
                            value: "\(SportsLeague.allCases.count - SportsVisibility.hidden(hiddenSports).count) of \(SportsLeague.allCases.count)") {
                 TVSportsShownView()
             }
-            TVSettingsAction(symbol: "list.number", title: "College Football Ranking",
-                             detail: "Choose the Top 25 shown beside college football teams.",
+            TVSettingsAction(symbol: "list.number", title: "College Top 25",
+                             detail: "Choose the Top 25 shown beside college football and basketball teams.",
                              value: (CollegeFootballRankings.Poll(rawValue: collegePoll) ?? .ap).title) { choosingPoll = true }
         }
     }

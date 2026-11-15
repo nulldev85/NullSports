@@ -14,7 +14,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PATHS = {"nfl": "football/nfl", "nba": "basketball/nba",
-         "nhl": "hockey/nhl", "mlb": "baseball/mlb", "ncaaf": "football/college-football"}
+         "nhl": "hockey/nhl", "mlb": "baseball/mlb", "ncaaf": "football/college-football",
+         "ncaab": "basketball/mens-college-basketball"}
 
 
 def build(season, cached_dir=None):
@@ -50,13 +51,16 @@ def build(season, cached_dir=None):
                 continue
             teams.append(dict(league=league, espnID=team["id"], name=team["displayName"],
                               abbreviation=team["abbreviation"], logo=team["logos"][0]["href"],
-                              division=divisions.get(team["id"]) if league == "ncaaf" else None))
+                              division=divisions.get(team["id"]) if league == "ncaaf"
+                              else "Division I" if league == "ncaab" else None))
     keys = [(t["league"], t["abbreviation"].upper()) for t in teams]
     if len(set(keys)) != len(keys):
         raise ValueError("Ambiguous team codes would collide with existing My Teams identities")
     for league, expected in {"nfl": 32, "nba": 30, "nhl": 32, "mlb": 30}.items():
         if sum(t["league"] == league for t in teams) != expected:
             raise ValueError(f"Check the complete {league} team list before updating")
+    if sum(t["league"] == "ncaab" for t in teams) < 300:
+        raise ValueError("Incomplete Division I basketball directory")
     for division in ("FBS", "FCS"):
         if sum(t["division"] == division for t in teams) < 120:
             raise ValueError(f"Incomplete {division} directory")
@@ -74,7 +78,7 @@ if __name__ == "__main__":
     if target.exists():
         previous = json.loads(target.read_text(encoding="utf-8"))
         # Soccer is refreshed by update-global-sports.py; don't erase its
-        # cross-competition IDs when updating the original five leagues.
+        # cross-competition IDs when updating the other leagues.
         directory['teams'] += [team for team in previous['teams'] if team['league'] == 'soccer']
         directory['sources'] += [source for source in previous['sources'] if '/soccer/' in source]
     target.write_text(json.dumps(directory, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

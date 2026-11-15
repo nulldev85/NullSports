@@ -117,6 +117,32 @@ final class CollegeFootballRankingsTests: XCTestCase {
         XCTAssertNil(ranked.homeRank)
     }
 
+    func testCollegeBasketballTakesItsOwnLatestPollAndHasNoCommitteeRanks() throws {
+        // ESPN's basketball rankings, cut down: the AP poll and the coaches'.
+        let basketball = Data("""
+        {"rankings": [
+          {"type": "ap", "ranks": [
+            {"current": 1, "team": {"location": "Florida", "name": "Gators", "abbreviation": "FLA"}},
+            {"current": 2, "team": {"location": "Duke", "name": "Blue Devils", "abbreviation": "DUKE"}}
+          ]},
+          {"type": "usa", "ranks": [
+            {"current": 2, "team": {"location": "Florida", "name": "Gators", "abbreviation": "FLA"}}
+          ]}
+        ]}
+        """.utf8)
+        let matchup = game(id: "ncaab-401", league: .ncaab, away: "Duke Blue Devils", awayCode: "DUKE",
+                           home: "Florida Gators", homeCode: "FLA")
+        let ap = try CollegeFootballRankings.Ranks.parse(polls: basketball, poll: .ap).applied(to: matchup)
+        XCTAssertEqual(ap.awayRank, 2)
+        XCTAssertEqual(ap.homeRank, 1)
+        let coaches = try CollegeFootballRankings.Ranks.parse(polls: basketball, poll: .coaches).applied(to: matchup)
+        XCTAssertNil(coaches.awayRank)
+        XCTAssertEqual(coaches.homeRank, 2)
+        // Basketball has no committee: a viewer following it sees the AP poll.
+        let playoff = try CollegeFootballRankings.Ranks.parse(polls: basketball, poll: .playoff).applied(to: matchup)
+        XCTAssertEqual(playoff.homeRank, 1)
+    }
+
     func testAnOldSavedScheduleWithoutRanksStillLoads() throws {
         let saved = try JSONEncoder().encode(game(
             id: "ncaaf-1", away: "Alabama Crimson Tide", awayCode: "ALA",

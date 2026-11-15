@@ -523,7 +523,7 @@ struct XtreamEnvelope: Codable {
 }
 
 enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
-    case nfl, nba, nhl, mlb, ncaaf, ufc, atp, wta, soccer, f1, nascar
+    case nfl, nba, nhl, mlb, ncaaf, ncaab, ufc, atp, wta, soccer, f1, nascar
 
     var id: String { rawValue }
     var shortName: String { self == .soccer ? "Soccer" : rawValue.uppercased() }
@@ -531,11 +531,16 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     /// own tour's mark the way every other league is under its own.
     var isTennis: Bool { self == .atp || self == .wta }
     var isRacing: Bool { self == .f1 || self == .nascar }
+    /// College football and basketball: matched to channels by the college
+    /// policy, which reads the networks and guide listings rather than a
+    /// professional league's team names.
+    var isCollege: Bool { self == .ncaaf || self == .ncaab }
     var requiresConfirmedLiveState: Bool { isTennis || isRacing || self == .soccer }
     var fullName: String {
         switch self {
         case .nfl: "Football"
         case .ncaaf: "College Football"
+        case .ncaab: "College Basketball"
         case .nba: "Basketball"
         case .nhl: "Hockey"
         case .mlb: "Baseball"
@@ -577,6 +582,10 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
             return text.words.contains(rawValue)
                 || !text.words.isDisjoint(with: Self.ncaafBroadcasters)
                 || text.has(Self.ncaafWords, Self.ncaafPhrases)
+        case .ncaab:
+            return text.words.contains(rawValue)
+                || !text.words.isDisjoint(with: Self.ncaafBroadcasters)
+                || text.has(Self.ncaabWords, Self.ncaabPhrases)
         case .ufc:
             return text.has(Self.ufcWords, Self.ufcPhrases)
         case .atp, .wta:
@@ -612,6 +621,8 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
 
     private static let ncaafWords = words(ncaafTerms)
     private static let ncaafPhrases = phrases(ncaafTerms)
+    private static let ncaabWords = words(ncaabTerms)
+    private static let ncaabPhrases = phrases(ncaabTerms)
     private static let ufcWords = words(ufcTerms)
     private static let ufcPhrases = phrases(ufcTerms)
     private static let tennisWords = words(tennisTerms)
@@ -628,6 +639,7 @@ enum SportsLeague: String, Codable, CaseIterable, Identifiable, Sendable {
     private static let teamPhrases: [SportsLeague: [SportsPhrase]] = teamTerms.mapValues { phrases($0) }
 
     private static let ncaafTerms = ["college football", "ncaa football", "cfb", "sec network", "acc network", "big ten", "big 12", "pac-12"]
+    private static let ncaabTerms = ["college basketball", "ncaa basketball", "men's college basketball", "mens college basketball", "cbb", "march madness", "sec network", "acc network", "big ten", "big 12", "big east", "pac-12"]
     private static let ncaafBroadcasters: Set<String> = ["espn", "espn2", "espnu", "abc", "fox", "fs1", "fs2", "cbs", "cbssn", "nbc", "btn", "cw"]
     /// The tours, the four majors and the team events. "US Open" is golf too,
     /// which is harmless: this only decides where to look, and a match is

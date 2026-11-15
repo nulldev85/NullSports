@@ -1,6 +1,7 @@
 import Foundation
 
-/// Soccer's all-competition feed and racing weekends are shared across every
+/// Soccer's all-competition feed, college basketball's and racing weekends
+/// are shared across every
 /// screen. Coalescing + short live/long idle caches avoid a request per club,
 /// competition, card, or preview. A failed sport never replaces its good slate.
 actor ExpandedSportsScheduleClient {
@@ -38,7 +39,7 @@ actor ExpandedSportsScheduleClient {
         let lookback = start.addingTimeInterval(-12 * 60 * 60)
         let dates = Self.feedDates(from: lookback, to: end)
         return await withTaskGroup(of: (SportsLeague, Result<[SportsGame], Error>).self) { group in
-            for league in [SportsLeague.soccer, .f1, .nascar] {
+            for league in [SportsLeague.soccer, .f1, .nascar, .ncaab] {
                 group.addTask {
                     do {
                         let sportEnd = league.isRacing ? max(end, racingTo ?? end) : end
@@ -46,6 +47,19 @@ actor ExpandedSportsScheduleClient {
                         if league == .soccer {
                             games = try await withThrowingTaskGroup(of: [SportsGame].self) { days in
                                 for day in dates { days.addTask { try await self.soccer(day: day) } }
+                                var combined: [SportsGame] = []
+                                for try await slate in days { combined += slate }
+                                return combined
+                            }
+                        } else if league == .ncaab {
+                            // Division I, one ESPN day at a time, as soccer.
+                            games = try await withThrowingTaskGroup(of: [SportsGame].self) { days in
+                                for day in dates {
+                                    days.addTask {
+                                        try await self.feed(path: "basketball/mens-college-basketball", day: day,
+                                                            league: .ncaab).games
+                                    }
+                                }
                                 var combined: [SportsGame] = []
                                 for try await slate in days { combined += slate }
                                 return combined
@@ -127,7 +141,10 @@ actor ExpandedSportsScheduleClient {
 
     private func feed(path: String, day: String, league: SportsLeague,
                       competition: SportsCompetition? = nil) async throws -> Feed {
-        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/\(path)/scoreboard?dates=\(day)&limit=1000") else {
+        // Group 50 is every Division I game; without it ESPN lists only its
+        // featured ones.
+        let groups = league == .ncaab ? "&groups=50" : ""
+        guard let url = URL(string: "https://site.api.espn.com/apis/site/v2/sports/\(path)/scoreboard?dates=\(day)&limit=1000\(groups)") else {
             throw ExpandedSportsError.invalidResponse
         }
         if let saved = cache[url], now() < saved.until { return saved.feed }
@@ -138,6 +155,7 @@ actor ExpandedSportsScheduleClient {
             let root = try Self.events(in: data)
             let games = league == .soccer
                 ? Self.soccerGames(events: root, competitions: catalog, competition: competition)
+                : league == .ncaab ? Self.collegeBasketballGames(events: root)
                 : Self.racingGames(events: root, league: league)
             return Feed(games: games, count: root.count)
         }
@@ -201,6 +219,49 @@ actor ExpandedSportsScheduleClient {
                 clockSeconds: clock["clock"] as? Double)
             return game
         }
+    }
+
+    static func collegeBasketballGames(data: Data) throws -> [SportsGame] {
+        collegeBasketballGames(events: try events(in: data))
+    }
+
+    /// Men's college basketball, read the way the schedule service reads
+    /// college football: ESPN's ids, full team names, and each side's place
+    /// in the AP Top 25 as ESPN's own scoreboard gives it.
+    private static func collegeBasketballGames(events: [[String: Any]]) -> [SportsGame] {
+        events.compactMap { event in
+            guard let contest = (event["competitions"] as? [[String: Any]])?.first,
+                  contest["timeValid"] as? Bool != false,
+                  let start = SportsScheduleClient.parseDate(text(contest["date"] ?? event["date"])),
+                  !text(event["id"]).isEmpty,
+                  let sides = contest["competitors"] as? [[String: Any]],
+                  let away = sides.first(where: { text($0["homeAway"]) == "away" }),
+                  let home = sides.first(where: { text($0["homeAway"]) == "home" }),
+                  let awayTeam = away["team"] as? [String: Any], let homeTeam = home["team"] as? [String: Any],
+                  knownTeam(awayTeam), knownTeam(homeTeam) else { return nil }
+            let status = Self.status(contest["status"] ?? event["status"])
+            let venue = contest["venue"] as? [String: Any] ?? [:]
+            var game = SportsGame(id: "ncaab-\(text(event["id"]))", league: .ncaab, start: start,
+                awayTeam: text(awayTeam["displayName"]), homeTeam: text(homeTeam["displayName"]),
+                awayAbbreviation: text(awayTeam["abbreviation"]), homeAbbreviation: text(homeTeam["abbreviation"]),
+                awayLogo: text(awayTeam["logo"]), homeLogo: text(homeTeam["logo"]),
+                awayScore: text(away["score"]), homeScore: text(home["score"]),
+                awayColor: optionalText(awayTeam["color"]), homeColor: optionalText(homeTeam["color"]),
+                awayRecord: record(away), homeRecord: record(home), venue: optionalText(venue["fullName"]),
+                location: address(venue["address"]), status: status.label, state: status.state,
+                broadcast: broadcasts(contest), eventName: nil)
+            game.awayTeamID = text(awayTeam["id"]); game.homeTeamID = text(homeTeam["id"])
+            game.awayRank = rank(away); game.homeRank = rank(home)
+            return game
+        }
+    }
+
+    /// A side's place in the Top 25; ESPN gives the unranked 99.
+    private static func rank(_ side: [String: Any]) -> Int? {
+        let value = (side["curatedRank"] as? [String: Any])?["current"]
+        guard let current = (value as? Int) ?? (value as? NSNumber)?.intValue,
+              (1...25).contains(current) else { return nil }
+        return current
     }
 
     static func racingGames(data: Data, league: SportsLeague) throws -> [SportsGame] {

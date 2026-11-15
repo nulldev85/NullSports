@@ -503,7 +503,7 @@ final class SportsLibrary {
                 channels.contains { changedStreamIDs.contains($0.id) } ? league : nil
             })
             for game in gamesByLeague.values.joined()
-                where affected.contains(game.league) || game.league == .ncaaf {
+                where affected.contains(game.league) || game.league.isCollege {
                 eventsNeedingPreparation.insert(game.id)
             }
         }
@@ -543,7 +543,7 @@ final class SportsLibrary {
         // channels, a guide, and whatever the viewer is watching. Each one is
         // built where it is needed and dropped once it has answered, so one
         // exists at a time instead of five thousand.
-        let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "ncaab", "college basketball", "wnba"]
+        let blocked = ["radio", "audio", "sirius", "xm ", "music", "podcast", "fm ", "am ", "nfhs", "high school", "wnba"]
         let college = ["ncaa", "ncaaf", "college", "university", "acc network", "sec network", "big ten network", "big 12", "pac-12"]
 
         // Which leagues a guide channel's listings point at, worked out once
@@ -598,7 +598,7 @@ final class SportsLibrary {
         let leagueBuckets = time("league buckets") {
             Dictionary(uniqueKeysWithValues: SportsLeague.allCases.map { league in
                 (league, professional.filter { stream in
-                    guard league == .ncaaf || !collegeStreamIDs.contains(stream.id) else { return false }
+                    guard league.isCollege || !collegeStreamIDs.contains(stream.id) else { return false }
                     return streamLeagues[stream.id]?.contains(league) ?? false
                 })
             })
@@ -1835,7 +1835,7 @@ final class SportsLibrary {
         let now = Date()
         eventChannelCache = eventChannelCache.filter { $0.value.expires > now }
         if let cached = eventChannelCache[cacheKey] { return cached.channels }
-        var candidates = game.league == .ncaaf ? streams : streams(for: game.league)
+        var candidates = game.league.isCollege ? streams : streams(for: game.league)
         #if os(iOS)
         if combinedRoot != nil {
             candidates = candidates.filter { combinedSources[$0.id]?.library.automaticMatchingReady == true }
@@ -1847,7 +1847,7 @@ final class SportsLibrary {
         if let snapshot = mobileEventCandidates, snapshot.generation == generation,
            snapshot.identities[current.id] == identity, let possible = snapshot.games[current.id] {
             candidates = candidates.filter {
-                possible.contains($0.id) || (current.league == .ncaaf && !snapshot.collegePool.contains($0.id))
+                possible.contains($0.id) || (current.league.isCollege && !snapshot.collegePool.contains($0.id))
             }
         }
         #endif
@@ -1985,7 +1985,7 @@ final class SportsLibrary {
             if score >= 400 { return .dedicatedFeed }
             return score >= 300 ? .playersListing : .tournamentListing
         }
-        guard game.league == .ncaaf else { return score >= 400 ? .dedicatedFeed : .guideListing }
+        guard game.league.isCollege else { return score >= 400 ? .dedicatedFeed : .guideListing }
         if score >= 300 { return .guideListing }
         return score >= 200 ? .dedicatedFeed : .networkOnly
     }
@@ -2012,7 +2012,7 @@ final class SportsLibrary {
             inputs[game.id] = matchIdentity(game) + [
                 game.state, game.venue ?? "", game.location ?? "",
                 game.race.map { [$0.eventID, $0.title, $0.circuit ?? ""].joined(separator: "|") } ?? "",
-                game.league == .ncaaf && collegeMatchup(game).isDelayed ? "delayed" : ""
+                game.league.isCollege && collegeMatchup(game).isDelayed ? "delayed" : ""
             ]
         }
         return inputs
@@ -2022,7 +2022,7 @@ final class SportsLibrary {
     /// looked for again. A college game's also says whether it is delayed,
     /// which widens what its matcher accepts.
     nonisolated private static func matchSignature(_ game: SportsGame) -> String {
-        if game.league == .ncaaf {
+        if game.league.isCollege {
             return (["college-v1"] + matchIdentity(game)
                     + [collegeMatchup(game).isDelayed ? "delayed" : ""]).joined(separator: "|")
         }
@@ -2155,7 +2155,7 @@ final class SportsLibrary {
     // own stricter policy, including the network-fallback refusal.
     nonisolated private static func carriesGame(_ stream: XtreamStream, game: SportsGame,
                                                 listings: [CurrentProgram], now: Date) -> Bool {
-        if game.league == .ncaaf {
+        if game.league.isCollege {
             return CollegeChannelMatcher.score(channel: stream.name,
                 listings: Self.collegeListings(listings),
                 game: Self.collegeMatchup(game), now: now,
@@ -2171,7 +2171,8 @@ final class SportsLibrary {
     nonisolated private static func collegeMatchup(_ game: SportsGame) -> CollegeChannelMatcher.Matchup {
         .init(broadcast: game.broadcast, away: game.awayTeam, home: game.homeTeam,
               awayAbbreviation: game.awayAbbreviation, homeAbbreviation: game.homeAbbreviation,
-              kickoff: game.start, isLive: game.isLive, status: game.status)
+              kickoff: game.start, isLive: game.isLive, status: game.status,
+              basketball: game.league == .ncaab)
     }
 
     nonisolated private static func collegeListings(_ programs: [CurrentProgram]) -> [CollegeChannelMatcher.Listing] {
@@ -2207,7 +2208,7 @@ final class SportsLibrary {
                                                        listings: [CurrentProgram],
                                                        now: Date) -> Int? {
         guard game.isLive || game.isUpcoming else { return nil }
-        if game.league == .ncaaf {
+        if game.league.isCollege {
             return CollegeChannelMatcher.score(channel: stream.name, listings: Self.collegeListings(listings),
                 game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
         }
@@ -2234,6 +2235,10 @@ final class SportsLibrary {
         return score
     }
 
+    /// How long a UFC card runs from the early prelims ESPN dates it by to the
+    /// end of the main event, with room to spare.
+    nonisolated private static let ufcCardLength: TimeInterval = 7 * 60 * 60
+
     nonisolated private static func ufcScore(channel: String, listings: [CurrentProgram],
                                               game: SportsGame, now: Date) -> Int? {
         func normalized(_ value: String) -> String {
@@ -2256,11 +2261,17 @@ final class SportsLibrary {
             (contains(text, away) && contains(text, home))
                 || (!numberedCard.isEmpty && contains(text, numberedCard))
         }
-        let point = game.isLive ? now : game.start
-        let current = listings.filter { $0.start <= point && point < $0.end }
+        // ESPN dates a card by its early prelims, and an event channel is as
+        // often listed from the main card, hours later: a listing naming the
+        // card anywhere across it counts. Before the card, what the guide has
+        // across it is read, not just what it has as the prelims begin.
+        let cardEnd = game.start.addingTimeInterval(ufcCardLength)
+        let current = game.isLive
+            ? listings.filter { $0.start <= now && now < $0.end }
+            : listings.filter { $0.start < cardEnd && $0.end > game.start }
         let listingConfirms = current.contains {
             identifiesCard(normalized($0.title + " " + $0.detail))
-                && $0.start <= game.start.addingTimeInterval(60 * 60) && $0.end > game.start
+                && $0.start < cardEnd && $0.end > game.start
         }
         let guideSilent = current.isEmpty || current.allSatisfy {
             let title = normalized($0.title)
@@ -2534,7 +2545,16 @@ final class SportsLibrary {
         guard EventChannelEvidence.allowsSource(league: game.league.rawValue, channel: stream.name,
             category: category, date: game.start, participants: participants, teams: teams) else { return nil }
         let point = game.isLive ? now : game.start
-        let current = listings.filter { $0.end > $0.start && $0.start <= point && point < $0.end }
+        var current = listings.filter { $0.end > $0.start && $0.start <= point && point < $0.end }
+        if game.league == .ufc, !game.isLive {
+            // Before a card, its channel is often off air or counting down
+            // until the main card: what it lists across the card that names
+            // the card is what counts, not what is on as the prelims begin.
+            let cardEnd = game.start.addingTimeInterval(ufcCardLength)
+            let card = listings.filter { $0.end > $0.start && $0.start < cardEnd && $0.end > game.start }
+            current = card.filter { score([$0]) != nil }
+            guard !current.isEmpty else { return card.isEmpty && listings.isEmpty ? evidence : nil }
+        }
         // A truly guide-free, explicit event feed remains usable. An expired
         // guide is not evidence of what an old event-channel name carries now.
         guard !current.isEmpty else { return listings.isEmpty ? evidence : nil }
@@ -2733,12 +2753,12 @@ final class SportsLibrary {
                 return prepared
             }
 
-            let collegeSlate = games.filter { $0.league == .ncaaf && ($0.isLive || $0.isUpcoming) }.map(Self.collegeMatchup)
+            let collegeSlate = games.filter { $0.league.isCollege && ($0.isLive || $0.isUpcoming) }.map(Self.collegeMatchup)
             let categoryNames = currentCategories.reduce(into: [String: String]()) { $0[$1.id] = $1.matchingName.lowercased() }
             let collegeStreams = collegeSlate.isEmpty ? [] : currentStreams.filter { stream in
                 let category = categoryNames[stream.categoryID ?? ""] ?? ""
                 return !["radio", "radio_streams"].contains(stream.streamType?.lowercased() ?? "")
-                    && !["radio", "audio", "basketball", "ncaab", "high school", "nfhs"].contains(where: { category.contains($0) })
+                    && !["radio", "audio", "wnba", "high school", "nfhs"].contains(where: { category.contains($0) })
             }
             let collegeStreamsByID = Dictionary(grouping: collegeStreams, by: \.id)
             let collegeStreamIDs = Set(collegeStreamsByID.keys)
@@ -2791,7 +2811,7 @@ final class SportsLibrary {
                         try Task.checkCancellation()
                         return .init(id: stream.id, name: preparedChannel(stream).padded, guideID: stream.epgChannelID ?? "")
                     }
-                    let aliases = games.filter { $0.league != .ncaaf }.flatMap { game in
+                    let aliases = games.filter { !$0.league.isCollege }.flatMap { game in
                         let prepared = Self.prepared(game)
                         return prepared.away + prepared.home
                     }
@@ -2838,7 +2858,7 @@ final class SportsLibrary {
                 // A match in another language is not kept as it stands: it is
                 // looked for again, in case an English channel carries the game.
                 let keptForeign = matches[game.id].map { foreign.contains($0.id) } ?? false
-                if game.league == .ncaaf {
+                if game.league.isCollege {
                     guard game.isLive || game.isUpcoming else { matches[game.id] = nil; continue }
                     let collegeStart = clock()
                     defer { collegeSeconds += clock() - collegeStart }
@@ -2953,10 +2973,10 @@ final class SportsLibrary {
                     await progress.advance(matchingWork, completed: completed, total: games.count * 2)
                     reportedPercent = percent
                 }
-                var candidates = game.league == .ncaaf ? currentStreams : (leagues[game.league] ?? [])
+                var candidates = game.league.isCollege ? currentStreams : (leagues[game.league] ?? [])
                 if let possible = eventCandidates[game.id] {
                     candidates = candidates.filter {
-                        possible.contains($0.id) || (game.league == .ncaaf && !collegeStreamIDs.contains($0.id))
+                        possible.contains($0.id) || (game.league.isCollege && !collegeStreamIDs.contains($0.id))
                     }
                 }
                 let alternatives = Self.matchingEventChannels(for: game, candidates: candidates,
@@ -3109,7 +3129,7 @@ final class SportsLibrary {
             guard !Task.isCancelled, providerGeneration == provider, indexGeneration == index,
                   streamsRevision == channelRevision, guideRevision == listingRevision,
                   sportsIndexReady else { return }
-            let candidates = game.league == .ncaaf ? streams : (leagueStreamCache[game.league] ?? [])
+            let candidates = game.league.isCollege ? streams : (leagueStreamCache[game.league] ?? [])
             let worker = Task.detached(priority: .userInitiated) {
                 Self.matchingEventChannels(for: game, candidates: candidates, programs: programs,
                     categories: groups, board: board, now: now)
@@ -3199,7 +3219,7 @@ final class SportsLibrary {
                         cachedEPG: cached.epgChannelID, freshEPG: fresh.epgChannelID) else { continue }
                 let freshListings = fresh.epgChannelID.flatMap { listings[$0] } ?? []
                 let evidence: Int?
-                if game.league == .ncaaf {
+                if game.league.isCollege {
                     evidence = CollegeChannelMatcher.score(channel: fresh.name,
                         listings: Self.collegeListings(freshListings),
                         game: Self.collegeMatchup(game), now: now, allowNetworkFallback: false)
@@ -4677,5 +4697,25 @@ final class SportsLibrary {
             restoreGameChannelSelections()
             restoreRecentChannels()
         }
+    }
+
+    /// After a setup from the phone: everything saved read again, as it is at
+    /// launch, and the provider connected afresh. Its sign-in may be new even
+    /// where its address isn't, and a provider that failed to load before
+    /// gets another go, rather than waiting for the app to be opened again.
+    func adoptSetup() async {
+        disabledProviderIDs = Set((profileDefaults.stringArray(forKey: "Lineup.disabledIPTVProviders.v1") ?? [])
+            .compactMap(UUID.init(uuidString:)))
+        guard let data = profileDefaults.data(forKey: profilesKey),
+              let saved = try? JSONDecoder().decode([XtreamProfile].self, from: data) else { return }
+        let activeID = profileDefaults.string(forKey: activeKey).flatMap(UUID.init(uuidString:))
+        resetProviderState()
+        profiles = saved
+        activeProfile = saved.first { $0.id == activeID } ?? saved.first
+        restoreFavorites()
+        restoreTeamPreferences()
+        restoreGameChannelSelections()
+        restoreRecentChannels()
+        if activeProfile != nil { await bootstrap() }
     }
 }

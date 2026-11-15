@@ -142,7 +142,18 @@ struct MobileLiveView: View {
     ///
     /// Only on this tab: a player kept for Picture in Picture while another
     /// tab is open must not take the screen from it when the phone turns.
-    private var fillsScreen: Bool { isActive && previewStream != nil && (expanded || sideways) }
+    private var fillsScreen: Bool { isActive && previewStream != nil && (expanded || sideways) && !splitsScreen }
+
+    /// Expanded on the unfolded Duo held upright: the picture takes the top
+    /// half of the screen, edge to edge, and the page carries on in the
+    /// bottom half -- the score, the stats, the games. Folded into laptop
+    /// mode, the picture is on the upper screen and the rest on the lower,
+    /// where filling the screen left it straddling the fold. Every other
+    /// phone, and the Duo on its side, fills the screen as before.
+    private var splitsScreen: Bool { isActive && previewStream != nil && expanded && !sideways && topBand }
+
+    /// The picture has the screen to itself, or its top half.
+    private var immersive: Bool { fillsScreen || splitsScreen }
 
     /// The masthead and the league strip, at fixed heights so the preview
     /// knows where to sit below them.
@@ -182,13 +193,20 @@ struct MobileLiveView: View {
                     containerHeight: viewport.size.height,
                     safeAreaTop: viewport.safeAreaInsets.top,
                     safeAreaBottom: viewport.safeAreaInsets.bottom)
+                // The upper half of the unfolded Duo, down to the fold.
+                let splitHeight = (fullHeight / 2).rounded()
+                let playerHeight = fillsScreen ? fullHeight : splitsScreen ? splitHeight
+                    : videoHeight + providerHeight + metadataHeight + timelineHeight
                 ZStack(alignment: .top) {
                     VStack(spacing: 0) {
-                        masthead(slate)
-                            .padding(.trailing, topBand ? MobileTopBand.clockCorner(screenWidth) : 0)
-                        leagueBar
+                        if !splitsScreen {
+                            masthead(slate)
+                                .padding(.trailing, topBand ? MobileTopBand.clockCorner(screenWidth) : 0)
+                            leagueBar
+                        }
                         if previewStream != nil {
-                            Color.clear.frame(height: 4 + videoHeight + providerHeight + metadataHeight + timelineHeight)
+                            Color.clear.frame(height: splitsScreen ? splitHeight
+                                              : 4 + videoHeight + providerHeight + metadataHeight + timelineHeight)
                             if statsOpen, let statsGame {
                                 // Upright, the stats take the room under the
                                 // picture that the games had.
@@ -217,10 +235,16 @@ struct MobileLiveView: View {
                                 program: library.guidePrograms(for: stream).first {
                                     $0.start <= clock.date && clock.date < $0.end
                                 },
-                                expanded: fillsScreen,
+                                expanded: immersive,
                                 showsMetadata: watching == nil,
-                                videoHeight: fillsScreen ? fullHeight : videoHeight,
-                                screenInsets: viewport.safeAreaInsets,
+                                videoHeight: fillsScreen ? fullHeight : splitsScreen ? splitHeight : videoHeight,
+                                // In the top half, the controls stop at the
+                                // fold rather than at the foot of the screen.
+                                screenInsets: splitsScreen
+                                    ? EdgeInsets(top: max(viewport.safeAreaInsets.top, 16),
+                                                 leading: viewport.safeAreaInsets.leading, bottom: 0,
+                                                 trailing: viewport.safeAreaInsets.trailing)
+                                    : viewport.safeAreaInsets,
                                 providerName: library.providerName(for: stream),
                                 onClose: closePreview,
                                 // On its side the phone itself is the control:
@@ -241,23 +265,22 @@ struct MobileLiveView: View {
                                 onToggleStats: statsGame == nil ? nil : { toggleStats() },
                                 statsShown: statsOpen
                             )
-                            .frame(height: fillsScreen ? fullHeight : videoHeight + providerHeight + metadataHeight + timelineHeight,
-                                   alignment: .top)
+                            .frame(height: playerHeight, alignment: .top)
                             // On its side, the picture makes room for the
                             // stats beside it rather than going under them.
                             .padding(.trailing, statsBeside ? Self.statsWidth(viewport) + viewport.safeAreaInsets.trailing : 0)
                             .background(LineupStyle.background)
                             // Squared off like the Guide's own cells until it
                             // fills the screen.
-                            .clipShape(RoundedRectangle(cornerRadius: fillsScreen ? 0 : LineupStyle.compactRadius,
+                            .clipShape(RoundedRectangle(cornerRadius: immersive ? 0 : LineupStyle.compactRadius,
                                                         style: .continuous))
-                            .padding(.horizontal, fillsScreen ? 0 : Self.inset)
+                            .padding(.horizontal, immersive ? 0 : Self.inset)
                         }
-                        .offset(y: fillsScreen ? 0 : previewTop)
+                        .offset(y: immersive ? 0 : previewTop)
                         .ignoresSafeArea(fillsScreen ? .all : [], edges: .all)
                         .id(ObjectIdentifier(playback))
                         .modifier(MobileDismissGesture(
-                            enabled: fillsScreen,
+                            enabled: immersive,
                             onBeginExit: { playback.freezePictureForExit() },
                             onDismiss: closePreview))
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -284,7 +307,7 @@ struct MobileLiveView: View {
                             .transition(.move(edge: .trailing))
                     }
 
-                    if leagueMenuOpen && !fillsScreen {
+                    if leagueMenuOpen && !immersive {
                         // Everything under the header steps back. The pill
                         // stays in reach: it is how the list closes, too.
                         Color.black.opacity(MobileMenuGlass.backdrop)
@@ -329,12 +352,12 @@ struct MobileLiveView: View {
             .ignoresSafeArea(.container, edges: topBand && !fillsScreen ? .top : [])
             .background(Color.black)
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(fillsScreen || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)
-            .statusBarHidden(fillsScreen)
-            .persistentSystemOverlays(fillsScreen ? .hidden : .automatic)
+            .toolbar(immersive || !usesNativeTabBarLayout ? .hidden : .visible, for: .tabBar)
+            .statusBarHidden(immersive)
+            .persistentSystemOverlays(immersive ? .hidden : .automatic)
             // Turning the phone needs no animation of its own: the rotation
             // already carries everything that follows from it.
-            .onChange(of: fillsScreen) { _, value in
+            .onChange(of: immersive) { _, value in
                 onFullscreenChange(value)
                 if value { leagueMenuOpen = false }
             }

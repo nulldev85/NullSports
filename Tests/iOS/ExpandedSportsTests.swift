@@ -190,6 +190,22 @@ final class ExpandedSportsTests: XCTestCase {
         XCTAssertFalse(GameAlertRules.isOvertime(final))
     }
 
+    func testCollegeBasketballReadsESPNsDivisionOneScoreboardWithItsRanks() throws {
+        let games = try ExpandedSportsScheduleClient.collegeBasketballGames(data: fixture("ncaab-scoreboard"))
+        XCTAssertEqual(games.map(\.id), ["ncaab-401921689", "ncaab-401925108", "ncaab-401920961"])
+        XCTAssertTrue(games.allSatisfy { $0.league == .ncaab && $0.league.isCollege })
+        let gonzaga = games[0]
+        XCTAssertEqual(gonzaga.awayTeam, "LSU Tigers")
+        XCTAssertEqual(gonzaga.homeTeam, "Gonzaga Bulldogs")
+        XCTAssertEqual(gonzaga.homeRank, 14)
+        XCTAssertNil(gonzaga.awayRank, "ESPN's 99 means unranked")
+        XCTAssertEqual(gonzaga.state, "post")
+        XCTAssertEqual(gonzaga.broadcast, "USA Net")
+        XCTAssertEqual(gonzaga.start, SportsScheduleClient.parseDate("2026-11-14T20:30Z"))
+        XCTAssertEqual(games[1].state, "in")
+        XCTAssertEqual(games[1].broadcast, "ESPN+")
+    }
+
     func testRacingUsesEachSessionsActualTimeAndPreservesOfficialDriverData() throws {
         let weekend = try ExpandedSportsScheduleClient.racingGames(data: fixture("f1-weekend"), league: .f1)
         XCTAssertEqual(weekend.count, 5)
@@ -245,7 +261,7 @@ final class ExpandedSportsTests: XCTestCase {
         let start = try XCTUnwrap(SportsScheduleClient.parseDate("2026-10-17T04:00Z")), end = start.addingTimeInterval(2 * 86_400)
         let client = ExpandedSportsScheduleClient(competitions: catalog, now: { start }, transport: { try await source.load($0) })
         let first = await client.games(from: start, to: end, racingTo: end.addingTimeInterval(14 * 86_400))
-        XCTAssertEqual(first.loadedLeagues, [.soccer, .f1])
+        XCTAssertEqual(first.loadedLeagues, [.soccer, .f1, .ncaab])
         XCTAssertEqual(first.games[.soccer]?.count, 1, "A match returned on multiple feed days must appear once")
         XCTAssertEqual(first.games[.f1]?.count, 5, "The racing window must include the next weekend")
         XCTAssertTrue(first.errorMessage?.contains("NASCAR") == true)
@@ -289,6 +305,9 @@ private actor FixtureTransport {
             return nascar
         }
         if url.path.contains("racing/f1") { return f1 }
+        // College basketball has a feed of its own; these tests are about
+        // soccer and racing, so it answers with an empty day.
+        if url.path.contains("mens-college-basketball") { return Data(#"{"events": []}"#.utf8) }
         return url.path.contains("soccer/all/") ? (capped ?? soccer) : soccer
     }
 }

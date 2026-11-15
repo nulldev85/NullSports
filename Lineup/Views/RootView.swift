@@ -16,7 +16,7 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if library.hasProfile || media.hasProfile {
+            if (library.hasProfile || media.hasProfile) && !DeviceSetupHold.shared.keepsWelcome {
                 MainView()
             } else {
                 #if os(iOS)

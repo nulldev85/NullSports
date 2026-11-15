@@ -19,7 +19,9 @@ class TeamDirectoryChecks(unittest.TestCase):
         counts = Counter(team["league"] for team in self.teams)
         for league, expected in {"nfl": 32, "nba": 30, "nhl": 32, "mlb": 30}.items():
             self.assertEqual(counts[league], expected)
-        self.assertEqual(set(counts), {"nfl", "nba", "nhl", "mlb", "ncaaf", "soccer"})
+        self.assertEqual(set(counts), {"nfl", "nba", "nhl", "mlb", "ncaaf", "ncaab", "soccer"})
+        self.assertGreater(counts["ncaab"], 300)
+        self.assertEqual({team["division"] for team in self.teams if team["league"] == "ncaab"}, {"Division I"})
         self.assertGreater(counts['soccer'], 300)
         college = [team for team in self.teams if team["league"] == "ncaaf"]
         self.assertGreater(len(college), 250)

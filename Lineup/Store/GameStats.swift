@@ -33,6 +33,7 @@ extension SportsGame {
         case .nfl: return .summary(sport: "football", league: "nfl")
         case .ncaaf: return .summary(sport: "football", league: "college-football")
         case .nba: return .summary(sport: "basketball", league: "nba")
+        case .ncaab: return .summary(sport: "basketball", league: "mens-college-basketball")
         case .nhl: return .summary(sport: "hockey", league: "nhl")
         case .mlb: return .summary(sport: "baseball", league: "mlb")
         // ESPN files a match under its competition: "eng.1", "uefa.champions".

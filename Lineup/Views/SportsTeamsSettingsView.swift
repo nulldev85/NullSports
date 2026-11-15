@@ -142,7 +142,7 @@ struct SportsTeamsSettingsView: View {
                                 SportsTeamLeagueLogo(league: league, size: 36)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(SportsTeamDirectory.title(league)).font(.inter(17, .semibold))
-                                    Text(league == .ncaaf ? "FBS and FCS" : league.fullName)
+                                    Text(league == .ncaaf ? "FBS and FCS" : league == .ncaab ? "Division I" : league.fullName)
                                         .font(.inter(13)).foregroundStyle(LineupPanelStyle.listValue)
                                 }
                                 Spacer(minLength: 8)

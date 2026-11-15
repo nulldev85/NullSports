@@ -31,6 +31,26 @@ final class PlaybackJournalTests: XCTestCase {
         XCTAssertTrue(PlaybackJournal(defaults: defaults).entries.isEmpty)
     }
 
+    func testAnExitWithoutLeavingTheScreenIsNamedAtTheNextLaunch() {
+        let defaults = freshDefaults()
+        let first = PlaybackJournal(defaults: defaults)
+        first.appLaunched()
+        first.note("Watching UFC 334 Gane vs. Hokit")
+        // The app goes down here, still on screen, as a crash or tvOS ending
+        // it for its memory would leave it.
+        let second = PlaybackJournal(defaults: defaults)
+        second.appLaunched()
+        XCTAssertTrue(second.entries.contains {
+            $0.text == "Lineup closed unexpectedly while watching UFC 334 Gane vs. Hokit"
+        })
+        // Sent to the background, then ended there by tvOS: nothing went wrong.
+        second.appInFront(false)
+        let third = PlaybackJournal(defaults: defaults)
+        third.appLaunched()
+        XCTAssertEqual(third.entries.filter { $0.text.contains("unexpectedly") }.count, 1)
+        XCTAssertTrue(third.entries.last?.text.hasPrefix("Lineup opened") == true)
+    }
+
     func testItListsTheNewestFirstUnderTheirDays() {
         let journal = PlaybackJournal(defaults: freshDefaults())
         let morning = Date(timeIntervalSince1970: 1_800_000_000)

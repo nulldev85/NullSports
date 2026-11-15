@@ -77,12 +77,12 @@ struct MobileCollegePollView: View {
                     .accessibilityAddTraits(poll == choice.rawValue ? .isSelected : [])
                 }
             } footer: {
-                Text("The latest week of the ranking you choose appears beside college football teams. Playoff Rankings start in November; until then the AP Top 25 stands in.")
+                Text("The latest week of the poll you choose appears beside college football and basketball teams. Playoff Rankings are football's alone and start in November; until then, and for basketball, the AP Top 25 stands in.")
                     .lineupSettingsFooter()
             }
             .lineupSettingsRows()
         }
         .lineupSettingsList()
-        .navigationTitle("College Football Ranking").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("College Top 25").navigationBarTitleDisplayMode(.inline)
     }
 }

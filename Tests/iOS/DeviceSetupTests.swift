@@ -367,6 +367,68 @@ final class DeviceSetupTests: XCTestCase {
         XCTAssertEqual(takes, 1)
     }
 
+    func testAConnectionThatSendsNothingDoesNotKeepThePhoneOut() async throws {
+        var takes = 0
+        let receiver = DeviceSetupReceiver(advertises: false, take: { _ in
+            takes += 1
+            return DeviceSetup.Applied(providers: 0, servers: 0)
+        }, settle: { _, _ in })
+        receiver.start()
+        defer { receiver.stop() }
+        let port = try await listening(receiver)
+        // An earlier try that reached the TV and then went quiet. The TV
+        // used to give it the floor for 20 seconds and turn the phone's next
+        // try away, with a message to scan the code again.
+        let silent = NWConnection(to: endpoint(port), using: .tcp)
+        silent.start(queue: DeviceSetupWire.queue)
+        defer { silent.cancel() }
+        try await until { silent.state == .ready }
+        let payload = DeviceSetupPayload(values: [:], providerPasswords: [:], mediaTokens: [:], library: .init())
+
+        try await DeviceSetupSender.send(payload, pairing: receiver.pairing, to: endpoint(port))
+        try await until {
+            if case .finished = receiver.phase { return true }
+            return false
+        }
+        XCTAssertEqual(takes, 1)
+    }
+
+    // MARK: After it arrives
+
+    func testASetupConnectsAgainToAServerTheTVHadAndReadsTheLibrarysChoicesAgain() async throws {
+        let (defaults, _) = try self.defaults()
+        let profile = MediaServerProfile(name: "Home", serverURL: "https://setup-reload.test", username: "viewer",
+                                         userID: "viewer")
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OfflineServer.self]
+        // Left open: the Library carries on loading in the background after
+        // the test, and a task asked of a closed session crashes whichever
+        // test is running then.
+        let session = URLSession(configuration: configuration)
+        var made = 0
+        let media = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""),
+                                 trackingKey: { nil }, serverClientFactory: { profile in
+            made += 1
+            return try JellyfinClient(serverURL: profile.serverURL, accessToken: "sign-in \(made)",
+                                      deviceID: "test", session: session)
+        })
+        defer { media.remove(profile) }
+        await media.reload()
+        let before = made
+        XCTAssertGreaterThan(before, 0)
+        XCTAssertTrue(media.showsCollectionsRow)
+
+        // What the setup wrote: a new sign-in for the same server, and the
+        // phone's choice to hide the Collections row.
+        defaults.set(true, forKey: "Lineup.collectionsRow.hidden")
+        await media.adoptSetup(DeviceSetupPayload.LibraryChoices())
+
+        XCTAssertGreaterThan(made, before, "the server is connected again, with the sign-in the setup brought")
+        XCTAssertFalse(media.showsCollectionsRow)
+        XCTAssertEqual(media.profiles.map(\.id), [profile.id])
+    }
+
     // MARK: Helpers
 
     private func listening(_ receiver: DeviceSetupReceiver) async throws -> NWEndpoint.Port {
@@ -427,4 +489,12 @@ private final class Vault: @unchecked Sendable {
                 }
             })
     }
+}
+
+/// A server that can't be reached: every request fails at once.
+private final class OfflineServer: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)) }
+    override func stopLoading() {}
 }

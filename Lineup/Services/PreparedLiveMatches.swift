@@ -47,7 +47,7 @@ struct PreparedLiveMatch: Codable, Sendable {
          game.eventName ?? "", game.competition?.id ?? "", game.race?.kind ?? "",
          String(game.start.timeIntervalSince1970), game.venue ?? "", game.location ?? "",
          game.race?.eventID ?? "", game.race?.title ?? "", game.race?.circuit ?? "",
-         game.league == .ncaaf && CollegeChannelMatcher.isDelayed(status: game.status) ? "delayed" : ""]
+         game.league.isCollege && CollegeChannelMatcher.isDelayed(status: game.status) ? "delayed" : ""]
     }
 
     /// Upgrade only a previous proof of this exact saved tournament card.
