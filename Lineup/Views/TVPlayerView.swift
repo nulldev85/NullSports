@@ -268,7 +268,9 @@ private struct TVNextEpisodeCard: View {
         .frame(width: 520, alignment: .leading)
         .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
         .lineupFocusLayer(focused.wrappedValue, in: shape, lifts: false)
-        .scaleEffect(focused.wrappedValue ? LineupStyle.cardLift : 1)
+        // Over the picture, a clear rise rather than a frame.
+        .brightness(focused.wrappedValue ? 0.12 : 0)
+        .scaleEffect(focused.wrappedValue ? 1.08 : 1)
         .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
         .contentShape(shape)
         .focusable()
@@ -310,7 +312,9 @@ private struct TVSkipSegmentButton: View {
         .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
         .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
         .lineupFocusLayer(focused.wrappedValue, in: shape, lifts: false)
-        .scaleEffect(focused.wrappedValue ? LineupStyle.cardLift : 1)
+        // Over the picture, a clear rise rather than a frame.
+        .brightness(focused.wrappedValue ? 0.12 : 0)
+        .scaleEffect(focused.wrappedValue ? 1.08 : 1)
         .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
         .contentShape(shape)
         .focusable()
@@ -1967,8 +1971,16 @@ private struct TVPlayerControlGlyph: View {
             .frame(width: 58, height: 56)
             .lineupLiquidGlass(shape, fallback: LineupStyle.surface.opacity(0.9), border: LineupStyle.line)
             .lineupFocusLayer(focused, in: shape, lifts: false)
-            .lineupShadow(.resting)
-            .scaleEffect(focused ? LineupStyle.controlLift : 1)
+            // Over a moving picture a small control's ordinary step up can't
+            // be seen, so the one the remote is on rises well clear of the
+            // row, brightens, and casts a deep shadow -- still no frame.
+            .brightness(focused ? 0.18 : 0)
+            .lineupShadow(focused ? .lifted : .resting)
+            .scaleEffect(focused ? Self.focusedScale : 1)
+            .offset(y: focused ? -6 : 0)
+            .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.22, dampingFraction: 0.76), value: focused)
     }
+
+    static let focusedScale: CGFloat = 1.22
 }
