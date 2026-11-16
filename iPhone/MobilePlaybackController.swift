@@ -324,7 +324,10 @@ final class MobilePlaybackController: ObservableObject {
     /// the channel still open could keep that provider's films and shows
     /// from opening at all.
     private func stopEveryoneElse() {
-        for other in Self.everyPlayer.allObjects where other !== self {
+        // A picture beside the main one -- not the sound's -- is there on
+        // purpose, and neither stops nor is stopped.
+        guard isPrimaryOutput else { return }
+        for other in Self.everyPlayer.allObjects where other !== self && other.isPrimaryOutput {
             if let group = playsAlongside, other.playsAlongside == group { continue }
             guard other.isPlaying || other.loading || other.audioStart != nil || other.pictureInPictureActive else { continue }
             other.diag.record("stopped: another player started")
