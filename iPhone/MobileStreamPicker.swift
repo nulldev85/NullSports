@@ -181,6 +181,11 @@ private struct MobileStreamResultRow: View {
                         Text(line.element).font(.inter(13)).foregroundStyle(LineupStyle.text.opacity(0.72))
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    // The file's size and rate, unless the formatter's own
+                    // lines already say them.
+                    if let measures = Self.measures(of: source, besides: lines.name + lines.description) {
+                        Text(measures).font(.interDigits(13, .semibold)).foregroundStyle(LineupStyle.text.opacity(0.85))
+                    }
                 } else {
                     lineupLines
                 }
@@ -194,6 +199,15 @@ private struct MobileStreamResultRow: View {
         .padding(.horizontal, 10).padding(.vertical, 10)
         .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    /// Size and rate, "8.15 GB · 25 Mbps", for a stream laid out by its
+    /// server's formatter; nil when the formatter wrote the size itself.
+    static func measures(of source: MediaPlaybackSource, besides lines: [String]) -> String? {
+        let size = source.formattedSize
+        if let size, lines.contains(where: { $0.contains(size) }) { return nil }
+        let parts = [size, source.formattedBitrate].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -210,7 +224,8 @@ private struct MobileStreamResultRow: View {
     /// Lineup's own reading of a stream: its file name, then what it is.
     @ViewBuilder
     private var lineupLines: some View {
-        Text(source.directURL != nil ? "Your IPTV provider’s copy" : source.releaseName)
+        // A provider's copy is named for its provider: "VOD - Blue".
+        Text(source.isVOD ? source.group : source.releaseName)
             .font(.inter(16, .semibold)).foregroundStyle(LineupStyle.text)
             .lineLimit(3).fixedSize(horizontal: false, vertical: true)
         if source.directURL != nil {

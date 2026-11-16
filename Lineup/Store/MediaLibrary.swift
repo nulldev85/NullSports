@@ -4405,9 +4405,30 @@ final class MediaLibrary {
     /// The IPTV provider, as one more place to look for a film's or an
     /// episode's streams, when one is signed in.
     func streamProvider(for item: MediaItem) -> (id: UUID, name: String)? {
-        guard item.type == "Movie" || item.type == "Episode",
-              let profile = providerVOD.provider?.profile else { return nil }
-        return (profile.id, profile.name)
+        streamProviders(for: item).first
+    }
+
+    /// Every IPTV provider to look in for a title's streams: the one a
+    /// provider's own title came from, or every provider shown.
+    func streamProviders(for item: MediaItem) -> [(id: UUID, name: String)] {
+        guard item.type == "Movie" || item.type == "Episode" else { return [] }
+        if ProviderItem(id: item.id) != nil {
+            return providerVOD.profile(item.serverID).map { [($0.id, $0.name)] } ?? []
+        }
+        return providerVOD.shown.map { ($0.id, $0.name) }
+    }
+
+    /// One provider's streams for a title.
+    func providerSources(for item: MediaItem, provider id: UUID) async throws -> [MediaPlaybackSource] {
+        guard let provider = providerVOD.provider(id) else {
+            throw StreamLookupError.notOnServer(tried: "That provider isn't signed in")
+        }
+        let (catalog, index) = try await providerVOD.catalog(id)
+        if let place = ProviderItem(id: item.id) {
+            guard item.serverID == id else { return [] }
+            return try await providerSources(for: place, item: item, catalog: catalog, index: index, provider: provider)
+        }
+        return try await providerSources(lookingFor: item, catalog: catalog, index: index, provider: provider)
     }
 
     /// The provider's streams for a title: each of its films that is this

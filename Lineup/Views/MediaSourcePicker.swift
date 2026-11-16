@@ -30,7 +30,7 @@ enum StreamLookup {
     var name: String {
         switch self {
         case .server(let server): server.name
-        case .provider: "VOD"
+        case .provider(_, let name): MediaPlaybackSource.vodGroup(name)
         }
     }
 }
@@ -295,10 +295,11 @@ struct MediaSourcePicker: View {
         // the provider's own titles -- failing is the screen's error.
         var lookups = library.streamServers(for: title).map { StreamLookup.server($0) }
         var ownIndex = 0
-        if let provider = library.streamProvider(for: title) {
-            lookups.insert(.provider(id: provider.id, name: provider.name), at: 0)
-            if !title.isProviderTitle, lookups.count > 1 { ownIndex = 1 }
-        }
+        // Each IPTV provider asked on its own, ahead of the servers, and listed
+        // under its own name.
+        let providers = library.streamProviders(for: title)
+        lookups.insert(contentsOf: providers.map { StreamLookup.provider(id: $0.id, name: $0.name) }, at: 0)
+        if !providers.isEmpty, !title.isProviderTitle, lookups.count > providers.count { ownIndex = providers.count }
         pendingServers = lookups.count
         let providerWait = library.providerVOD.waitNote
         serverStatus = lookups.map { lookup -> StreamServerStatus in
@@ -315,8 +316,8 @@ struct MediaSourcePicker: View {
                         switch lookup {
                         case .server(let server):
                             return (index, .success(try await library.playbackSources(for: title, on: server)))
-                        case .provider:
-                            return (index, .success(try await library.providerSources(for: title)))
+                        case .provider(let id, _):
+                            return (index, .success(try await library.providerSources(for: title, provider: id)))
                         }
                     } catch { return (index, .failure(error)) }
                 }

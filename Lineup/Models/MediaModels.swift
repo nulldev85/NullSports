@@ -1511,9 +1511,22 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// server that names none had its streams split by the first line of
     /// their names -- by quality.
     var group: String {
-        if directURL != nil && siloLease == nil { return "VOD" }
+        if directURL != nil && siloLease == nil { return Self.vodGroup(serverName) }
         return serverName ?? provider
     }
+
+    /// An IPTV provider's copies are grouped by the provider: "VOD - Blue".
+    static func vodGroup(_ provider: String?) -> String {
+        guard let provider, !provider.isEmpty else { return "VOD" }
+        return "VOD - " + provider
+    }
+
+    /// From an IPTV provider: listed first.
+    var isVOD: Bool { directURL != nil && siloLease == nil }
+
+    /// Found by an add-on server -- AIOStreams and the like -- rather than
+    /// held by a media server: listed after the media servers.
+    var isAddonResult: Bool { aiostreams != nil || formatterLines != nil }
 
     var releaseName: String {
         if let filename = remux?.providerInfo?.filename {
