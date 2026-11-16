@@ -509,6 +509,22 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertEqual(credential.profileToken, "fixture-proof")
     }
 
+    /// Silo says why it won't play a file; the viewer is told that, not a
+    /// line about a compatible plan.
+    func testSiloSaysWhyItWontPlayAFile() throws {
+        let decision = try JSONDecoder().decode(SiloPlaybackDecision.self, from: Data(#"""
+        {"protocol_version":3,"server_features":[],"outcome":"adaptation_unavailable",
+         "terminal":{"reason":"transcode_limit_reached","message":"limit","retryable":true}}
+        """#.utf8))
+        let terminal = try XCTUnwrap(decision.terminal)
+        XCTAssertNil(decision.playback_plan)
+        XCTAssertTrue(SiloPlaybackSession.explanation(terminal).contains("converting as many videos"))
+        let unknown = SiloPlaybackDecision.Terminal(reason: "something_new", message: "Server is busy.", retryable: false)
+        XCTAssertEqual(SiloPlaybackSession.explanation(unknown), "Server is busy.")
+        let policy = SiloPlaybackDecision.Terminal(reason: "routing_policy_unsatisfied", message: nil, retryable: false)
+        XCTAssertTrue(SiloPlaybackSession.explanation(policy).contains("transcoding"))
+    }
+
     @MainActor
     func testSiloRemuxRemoteSeekKeepsFullRuntimeAndSequencedServerProgress() async throws {
         let session = session(); defer { session.invalidateAndCancel() }

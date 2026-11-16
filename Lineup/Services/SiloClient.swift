@@ -157,6 +157,14 @@ struct SiloPlaybackDecision: Decodable, Sendable {
     let protocol_version: Int
     let outcome: String
     let session_id: String?
+    /// Why Silo will not play this file, when it won't: `outcome` is
+    /// `adaptation_unavailable` and there is no plan.
+    let terminal: Terminal?
+    struct Terminal: Decodable, Sendable {
+        let reason: String
+        let message: String?
+        let retryable: Bool?
+    }
     let playback_plan: Plan?
     struct Plan: Decodable, Sendable {
         let delivery: String

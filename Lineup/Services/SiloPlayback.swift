@@ -100,7 +100,40 @@ final class SiloPlaybackSession {
         return opened
     }
 
+    /// Silo's own reason for not playing a file, in words a viewer can act
+    /// on. It said why every time; Lineup used to answer every one of them
+    /// with the same line about a compatible plan.
+    nonisolated static func explanation(_ terminal: SiloPlaybackDecision.Terminal) -> String {
+        let retry = terminal.retryable == true ? " Try again in a moment." : ""
+        switch terminal.reason {
+        case "source_metadata_incomplete":
+            return "Silo hasn’t finished reading this file yet." + retry
+        case "source_unreadable":
+            return "Silo can’t read this file. It may be damaged or in a format the server doesn’t understand."
+        case "stream_limit_reached":
+            return "Your Silo account is already playing as many streams as it’s allowed. Stop one, then try again."
+        case "transcode_limit_reached":
+            return "Your Silo account is already converting as many videos as it’s allowed. Stop one, then try again."
+        case "route_capacity_unavailable", "route_capability_unavailable", "route_preparation_failed":
+            return "Silo couldn’t get this file ready to stream right now." + retry
+        case "routing_policy_unsatisfied", "adaptation_unavailable", "adaptation_exhausted",
+             "client_hls_unsupported", "dv_conversion_unsupported", "hdr_transcode_unsupported",
+             "audio_conversion_unsupported":
+            return "Silo can’t send this version in a form this device plays, and its server settings don’t allow converting it. Try another version, or turn on transcoding on your Silo server."
+        case "policy_denied":
+            return "Your Silo server doesn’t allow this account to play this file."
+        case "session_expired":
+            return "That Silo playback session ended. Try again."
+        default:
+            let detail = terminal.message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return (detail.isEmpty ? "Silo won’t play this file (\(terminal.reason))." : detail) + retry
+        }
+    }
+
     private func makeAsset(_ decision: SiloPlaybackDecision) throws -> SiloPlaybackAsset {
+        if decision.outcome != "playable", let terminal = decision.terminal {
+            throw MediaIntegrationError.unavailable(Self.explanation(terminal))
+        }
         guard decision.protocol_version == 3, decision.outcome == "playable", let plan = decision.playback_plan,
               let session = decision.session_id, !session.isEmpty, let client,
               let url = client.http.resolvedURL(plan.stream.url), plan.stream.headers.isEmpty,
@@ -283,27 +316,39 @@ final class SiloPlaybackSession {
         #else
         let platform = "ios", form = "phone"
         #endif
+        // Every engine Lineup plays Silo with -- VLC, MPV and Aether -- is
+        // built on FFmpeg and decodes in software what the chip cannot. The
+        // declaration used to be AVPlayer's short list: H.264 and HEVC, four
+        // audio formats, no HDR. A film with DTS or TrueHD, an AV1 or VP9
+        // encode, or HDR then needed converting, and a Silo server with
+        // conversion off had no way to send it at all.
         let hevc = VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC)
-        let video = hevc ? ["h264", "hevc"] : ["h264"]
-        let audio = ["aac", "mp3", "ac3", "eac3"]
-        let containers = ["mp4", "mov", "m4v", "mkv", "matroska", "mpegts", "webm"]
-        // Declared family support, with no invented level/profile, HDR or
-        // passthrough claim. The planner may adapt material beyond this set.
+        let av1 = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
+        let hardware = ["h264"] + (hevc ? ["hevc"] : []) + (av1 ? ["av1"] : [])
+        let video = ["h264", "hevc", "av1", "vp9", "vp8", "mpeg2video", "mpeg4", "vc1"]
+        let audio = ["aac", "mp3", "ac3", "eac3", "flac", "alac", "opus", "vorbis", "mp2",
+                     "dts", "truehd", "pcm_s16le", "pcm_s24le"]
+        let containers = ["mp4", "mov", "m4v", "mkv", "matroska", "webm", "mpegts", "ts", "m2ts", "avi"]
         let capabilities: [String: Any] = ["video_evidence": "declared", "audio_evidence": "declared",
-            "codecs_video": video, "codecs_video_hardware": video, "codecs_audio": audio,
-            "containers": containers, "hdr": false, "max_resolution": hevc ? "2160p" : "1080p"]
+            "codecs_video": video, "codecs_video_hardware": hardware, "codecs_audio": audio,
+            "containers": containers, "hdr": true, "max_resolution": "2160p"]
         func delivery(_ formats: [String]) -> [String: Any] {
             ["enabled": true, "supported_on_device": true, "containers": formats, "video_codecs": video,
                 "audio_decode_codecs": audio, "audio_passthrough_codecs": [],
-                "subtitles": ["embedded_text": true, "sidecar_text": false, "ass_styling": false,
+                // The engines draw styled subtitles themselves.
+                "subtitles": ["embedded_text": true, "sidecar_text": false, "ass_styling": true,
                     "embedded_bitmap": true, "sidecar_bitmap": false, "font_attachments": false],
                 "features": [], "auth_header_refresh": false, "validated_claims": [], "transformations": []]
         }
+        // Keyed by delivery class: the file as it is, a remux sent as one
+        // stream, and HLS in either segment container.
         let context: [String: Any] = ["protocol_version": 3, "form_factor": form,
             "app_version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.19.0",
             "app_build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
             "device": ["platform": platform, "manufacturer": "Apple", "model": UIDevice.current.model, "os_version": UIDevice.current.systemVersion],
-            "output": [:], "deliveries": ["original_http": delivery(containers), "hls": delivery(["mp4", "mpegts"])]]
+            "output": [:], "deliveries": ["original_http": delivery(containers),
+                                          "progressive": delivery(["mp4", "matroska", "mkv", "mpegts"]),
+                                          "hls": delivery(["fmp4", "mp4", "mpegts", "ts"])]]
         return (capabilities, context)
     }
 }
