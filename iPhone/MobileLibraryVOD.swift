@@ -10,7 +10,7 @@ struct MobileLibraryVODRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("IPTV MOVIES & SHOWS")
+            Text("VOD")
                 .font(.inter(14, .heavy))
                 .padding(.horizontal, LineupPanelStyle.inset)
             ScrollView(.horizontal, showsIndicators: false) {

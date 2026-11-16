@@ -249,7 +249,7 @@ struct MediaServersView: View {
                 }
             }
             let shownName = chosen.flatMap { id in vodProviders.first { $0.id == id }?.name } ?? "All"
-            servers.insert(MobileMenuItem("IPTV Movies & Shows · " + shownName, symbol: "film.stack",
+            servers.insert(MobileMenuItem("VOD · " + shownName, symbol: "film.stack",
                                           id: "vod-provider",
                                           children: [MobileMenuSection(id: "vod-providers", items: choices)]), at: 0)
         }
