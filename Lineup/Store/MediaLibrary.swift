@@ -4698,6 +4698,10 @@ final class MediaLibrary {
         return all.count > 1 ? all : []
     }
 
+    /// The Library row that holds a folder for each provider's films and
+    /// shows, by the id its place is kept under.
+    nonisolated static let vodRowID = "builtin:iptv-vod"
+
     /// Every Xtream provider with films and shows to browse, each a folder
     /// in the Library.
     var providerVODAccounts: [XtreamProfile] {
@@ -5767,6 +5771,10 @@ extension MediaLibrary {
         if showsCollectionsRow {
             rows.append(LibraryRow(id: LibraryShelfOrder.collections, title: "Collections",
                                    detail: nil, symbol: "folder.fill", brand: nil))
+        }
+        // The VOD row, moved like any other.
+        if !providerVODAccounts.isEmpty {
+            rows.append(LibraryRow(id: Self.vodRowID, title: "VOD", detail: nil, symbol: "film.stack", brand: nil))
         }
         #endif
         if !continueWatching.isEmpty {

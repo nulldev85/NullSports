@@ -6,7 +6,7 @@ struct MobileLibraryVODRow: View {
     @Environment(MediaLibrary.self) private var media
     @Environment(\.mobileShelfBleed) private var bleed
 
-    static let rowID = "builtin:iptv-vod"
+    static let rowID = MediaLibrary.vodRowID
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -57,8 +57,14 @@ struct MobileLibraryVODRow: View {
 /// Wide -- a Duo open, a phone on its side -- the categories run down the
 /// left and the chosen one's titles fill the right, under the tabs. Upright,
 /// the tabs, then the categories as a row of chips, then the titles.
+///
+/// A category's titles are kept once read, so going back to one is instant,
+/// and the titles on screen stay until the next category's are ready rather
+/// than giving way to a spinner: changing category or tab is a crossfade
+/// from one grid to the next.
 struct MobileProviderVODView: View {
     @Environment(MediaLibrary.self) private var media
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let provider: XtreamProfile
 
     private enum Kind: String, CaseIterable, Identifiable {
@@ -71,8 +77,11 @@ struct MobileProviderVODView: View {
     @State private var failed = false
     /// The category chosen on each tab, by id.
     @State private var chosen: [Kind: String] = [:]
-    @State private var titles: [MediaItem] = []
-    @State private var loadingTitles = false
+    /// Each category's titles once read, by the category's key.
+    @State private var titlesByCategory: [String: [MediaItem]] = [:]
+    @State private var wide = false
+    /// A title chosen, for its page.
+    @State private var pushed: MediaItem?
 
     private static let splitWidth: CGFloat = 700
 
@@ -85,41 +94,53 @@ struct MobileProviderVODView: View {
         return all.first { $0.id == chosen[kind] } ?? all.first
     }
 
+    private var transition: Animation {
+        reduceMotion ? .easeOut(duration: 0.12) : .easeInOut(duration: 0.22)
+    }
+
     var body: some View {
-        GeometryReader { bounds in
-            Group {
-                if categories == nil {
-                    status
-                } else if bounds.size.width >= Self.splitWidth {
-                    HStack(spacing: 0) {
-                        sidebar.frame(width: min(320, bounds.size.width * 0.32))
-                        Rectangle().fill(LineupPanelStyle.divider).frame(width: 1)
-                        VStack(spacing: 12) {
-                            tabs.padding(.horizontal, 16).padding(.top, 12)
-                            grid
-                        }
-                    }
-                } else {
+        Group {
+            if categories == nil {
+                status
+            } else if wide {
+                HStack(spacing: 0) {
+                    sidebar.frame(width: 300)
+                    Rectangle().fill(LineupPanelStyle.divider).frame(width: 1)
                     VStack(spacing: 12) {
-                        tabs.padding(.horizontal, 16).padding(.top, 8)
-                        chips
+                        tabs.padding(.horizontal, 16).padding(.top, 12)
                         grid
                     }
                 }
+            } else {
+                VStack(spacing: 12) {
+                    tabs.padding(.horizontal, 16).padding(.top, 8)
+                    chips
+                    grid
+                }
             }
-            .frame(width: bounds.size.width, height: bounds.size.height, alignment: .top)
         }
-        .background(LineupStyle.background.ignoresSafeArea())
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Wide or not is decided as the size changes, not worked out again
+        // on every redraw.
+        .onGeometryChange(for: Bool.self) { $0.size.width >= Self.splitWidth } action: { wide = $0 }
+        .background(LineupPresentationStyle.ground.ignoresSafeArea())
         .navigationTitle(provider.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(LineupPresentationStyle.ground, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        // A title's page, as from any shelf in the Library.
+        .navigationDestination(for: MediaItem.self) { item in MediaBrowseDestination(item: item) }
+        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .task(id: provider.id) { await load() }
-        .task(id: selected?.libraryKey) { await loadTitles() }
+        .task(id: selected?.libraryKey) { await loadTitles(for: selected) }
     }
 
     // MARK: Parts
 
     private var tabs: some View {
-        Picker("Show", selection: $kind) {
+        Picker("Show", selection: Binding(get: { kind }, set: { new in
+            withAnimation(transition) { kind = new }
+        })) {
             ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
         }
         .pickerStyle(.segmented)
@@ -154,56 +175,79 @@ struct MobileProviderVODView: View {
             }
             .padding(10)
         }
+        .id(kind)
     }
 
     /// The categories as a row of chips, upright.
     private var chips: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 8) {
-                    ForEach(list, id: \.libraryKey) { category in
-                        let isChosen = category.id == selected?.id
-                        Button { choose(category) } label: {
-                            Text(category.name)
-                                .font(.inter(.subheadline, .semibold))
-                                .lineLimit(1)
-                                .padding(.horizontal, 14).frame(height: 34)
-                                .foregroundStyle(isChosen ? LineupStyle.onHighlight : LineupStyle.text)
-                                .background(isChosen ? LineupStyle.highlight : LineupPanelStyle.fill, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .id(category.libraryKey)
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 8) {
+                ForEach(list, id: \.libraryKey) { category in
+                    let isChosen = category.id == selected?.id
+                    Button { choose(category) } label: {
+                        Text(category.name)
+                            .font(.inter(.subheadline, .semibold))
+                            .lineLimit(1)
+                            .padding(.horizontal, 14).frame(height: 34)
+                            .foregroundStyle(isChosen ? LineupStyle.onHighlight : LineupStyle.text)
+                            .background(isChosen ? LineupStyle.highlight : LineupPanelStyle.fill, in: Capsule())
                     }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 16)
             }
-            .frame(height: 38)
-            .onChange(of: kind) { _, _ in
-                if let key = selected?.libraryKey { proxy.scrollTo(key, anchor: .center) }
-            }
+            .padding(.horizontal, 16)
         }
+        .frame(height: 38)
+        // Each tab's chips start at their own beginning.
+        .id(kind)
     }
 
-    /// The chosen category's titles.
+    /// The chosen category's titles, crossfading to the next category's
+    /// once they are in hand.
     private var grid: some View {
-        ScrollView {
-            if loadingTitles && titles.isEmpty {
-                ProgressView().padding(.top, 40)
-            } else if titles.isEmpty {
-                Text(list.isEmpty ? "\(provider.name) has no \(kind.rawValue.lowercased())." : "Nothing in this category.")
+        let key = selected?.libraryKey ?? ""
+        let titles = titlesByCategory[key]
+        return ZStack(alignment: .top) {
+            if let titles {
+                if titles.isEmpty {
+                    Text("Nothing in this category.")
+                        .font(.inter(.subheadline, .medium))
+                        .foregroundStyle(LineupPanelStyle.quiet)
+                        .padding(.top, 40)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 12, alignment: .top)],
+                                  spacing: 16) {
+                            ForEach(titles, id: \.libraryKey) { item in cell(item) }
+                        }
+                        .padding(.horizontal, 16).padding(.bottom, 24)
+                    }
+                }
+            } else if list.isEmpty {
+                Text("\(provider.name) has no \(kind.rawValue.lowercased()).")
                     .font(.inter(.subheadline, .medium))
                     .foregroundStyle(LineupPanelStyle.quiet)
                     .padding(.top, 40)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 12, alignment: .top)],
-                          spacing: 16) {
-                    ForEach(titles, id: \.libraryKey) { item in
-                        NavigationLink(value: item) { MediaItemCard(item: item, shape: .poster) }
-                            .lineupFlatButton()
-                    }
-                }
-                .padding(.horizontal, 16).padding(.bottom, 24)
+                ProgressView().padding(.top, 40)
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .id(key)
+        .transition(.opacity)
+        .animation(transition, value: key)
+    }
+
+    /// A title as the Library's grids draw it: its page on a tap, the
+    /// Library's choices on a hold.
+    @ViewBuilder
+    private func cell(_ item: MediaItem) -> some View {
+        if item.opensPage {
+            MediaItemCard(item: item, shape: .poster)
+                .lineupHoldMenu(item.name, symbol: item.isSeries ? "tv" : "film",
+                                items: { media.cardMenuItems(for: item) }) { pushed = item }
+        } else {
+            MediaPlayableCard(item: item, shape: .poster)
         }
     }
 
@@ -226,7 +270,7 @@ struct MobileProviderVODView: View {
 
     private func choose(_ category: MediaItem) {
         guard chosen[kind] != category.id else { return }
-        chosen[kind] = category.id
+        withAnimation(transition) { chosen[kind] = category.id }
     }
 
     private func load() async {
@@ -235,17 +279,20 @@ struct MobileProviderVODView: View {
         guard !Task.isCancelled else { return }
         categories = found
         failed = found == nil
+        guard let found else { return }
         // A provider with shows and no films opens on its shows.
-        if let found, found.films.isEmpty, !found.shows.isEmpty { kind = .shows }
+        if found.films.isEmpty, !found.shows.isEmpty { kind = .shows }
+        // The other tab's first category is read now, so changing tab finds
+        // its titles waiting.
+        for first in [found.films.first, found.shows.first].compactMap({ $0 }) {
+            await loadTitles(for: first)
+        }
     }
 
-    private func loadTitles() async {
-        guard let category = selected else { titles = []; return }
-        loadingTitles = true
-        titles = []
+    private func loadTitles(for category: MediaItem?) async {
+        guard let category, titlesByCategory[category.libraryKey] == nil else { return }
         let found = (try? await media.items(in: category)) ?? []
-        guard !Task.isCancelled, category.id == selected?.id else { return }
-        titles = found
-        loadingTitles = false
+        guard !Task.isCancelled else { return }
+        withAnimation(transition) { titlesByCategory[category.libraryKey] = found }
     }
 }
