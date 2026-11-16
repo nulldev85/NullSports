@@ -244,6 +244,7 @@ struct GuideView: View {
                                                         favoritesMode: favoritesOnly && !searchActive,
                                                         now: guideNow,
                                                         gridFocus: $gridFocus,
+                                                        focus: focus,
                                                         multiviewPrimaryID: multiviewPrimary?.id,
                                                         onPlay: { select(stream) },
                                                         onStartMultiview: { multiviewPrimary = stream },
@@ -269,6 +270,7 @@ struct GuideView: View {
                                                         quality: guideQuality(stream),
                                                         favoritesMode: favoritesOnly && !searchActive,
                                                         gridFocus: $gridFocus,
+                                                        focus: focus,
                                                         multiviewPrimaryID: multiviewPrimary?.id,
                                                         onPlay: { select(stream) },
                                                         onStartMultiview: { multiviewPrimary = stream },
@@ -400,6 +402,11 @@ struct GuideView: View {
                 }
                 .task(id: channelRequest) { await loadChannels() }
                 .onChange(of: guideViewModeValue) { _, value in restoreGuideFocus(for: value) }
+                // The one place the remote's position is read from the focus
+                // engine. The cells take it from the model, each on its own.
+                .onChange(of: gridFocus) { _, place in
+                    if focus.current != place { focus.current = place }
+                }
                 .modifier(GuideBackAction(focus: focus, action: backAction))
             }
             .environment(\.guideLayout, layout)
@@ -664,6 +671,10 @@ private struct GuideFocusItem: Equatable {
 /// things that show it -- the panel, and what Back does -- and a press
 /// redraws those and the two cells the remote moved between.
 @Observable private final class GuideFocusModel {
+    /// The cell the remote is on. Every cell reads this to know whether it
+    /// is the one: a cell handed the focus binding alone is not told when
+    /// it changes, and went on drawing itself unfocused.
+    var current: GuideGridFocus?
     /// The programme under the remote, for the panel above the grid.
     var item: GuideFocusItem?
     /// Whether the remote is below the first channel, where Back goes to
@@ -1522,6 +1533,7 @@ private struct GuideChannelRow: View, Equatable {
     let favoritesMode: Bool
     let now: Date
     let gridFocus: FocusState<GuideGridFocus?>.Binding
+    let focus: GuideFocusModel
     let multiviewPrimaryID: Int?
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
@@ -1547,14 +1559,14 @@ private struct GuideChannelRow: View, Equatable {
             ZStack(alignment: .leading) {
                 if visiblePrograms.isEmpty {
                     let focusID = GuideGridFocus(streamID: stream.id, programStart: nil)
-                    GuideProgramCell(program: nil, empty: "No guide information", quality: quality, now: now, anchor: anchor, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
+                    GuideProgramCell(program: nil, empty: "No guide information", quality: quality, now: now, anchor: anchor, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focus: focus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
                         .frame(width: layout.slotWidth - 6, alignment: .leading)
                 } else {
                     ForEach(visiblePrograms.indices, id: \.self) { index in
                         let program = visiblePrograms[index]
                         let width = guideProgramWidth(program, anchor: anchor, layout: layout)
                         let focusID = GuideGridFocus(streamID: stream.id, programStart: program.start)
-                        GuideProgramCell(program: program, empty: "", quality: quality, now: now, anchor: anchor, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) }, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
+                        GuideProgramCell(program: program, empty: "", quality: quality, now: now, anchor: anchor, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) }, gridFocus: gridFocus, focus: focus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
                             .frame(width: width, alignment: .leading)
                             .offset(x: guideProgramX(program, anchor: anchor, layout: layout))
                     }
@@ -1634,6 +1646,7 @@ private struct GuideChannelListRow: View, Equatable {
     let quality: String?
     let favoritesMode: Bool
     let gridFocus: FocusState<GuideGridFocus?>.Binding
+    let focus: GuideFocusModel
     let multiviewPrimaryID: Int?
     let onPlay: () -> Void
     let onStartMultiview: () -> Void
@@ -1644,7 +1657,7 @@ private struct GuideChannelListRow: View, Equatable {
     let onFocus: () -> Void
 
     private var focusID: GuideGridFocus { GuideGridFocus(streamID: stream.id, programStart: nil) }
-    private var isFocused: Bool { gridFocus.wrappedValue == focusID }
+    private var isFocused: Bool { focus.current == focusID }
     private var logoWidth: CGFloat { layout.listChannelWidth }
     private var rowHeight: CGFloat { min(128, max(106, layout.rowHeight * 0.9)) }
 
@@ -2029,9 +2042,10 @@ private struct GuideProgramCell: View {
     let onPlay: () -> Void
     let onFocus: () -> Void
     let gridFocus: FocusState<GuideGridFocus?>.Binding
+    let focus: GuideFocusModel
     let focusID: GuideGridFocus
     let onMove: (MoveCommandDirection) -> Void
-    private var isFocused: Bool { gridFocus.wrappedValue == focusID }
+    private var isFocused: Bool { focus.current == focusID }
 
     private var isOnNow: Bool {
         guard let program else { return false }
