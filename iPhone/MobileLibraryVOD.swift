@@ -51,8 +51,12 @@ struct MobileLibraryVODRow: View {
     }
 }
 
-/// One provider's films and shows: its categories, Movies and Shows on tabs
-/// of their own, each opening its titles.
+/// One provider's films and shows: its categories, and the titles of the one
+/// chosen, with Movies and Shows on tabs.
+///
+/// Wide -- a Duo open, a phone on its side -- the categories run down the
+/// left and the chosen one's titles fill the right, under the tabs. Upright,
+/// the tabs, then the categories as a row of chips, then the titles.
 struct MobileProviderVODView: View {
     @Environment(MediaLibrary.self) private var media
     let provider: XtreamProfile
@@ -65,69 +69,164 @@ struct MobileProviderVODView: View {
     @State private var kind: Kind = .movies
     @State private var categories: (films: [MediaItem], shows: [MediaItem])?
     @State private var failed = false
-    @State private var query = ""
+    /// The category chosen on each tab, by id.
+    @State private var chosen: [Kind: String] = [:]
+    @State private var titles: [MediaItem] = []
+    @State private var loadingTitles = false
 
-    private var shown: [MediaItem] {
-        let all = kind == .movies ? categories?.films ?? [] : categories?.shows ?? []
-        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return term.isEmpty ? all : all.filter { $0.name.localizedStandardContains(term) }
+    private static let splitWidth: CGFloat = 700
+
+    private var list: [MediaItem] {
+        kind == .movies ? categories?.films ?? [] : categories?.shows ?? []
+    }
+
+    private var selected: MediaItem? {
+        let all = list
+        return all.first { $0.id == chosen[kind] } ?? all.first
     }
 
     var body: some View {
-        List {
-            Section {
-                Picker("Show", selection: $kind) {
-                    ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-            }
-            Section {
+        GeometryReader { bounds in
+            Group {
                 if categories == nil {
-                    HStack(spacing: 12) {
-                        if failed {
-                            Image(systemName: "exclamationmark.triangle").foregroundStyle(LineupIconTile.orange)
-                            Text("\(provider.name) didn’t send its list. Try again in a moment.")
-                        } else {
-                            ProgressView()
-                            Text("Loading \(provider.name)’s list…")
+                    status
+                } else if bounds.size.width >= Self.splitWidth {
+                    HStack(spacing: 0) {
+                        sidebar.frame(width: min(320, bounds.size.width * 0.32))
+                        Rectangle().fill(LineupPanelStyle.divider).frame(width: 1)
+                        VStack(spacing: 12) {
+                            tabs.padding(.horizontal, 16).padding(.top, 12)
+                            grid
                         }
                     }
-                    .font(.inter(.subheadline, .medium))
-                } else if shown.isEmpty {
-                    Text(query.isEmpty ? "\(provider.name) has no \(kind.rawValue.lowercased())."
-                                       : "No categories match.")
-                        .font(.inter(.subheadline, .medium))
-                        .foregroundStyle(LineupPanelStyle.quiet)
                 } else {
-                    ForEach(shown, id: \.libraryKey) { category in
-                        NavigationLink(value: category) {
-                            HStack(spacing: 14) {
-                                LineupIconTile(symbol: kind == .movies ? "film" : "tv", size: 30)
-                                Text(category.name)
-                                    .font(.inter(.body, .semibold))
-                                    .foregroundStyle(LineupStyle.text)
-                                    .lineLimit(2)
-                                Spacer(minLength: 8)
-                                if let count = category.childCount {
-                                    Text(count.formatted())
-                                        .font(.interDigits(15, .medium))
-                                        .foregroundStyle(LineupPanelStyle.listValue)
-                                }
-                            }
-                        }
+                    VStack(spacing: 12) {
+                        tabs.padding(.horizontal, 16).padding(.top, 8)
+                        chips
+                        grid
                     }
                 }
             }
-            .lineupSettingsRows()
+            .frame(width: bounds.size.width, height: bounds.size.height, alignment: .top)
         }
-        .lineupSettingsList()
-        .searchable(text: $query, prompt: "Find a category")
+        .background(LineupStyle.background.ignoresSafeArea())
         .navigationTitle(provider.name)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: provider.id) { await load() }
-        .refreshable { await load() }
+        .task(id: selected?.libraryKey) { await loadTitles() }
+    }
+
+    // MARK: Parts
+
+    private var tabs: some View {
+        Picker("Show", selection: $kind) {
+            ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    /// The categories down the left, the chosen one marked.
+    private var sidebar: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                ForEach(list, id: \.libraryKey) { category in
+                    let isChosen = category.id == selected?.id
+                    Button { choose(category) } label: {
+                        HStack(spacing: 10) {
+                            Text(category.name)
+                                .font(.inter(.subheadline, isChosen ? .bold : .medium))
+                                .foregroundStyle(isChosen ? LineupStyle.text : LineupStyle.secondary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                            Spacer(minLength: 6)
+                            if let count = category.childCount {
+                                Text(count.formatted()).font(.interDigits(13, .medium))
+                                    .foregroundStyle(LineupPanelStyle.quiet)
+                            }
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 10)
+                        .background(isChosen ? LineupPanelStyle.fill : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(10)
+        }
+    }
+
+    /// The categories as a row of chips, upright.
+    private var chips: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 8) {
+                    ForEach(list, id: \.libraryKey) { category in
+                        let isChosen = category.id == selected?.id
+                        Button { choose(category) } label: {
+                            Text(category.name)
+                                .font(.inter(.subheadline, .semibold))
+                                .lineLimit(1)
+                                .padding(.horizontal, 14).frame(height: 34)
+                                .foregroundStyle(isChosen ? LineupStyle.onHighlight : LineupStyle.text)
+                                .background(isChosen ? LineupStyle.highlight : LineupPanelStyle.fill, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .id(category.libraryKey)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .frame(height: 38)
+            .onChange(of: kind) { _, _ in
+                if let key = selected?.libraryKey { proxy.scrollTo(key, anchor: .center) }
+            }
+        }
+    }
+
+    /// The chosen category's titles.
+    private var grid: some View {
+        ScrollView {
+            if loadingTitles && titles.isEmpty {
+                ProgressView().padding(.top, 40)
+            } else if titles.isEmpty {
+                Text(list.isEmpty ? "\(provider.name) has no \(kind.rawValue.lowercased())." : "Nothing in this category.")
+                    .font(.inter(.subheadline, .medium))
+                    .foregroundStyle(LineupPanelStyle.quiet)
+                    .padding(.top, 40)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 12, alignment: .top)],
+                          spacing: 16) {
+                    ForEach(titles, id: \.libraryKey) { item in
+                        NavigationLink(value: item) { MediaItemCard(item: item, shape: .poster) }
+                            .lineupFlatButton()
+                    }
+                }
+                .padding(.horizontal, 16).padding(.bottom, 24)
+            }
+        }
+    }
+
+    private var status: some View {
+        VStack(spacing: 12) {
+            if failed {
+                Image(systemName: "exclamationmark.triangle").font(.system(size: 28)).foregroundStyle(LineupIconTile.orange)
+                Text("\(provider.name) didn’t send its list.").font(.inter(.headline))
+                Button("Try Again") { Task { await load() } }.lineupButtonStyle()
+            } else {
+                ProgressView()
+                Text("Loading \(provider.name)’s list…").font(.inter(.subheadline, .medium))
+            }
+        }
+        .foregroundStyle(LineupStyle.text)
+        .frame(maxWidth: .infinity).padding(.top, 80)
+    }
+
+    // MARK: Loading
+
+    private func choose(_ category: MediaItem) {
+        guard chosen[kind] != category.id else { return }
+        chosen[kind] = category.id
     }
 
     private func load() async {
@@ -138,5 +237,15 @@ struct MobileProviderVODView: View {
         failed = found == nil
         // A provider with shows and no films opens on its shows.
         if let found, found.films.isEmpty, !found.shows.isEmpty { kind = .shows }
+    }
+
+    private func loadTitles() async {
+        guard let category = selected else { titles = []; return }
+        loadingTitles = true
+        titles = []
+        let found = (try? await media.items(in: category)) ?? []
+        guard !Task.isCancelled, category.id == selected?.id else { return }
+        titles = found
+        loadingTitles = false
     }
 }
