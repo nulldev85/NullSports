@@ -235,6 +235,24 @@ struct MediaServersView: View {
             let title = jellyfin.count == 1 ? "Switch Profile" : "Switch Profile · " + source.name
             servers.append(MobileMenuItem(title, symbol: "person.2") { choosingProfile = source })
         }
+        // Whose films and shows the Library shows, with more than one Xtream
+        // provider: all of them, or one by the name it was given.
+        let vodProviders = media.providerVODChoices
+        if !vodProviders.isEmpty {
+            let chosen = media.providerVODSelection
+            let choices = [MobileMenuItem("All", symbol: "square.stack.3d.up", id: "vod-all", isSelected: chosen == nil) {
+                Task { await media.selectProviderVOD(nil) }
+            }] + vodProviders.map { provider in
+                MobileMenuItem(provider.name, symbol: "antenna.radiowaves.left.and.right",
+                               id: "vod-" + provider.id.uuidString, isSelected: chosen == provider.id) {
+                    Task { await media.selectProviderVOD(provider.id) }
+                }
+            }
+            let shownName = chosen.flatMap { id in vodProviders.first { $0.id == id }?.name } ?? "All"
+            servers.insert(MobileMenuItem("IPTV Movies & Shows · " + shownName, symbol: "film.stack",
+                                          id: "vod-provider",
+                                          children: [MobileMenuSection(id: "vod-providers", items: choices)]), at: 0)
+        }
         if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
             servers.append(MobileMenuItem("Clear Local Tracking", symbol: "trash", isDestructive: true) {
                 clearingHistory = true

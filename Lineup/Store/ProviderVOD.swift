@@ -150,11 +150,16 @@ final class ProviderVOD {
     }
 
     nonisolated static let lifetime: TimeInterval = 12 * 60 * 60
+    /// Which provider's films and shows the Library shows: one, by id, or
+    /// every one when it is not set.
+    nonisolated static let selectionKey = "Lineup.vod.provider.v1"
 
     private let defaults: UserDefaults
-    private var loaded: (catalog: Catalog, index: Index)?
-    private var loading: Task<(catalog: Catalog, index: Index), Error>?
-    private var refreshing: Task<Void, Never>?
+    /// Each provider's list, kept apart: their films and shows are numbered
+    /// by the provider, and two providers use the same numbers for others.
+    private var loaded: [UUID: (catalog: Catalog, index: Index)] = [:]
+    private var loading: [UUID: Task<(catalog: Catalog, index: Index), Error>] = [:]
+    private var refreshing: [UUID: Task<Void, Never>] = [:]
     private var episodeLists: [String: (episodes: [XtreamEpisode], storedAt: Date)] = [:]
     /// Shows whose episodes are being asked for, so a title page getting
     /// them ready and the stream list wanting them make one request.
@@ -164,94 +169,164 @@ final class ProviderVOD {
         self.defaults = defaults
     }
 
-    /// The provider in use, without its password: cheap enough to ask on every
-    /// redraw, which Continue Watching does.
-    var profile: XtreamProfile? {
+    // MARK: - Which providers
+
+    /// Every Xtream provider signed in and turned on, in the order they were
+    /// added. Read again every few seconds at most: Continue Watching asks
+    /// on every redraw. A playlist has no films or shows to give.
+    ///
+    /// It used to be one provider -- the one the app was set to -- and the
+    /// films and shows of every other provider never loaded at all.
+    var profiles: [XtreamProfile] {
         let now = Date()
-        if let remembered, now.timeIntervalSince(remembered.readAt) < 5 { return remembered.profile }
-        let stored = SportsLibrary.storedActiveProfile(in: defaults)
-        let profile = stored?.isPlaylist == true ? nil : stored
-        remembered = (profile, now)
-        return profile
+        if let remembered, now.timeIntervalSince(remembered.readAt) < 5 { return remembered.profiles }
+        let saved = defaults.data(forKey: "NullSports.profiles")
+            .flatMap { try? JSONDecoder().decode([XtreamProfile].self, from: $0) } ?? []
+        let off = Set((defaults.stringArray(forKey: "Lineup.disabledIPTVProviders.v1") ?? []).compactMap(UUID.init(uuidString:)))
+        var enabled = saved.filter { !$0.isPlaylist && !off.contains($0.id) }
+        #if os(tvOS)
+        // The television plays one provider at a time.
+        let active = SportsLibrary.storedActiveProfile(in: defaults)
+        enabled = active.map { profile in enabled.filter { $0.id == profile.id } } ?? []
+        #endif
+        remembered = (enabled, now)
+        return enabled
     }
-    private var remembered: (profile: XtreamProfile?, readAt: Date)?
+    private var remembered: (profiles: [XtreamProfile], readAt: Date)?
 
-    /// The catalog and its index when they are already in hand, without
-    /// waiting for them.
-    var ready: (catalog: Catalog, index: Index)? {
-        guard let loaded, loaded.catalog.profileID == profile?.id else { return nil }
-        return loaded
+    /// The provider chosen to show, or nil for all of them. A provider that
+    /// has since gone is all of them again.
+    var selection: UUID? {
+        get {
+            guard let id = defaults.string(forKey: Self.selectionKey).flatMap(UUID.init(uuidString:)),
+                  profiles.contains(where: { $0.id == id }) else { return nil }
+            return id
+        }
+        set {
+            defaults.set(newValue?.uuidString, forKey: Self.selectionKey)
+        }
     }
 
-    /// The provider in use and a client for it, or nil when none is signed in.
-    var provider: (profile: XtreamProfile, client: XtreamClient)? {
-        guard let profile = SportsLibrary.storedActiveProfile(in: defaults),
-              !profile.isPlaylist,
+    /// The providers whose films and shows the Library shows now.
+    var shown: [XtreamProfile] {
+        let all = profiles
+        guard let selection else { return all }
+        return all.filter { $0.id == selection }
+    }
+
+    /// One provider, when it is signed in and on.
+    func profile(_ id: UUID?) -> XtreamProfile? {
+        guard let id else { return nil }
+        return profiles.first { $0.id == id }
+    }
+
+    /// The first provider shown: where a single answer is wanted, such as
+    /// a name on a screen.
+    var profile: XtreamProfile? { shown.first }
+
+    /// A provider and a client for it, or nil when it isn't signed in.
+    func provider(_ id: UUID?) -> (profile: XtreamProfile, client: XtreamClient)? {
+        guard let profile = profile(id),
               let password = KeychainStore.password(profileID: profile.id) else { return nil }
         return (profile, XtreamClient(profile: profile, password: password))
     }
 
-    /// How many films and shows the provider's list holds, once it has been
-    /// read: how wide a search came up empty.
-    var counts: (films: Int, shows: Int)? {
-        loaded.map { (films: $0.catalog.films.count, shows: $0.catalog.shows.count) }
+    /// The first provider shown, with a client.
+    var provider: (profile: XtreamProfile, client: XtreamClient)? { provider(profile?.id) }
+
+    // MARK: - Lists
+
+    /// A provider's catalog and index when they are already in hand.
+    func ready(_ id: UUID?) -> (catalog: Catalog, index: Index)? {
+        guard let id, profile(id) != nil else { return nil }
+        return loaded[id]
     }
 
-    /// The catalog and its index: kept in memory, read from the device when
-    /// the app has just started, and asked of the provider when neither has
-    /// it. A catalog past its lifetime is used while a fresh one is fetched.
-    func catalog() async throws -> (catalog: Catalog, index: Index) {
-        guard let provider else { throw Miss.noProvider }
-        if let loaded, loaded.catalog.profileID == provider.profile.id {
-            if loaded.catalog.isStale { refresh(provider) }
-            return loaded
+    /// The first shown provider's, when in hand.
+    var ready: (catalog: Catalog, index: Index)? { ready(profile?.id) }
+
+    /// How many films and shows the shown providers' lists hold, once read:
+    /// how wide a search came up empty.
+    var counts: (films: Int, shows: Int)? {
+        let lists = shown.compactMap { loaded[$0.id] }
+        guard !lists.isEmpty else { return nil }
+        return lists.reduce((films: 0, shows: 0)) { ($0.films + $1.catalog.films.count, $0.shows + $1.catalog.shows.count) }
+    }
+
+    /// One provider's catalog and its index: kept in memory, read from the
+    /// device when the app has just started, and asked of the provider when
+    /// neither has it. A catalog past its lifetime is used while a fresh one
+    /// is fetched.
+    func catalog(_ id: UUID) async throws -> (catalog: Catalog, index: Index) {
+        guard let provider = provider(id) else { throw Miss.noProvider }
+        if let held = loaded[id] {
+            if held.catalog.isStale { refresh(provider) }
+            return held
         }
-        if let loading { return try await loading.value }
-        let profileID = provider.profile.id
+        if let pending = loading[id] { return try await pending.value }
         let client = provider.client
         let task = Task.detached(priority: .userInitiated) { () async throws -> (catalog: Catalog, index: Index) in
-            if let saved = Self.readCache(profileID: profileID) { return saved }
-            if let earlier = Self.readEarlierCache(profileID: profileID) { return Self.kept(earlier) }
-            return Self.prepared(try await Self.fetch(client, profileID: profileID))
+            if let saved = Self.readCache(profileID: id) { return saved }
+            if let earlier = Self.readEarlierCache(profileID: id) { return Self.kept(earlier) }
+            return Self.prepared(try await Self.fetch(client, profileID: id))
         }
-        loading = task
+        loading[id] = task
         do {
             let result = try await task.value
-            loading = nil
-            // Another provider may have been chosen while this one loaded.
-            guard self.provider?.profile.id == profileID else { throw Miss.noProvider }
-            loaded = result
+            loading[id] = nil
+            // The provider may have been removed while its list loaded.
+            guard self.profile(id) != nil else { throw Miss.noProvider }
+            loaded[id] = result
             if result.catalog.isStale { refresh(provider) }
             return result
         } catch {
-            loading = nil
+            loading[id] = nil
             throw error
         }
     }
 
+    /// The first shown provider's catalog.
+    func catalog() async throws -> (catalog: Catalog, index: Index) {
+        guard let id = profile?.id else { throw Miss.noProvider }
+        return try await catalog(id)
+    }
+
+    /// Every shown provider's catalog that can be read, each with its
+    /// provider. One that fails leaves the others.
+    func catalogs() async -> [(profile: XtreamProfile, catalog: Catalog, index: Index)] {
+        var found: [(profile: XtreamProfile, catalog: Catalog, index: Index)] = []
+        for profile in shown {
+            if let list = try? await catalog(profile.id) { found.append((profile, list.catalog, list.index)) }
+        }
+        return found
+    }
+
     /// What a lookup would wait for before it could look, for the stream list
     /// to say rather than leave a provider "looking" for a minute: nothing
-    /// once the list is in memory.
+    /// once every list is in memory.
     var waitNote: String? {
-        guard let profile, ready == nil else { return nil }
-        return Self.hasCache(profileID: profile.id) ? "Reading its list…" : "Downloading its list…"
+        guard let waiting = shown.first(where: { loaded[$0.id] == nil }) else { return nil }
+        return Self.hasCache(profileID: waiting.id) ? "Reading its list…" : "Downloading its list…"
     }
 
-    /// Start reading the catalog without waiting for it, so the first title
-    /// played does not wait on the whole list. Only from the device, when
-    /// asked: at the launch of an app with no media server, a list that has
-    /// never been read is left for the Library to ask for, rather than
-    /// downloaded for someone who may never open it.
+    /// Start reading the shown providers' catalogs without waiting for them,
+    /// so the first title played does not wait on a whole list. Only from the
+    /// device, when asked: at the launch of an app with no media server, a
+    /// list that has never been read is left for the Library to ask for,
+    /// rather than downloaded for someone who may never open it.
     func prefetch(onlyFromDevice: Bool = false) {
-        guard let provider, loaded == nil, loading == nil else { return }
-        if onlyFromDevice, !Self.hasCache(profileID: provider.profile.id) { return }
-        Task { _ = try? await catalog() }
+        for profile in shown where loaded[profile.id] == nil && loading[profile.id] == nil {
+            if onlyFromDevice, !Self.hasCache(profileID: profile.id) { continue }
+            let id = profile.id
+            Task { _ = try? await catalog(id) }
+        }
     }
 
-    /// One show's episodes. Kept for a while: a season is watched one episode
-    /// after another, and the list does not change in between.
-    func episodes(of show: XtreamSeries) async throws -> [XtreamEpisode] {
-        guard let provider else { throw Miss.noProvider }
+    /// One show's episodes, from the provider that lists it. Kept for a
+    /// while: a season is watched one episode after another, and the list
+    /// does not change in between.
+    func episodes(of show: XtreamSeries, provider id: UUID?) async throws -> [XtreamEpisode] {
+        guard let provider = provider(id ?? profile?.id) else { throw Miss.noProvider }
         let key = provider.profile.id.uuidString + "|" + String(show.seriesID)
         if let kept = episodeLists[key], Date().timeIntervalSince(kept.storedAt) < 30 * 60 {
             return kept.episodes
@@ -266,29 +341,30 @@ final class ProviderVOD {
         return episodes
     }
 
-    /// Forget everything about the provider, as when it changes.
+    /// Forget everything about the providers, as when they change.
     func reset() {
-        loading?.cancel()
-        loading = nil
-        refreshing?.cancel()
-        refreshing = nil
-        loaded = nil
+        loading.values.forEach { $0.cancel() }
+        loading.removeAll()
+        refreshing.values.forEach { $0.cancel() }
+        refreshing.removeAll()
+        loaded.removeAll()
+        remembered = nil
         episodeLists.removeAll()
         episodeLoads.values.forEach { $0.cancel() }
         episodeLoads.removeAll()
     }
 
     private func refresh(_ provider: (profile: XtreamProfile, client: XtreamClient)) {
-        guard refreshing == nil else { return }
         let profileID = provider.profile.id
+        guard refreshing[profileID] == nil else { return }
         let client = provider.client
-        refreshing = Task { [weak self] in
+        refreshing[profileID] = Task { [weak self] in
             let fresh = try? await Task.detached(priority: .utility) { () async throws -> (catalog: Catalog, index: Index) in
                 Self.prepared(try await Self.fetch(client, profileID: profileID))
             }.value
             guard let self else { return }
-            self.refreshing = nil
-            if let fresh, self.provider?.profile.id == profileID { self.loaded = fresh }
+            self.refreshing[profileID] = nil
+            if let fresh, self.profile(profileID) != nil { self.loaded[profileID] = fresh }
         }
     }
 

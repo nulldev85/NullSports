@@ -345,13 +345,17 @@ struct MediaShelfPicker: View {
                           brand: brand, items: media.availableCatalogs(on: server))]
         }
         // The IPTV provider's own categories, films and then shows.
+        // A group for each provider shown, under its own name.
         var provider: [Group] = []
-        if let name = media.providerVOD.profile?.name {
-            let shelves = media.availableProviderShelves
-            provider = [Group(id: "provider|films", title: "MOVIES · " + name.uppercased(),
-                              detail: "Film categories from your IPTV provider", items: shelves.films),
-                        Group(id: "provider|shows", title: "SERIES · " + name.uppercased(),
-                              detail: "Series categories from your IPTV provider", items: shelves.shows)]
+        let shelves = media.availableProviderShelves
+        for profile in media.providerVOD.shown {
+            let name = profile.name.uppercased()
+            provider += [Group(id: "provider|films|" + profile.id.uuidString, title: "MOVIES · " + name,
+                               detail: "Film categories from \(profile.name)",
+                               items: shelves.films.filter { $0.serverID == profile.id }),
+                         Group(id: "provider|shows|" + profile.id.uuidString, title: "SERIES · " + name,
+                               detail: "Series categories from \(profile.name)",
+                               items: shelves.shows.filter { $0.serverID == profile.id })]
         }
         return (servers + provider).filter { !$0.items.isEmpty }
     }
