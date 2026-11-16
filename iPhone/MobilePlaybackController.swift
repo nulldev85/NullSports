@@ -302,6 +302,35 @@ final class MobilePlaybackController: ObservableObject {
         self.defaults = defaults
         self.audioSession = audioSession ?? MobileAudioSession.shared
         subtitlePreferences = MobileSubtitlePreferences(defaults: defaults)
+        Self.everyPlayer.add(self)
+    }
+
+    // MARK: - One picture at a time
+
+    /// Every player made, held weakly.
+    private static let everyPlayer = NSHashTable<MobilePlaybackController>.weakObjects()
+    /// Players that play side by side on purpose -- multiview's two -- share
+    /// this, and never stop each other.
+    var playsAlongside: UUID?
+    /// Posted with the player that was stopped, so whatever showed it can put
+    /// itself away rather than sit over a picture that has gone.
+    static let stoppedForAnother = Notification.Name("Lineup.mobilePlayback.stoppedForAnother")
+
+    /// Something new is starting: everything else playing stops.
+    ///
+    /// A channel left playing in TV Guide or Sports went on under a film
+    /// opened from the Library, both heard at once. And an IPTV provider
+    /// allows an account only so many streams at a time -- often one -- so
+    /// the channel still open could keep that provider's films and shows
+    /// from opening at all.
+    private func stopEveryoneElse() {
+        for other in Self.everyPlayer.allObjects where other !== self {
+            if let group = playsAlongside, other.playsAlongside == group { continue }
+            guard other.isPlaying || other.loading || other.audioStart != nil || other.pictureInPictureActive else { continue }
+            other.diag.record("stopped: another player started")
+            other.stop()
+            NotificationCenter.default.post(name: Self.stoppedForAnother, object: other)
+        }
     }
 
 
@@ -715,6 +744,7 @@ final class MobilePlaybackController: ObservableObject {
         // Also ends any recording: whatever opens next is live unless the
         // recording itself is what is being opened, which says so afterwards.
         stop()
+        stopEveryoneElse()
         presentation = MobilePlaybackPresentation()
         preference = MobilePlaybackPreference.selected(in: defaults)
         failedEngines.removeAll()

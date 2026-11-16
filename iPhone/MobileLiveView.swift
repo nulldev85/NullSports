@@ -377,6 +377,11 @@ struct MobileLiveView: View {
             .onChange(of: hiddenLeaguesRaw) { _, _ in
                 if let league, hiddenLeagues.contains(league) { self.league = nil }
             }
+            // Something else began playing -- a film from the Library, a
+            // channel in TV Guide -- and stopped this game: put it away.
+            .onReceive(NotificationCenter.default.publisher(for: MobilePlaybackController.stoppedForAnother)) { note in
+                if (note.object as AnyObject?) === playback { closePreview() }
+            }
             .lineupFullScreenCover(item: $teamPage) { MobileTeamPage(target: $0) }
             .lineupFullScreenCover(item: $multiview) { session in
                 MobileMultiviewView(session: session).environment(library)
