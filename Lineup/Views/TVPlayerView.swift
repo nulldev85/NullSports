@@ -628,7 +628,8 @@ struct PlayerView: View {
                     episodes: episodesShown
                         ? TVEpisodesShown(season: episodeList?.season, episodes: episodeChoices,
                                           loading: !episodesLoaded, choose: chooseEpisode, close: closeEpisodes)
-                        : nil)
+                        : nil,
+                    onUpToNextEpisode: showsNextEpisode ? { nextEpisodeFocused = true } : nil)
                     .padding(.trailing, statsInset)
                     .transition(.opacity)
             }
@@ -658,7 +659,9 @@ struct PlayerView: View {
                                   play: { playNext(nextEpisode) },
                                   decline: declineNextEpisode)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(.trailing, 80).padding(.bottom, 72)
+                    // Above the seek bar and buttons while they are up, so
+                    // Up from the seek bar reaches it.
+                    .padding(.trailing, 80 + statsInset).padding(.bottom, controlsVisible ? 360 : 72)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
             if let skipAction, showsSkip {
@@ -866,7 +869,9 @@ struct PlayerView: View {
         // Next Episode takes the remote when it appears over the picture, so
         // one press of Select plays it.
         .onChange(of: showsNextEpisode) { _, shown in
-            if shown { nextEpisodeFocused = true }
+            // It takes the remote only when nothing else has it: never from
+            // under the viewer while they are using the controls.
+            if shown, !controlsVisible { nextEpisodeFocused = true }
         }
         .animation(.easeInOut(duration: 0.3), value: showsNextEpisode)
         .onChange(of: controller.isPlaying) { _, playing in
@@ -999,10 +1004,12 @@ struct PlayerView: View {
         }
     }
 
-    /// Where the remote lands as the controls go: Skip when it is up, so
-    /// one press skips, else the picture itself.
+    /// Where the remote lands as the controls go: Next Episode or Skip when
+    /// one is up, so one press plays or skips, else the picture itself.
     private func focusPicture() {
-        if showsSkip { skipFocused = true } else { surfaceFocused = true }
+        if showsNextEpisode { nextEpisodeFocused = true }
+        else if showsSkip { skipFocused = true }
+        else { surfaceFocused = true }
     }
 
     /// The stats on the game on screen, on the channel it is on, held behind
@@ -1057,10 +1064,11 @@ struct PlayerView: View {
     }
 
     /// Next Episode is up: the last half minute of an episode with one after
-    /// it, with the controls away. They share the bottom of the screen, so
-    /// the card waits while the viewer is using them.
+    /// it. It stays while the controls are up, raised above them, and Up
+    /// from the seek bar goes to it: it used to go away whenever the viewer
+    /// touched the remote, and could only be had by leaving the controls.
     private var showsNextEpisode: Bool {
-        nextEpisode != nil && nextEpisodeDue && !nextEpisodeDeclined && !controlsVisible
+        nextEpisode != nil && nextEpisodeDue && !nextEpisodeDeclined && !episodesShown
             && controller.error == nil
     }
 
@@ -1272,6 +1280,9 @@ private struct TVPlayerChrome: View {
     /// The Episodes row, while it is up. The seek bar and the buttons make
     /// way for it, and the time sits over it.
     let episodes: TVEpisodesShown?
+    /// Up from the seek bar, to the Next Episode card over the controls
+    /// while it is up. Nil when there is none.
+    var onUpToNextEpisode: (() -> Void)? = nil
 
     private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
 
@@ -1374,7 +1385,8 @@ private struct TVPlayerChrome: View {
                         }
                         if !isLive && controller.duration > 0 {
                             TVSeekBar(controller: controller, clock: controller.clock, preview: seekPreview,
-                                      focus: focusedControl, firstAction: firstAction, onInteraction: onInteraction)
+                                      focus: focusedControl, firstAction: firstAction, onInteraction: onInteraction,
+                                      onUp: onUpToNextEpisode)
                         }
                         if showsTimeline {
                             TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
@@ -1721,6 +1733,9 @@ private struct TVSeekBar: View {
     let focus: FocusState<TVPlayerControl?>.Binding
     let firstAction: TVPlayerControl
     let onInteraction: () -> Void
+    /// Where Up goes when there is something above the seek bar to go to:
+    /// the Next Episode card.
+    var onUp: (() -> Void)? = nil
     @State private var target: Double?
     @State private var nativeRemoteSeekActive = false
     @State private var fallbackDirection: Double?
@@ -1795,6 +1810,11 @@ private struct TVSeekBar: View {
                 handleRemoteMove(-1)
             case .right:
                 handleRemoteMove(1)
+            case .up where onUp != nil:
+                finishScrubbing()
+                focus.wrappedValue = nil
+                onUp?()
+                onInteraction()
             case .down, .up:
                 finishScrubbing()
                 focus.wrappedValue = firstAction
