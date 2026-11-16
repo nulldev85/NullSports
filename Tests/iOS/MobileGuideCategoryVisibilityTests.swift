@@ -20,6 +20,21 @@ final class MobileGuideCategoryVisibilityTests: XCTestCase {
         XCTAssertTrue(MobileGuideCategoryVisibility(restored).isHidden("7", provider: second))
     }
 
+    /// The Apple TV reads one provider's hidden categories outright, and Set
+    /// Up with iPhone sends the phone's across.
+    func testOneProvidersHiddenCategoriesAreReadAndTravelWithSetUp() throws {
+        let first = UUID(), second = UUID()
+        var raw = try XCTUnwrap(MobileGuideCategoryVisibility("{}").setting(true, category: "7", provider: first))
+        raw = try XCTUnwrap(MobileGuideCategoryVisibility(raw).setting(true, category: "12", provider: first))
+        raw = try XCTUnwrap(MobileGuideCategoryVisibility(raw).setting(true, category: "7", provider: second))
+        let visibility = MobileGuideCategoryVisibility(raw)
+        XCTAssertEqual(visibility.hiddenIDs(provider: first), ["7", "12"])
+        XCTAssertEqual(visibility.hiddenIDs(provider: second), ["7"])
+        XCTAssertTrue(visibility.hiddenIDs(provider: UUID()).isEmpty)
+        XCTAssertTrue(visibility.hiddenIDs(provider: nil).isEmpty)
+        XCTAssertTrue(DeviceSetup.carries(MobileGuideCategoryVisibility.storageKey))
+    }
+
     func testCombinedGuideHidesOnlyTheOfferingProviderAndRetainsPersonalAndSportsChoices() throws {
         let first = UUID(), second = UUID()
         let a = first.uuidString + "|7", b = second.uuidString + "|7"

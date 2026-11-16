@@ -14,10 +14,12 @@ enum DeviceSetup {
     static let serversKey = "NullSports.mediaServers"
 
     /// Sent beside what iCloud carries: Seerr's connection, the Library's
-    /// MDBList and IPTV shelves, and the subtitle languages.
+    /// MDBList and IPTV shelves, the subtitle languages, and the categories
+    /// hidden from the TV Guide.
     static let extraKeys = [
         SeerrStore.key, "Lineup.mdbListShelves.v1", "Lineup.providerShelves.v1",
-        "Lineup.subtitles.language.v1", "Lineup.subtitle.preferredLanguage.v1"
+        "Lineup.subtitles.language.v1", "Lineup.subtitle.preferredLanguage.v1",
+        MobileGuideCategoryVisibility.storageKey
     ]
 
     /// Whether a setting is one the phone sends as it is. Nothing else is read

@@ -71,6 +71,10 @@ struct GuideView: View {
     /// channels are in; see `restoreFilteredGuideFocus`.
     @State private var takeGuideFocus = false
     @AppStorage(TVGuideViewMode.storageKey) private var guideViewModeValue = TVGuideViewMode.defaultMode.rawValue
+    /// Categories taken out of the Guide, as the iPhone keeps them: by
+    /// provider, so Set Up with iPhone brings the phone's own across.
+    @AppStorage(MobileGuideCategoryVisibility.storageKey) private var hiddenCategoriesRaw = "{}"
+    @State private var hiddenMemo = TVGuideHiddenCategories()
     @State private var searchActive = false
     @State private var query = ""
     /// What is full screen, with the preview's player when it carries on;
@@ -99,6 +103,25 @@ struct GuideView: View {
         let active: Bool
         let query: GuideChannelList.Query
     }
+    /// This provider's hidden categories. Their channels stay out of All
+    /// Channels and the Guide's search; Favorites and Recently Watched keep
+    /// theirs.
+    private var hiddenCategoryIDs: Set<String> {
+        hiddenMemo.ids(raw: hiddenCategoriesRaw, provider: library.activeProfile?.id)
+    }
+    private func setCategory(_ id: String, hidden: Bool) {
+        if let raw = MobileGuideCategoryVisibility(hiddenCategoriesRaw)
+            .setting(hidden, category: id, provider: library.activeProfile?.id) {
+            hiddenCategoriesRaw = raw
+        }
+    }
+    private func showAllCategories() {
+        var raw = hiddenCategoriesRaw
+        for id in hiddenCategoryIDs {
+            raw = MobileGuideCategoryVisibility(raw).setting(false, category: id, provider: library.activeProfile?.id) ?? raw
+        }
+        hiddenCategoriesRaw = raw
+    }
     private var channelRequest: ChannelRequest {
         ChannelRequest(library: ObjectIdentifier(library), revision: library.streamsRevision,
             active: isActive && !browsing && scenePhase == .active && fullScreen == nil && multiviewSession == nil,
@@ -106,7 +129,8 @@ struct GuideView: View {
                 favoritesOnly: !searchActive && favoritesOnly,
                 recentsOnly: !searchActive && showsRecents, text: query,
                 favorites: !searchActive && favoritesOnly ? library.favoriteStreamOrder : [],
-                recents: !searchActive && showsRecents ? library.recentStreamOrder : []))
+                recents: !searchActive && showsRecents ? library.recentStreamOrder : [],
+                hiddenCategories: hiddenCategoryIDs))
     }
     /// Recently watched channels are what's listed: not while a category or
     /// favorites are chosen.
@@ -298,6 +322,7 @@ struct GuideView: View {
 
                         if sidebarVisible && !searchActive {
                             GuideSidebar(
+                                hidden: hiddenCategoryIDs,
                                 selectedCategoryID: $selectedCategoryID,
                                 favoritesOnly: $favoritesOnly,
                                 recentsOnly: $recentsOnly,
@@ -442,8 +467,13 @@ struct GuideView: View {
     }
 
     private var categoryList: some View {
-        TVGuideCategoryList(
-            categories: library.categories,
+        let hidden = hiddenCategoryIDs
+        return TVGuideCategoryList(
+            categories: library.categories.filter { !hidden.contains($0.id) },
+            hiddenCategories: library.categories.filter { hidden.contains($0.id) },
+            onHide: { setCategory($0.id, hidden: true) },
+            onShow: { setCategory($0.id, hidden: false) },
+            onShowAll: showAllCategories,
             hasFavorites: !library.favoriteStreamOrder.isEmpty,
             hasRecents: !library.recentStreamOrder.isEmpty,
             channelCount: library.streams.count,
@@ -790,6 +820,24 @@ private struct GuideControlBar: View {
     }
 }
 
+/// This provider's hidden categories as last read, so the saved choice is
+/// decoded when it changes rather than each time the Guide asks, which is
+/// several times in one redraw. A class, and so not observed.
+private final class TVGuideHiddenCategories {
+    private var raw = ""
+    private var provider: UUID?
+    private var held: Set<String> = []
+
+    func ids(raw: String, provider: UUID?) -> Set<String> {
+        if raw != self.raw || provider != self.provider {
+            self.raw = raw
+            self.provider = provider
+            held = MobileGuideCategoryVisibility(raw).hiddenIDs(provider: provider)
+        }
+        return held
+    }
+}
+
 /// What the Guide's first page offers.
 enum TVGuideCategoryChoice: Equatable {
     case favorites, recents, all
@@ -811,6 +859,13 @@ enum TVGuideCategoryChoice: Equatable {
 /// hid the categories behind a button and a long list of them in a sheet.
 private struct TVGuideCategoryList: View {
     let categories: [XtreamCategory]
+    /// Categories the viewer took out, to be put back from the foot of the
+    /// list.
+    let hiddenCategories: [XtreamCategory]
+    let onHide: (XtreamCategory) -> Void
+    let onShow: (XtreamCategory) -> Void
+    let onShowAll: () -> Void
+    @State private var showingHidden = false
     let hasFavorites: Bool
     let hasRecents: Bool
     let channelCount: Int
@@ -849,7 +904,13 @@ private struct TVGuideCategoryList: View {
                     }
                     ForEach(categories) { category in
                         row(.category(category.id), category.categoryName, symbol: "folder.fill")
+                            // Hold Select on a category to take it out of
+                            // the Guide, as on iPhone.
+                            .tvHoldMenu(category.categoryName, symbol: "folder") {
+                                [TVChoice("Hide Category", symbol: "eye.slash") { onHide(category) }]
+                            }
                     }
+                    if !hiddenCategories.isEmpty { hiddenRow }
                 }
                 .padding(.vertical, 20).padding(.horizontal, 30)
             }
@@ -868,6 +929,25 @@ private struct TVGuideCategoryList: View {
             try? await Task.sleep(for: .milliseconds(400))
             onTookFocus()
         }
+    }
+
+    /// Where hidden categories are put back: one at a time, or all at once.
+    private var hiddenRow: some View {
+        let count = hiddenCategories.count
+        let detail = count == 1 ? "1 hidden" : "\(count) hidden"
+        return TVSelectable(scale: 1.015, drawsFocusChrome: false, action: { showingHidden = true }) {
+            TVGuideCategoryRow(title: "Hidden Categories", symbol: "eye.slash", detail: detail)
+        }
+        .padding(.top, 22)
+        .tvChoices("Hidden Categories", symbol: "eye.slash", isPresented: $showingHidden,
+                   message: "Choose a category to show it in the TV Guide again.") {
+            [TVChoice("Show All Categories", symbol: "eye", id: "show-all", action: onShowAll)]
+                + hiddenCategories.map { category in
+                    TVChoice(category.categoryName, symbol: "folder", id: "show-" + category.id) { onShow(category) }
+                }
+        }
+        .accessibilityLabel("Hidden Categories, \(detail)")
+        .accessibilityHint("Shows the categories you have hidden")
     }
 
     private func row(_ choice: TVGuideCategoryChoice, _ title: String, symbol: String,
@@ -1120,6 +1200,8 @@ struct MultiviewSession: Identifiable {
 
 private struct GuideSidebar: View {
     @Environment(SportsLibrary.self) private var library
+    /// Categories taken out of the Guide.
+    let hidden: Set<String>
     @Binding var selectedCategoryID: String?
     @Binding var favoritesOnly: Bool
     @Binding var recentsOnly: Bool
@@ -1138,7 +1220,7 @@ private struct GuideSidebar: View {
             GuideSidebarHeading(title: "CATEGORIES").padding(.top, 10)
             ScrollView {
                 LazyVStack(spacing: 4) {
-                    ForEach(library.categories) { category in
+                    ForEach(library.categories.filter { !hidden.contains($0.id) }) { category in
                         GuideSidebarButton(title: category.categoryName, symbol: "rectangle.grid.1x2", selected: selectedCategoryID == category.id && !favoritesOnly, focus: focus, focusID: "category-" + category.id) {
                             selectedCategoryID = category.id; favoritesOnly = false; recentsOnly = false
                         }
