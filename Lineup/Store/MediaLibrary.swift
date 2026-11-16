@@ -223,11 +223,25 @@ final class MediaLibrary {
         }
     }
     @ObservationIgnored var collectionCreationItem: MediaItem?
-    private var metadataResults: [String: LibraryMetadata] = [:]
-    /// Answers waiting to join `metadataResults` together. Every card reads
-    /// that dictionary, so each write redrew every card on screen; a shelf
-    /// scrolled into view asks for a dozen titles at once, and answers landing
-    /// one by one redrew the whole screen a dozen times over.
+    /// Each title's answer from the metadata source, watched on its own.
+    ///
+    /// They were one dictionary, and every card reads its title's answer as
+    /// it draws: an answer for any title redrew every card that had been
+    /// made, on every shelf, four times a second for as long as a Library's
+    /// details were coming in. A card watches its own title's now and is
+    /// drawn again when that one arrives.
+    @Observable final class MetadataSlot {
+        var value: LibraryMetadata?
+    }
+    @ObservationIgnored private var metadataSlots: [String: MetadataSlot] = [:]
+    private func metadataSlot(_ key: String) -> MetadataSlot {
+        if let slot = metadataSlots[key] { return slot }
+        let slot = MetadataSlot()
+        metadataSlots[key] = slot
+        return slot
+    }
+    /// Answers waiting to be published together, a moment after the first
+    /// of them arrives.
     @ObservationIgnored private var pendingMetadata: [String: LibraryMetadata] = [:]
     @ObservationIgnored private var metadataFlush: Task<Void, Never>?
     /// The provider's list lives in `ProviderVOD`, which nothing observes:
@@ -1495,7 +1509,7 @@ final class MediaLibrary {
     func displayItem(_ item: MediaItem) -> MediaItem {
         let source = metadataSourceUsed(for: item)
         guard source != .provider else { return item.withMetadata(nil) }
-        return item.withMetadata(metadataResults[metadataRequestKey(for: item)])
+        return item.withMetadata(metadataSlot(metadataRequestKey(for: item)).value)
     }
 
     /// Called by visible cards and pages, never from a SwiftUI body. Library
@@ -1505,7 +1519,7 @@ final class MediaLibrary {
         guard source != .provider, metadataAvailable(source),
               ["Movie", "Series", "Episode"].contains(item.type) else { return }
         let key = metadataRequestKey(for: item)
-        guard metadataResults[key] == nil, pendingMetadata[key] == nil else { return }
+        guard metadataSlots[key]?.value == nil, pendingMetadata[key] == nil else { return }
         let raw = item.withMetadata(nil)
         var parent: MediaItem?
         if raw.type == "Episode" { parent = await metadataParent(for: raw) }
@@ -1527,7 +1541,7 @@ final class MediaLibrary {
                 let batch = self.pendingMetadata
                 self.pendingMetadata = [:]
                 self.metadataFlush = nil
-                self.metadataResults.merge(batch) { _, new in new }
+                for (key, value) in batch { self.metadataSlot(key).value = value }
             }
         }
         await metadataFlush?.value

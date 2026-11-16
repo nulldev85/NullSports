@@ -36,6 +36,10 @@ struct TVSportsBoard: View {
     static let columns = 3
     static let margin: CGFloat = 80
     static let gap: CGFloat = 36
+    /// Between the head of the screen and each section, and between a
+    /// section's heading and its first line of cards.
+    static let sectionGap: CGFloat = 44
+    static let headingGap: CGFloat = 22
 
     /// The games, sorted once per render into what the screen draws.
     struct Slate {
@@ -60,33 +64,63 @@ struct TVSportsBoard: View {
         var ordered: [SportsGame] { live + days.flatMap(\.games) }
     }
 
+    /// One line of cards.
+    ///
+    /// The cards were a grid inside each section, and a section was one item
+    /// of the list: every card in it was made the moment its section came
+    /// near the screen. A Saturday of college basketball is a hundred and
+    /// fifty games in one section, each with two crests to fetch and draw,
+    /// all made at once on opening the tab and looked over again with every
+    /// refresh of the scores. A line of three is an item of the list itself,
+    /// so only the lines on screen exist.
+    struct Row: Identifiable {
+        let id: String
+        let games: [SportsGame]
+        let isFirst: Bool
+
+        static func rows(_ games: [SportsGame], section: String) -> [Row] {
+            stride(from: 0, to: games.count, by: TVSportsBoard.columns).enumerated().map { index, start in
+                Row(id: "\(section)-\(index)",
+                    games: Array(games[start..<min(start + TVSportsBoard.columns, games.count)]),
+                    isFirst: index == 0)
+            }
+        }
+    }
+
     var body: some View {
         let slate = Slate(onlyFollowed ? events.filter { library.isFollowing($0) } : events)
         let positions = Dictionary(slate.ordered.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 44) {
+                // No spacing of the list's own: a section's heading and its
+                // lines of cards are items side by side here, and each
+                // brings the room above it.
+                LazyVStack(alignment: .leading, spacing: 0) {
                     masthead(slate).id("top")
                     controls
                         .prefersDefaultFocus(in: scope)
                         .focusSection()
-                    if let multiviewTitle { multiviewBanner(multiviewTitle) }
+                        .padding(.top, Self.sectionGap)
+                    if let multiviewTitle { multiviewBanner(multiviewTitle).padding(.top, Self.sectionGap) }
                     if let scheduleErrorMessage, slate.all.isEmpty {
                         Label(scheduleErrorMessage, systemImage: "exclamationmark.arrow.triangle.2.circlepath")
                             .font(.inter(22, .medium)).foregroundStyle(LineupStyle.secondary)
+                            .padding(.top, Self.sectionGap)
                     }
                     if !slate.live.isEmpty {
                         section("On Now", symbol: "dot.radiowaves.left.and.right",
-                                detail: "\(slate.live.count) live", games: slate.live, positions: positions)
+                                detail: "\(slate.live.count) live", games: slate.live, key: "live",
+                                positions: positions)
                     }
                     ForEach(slate.days, id: \.day) { day, games in
                         let today = Calendar.current.isDateInToday(day)
                         section(today ? "Up Next" : day.formatted(.dateTime.weekday(.wide)),
                                 symbol: today ? "clock" : "calendar",
                                 detail: day.formatted(.dateTime.month(.abbreviated).day()),
-                                games: games, positions: positions, showsDay: false)
+                                games: games, key: "day-\(Int(day.timeIntervalSinceReferenceDate))",
+                                positions: positions, showsDay: false)
                     }
-                    if slate.all.isEmpty { emptyState }
+                    if slate.all.isEmpty { emptyState.padding(.top, Self.sectionGap) }
                 }
                 .padding(.horizontal, Self.margin)
                 .padding(.top, 20)
@@ -176,36 +210,51 @@ struct TVSportsBoard: View {
 
     // MARK: Sections
 
+    /// A section's heading, then its cards three to a line: each an item of
+    /// the list, so a line is made as it nears the screen and no sooner.
+    @ViewBuilder
     private func section(_ title: String, symbol: String, detail: String, games: [SportsGame],
-                         positions: [String: Int], showsDay: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(LineupStyle.highlight)
-                Text(title.uppercased()).font(.inter(24, .heavy)).tracking(1.4)
-                    .foregroundStyle(LineupStyle.text.opacity(0.86))
-                Text(detail).font(.inter(20, .medium)).foregroundStyle(LineupStyle.secondary)
-            }
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Self.gap, alignment: .top),
-                                     count: Self.columns),
-                      alignment: .leading, spacing: Self.gap) {
-                ForEach(games) { game in
-                    let position = positions[game.id] ?? 0
-                    let isPrimary = multiviewPrimaryID != nil && library.stream(for: game)?.id == multiviewPrimaryID
-                    TVSelectable(scale: 1.04, fillRadius: TVGameCard.radius, drawsFocusChrome: false,
-                                 action: { onPlay(game) },
-                                 onFocusChange: { focused in
-                                     if focused { cardFocus.position = position }
-                                     else if cardFocus.position == position { cardFocus.position = nil }
-                                 }) {
-                        TVGameCard(game: game, showsDay: showsDay, isFirstOfMultiview: isPrimary)
-                    }
-                    .modifier(LiveGameMenu(game: game, isPrimary: isPrimary,
-                                           onStartMultiview: { onStartMultiview(game) }))
+                         key: String, positions: [String: Int], showsDay: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Image(systemName: symbol).font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(LineupStyle.highlight)
+            Text(title.uppercased()).font(.inter(24, .heavy)).tracking(1.4)
+                .foregroundStyle(LineupStyle.text.opacity(0.86))
+            Text(detail).font(.inter(20, .medium)).foregroundStyle(LineupStyle.secondary)
+        }
+        .padding(.top, Self.sectionGap)
+        ForEach(Row.rows(games, section: key)) { row in
+            HStack(alignment: .top, spacing: Self.gap) {
+                ForEach(row.games) { game in
+                    card(game, position: positions[game.id] ?? 0, showsDay: showsDay)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                // A short last line keeps its cards the width of the rest.
+                ForEach(row.games.count..<Self.columns, id: \.self) { _ in
+                    Color.clear.frame(maxWidth: .infinity).frame(height: 1)
                 }
             }
+            // The whole line takes the remote, so Down from the third
+            // column still lands on a last line of one.
             .focusSection()
+            .padding(.top, row.isFirst ? Self.headingGap : Self.gap)
         }
+    }
+
+    private func card(_ game: SportsGame, position: Int, showsDay: Bool) -> some View {
+        let isPrimary = multiviewPrimaryID != nil && library.stream(for: game)?.id == multiviewPrimaryID
+        return TVSelectable(scale: 1.04, fillRadius: TVGameCard.radius, drawsFocusChrome: false,
+                            action: { onPlay(game) },
+                            onFocusChange: { focused in
+                                if focused { cardFocus.position = position }
+                                else if cardFocus.position == position { cardFocus.position = nil }
+                            }) {
+            // Drawn again only when its game changes: a refresh of the
+            // scores leaves every card whose game did not move alone.
+            TVGameCard(game: game, showsDay: showsDay, isFirstOfMultiview: isPrimary).equatable()
+        }
+        .modifier(LiveGameMenu(game: game, isPrimary: isPrimary,
+                               onStartMultiview: { onStartMultiview(game) }))
     }
 
     private var emptyState: some View {
@@ -253,11 +302,18 @@ private struct TVSportsBackAction: ViewModifier {
 /// One game, the phone's card at the television's size: the two sides with
 /// their crests, records and the score once it is on; the league, the clock
 /// or the start, and who is showing it. The teams' own colours run across it.
-struct TVGameCard: View {
+struct TVGameCard: View, Equatable {
     @Environment(\.lineupTVSelectableFocused) private var focused
     let game: SportsGame
     var showsDay = false
     var isFirstOfMultiview = false
+
+    /// What the card is drawn from. Focus comes through the environment and
+    /// redraws it regardless.
+    nonisolated static func == (lhs: TVGameCard, rhs: TVGameCard) -> Bool {
+        lhs.game == rhs.game && lhs.showsDay == rhs.showsDay
+            && lhs.isFirstOfMultiview == rhs.isFirstOfMultiview
+    }
 
     static let radius: CGFloat = 24
 

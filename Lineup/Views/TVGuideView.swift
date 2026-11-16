@@ -79,7 +79,9 @@ struct GuideView: View {
     @State private var multiviewPrimary: XtreamStream?
     @State private var multiviewSession: MultiviewSession?
     @State private var guideNow = Date()
-    @State private var focusedGuideItem: GuideFocusItem?
+    /// What the remote is on, held outside this screen's own state: see
+    /// `GuideFocusModel`.
+    @State private var focus = GuideFocusModel()
     /// A channel whose past programmes are being chosen from.
     @State private var catchUpChannel: XtreamStream?
     @State private var sidebarVisible = false
@@ -91,7 +93,6 @@ struct GuideView: View {
     @State private var programWindow = TVGuideProgramWindow()
     @State private var channelSnapshot = TVGuideChannelSnapshot.empty
     @State private var installedChannels: ChannelRequest?
-    @State private var defaultPreview: TVGuideChannelSnapshot.Preview?
     private struct ChannelRequest: Hashable {
         let library: ObjectIdentifier
         let revision: Int
@@ -131,25 +132,14 @@ struct GuideView: View {
               !Task.isCancelled, channelRequest == request else { return }
         channelSnapshot = snapshot
         installedChannels = request
+        // The remote may be where it was in a list that has changed under it.
+        focus.setBelowTop((channelPosition(gridFocus?.streamID) ?? 0) > 0)
         restoreFilteredGuideFocus()
     }
-    private struct PreviewRequest: Hashable {
-        let channels: ChannelRequest?
-        let guideRevision: Int
-        let now: Date
-        let active: Bool
-    }
-    private var previewRequest: PreviewRequest {
-        PreviewRequest(channels: installedChannels, guideRevision: library.guideRevision, now: guideNow,
-            active: channelRequest.active && channelPosition(focusedGuideItem?.stream.id) == nil)
-    }
-    private func loadDefaultPreview() async {
-        let request = previewRequest
-        guard request.active else { return }
-        let streams = filtered, programs = library.programsByChannel
-        let preview = try? await TVGuideChannelSnapshot.preview(in: streams, programs: programs, now: guideNow)
-        guard !Task.isCancelled, previewRequest == request else { return }
-        defaultPreview = preview
+    /// The remote has landed on a programme, or on a channel in List.
+    private func remoteLanded(on stream: XtreamStream, item: GuideFocusItem?) {
+        if focus.item != item { focus.item = item }
+        focus.setBelowTop((channelPosition(stream.id) ?? 0) > 0)
     }
     private var selectedTitle: String {
         if favoritesOnly { return "Favorites" }
@@ -157,15 +147,6 @@ struct GuideView: View {
         return library.categories.first { $0.id == selectedCategoryID }?.categoryName ?? "All channels"
     }
     private var guideViewMode: TVGuideViewMode { TVGuideViewMode.restored(guideViewModeValue) }
-    private var previewItem: GuideFocusItem? {
-        if let focusedGuideItem, channelPosition(focusedGuideItem.stream.id) != nil {
-            return focusedGuideItem
-        }
-        if let preview = defaultPreview, channelPosition(preview.stream.id) != nil {
-            return GuideFocusItem(stream: preview.stream, program: preview.program)
-        }
-        return nil
-    }
 
     private var controlBar: GuideControlBar {
         GuideControlBar(
@@ -193,23 +174,10 @@ struct GuideView: View {
                     categoryList.transition(.opacity)
                 } else {
                 VStack(alignment: .leading, spacing: 18) {
-                    if let previewItem {
-                        GuidePreviewPanel(
-                            controls: controlBar,
-                            item: previewItem,
-                            categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
-                            quality: guideQuality(previewItem.stream),
-                            now: guideNow
-                        )
-                        .frame(height: GuidePreviewPanel.height)
-                        // The video reaches the screen's left edge; the info
-                        // pane keeps the Guide's readable inset on the right.
-                        .padding(.leading, -GuideLayout.margin)
-                        .padding(.trailing, GuideLayout.inset)
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    } else {
-                        controlBar.padding(.horizontal, GuideLayout.inset)
-                    }
+                    GuideHeader(focus: focus, controls: controlBar, streams: filtered,
+                                positions: channelSnapshot.positions,
+                                installed: installedChannels.map { AnyHashable($0) },
+                                active: channelRequest.active, now: guideNow)
 
                     ZStack(alignment: .topLeading) {
                         VStack(alignment: .leading, spacing: 0) {
@@ -235,6 +203,10 @@ struct GuideView: View {
                                 }
                             } else {
                                 ScrollViewReader { proxy in
+                                // Kept for the rows: a row that is not drawn
+                                // again keeps the actions it was first given,
+                                // and those find the list through here.
+                                let _ = (navigation.scroll = proxy)
                                 ScrollView {
                                     LazyVStack(alignment: .leading, spacing: 0) {
                                         ForEach(filtered) { stream in
@@ -255,12 +227,16 @@ struct GuideView: View {
                                                         onStartOver: { watchRecording(of: stream, programme: nil) },
                                                         onCatchUp: { catchUpChannel = stream },
                                                         onMoveFocus: { direction, focus in
-                                                            moveGuideFocus(direction, from: focus, proxy: proxy)
+                                                            moveGuideFocus(direction, from: focus, proxy: navigation.scroll ?? proxy)
                                                         },
                                                         onFocusProgram: { program in
-                                                            focusedGuideItem = GuideFocusItem(stream: stream, program: program)
+                                                            remoteLanded(on: stream, item: GuideFocusItem(stream: stream, program: program))
                                                         }
                                                     )
+                                                    // Drawn again when its channel, its
+                                                    // programmes or the time change, not
+                                                    // each time the remote moves.
+                                                    .equatable()
                                                 } else {
                                                     GuideChannelListRow(
                                                         stream: stream,
@@ -276,12 +252,13 @@ struct GuideView: View {
                                                         onStartOver: { watchRecording(of: stream, programme: nil) },
                                                         onCatchUp: { catchUpChannel = stream },
                                                         onMoveFocus: { direction, focus in
-                                                            moveGuideListFocus(direction, from: focus, proxy: proxy)
+                                                            moveGuideListFocus(direction, from: focus, proxy: navigation.scroll ?? proxy)
                                                         },
                                                         onFocus: {
-                                                            focusedGuideItem = currentProgram.map { GuideFocusItem(stream: stream, program: $0) }
+                                                            remoteLanded(on: stream, item: currentProgram.map { GuideFocusItem(stream: stream, program: $0) })
                                                         }
                                                     )
+                                                    .equatable()
                                                 }
                                             }
                                             .id(stream.id)
@@ -397,9 +374,8 @@ struct GuideView: View {
                     }
                 }
                 .task(id: channelRequest) { await loadChannels() }
-                .task(id: previewRequest) { await loadDefaultPreview() }
                 .onChange(of: guideViewModeValue) { _, value in restoreGuideFocus(for: value) }
-                .onExitCommand(perform: backAction)
+                .modifier(GuideBackAction(focus: focus, action: backAction))
             }
             .environment(\.guideLayout, layout)
             .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
@@ -449,12 +425,10 @@ struct GuideView: View {
     /// takes it, and the system moves up to the tab bar -- so a long way
     /// down the Guide, Back twice reaches the tabs, where it used to take
     /// holding Up all the way.
-    private var backAction: (() -> Void)? {
+    private func backAction(belowTop: Bool) -> (() -> Void)? {
         if browsing { return nil }
         if sidebarVisible && !searchActive { return { closeSidebar() } }
-        if let row = channelPosition(gridFocus?.streamID), row > 0 {
-            return { topRequest &+= 1 }
-        }
+        if belowTop { return { topRequest &+= 1 } }
         if searchActive { return nil }
         return { browseCategories() }
     }
@@ -462,6 +436,7 @@ struct GuideView: View {
     /// Back to the categories, from the top of a guide.
     private func browseCategories() {
         gridFocus = nil
+        focus.setBelowTop(false)
         refocusCategories = true
         browsing = true
     }
@@ -648,6 +623,112 @@ struct GuideView: View {
 private struct GuideFocusItem: Equatable {
     let stream: XtreamStream
     let program: CurrentProgram
+}
+
+/// What the remote is on in the grid.
+///
+/// It was state of the Guide itself, read in the Guide's own body, so every
+/// press of the remote drew the whole screen again: each row on it handed a
+/// fresh set of actions and laid out afresh, cell by cell, to change one
+/// border and the panel above. It is kept here now and read by the two
+/// things that show it -- the panel, and what Back does -- and a press
+/// redraws those and the two cells the remote moved between.
+@Observable private final class GuideFocusModel {
+    /// The programme under the remote, for the panel above the grid.
+    var item: GuideFocusItem?
+    /// Whether the remote is below the first channel, where Back goes to
+    /// the top rather than out to the categories.
+    private(set) var belowTop = false
+
+    func setBelowTop(_ value: Bool) {
+        if belowTop != value { belowTop = value }
+    }
+}
+
+/// Back in the Guide. Only this reads where the remote is.
+private struct GuideBackAction: ViewModifier {
+    let focus: GuideFocusModel
+    let action: (Bool) -> (() -> Void)?
+
+    func body(content: Content) -> some View {
+        content.onExitCommand(perform: action(focus.belowTop))
+    }
+}
+
+/// The head of the Guide: the programme under the remote with the controls
+/// beside it, or the controls alone before there is one.
+private struct GuideHeader: View {
+    @Environment(SportsLibrary.self) private var library
+    let focus: GuideFocusModel
+    let controls: GuideControlBar
+    /// The channels listed, and each one's place among them.
+    let streams: [XtreamStream]
+    let positions: [Int: Int]
+    /// The list those came from, so the first programme is looked for again
+    /// when it changes.
+    let installed: AnyHashable?
+    let active: Bool
+    let now: Date
+    /// What is on the first channel with a guide, shown until the remote
+    /// lands on something.
+    @State private var defaultPreview: TVGuideChannelSnapshot.Preview?
+
+    private func listed(_ id: Int?) -> Bool {
+        guard let id, !streams.isEmpty else { return false }
+        return positions[id] != nil
+    }
+
+    private struct PreviewRequest: Hashable {
+        let channels: AnyHashable?
+        let guideRevision: Int
+        let now: Date
+        let active: Bool
+    }
+
+    private var previewRequest: PreviewRequest {
+        PreviewRequest(channels: installed, guideRevision: library.guideRevision, now: now,
+                       active: active && !listed(focus.item?.stream.id))
+    }
+
+    private var previewItem: GuideFocusItem? {
+        if let item = focus.item, listed(item.stream.id) { return item }
+        if let preview = defaultPreview, listed(preview.stream.id) {
+            return GuideFocusItem(stream: preview.stream, program: preview.program)
+        }
+        return nil
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if let previewItem {
+                GuidePreviewPanel(
+                    controls: controls,
+                    item: previewItem,
+                    categoryName: library.categories.first(where: { $0.id == previewItem.stream.categoryID })?.categoryName ?? "Live TV",
+                    quality: guideQuality(previewItem.stream),
+                    now: now
+                )
+                .frame(height: GuidePreviewPanel.height)
+                // The video reaches the screen's left edge; the info
+                // pane keeps the Guide's readable inset on the right.
+                .padding(.leading, -GuideLayout.margin)
+                .padding(.trailing, GuideLayout.inset)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                controls.padding(.horizontal, GuideLayout.inset)
+            }
+        }
+        .task(id: previewRequest) { await loadDefaultPreview() }
+    }
+
+    private func loadDefaultPreview() async {
+        let request = previewRequest
+        guard request.active else { return }
+        let programs = library.programsByChannel
+        let preview = try? await TVGuideChannelSnapshot.preview(in: streams, programs: programs, now: now)
+        guard !Task.isCancelled, previewRequest == request else { return }
+        defaultPreview = preview
+    }
 }
 
 private struct GuideControlBar: View {
@@ -1306,6 +1387,8 @@ private struct GuideGridFocus: Hashable {
 /// nothing.
 private final class GuideNavigation {
     var builtRows: Set<Int> = []
+    /// The list of channels, as last drawn.
+    var scroll: ScrollViewProxy?
     private var target: GuideGridFocus?
     private var sentAt: TimeInterval = 0
 
@@ -1339,7 +1422,17 @@ private struct GuideLeftBoundary: ViewModifier {
     }
 }
 
-private struct GuideChannelRow: View {
+private struct GuideChannelRow: View, Equatable {
+    /// What the row is drawn from. Its actions are left out: they do the
+    /// same thing for the same channel however many times they are made.
+    /// Focus reaches the cells on its own, and the layout and the favourite
+    /// star through the environment and the library.
+    nonisolated static func == (lhs: GuideChannelRow, rhs: GuideChannelRow) -> Bool {
+        lhs.stream == rhs.stream && lhs.visiblePrograms == rhs.visiblePrograms
+            && lhs.favoritesMode == rhs.favoritesMode && lhs.now == rhs.now
+            && (lhs.multiviewPrimaryID == lhs.stream.id) == (rhs.multiviewPrimaryID == rhs.stream.id)
+    }
+
     @Environment(\.guideLayout) private var layout
     @Environment(SportsLibrary.self) private var library
     let stream: XtreamStream
@@ -1358,6 +1451,9 @@ private struct GuideChannelRow: View {
     let onMoveFocus: (MoveCommandDirection, GuideGridFocus) -> Void
     let onFocusProgram: (CurrentProgram) -> Void
     var body: some View {
+        // Worked out once for the row rather than for each of its cells.
+        let anchor = guideTimelineAnchor(now)
+        let quality = guideQuality(stream)
         HStack(spacing: 0) {
             // On the guide's own ground, as on the phone: no plate behind it.
             GuideChannelArtwork(stream: stream, isFavorite: library.isFavorite(stream))
@@ -1369,16 +1465,16 @@ private struct GuideChannelRow: View {
             ZStack(alignment: .leading) {
                 if visiblePrograms.isEmpty {
                     let focusID = GuideGridFocus(streamID: stream.id, programStart: nil)
-                    GuideProgramCell(program: nil, empty: "No guide information", quality: guideQuality(stream), now: now, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
+                    GuideProgramCell(program: nil, empty: "No guide information", quality: quality, now: now, anchor: anchor, showsTime: true, onPlay: onPlay, onFocus: {}, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
                         .frame(width: layout.slotWidth - 6, alignment: .leading)
                 } else {
                     ForEach(visiblePrograms.indices, id: \.self) { index in
                         let program = visiblePrograms[index]
-                        let width = guideProgramWidth(program, now: now, layout: layout)
+                        let width = guideProgramWidth(program, anchor: anchor, layout: layout)
                         let focusID = GuideGridFocus(streamID: stream.id, programStart: program.start)
-                        GuideProgramCell(program: program, empty: "", quality: guideQuality(stream), now: now, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) }, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
+                        GuideProgramCell(program: program, empty: "", quality: quality, now: now, anchor: anchor, showsTime: width >= 110, onPlay: onPlay, onFocus: { onFocusProgram(program) }, gridFocus: gridFocus, focusID: focusID, onMove: { onMoveFocus($0, focusID) })
                             .frame(width: width, alignment: .leading)
-                            .offset(x: guideProgramX(program, now: now, layout: layout))
+                            .offset(x: guideProgramX(program, anchor: anchor, layout: layout))
                     }
                 }
             }
@@ -1440,7 +1536,14 @@ private struct GuideChannelRow: View {
 
 /// A channel-first alternative to the timeline. The logo occupies the tinted
 /// rail and current programme details fill the matching dark row to its right.
-private struct GuideChannelListRow: View {
+private struct GuideChannelListRow: View, Equatable {
+    /// As the grid's rows: what is drawn, not the actions.
+    nonisolated static func == (lhs: GuideChannelListRow, rhs: GuideChannelListRow) -> Bool {
+        lhs.stream == rhs.stream && lhs.program == rhs.program && lhs.now == rhs.now
+            && lhs.quality == rhs.quality && lhs.favoritesMode == rhs.favoritesMode
+            && (lhs.multiviewPrimaryID == lhs.stream.id) == (rhs.multiviewPrimaryID == rhs.stream.id)
+    }
+
     @Environment(\.guideLayout) private var layout
     @Environment(SportsLibrary.self) private var library
     let stream: XtreamStream
@@ -1812,14 +1915,12 @@ private struct TVReorderDoneButton: View {
     }
 }
 
-private func guideProgramX(_ program: CurrentProgram, now: Date, layout: GuideLayout) -> CGFloat {
-    let anchor = guideTimelineAnchor(now)
+private func guideProgramX(_ program: CurrentProgram, anchor: Date, layout: GuideLayout) -> CGFloat {
     let visibleStart = max(program.start, anchor)
     return max(0, CGFloat(visibleStart.timeIntervalSince(anchor) / 1800) * layout.slotWidth)
 }
 
-private func guideProgramWidth(_ program: CurrentProgram, now: Date, layout: GuideLayout) -> CGFloat {
-    let anchor = guideTimelineAnchor(now)
+private func guideProgramWidth(_ program: CurrentProgram, anchor: Date, layout: GuideLayout) -> CGFloat {
     let windowEnd = anchor.addingTimeInterval(Double(guideVisibleSlotCount) * 1800)
     let visibleStart = max(program.start, anchor)
     let visibleEnd = min(program.end, windowEnd)
@@ -1829,12 +1930,19 @@ private func guideProgramWidth(_ program: CurrentProgram, now: Date, layout: Gui
 
 /// A programme block on its channel's own colour. Elapsed time keeps its
 /// translucent fill; remote focus adds an edge without washing out the tint.
+///
+/// Every cell on screen is asked again each time the remote moves, since
+/// each has to say whether it is the one in focus. What it shows is a view
+/// of its own (`GuideProgramFace`) that only its programme and the time
+/// change, so a move costs each cell a comparison and the two that changed
+/// a border, not thirty titles and time ranges set again.
 private struct GuideProgramCell: View {
-    @Environment(\.guideLayout) private var layout
     let program: CurrentProgram?
     let empty: String
     let quality: String?
     let now: Date
+    /// Where the grid's first column starts.
+    let anchor: Date
     let showsTime: Bool
     let onPlay: () -> Void
     let onFocus: () -> Void
@@ -1842,6 +1950,48 @@ private struct GuideProgramCell: View {
     let focusID: GuideGridFocus
     let onMove: (MoveCommandDirection) -> Void
     private var isFocused: Bool { gridFocus.wrappedValue == focusID }
+
+    private var isOnNow: Bool {
+        guard let program else { return false }
+        return program.start <= now && now < program.end
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        GuideProgramFace(program: program, empty: empty, quality: quality, now: now, anchor: anchor,
+                         showsTime: showsTime)
+            .equatable()
+        .overlay {
+            if isFocused {
+                shape.strokeBorder(LineupStyle.focusEdge, lineWidth: 1.5)
+                    .allowsHitTesting(false)
+            }
+        }
+        .zIndex(isFocused ? 2 : 0)
+        .animation(.easeOut(duration: 0.14), value: isFocused)
+        .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().tvSelectAction(onPlay)
+        .onMoveCommand(perform: onMove)
+        .accessibilityValue(isOnNow ? "On now" : "")
+        // Keep the focused block in timeline coordinates so its fill stays aligned.
+        .onChange(of: isFocused) { _, focused in if focused { onFocus() } }
+    }
+}
+
+/// What a programme block shows: its title, its times, and how far it has
+/// run. Nothing here knows where the remote is.
+private struct GuideProgramFace: View, Equatable {
+    @Environment(\.guideLayout) private var layout
+    let program: CurrentProgram?
+    let empty: String
+    let quality: String?
+    let now: Date
+    let anchor: Date
+    let showsTime: Bool
+
+    nonisolated static func == (lhs: GuideProgramFace, rhs: GuideProgramFace) -> Bool {
+        lhs.program == rhs.program && lhs.empty == rhs.empty && lhs.quality == rhs.quality
+            && lhs.now == rhs.now && lhs.anchor == rhs.anchor && lhs.showsTime == rhs.showsTime
+    }
 
     private var isOnNow: Bool {
         guard let program else { return false }
@@ -1889,7 +2039,7 @@ private struct GuideProgramCell: View {
                     GeometryReader { geometry in
                         let played = GuideProgress.playedWidth(
                             start: program.start, end: program.end, now: now,
-                            visibleStart: guideTimelineAnchor(now),
+                            visibleStart: anchor,
                             pointsPerSecond: Double(layout.slotWidth) / 1800,
                             cellWidth: Double(geometry.size.width))
                         // A low-contrast wash, not a second progress bar; its
@@ -1903,19 +2053,6 @@ private struct GuideProgramCell: View {
             }
             .clipShape(shape)
         }
-        .overlay {
-            if isFocused {
-                shape.strokeBorder(LineupStyle.focusEdge, lineWidth: 1.5)
-                    .allowsHitTesting(false)
-            }
-        }
-        .zIndex(isFocused ? 2 : 0)
-        .animation(.easeOut(duration: 0.14), value: isFocused)
-        .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().tvSelectAction(onPlay)
-        .onMoveCommand(perform: onMove)
-        .accessibilityValue(isOnNow ? "On now" : "")
-        // Keep the focused block in timeline coordinates so its fill stays aligned.
-        .onChange(of: isFocused) { _, focused in if focused { onFocus() } }
     }
 }
 
