@@ -756,10 +756,12 @@ struct MediaCatalogsScreen: View {
         browseRows.snapshot(in: media, active: tabIsActive && isVisible && scenePhase == .active)
     }
     private var continueWatching: [LocalMediaPlayback] { browseSnapshot.continuing }
+    private var upNext: [LocalMediaPlayback] { browseSnapshot.upNext }
     private var favoriteTitles: [MediaItem] { browseSnapshot.titles }
     private var favoriteEpisodes: [MediaItem] { browseSnapshot.episodes }
     #else
-    private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
+    private var continueWatching: [LocalMediaPlayback] { Array(media.inProgress.prefix(20)) }
+    private var upNext: [LocalMediaPlayback] { Array(media.upNext.prefix(20)) }
     private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
     private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
     #endif
@@ -818,7 +820,7 @@ struct MediaCatalogsScreen: View {
                     }
                 }
             } else {
-                if shownShelves.isEmpty && continueWatching.isEmpty
+                if shownShelves.isEmpty && continueWatching.isEmpty && upNext.isEmpty
                     && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty && media.heroCatalog == nil {
                     #if os(tvOS)
                     LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
@@ -956,6 +958,13 @@ struct MediaCatalogsScreen: View {
         if !continuing.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                items: continuing.map(\.item), opensPages: true))
+        }
+        // The next episode of each show being watched, kept apart from what
+        // has been started.
+        let next = upNext
+        if !next.isEmpty {
+            rows.append(.local(id: LibraryShelfOrder.upNext, title: "Up Next",
+                               items: next.map(\.item), opensPages: true))
         }
         rows += media.builtInShelves.map(PhoneRow.catalog)
         if !titles.isEmpty {
@@ -1176,6 +1185,11 @@ struct MediaCatalogsScreen: View {
         if !continueWatching.isEmpty {
             shelves.append(TVLibraryShelf(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                           label: nil, items: continueWatching.map(\.item),
+                                          opensPages: true, catalog: nil))
+        }
+        if !upNext.isEmpty {
+            shelves.append(TVLibraryShelf(id: LibraryShelfOrder.upNext, title: "Up Next",
+                                          label: nil, items: upNext.map(\.item),
                                           opensPages: true, catalog: nil))
         }
         shelves += media.builtInShelves.map { catalog in
@@ -1880,6 +1894,7 @@ struct MediaCatalogsScreen: View {
     static func shelfSymbol(_ id: String) -> String {
         switch id {
         case LibraryShelfOrder.continueWatching: "play.circle"
+        case LibraryShelfOrder.upNext: "forward.end"
         case LibraryShelfOrder.favorites: "heart"
         case LibraryShelfOrder.favoriteEpisodes: "heart.text.square"
         case LibraryTrendingRow.movies.id, LibraryTrendingRow.shows.id: "flame"

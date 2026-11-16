@@ -262,6 +262,24 @@ final class DeviceSetupTests: XCTestCase {
                            duration: 3_000, updatedAt: Date(timeIntervalSince1970: day), completed: position == nil)
     }
 
+    /// The Library's Up Next row holds the next episode Lineup worked out
+    /// and nothing of it played; anything started stays in Continue Watching.
+    func testUpNextIsTheNextEpisodeNotYetStarted() {
+        let server = UUID()
+        var next = watched(2, on: server, at: 2, stoppedAt: 0)
+        next.isUpNext = true
+        XCTAssertTrue(MediaLibrary.isUpNextOnly(next))
+        var begun = next
+        begun.position = 600
+        XCTAssertFalse(MediaLibrary.isUpNextOnly(begun), "Started, it's continued, not up next")
+        var film = LocalMediaPlayback(profileID: server, item: MediaItem(id: "m", name: "Film", type: "Movie",
+            overview: nil, productionYear: nil, primaryImageAspectRatio: nil, childCount: nil, serverID: server),
+            position: 0, duration: 6_000, updatedAt: Date(), completed: false)
+        film.isUpNext = true
+        XCTAssertFalse(MediaLibrary.isUpNextOnly(film), "Only an episode is up next")
+        XCTAssertFalse(MediaLibrary.isUpNextOnly(watched(1, on: server, at: 1, stoppedAt: 1_200)))
+    }
+
     /// Where the show's Play button picks up, from these records alone.
     private func resume(_ records: [LocalMediaPlayback], on server: UUID) -> String? {
         let finished = Set(records.filter(\.completed).map(\.item.id))

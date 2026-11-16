@@ -698,6 +698,25 @@ final class MediaLibrary {
     /// In-progress titles, newest first. A completed title belongs in History,
     /// not in Continue Watching, even if its final saved position is shy of the
     /// exact file duration.
+    /// Continue Watching as its own row shows it: what has been started and
+    /// not finished. The next episode of a show, not yet started, is in
+    /// `upNext` instead.
+    var inProgress: [LocalMediaPlayback] {
+        continueWatching.filter { !Self.isUpNextOnly($0) }
+    }
+
+    /// Up Next: the next episode of each show being watched, waiting to be
+    /// started, newest first.
+    var upNext: [LocalMediaPlayback] {
+        continueWatching.filter(Self.isUpNextOnly)
+    }
+
+    /// A record that is the next episode Lineup worked out, with nothing of
+    /// it played yet.
+    nonisolated static func isUpNextOnly(_ record: LocalMediaPlayback) -> Bool {
+        record.isUpNext == true && record.position < 5 && record.item.type == "Episode"
+    }
+
     var continueWatching: [LocalMediaPlayback] {
         let candidates = playbackForConnectedServers.filter {
             !isHiddenFromContinueWatching($0.item, profileID: $0.profileID)
@@ -5798,9 +5817,14 @@ extension MediaLibrary {
             rows.append(LibraryRow(id: Self.vodRowID, title: "VOD", detail: nil, symbol: "film.stack", brand: nil))
         }
         #endif
-        if !continueWatching.isEmpty {
+        let watching = continueWatching
+        if watching.contains(where: { !Self.isUpNextOnly($0) }) {
             rows.append(LibraryRow(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                    detail: nil, symbol: "play.circle", brand: nil))
+        }
+        if watching.contains(where: Self.isUpNextOnly) {
+            rows.append(LibraryRow(id: LibraryShelfOrder.upNext, title: "Up Next",
+                                   detail: nil, symbol: "forward.end", brand: nil))
         }
         rows += trendingShelves.map { shelf in
             LibraryRow(id: shelf.id, title: shelf.title, detail: "Trending now",
