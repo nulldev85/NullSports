@@ -335,8 +335,9 @@ struct TVGameCard: View, Equatable {
                                             homeColor.opacity(focused ? 0.34 : 0.22)],
                                    startPoint: .leading, endPoint: .trailing), in: shape)
         .background(LineupPanelStyle.fill, in: shape)
-        .overlay(shape.strokeBorder(focused ? Color.white.opacity(0.85) : Color.white.opacity(0.06),
-                                    lineWidth: focused ? 3 : 1))
+        // No frame when focused: the card rises (`TVSelectable`) and its
+        // teams' colours brighten.
+        .overlay(shape.strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
         .overlay(alignment: .topTrailing) {
             if isFirstOfMultiview {
                 Text("FIRST GAME").font(.inter(14, .heavy)).tracking(1)

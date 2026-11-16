@@ -88,6 +88,9 @@ targets:
       - iPhone/MobileSportsMatching.swift
     dependencies:
       - package: VLCKitSPM
+      # The Home Screen's Top Shelf: trending films and shows.
+      - target: LineupTopShelf
+        embed: true
       - target: LineupAetherPlayback
         embed: true
       - target: LineupMPVPlayback
@@ -149,6 +152,27 @@ targets:
     scheme:
       testTargets:
         - LineupTests
+  # The Top Shelf: the banner over the Home Screen's top row while Lineup is
+  # in it. It reads TMDB's trending lists itself with the app's key.
+  LineupTopShelf:
+    type: app-extension
+    platform: tvOS
+    sources:
+      - TopShelf
+      - path: Lineup/Resources/LineupMetadata.json
+        buildPhase: resources
+        optional: true
+    dependencies:
+      - sdk: TVServices.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nulldev85.NullSports.TopShelf
+        PRODUCT_NAME: LineupTopShelf
+        INFOPLIST_FILE: TopShelf/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
   LineupTests:
     type: bundle.unit-test
     platform: tvOS

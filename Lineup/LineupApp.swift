@@ -143,13 +143,32 @@ func applyLineupTabBarTheme() {
     let appearance = UITabBarAppearance()
     appearance.configureWithOpaqueBackground()
     appearance.backgroundColor = UIColor(LineupStyle.background)
+    #if os(tvOS)
+    // No plate behind the tab the remote is on, and none behind the chosen
+    // one: as everywhere in the app, what is focused rises -- a little
+    // larger, a shadow under it -- rather than having something drawn round
+    // it. The chosen tab is the bright one.
+    appearance.selectionIndicatorTintColor = .clear
+    appearance.selectionIndicatorImage = UIImage()
+    let lift = NSShadow()
+    lift.shadowColor = UIColor.black.withAlphaComponent(0.55)
+    lift.shadowOffset = CGSize(width: 0, height: 4)
+    lift.shadowBlurRadius = 10
+    #else
     appearance.selectionIndicatorTintColor = UIColor.white.withAlphaComponent(0.12)
+    #endif
     for item in [appearance.stackedLayoutAppearance, appearance.inlineLayoutAppearance, appearance.compactInlineLayoutAppearance] {
         for (state, color) in [(item.normal, normalColor), (item.disabled, normalColor.withAlphaComponent(0.45)),
                                (item.selected, selectedColor), (item.focused, selectedColor)] {
             state.iconColor = color
             var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: color]
             if let titleFont { attributes[.font] = titleFont }
+            #if os(tvOS)
+            if state === item.focused {
+                if let titleFont { attributes[.font] = titleFont.withSize(titleFont.pointSize * 1.12) }
+                attributes[.shadow] = lift
+            }
+            #endif
             state.titleTextAttributes = attributes
         }
     }

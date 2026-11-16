@@ -996,7 +996,7 @@ private struct TVGuideCategoryRow: View {
         .foregroundStyle(GuidePalette.text)
         .padding(.horizontal, 22)
         .frame(height: 84)
-        .background(focused ? LineupStyle.focused : GuidePalette.surface, in: shape)
+        .background(GuidePalette.surface, in: shape)
         .lineupFocusLayer(focused, in: shape)
         .animation(.easeOut(duration: 0.16), value: focused)
     }
@@ -1315,7 +1315,7 @@ private struct GuideHeaderButton: View {
             .foregroundStyle(GuidePalette.text)
             .padding(.leading, 8).padding(.trailing, 22).frame(height: 48)
             .background(GuidePalette.surface, in: shape)
-            .lineupFocusLayer(isFocused, in: shape)
+            .lineupFocusLayer(isFocused, in: shape, lifts: false)
             .contentShape(shape).focusable().focused($isFocused).focusEffectDisabled().tvSelectAction(action)
             .focusLift(isFocused, scale: LineupStyle.controlLift)
             .onMoveCommand { direction in if direction == .down { onMoveDown?() } }
@@ -2002,7 +2002,7 @@ private struct TVReorderDoneButton: View {
             .background(LineupPresentationStyle.card, in: Capsule())
             .foregroundStyle(LineupPresentationStyle.text)
             .overlay(Capsule().strokeBorder(LineupStyle.line, lineWidth: 1))
-            .lineupFocusLayer(focused, in: Capsule())
+            .lineupFocusLayer(focused, in: Capsule(), lifts: false)
             .contentShape(Capsule())
             .focusable().focused($focused).focusEffectDisabled()
             .tvSelectAction(action)
@@ -2057,14 +2057,18 @@ private struct GuideProgramCell: View {
         GuideProgramFace(program: program, empty: empty, quality: quality, now: now, anchor: anchor,
                          showsTime: showsTime)
             .equatable()
-        .overlay {
+        // The programme the remote is on rises off the row, as everything
+        // focused in the app does; nothing is drawn round it.
+        .background {
             if isFocused {
-                shape.strokeBorder(LineupStyle.focusEdge, lineWidth: 1.5)
-                    .allowsHitTesting(false)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(GuidePalette.raised)
             }
         }
+        .scaleEffect(isFocused ? 1.06 : 1)
+        .lineupShadow(.lifted, on: isFocused)
         .zIndex(isFocused ? 2 : 0)
-        .animation(.easeOut(duration: 0.14), value: isFocused)
+        .animation(.spring(response: 0.24, dampingFraction: 0.8), value: isFocused)
         .contentShape(Rectangle()).focusable().focused(gridFocus, equals: focusID).focusEffectDisabled().tvSelectAction(onPlay)
         .onMoveCommand(perform: onMove)
         .accessibilityValue(isOnNow ? "On now" : "")

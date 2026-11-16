@@ -553,7 +553,7 @@ struct LineupCardAction: View {
                 .font(.inter(.subheadline, .semibold))
                 .frame(maxWidth: .infinity, minHeight: 66)
                 .background(LineupPanelStyle.well, in: Capsule())
-                .lineupFocusLayer(focused, in: Capsule())
+                .lineupFocusLayer(focused, in: Capsule(), lifts: false)
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
             #else
             // The reference app's way with a labelled control: the icon on

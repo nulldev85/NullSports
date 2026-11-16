@@ -357,7 +357,7 @@ struct MediaStreamTab: View {
         .background(active ? LineupStyle.highlight : Color.clear, in: Capsule())
         .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
         .opacity(quiet && !active ? 0.55 : 1)
-        .lineupFocusLayer(focused && !active, in: Capsule())
+        .lineupFocusLayer(focused && !active, in: Capsule(), lifts: false)
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }

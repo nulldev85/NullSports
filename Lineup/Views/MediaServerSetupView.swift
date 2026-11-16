@@ -256,7 +256,7 @@ private struct MediaServerPicker: View {
                     .background(chosen ? brand.loginTint.opacity(0.18) : LineupPresentationStyle.row, in: shape)
                     .overlay(shape.strokeBorder(chosen ? LineupPresentationStyle.text.opacity(0.6) : LineupStyle.line,
                                                 lineWidth: chosen ? 1.5 : 0.5))
-                    .lineupFocusLayer(focused == brand, in: shape.inset(by: -6))
+                    .lineupFocusLayer(focused == brand, in: shape.inset(by: -6), lifts: false)
                     .focusable()
                     .focused($focused, equals: brand)
                     .focusEffectDisabled()

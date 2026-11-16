@@ -571,10 +571,22 @@ extension LineupStyle {
 }
 
 extension View {
-    /// The focus layer, in the shape of what is focused. Drawn over the
-    /// content rather than behind it, so it shows on artwork and video as
-    /// plainly as on a grey card.
-    func lineupFocusLayer<S: InsettableShape>(_ focused: Bool, in shape: S, edge: Bool = true) -> some View {
+    /// What is focused, shown.
+    ///
+    /// On the television nothing is drawn over it: no frame, no wash. It
+    /// rises -- a step larger, a shadow under it, above its neighbours -- so
+    /// a poster, a channel or a game looks as it is, only nearer. Inside
+    /// something that already rises (`TVSelectable`, `focusLift`) it adds
+    /// nothing, and where the caller scales the view itself (`lifts: false`)
+    /// it adds only the shadow.
+    ///
+    /// On the phone, which has no remote, it is the layer it always was.
+    @ViewBuilder
+    func lineupFocusLayer<S: InsettableShape>(_ focused: Bool, in shape: S, edge: Bool = true,
+                                              lifts: Bool = true) -> some View {
+        #if os(tvOS)
+        modifier(LineupFocusLift(focused: focused, scales: lifts))
+        #else
         overlay {
             if focused {
                 ZStack {
@@ -584,8 +596,45 @@ extension View {
                 .allowsHitTesting(false)
             }
         }
+        #endif
     }
 }
+
+#if os(tvOS)
+private struct LineupLiftedByParentKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Set inside something that already rises when focused, so what is in
+    /// it doesn't rise a second time.
+    var lineupLiftedByParent: Bool {
+        get { self[LineupLiftedByParentKey.self] }
+        set { self[LineupLiftedByParentKey.self] = newValue }
+    }
+}
+
+/// Focus as a rise: a step larger, a shadow, drawn above what is around it.
+struct LineupFocusLift: ViewModifier {
+    @Environment(\.lineupLiftedByParent) private var liftedByParent
+    let focused: Bool
+    var scales = true
+
+    static let scale: CGFloat = 1.05
+
+    func body(content: Content) -> some View {
+        if liftedByParent {
+            content
+        } else {
+            content
+                .scaleEffect(focused && scales ? Self.scale : 1)
+                .lineupShadow(.lifted, on: focused)
+                .zIndex(focused ? 10 : 0)
+                .animation(.spring(response: 0.26, dampingFraction: 0.78), value: focused)
+        }
+    }
+}
+#endif
 
 /// How high something sits, in steps.
 ///
@@ -725,8 +774,9 @@ struct LineupButtonStyle: ButtonStyle {
                 .padding(.horizontal, 20).padding(.vertical, 12)
                 .frame(minHeight: Self.height)
                 .background(presentationTint?.opacity(0.15) ?? LineupPanelStyle.well, in: shape)
-                .lineupFocusLayer(focused, in: shape)
+                .lineupFocusLayer(focused, in: shape, lifts: false)
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
+                .zIndex(focused ? 10 : 0)
                 .animation(.easeOut(duration: 0.16), value: focused)
                 .opacity(enabled ? (configuration.isPressed ? 0.75 : 1) : 0.45)
         }
@@ -1014,14 +1064,12 @@ struct TVSelectable<Content: View>: View {
 
     var body: some View {
         let focusShape = RoundedRectangle(cornerRadius: fillRadius, style: .continuous)
+        // What is in here rises with this, and draws no frame of its own.
+        let _ = focusShape
         content
             .environment(\.lineupTVSelectableFocused, focused)
+            .environment(\.lineupLiftedByParent, true)
             .contentShape(Rectangle())
-            // The app's one focus layer. It sits around the lockup rather than
-            // on its first and last pixels, leaving a gutter beside titles and
-            // progress copy while keeping the card layout and shelf spacing
-            // exactly where they were when focus moves.
-            .lineupFocusLayer(focused && drawsFocusChrome, in: focusShape.inset(by: -6))
             .focusable()
             .focused($focused)
             .focusEffectDisabled()
@@ -1034,7 +1082,7 @@ struct TVSelectable<Content: View>: View {
             // show no feedback at all. A lift and a dark shadow say where you
             // are without painting anything pale over the control.
             .scaleEffect(focused ? scale : 1)
-            .lineupShadow(.lifted, on: focused && drawsFocusChrome)
+            .lineupShadow(.lifted, on: focused)
             .zIndex(focused ? 10 : 0)
             .animation(.spring(response: 0.24, dampingFraction: 0.8), value: focused)
     }
