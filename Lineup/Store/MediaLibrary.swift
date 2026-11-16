@@ -4698,6 +4698,30 @@ final class MediaLibrary {
         return all.count > 1 ? all : []
     }
 
+    /// Every Xtream provider with films and shows to browse, each a folder
+    /// in the Library.
+    var providerVODAccounts: [XtreamProfile] {
+        _ = providerCatalogRevision
+        return providerVOD.profiles
+    }
+
+    /// One provider's categories, films and shows apart, each with how many
+    /// titles it holds; empty ones left out. Read from its list, fetched if
+    /// it isn't in hand.
+    func providerVODCategories(_ id: UUID) async -> (films: [MediaItem], shows: [MediaItem])? {
+        guard let list = try? await providerVOD.catalog(id) else { return nil }
+        let catalog = list.catalog, index = list.index
+        let films = catalog.filmCategories.map { group in
+            ProviderVOD.shelfRoot(for: group, films: true,
+                                  count: index.films(inCategory: group.categoryID, in: catalog).count, provider: id)
+        }
+        let shows = catalog.showCategories.map { group in
+            ProviderVOD.shelfRoot(for: group, films: false,
+                                  count: index.shows(inCategory: group.categoryID, in: catalog).count, provider: id)
+        }
+        return (films.filter { ($0.childCount ?? 0) > 0 }, shows.filter { ($0.childCount ?? 0) > 0 })
+    }
+
     func selectProviderVOD(_ id: UUID?) async {
         providerVOD.selection = id
         providerCatalogRevision &+= 1
@@ -4736,7 +4760,8 @@ final class MediaLibrary {
         var films: [MediaItem] = []
         var shows: [MediaItem] = []
         for profile in providerVOD.shown {
-            guard let (catalog, index) = providerVOD.ready(profile.id) else { continue }
+            guard let list = providerVOD.ready(profile.id) else { continue }
+            let catalog = list.catalog, index = list.index
             func open(_ root: MediaItem) -> Bool {
                 !shelved.contains(profile.id.uuidString + "|" + root.id) && (root.childCount ?? 0) > 0
             }

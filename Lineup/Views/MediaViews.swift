@@ -921,6 +921,8 @@ struct MediaCatalogsScreen: View {
     private enum PhoneRow: Identifiable {
         #if !os(tvOS)
         case collections
+        /// A folder for each IPTV provider's films and shows.
+        case providerVOD
         #endif
         case local(id: String, title: String, items: [MediaItem], opensPages: Bool)
         case catalog(MediaCatalog)
@@ -929,6 +931,7 @@ struct MediaCatalogsScreen: View {
             switch self {
             #if !os(tvOS)
             case .collections: LibraryShelfOrder.collections
+            case .providerVOD: MobileLibraryVODRow.rowID
             #endif
             case .local(let id, _, _, _): id
             case .catalog(let catalog): catalog.id
@@ -941,6 +944,7 @@ struct MediaCatalogsScreen: View {
         var rows: [PhoneRow] = []
         #if !os(tvOS)
         if media.showsCollectionsRow { rows.append(.collections) }
+        if !media.providerVODAccounts.isEmpty { rows.append(.providerVOD) }
         #endif
         // Each list once. They are worked out afresh at every mention, and
         // Continue Watching walks the whole watch history to do it: asked
@@ -982,6 +986,8 @@ struct MediaCatalogsScreen: View {
             #if !os(tvOS)
             case .collections:
                 MobileLibraryCollectionsRow()
+            case .providerVOD:
+                MobileLibraryVODRow()
             #endif
             case .local(let id, let title, let items, let opensPages):
                 localShelf(id: id, title: title, items: items, opensPages: opensPages)
