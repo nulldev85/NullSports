@@ -119,7 +119,7 @@ struct MobileEventChannelsSheet: View {
         loading = false
     }
 
-    nonisolated private static func matchProvider(_ profile: XtreamProfile, secret: String?,
+    nonisolated static func matchProvider(_ profile: XtreamProfile, secret: String?,
         game: SportsGame, board: [[String]]) async -> (UUID, [LiveEventChannel]?, String?) {
         guard let secret else { return (profile.id, nil, "Sign in again in Settings → IPTV") }
         do {
@@ -211,7 +211,7 @@ struct MobileEventChannelsContent: View {
     }
 }
 
-private struct MobileEventChannelRow: View {
+struct MobileEventChannelRow: View {
     let source: MobileProviderChannel
     private var channel: LiveEventChannel { source.channel }
     let isPlaying: Bool
