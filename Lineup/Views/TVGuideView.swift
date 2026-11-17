@@ -296,7 +296,8 @@ struct GuideView: View {
                                 .onChange(of: topRequest) { _, _ in
                                     guard let first = filtered.first else { return }
                                     let target = firstRowFocus(first)
-                                    navigation.heading(to: target)
+                                    navigation.heading(to: target, row: 0,
+                                                       from: channelPosition(gridFocus?.streamID) ?? 0)
                                     proxy.scrollTo(first.id, anchor: .top)
                                     if navigation.builtRows.contains(first.id) { gridFocus = target }
                                 }
@@ -407,6 +408,7 @@ struct GuideView: View {
                 // engine. The cells take it from the model, each on its own.
                 .onChange(of: gridFocus) { _, place in
                     if focus.current != place { focus.current = place }
+                    if let row = channelPosition(place?.streamID) { navigation.landed(on: row) }
                 }
                 .modifier(GuideBackAction(focus: focus, action: backAction))
             }
@@ -609,7 +611,8 @@ struct GuideView: View {
     }
 
     private func send(_ target: GuideGridFocus, proxy: ScrollViewProxy) {
-        navigation.heading(to: target)
+        guard let row = channelPosition(target.streamID) else { return }
+        navigation.heading(to: target, row: row, from: channelPosition(gridFocus?.streamID) ?? row)
         if navigation.builtRows.contains(target.streamID) {
             gridFocus = target
         } else {
@@ -621,6 +624,7 @@ struct GuideView: View {
     /// A row has been built. If focus was on its way to it, it goes there now.
     private func rowBuilt(_ streamID: Int) {
         navigation.builtRows.insert(streamID)
+        if let row = channelPosition(gridFocus?.streamID) { navigation.landed(on: row) }
         guard let target = navigation.headingTo(), target.streamID == streamID,
               !sidebarVisible, gridFocus != target else { return }
         gridFocus = target
@@ -1181,9 +1185,9 @@ private struct GuideTinyBadge: View {
 
     var body: some View {
         Text(title)
-            .font(.inter(12, .bold)).tracking(1.2)
+            .font(.inter(13, .bold)).tracking(1.2)
             .foregroundStyle(GuidePalette.secondary)
-            .padding(.horizontal, 7).frame(height: 22)
+            .padding(.horizontal, 7).frame(height: 24)
             .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
                 .strokeBorder(GuidePalette.secondary.opacity(0.5), lineWidth: 1))
             .fixedSize()
@@ -1335,10 +1339,10 @@ private struct GuideTimelineHeader: View {
             // has it. There is no line down the grid for it: how far each
             // programme on now has run is washed across its own cell.
             VStack(spacing: 2) {
-                Text("NOW").font(.inter(12, .heavy)).tracking(0.6)
+                Text("NOW").font(.inter(13, .heavy)).tracking(0.6)
                     .foregroundStyle(GuidePalette.secondary)
                 Text(now.formatted(date: .omitted, time: .shortened))
-                    .font(.interDigits(17, .semibold))
+                    .font(.interDigits(19, .semibold))
                     .foregroundStyle(GuidePalette.text)
             }
             .lineLimit(1)
@@ -1348,7 +1352,7 @@ private struct GuideTimelineHeader: View {
                     Rectangle().fill(GuidePalette.secondary.opacity(0.5)).frame(width: 1, height: 14)
                     Text(anchor.addingTimeInterval(Double(step) * 1800)
                         .formatted(date: .omitted, time: .shortened))
-                        .font(.interDigits(16, .semibold))
+                        .font(.interDigits(18, .semibold))
                         .foregroundStyle(GuidePalette.secondary)
                         .lineLimit(1)
                 }
@@ -1400,16 +1404,16 @@ private struct GuideListHeader: View {
     var body: some View {
         HStack(spacing: 0) {
             Text("CHANNEL")
-                .font(.inter(12, .heavy)).tracking(0.8)
+                .font(.inter(13, .heavy)).tracking(0.8)
                 .foregroundStyle(GuidePalette.channelText)
                 .frame(width: channelWidth, alignment: .leading)
             HStack(spacing: 8) {
                 GuideLiveDot(size: 7)
                 Text("NOW")
-                    .font(.inter(12, .heavy)).tracking(0.8)
+                    .font(.inter(13, .heavy)).tracking(0.8)
                     .foregroundStyle(GuidePalette.channelText)
                 Text(now.formatted(date: .omitted, time: .shortened))
-                    .font(.interDigits(16, .semibold))
+                    .font(.interDigits(18, .semibold))
                     .foregroundStyle(GuidePalette.rowText)
             }
             .padding(.leading, 20)
@@ -1485,9 +1489,18 @@ private final class GuideNavigation {
     var scroll: ScrollViewProxy?
     private var target: GuideGridFocus?
     private var sentAt: TimeInterval = 0
+    /// The rows focus may pass through on its way: from the row it was on
+    /// when the presses began to the one they are taking it to.
+    private var rows: ClosedRange<Int>?
+    private var origin = 0
 
-    func heading(to focus: GuideGridFocus) {
+    /// - Parameters:
+    ///   - row: the target's row.
+    ///   - from: the row focus is on now.
+    func heading(to focus: GuideGridFocus, row: Int, from: Int) {
+        if headingTo() == nil { origin = from }
         target = focus
+        rows = min(origin, row)...max(origin, row)
         sentAt = ProcessInfo.processInfo.systemUptime
     }
 
@@ -1496,6 +1509,17 @@ private final class GuideNavigation {
     func headingTo() -> GuideGridFocus? {
         guard ProcessInfo.processInfo.systemUptime - sentAt < 0.45 else { return nil }
         return target
+    }
+
+    /// Focus has landed on `row`. A row off the way the presses were taking
+    /// it means something else moved it -- a swipe the focus engine carried
+    /// further than the presses went -- and the presses' target is let go.
+    /// Kept, it pulled focus back a few rows once that row was built, or
+    /// the next press started from it.
+    func landed(on row: Int) {
+        guard target != nil, let rows, !rows.contains(row) else { return }
+        target = nil
+        self.rows = nil
     }
 }
 
@@ -1676,7 +1700,7 @@ private struct GuideChannelListRow: View, Equatable {
 
             VStack(alignment: .leading, spacing: 9) {
                 Text(programTitle)
-                    .font(.inter(25, .semibold))
+                    .font(.inter(28, .semibold))
                     .foregroundStyle(program == nil ? GuidePalette.channelText.opacity(0.7) : GuidePalette.rowText)
                     .lineLimit(1).minimumScaleFactor(0.8)
                 HStack(spacing: 12) {
@@ -1693,7 +1717,7 @@ private struct GuideChannelListRow: View, Equatable {
                     }
                     if let quality { GuideTinyBadge(title: quality) }
                 }
-                .font(.inter(14, .heavy)).tracking(0.5)
+                .font(.inter(16, .heavy)).tracking(0.5)
                 .foregroundStyle(GuidePalette.channelText)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -1791,7 +1815,7 @@ private struct GuideChannelArtwork: View {
             .transaction { $0.animation = nil }
             .frame(width: 120, height: 36)
             Text(stream.name)
-                .font(.inter(14, .semibold))
+                .font(.inter(16, .semibold))
                 .foregroundStyle(GuidePalette.channelText)
                 .lineLimit(1).minimumScaleFactor(0.8)
                 .allowsTightening(true)
@@ -2105,7 +2129,7 @@ private struct GuideProgramFace: View, Equatable {
             if let program {
                 HStack(spacing: 8) {
                     Text(program.title.isEmpty ? "Untitled" : program.title)
-                        .font(.inter(20, .semibold))
+                        .font(.inter(23, .semibold))
                         .foregroundStyle(GuidePalette.rowText)
                         .lineLimit(1)
                     if program.isNew == true { GuideTinyBadge(title: "NEW") }
@@ -2115,12 +2139,12 @@ private struct GuideProgramFace: View, Equatable {
                         if isOnNow {
                             GuideLiveDot(size: 8)
                             Text("LIVE")
-                                .font(.inter(14, .semibold)).tracking(1.2)
+                                .font(.inter(16, .semibold)).tracking(1.2)
                                 .foregroundStyle(LineupStyle.liveStatus)
                         }
                         if showsTime {
                             Text(guideTimeRange(program))
-                                .font(.interDigits(15, .medium))
+                                .font(.interDigits(17, .medium))
                                 .foregroundStyle(GuidePalette.secondary)
                                 .lineLimit(1)
                             if let quality { GuideTinyBadge(title: quality) }
@@ -2128,7 +2152,7 @@ private struct GuideProgramFace: View, Equatable {
                     }
                 }
             } else {
-                Text(empty).font(.inter(18)).foregroundStyle(GuidePalette.channelText)
+                Text(empty).font(.inter(20)).foregroundStyle(GuidePalette.channelText)
             }
         }
         .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)

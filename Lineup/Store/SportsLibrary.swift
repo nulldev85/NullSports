@@ -4240,8 +4240,17 @@ final class SportsLibrary {
         let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
         guard current.isLive || current.isUpcoming,
               let stream = context.stream(withID: choice.channel.id), stream == choice.channel.stream,
-              context.isEventChannel(stream, verifiedFor: current) else { return nil }
+              context.isEventChannel(stream, verifiedFor: current)
+                || context.isNetworkChannel(stream, for: current) else { return nil }
         return MobileProviderPlaybackSource(library: context, stream: stream)
+    }
+
+    /// A feed of the network the schedule says the game is on, by the rules
+    /// it was offered under where a guide does not name the game -- its guide
+    /// not showing something else then, not another game's own feed.
+    func isNetworkChannel(_ stream: XtreamStream, for game: SportsGame) -> Bool {
+        !NetworkChannelFallback.channels(for: game, streams: [stream], categories: categories,
+                                         programs: programsByChannel).isEmpty
     }
 
     func providerSnapshot(_ profile: XtreamProfile, catalog: MobileProviderCatalog = .shared) async throws -> MobileProviderSnapshot {

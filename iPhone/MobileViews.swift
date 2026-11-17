@@ -945,6 +945,13 @@ struct MobileAccountView: View {
     @AppStorage(CollegeFootballRankings.Poll.storageKey) private var collegePoll = CollegeFootballRankings.Poll.ap.rawValue
     @State private var choosingAccent = false
     @State private var settingUpTV = false
+    // The Library's options, which its dropdown used to hold.
+    @State private var addingServer = false
+    @State private var showingSeerr = false
+    @State private var choosingShelf = false
+    @State private var reorderingShelves = false
+    @State private var clearingHistory = false
+    @State private var choosingProfile: MediaServerProfile?
     /// Done in the picker, applied once it has gone: the change redraws this
     /// screen, and a sheet should not be torn down from under itself.
     @State private var pendingAccent: String?
@@ -991,6 +998,68 @@ struct MobileAccountView: View {
                     }
                 } footer: {
                     Text("Send your providers, servers, sign-ins and settings to Lineup on an Apple TV by scanning its code.")
+                        .lineupSettingsFooter()
+                }
+                .lineupSettingsRows()
+                // What the Library's dropdown used to hold. The dropdown now
+                // chooses which Library to show: Lineup's, or a server's own.
+                Section {
+                    Button {
+                        selectedTab = 2
+                        NotificationCenter.default.post(name: .lineupOpenLibrarySearch, object: nil)
+                    } label: {
+                        SettingsRow(title: "Search Library", symbol: "magnifyingglass") { SettingsChevron() }
+                    }
+                    NavigationLink { MobileLibraryCollectionsView().environment(media) } label: {
+                        SettingsRow("Collections", symbol: "folder.fill")
+                    }
+                    Button { choosingShelf = true } label: {
+                        SettingsRow(title: "Add Shelf", symbol: "plus.rectangle.on.rectangle") { SettingsChevron() }
+                    }
+                    .disabled(!media.hasAnySource)
+                    NavigationLink { MobileRemoveShelvesView().environment(media) } label: {
+                        SettingsRow("Remove Shelf", symbol: "minus.rectangle")
+                    }
+                    .disabled(media.removableShelves.isEmpty && !media.showsCollectionsRow)
+                    Button { reorderingShelves = true } label: {
+                        SettingsRow(title: "Edit Shelves", symbol: "arrow.up.arrow.down") { SettingsChevron() }
+                    }
+                    .disabled(media.libraryRows.count < 2)
+                    if !media.providerVODChoices.isEmpty {
+                        NavigationLink { MobileVODProviderView().environment(media) } label: {
+                            SettingsRow("VOD", symbol: "film.stack",
+                                        value: media.providerVODSelection.flatMap { id in
+                                            media.providerVODChoices.first { $0.id == id }?.name } ?? "All")
+                        }
+                    }
+                    Button { showingSeerr = true } label: {
+                        SettingsRow(title: "Seerr · Discover & Requests", symbol: "tray.and.arrow.down") { SettingsChevron() }
+                    }
+                    Button { Task { await media.reload() } } label: {
+                        SettingsRow(title: "Refresh Library", symbol: "arrow.clockwise") {
+                            if media.isLoading { ProgressView() }
+                        }
+                    }
+                    .disabled(media.isLoading || !media.hasAnySource)
+                    Button { addingServer = true } label: {
+                        SettingsRow(title: "Add Server", symbol: "externaldrive.badge.plus") { SettingsChevron() }
+                    }
+                    let jellyfin = media.profiles.filter { $0.brand == .jellyfin }
+                    ForEach(jellyfin) { source in
+                        Button { choosingProfile = source } label: {
+                            SettingsRow(title: jellyfin.count == 1 ? "Switch Profile" : "Switch Profile · " + source.name,
+                                        symbol: "person.2") { SettingsChevron() }
+                        }
+                    }
+                    if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
+                        Button(role: .destructive) { clearingHistory = true } label: {
+                            SettingsRow("Clear Local Tracking", symbol: "trash", titleColor: LineupStyle.live)
+                        }
+                    }
+                } header: {
+                    Text("Library").lineupSettingsHeader()
+                } footer: {
+                    Text("Choose Lineup's Library or a server's own from the menu at the top of the Library tab.")
                         .lineupSettingsFooter()
                 }
                 .lineupSettingsRows()
@@ -1110,6 +1179,25 @@ struct MobileAccountView: View {
             }
             .lineupSheet(isPresented: $settingUpTV) {
                 MobileDeviceSetupSheet().environment(library).environment(media)
+            }
+            .lineupSheet(isPresented: $addingServer) {
+                MediaServerSetupView().environment(media).preferredColorScheme(.dark)
+            }
+            .lineupSheet(isPresented: $showingSeerr) {
+                NavigationStack { SeerrSettingsView().environment(media) }
+            }
+            .lineupSheet(isPresented: $choosingShelf) {
+                MediaShelfPicker().environment(media)
+            }
+            .lineupSheet(isPresented: $reorderingShelves) {
+                LibraryShelfOrderSheet().environment(media).preferredColorScheme(.dark)
+            }
+            .lineupSheet(item: $choosingProfile) { source in
+                MobileJellyfinProfilePicker(source: source).environment(media)
+            }
+            .lineupChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
+                           message: "This removes Continue Watching and local watched status from this device.") {
+                [MobileMenuItem("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]
             }
             .lineupSheet(isPresented: $choosingAccent, onDismiss: {
                 guard let chosen = pendingAccent else { return }
@@ -1237,5 +1325,75 @@ private struct MatchDiagnosticsView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - The Library's options, in Settings
+
+/// Remove Shelf, from Settings: every shelf that can go, each a tap to remove.
+struct MobileRemoveShelvesView: View {
+    @Environment(MediaLibrary.self) private var media
+
+    var body: some View {
+        List {
+            Section {
+                if media.showsCollectionsRow {
+                    Button(role: .destructive) { media.setShowsCollectionsRow(false) } label: {
+                        SettingsRow("Collections", symbol: "folder", titleColor: LineupStyle.live)
+                    }
+                }
+                ForEach(media.removableShelves, id: \.id) { shelf in
+                    Button(role: .destructive) { media.removeShelf(shelf) } label: {
+                        SettingsRow(media.shelfName(shelf), symbol: "minus.circle", titleColor: LineupStyle.live)
+                    }
+                }
+                if media.removableShelves.isEmpty && !media.showsCollectionsRow {
+                    Text("No shelves to remove.").font(.inter(15)).foregroundStyle(LineupPanelStyle.quiet)
+                }
+            } footer: {
+                Text("A removed shelf can be added back with Add Shelf.").lineupSettingsFooter()
+            }
+            .lineupSettingsRows()
+        }
+        .lineupSettingsList()
+        .navigationTitle("Remove Shelf").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Whose films and shows the Library's VOD shows, with more than one Xtream
+/// provider: all of them, or one by the name it was given.
+struct MobileVODProviderView: View {
+    @Environment(MediaLibrary.self) private var media
+
+    var body: some View {
+        let chosen = media.providerVODSelection
+        List {
+            Section {
+                choice("All", symbol: "square.stack.3d.up", selected: chosen == nil) {
+                    Task { await media.selectProviderVOD(nil) }
+                }
+                ForEach(media.providerVODChoices) { provider in
+                    choice(provider.name, symbol: "antenna.radiowaves.left.and.right",
+                           selected: chosen == provider.id) {
+                        Task { await media.selectProviderVOD(provider.id) }
+                    }
+                }
+            }
+            .lineupSettingsRows()
+        }
+        .lineupSettingsList()
+        .navigationTitle("VOD").navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func choice(_ title: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            SettingsRow(title: title, symbol: symbol) {
+                if selected {
+                    Image(systemName: "checkmark").font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(LineupStyle.highlight)
+                }
+            }
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

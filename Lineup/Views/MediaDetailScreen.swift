@@ -1318,6 +1318,7 @@ struct MediaEpisodeCard: View {
 struct MediaPlayableCard: View {
     @Environment(MediaLibrary.self) private var media
     @Environment(\.playMedia) private var playMedia
+    @Environment(\.mediaStreamScope) private var streamScope
     let item: MediaItem
     var shape: MediaArtShape = .poster
     var onFocusChange: ((Bool) -> Void)? = nil
@@ -1346,7 +1347,7 @@ struct MediaPlayableCard: View {
 
     /// The Library tab opens the streams, so the player outlives this card.
     private func choose() {
-        if let playMedia { playMedia(item) } else { choosingSource = true }
+        if let playMedia { playMedia(item, scope: streamScope) } else { choosingSource = true }
     }
 }
 

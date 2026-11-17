@@ -27,7 +27,8 @@ jobs:
   # check and test still runs; only the waiting goes.
   test:
     runs-on: xcode-27
-    timeout-minutes: 45
+    # A run takes about 36 minutes; a slow runner can take 45 or more.
+    timeout-minutes: 60
     steps:
       - name: Checkout source
         uses: actions/checkout@v5

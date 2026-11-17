@@ -454,21 +454,15 @@ struct MobileLiveView: View {
             .lineupMessage("Channel unavailable", symbol: "exclamationmark.triangle",
                 isPresented: Binding(get: { providerSelectionError != nil }, set: { if !$0 { providerSelectionError = nil } }),
                 message: providerSelectionError ?? "")
-            .lineupChoices("Game has not started yet", symbol: "clock",
-                           isPresented: Binding(get: { upcomingGame != nil },
-                                                set: { if !$0 { upcomingGame = nil } }),
-                           message: upcomingGame.map {
-                               "\($0.matchupLine)\nScheduled for \($0.start.formatted(date: .abbreviated, time: .shortened))."
-                           },
-                           cancelTitle: "OK") {
-                guard let game = upcomingGame else { return [] }
-                let reminded = reminders.reminds(game)
-                return [MobileMenuItem(reminded ? "Remove Reminder" : "Remind Me",
-                                       symbol: reminded ? "bell.slash" : "bell") {
-                    reminders.toggleGame(game)
-                    upcomingGame = nil
-                }]
-            } onCancel: { upcomingGame = nil }
+            // A game still to come opens its own page: when and where, where
+            // it is on in the guide, a reminder, and each side's form.
+            .lineupFullScreenCover(item: $upcomingGame, onDismiss: finishChannelSelection) { game in
+                MobileGamePreview(library: library, game: game) { source in
+                    pendingProviderChannel = source
+                    pendingGame = game
+                }
+                .environmentObject(reminders)
+            }
             .lineupChoices("Streams are still syncing…", symbol: "arrow.clockwise",
                            isPresented: $showsChannelSyncMessage,
                            message: "Lineup is still matching channels to games. The channel list is incomplete until it finishes — try this game again in a moment.",
@@ -778,7 +772,7 @@ struct MobileLiveView: View {
                 }
                 open(game)
             }
-            .accessibilityHint(game.isUpcoming ? "Show scheduled start time" : "Watch game or choose a channel")
+            .accessibilityHint(game.isUpcoming ? "Show the game, where to watch it and a reminder" : "Watch game or choose a channel")
     }
 
     /// Touch and hold on any game: watch it or be reminded, another channel,

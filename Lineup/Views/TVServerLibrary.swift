@@ -139,8 +139,18 @@ private struct TVServerLibraryContent: View {
         }
         .scrollClipDisabled()
         .tint(LineupStyle.text)
-        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
-        .navigationDestination(item: $seeing) { row in TVServerLibraryRowScreen(model: model, row: row) }
+        // Everything opened from here, and anything opened from that, is
+        // played from this server alone.
+        .navigationDestination(item: $pushed) { item in
+            MediaBrowseDestination(item: item).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .navigationDestination(item: $seeing) { row in
+            TVServerLibraryRowScreen(model: model, row: row).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .navigationDestination(for: MediaItem.self) { item in
+            MediaBrowseDestination(item: item).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .environment(\.mediaStreamScope, model.profile.id)
         .tvChoices(model.profile.name, symbol: "rectangle.stack", isPresented: $choosingLibrary) {
             model.libraries.map { library in
                 TVChoice(library.name, id: library.id, isSelected: library.id == model.library?.id) {
@@ -409,7 +419,10 @@ private struct TVServerLibraryRowScreen: View {
         }
         .scrollClipDisabled()
         .background(LineupStyle.background.ignoresSafeArea())
-        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .navigationDestination(item: $pushed) { item in
+            MediaBrowseDestination(item: item).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .environment(\.mediaStreamScope, model.profile.id)
         .task {
             guard items == nil else { return }
             do { items = try await model.rowTitles(row) }

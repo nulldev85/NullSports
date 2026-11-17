@@ -118,6 +118,8 @@ extension Notification.Name {
     /// An episode ended with nothing after it: the Library goes back to its
     /// front page.
     static let lineupReturnToLibraryFront = Notification.Name("Lineup.returnToLibraryFront")
+    /// Search Library, chosen in Settings: the Library opens its search.
+    static let lineupOpenLibrarySearch = Notification.Name("Lineup.openLibrarySearch")
 }
 
 struct MediaSourcePicker: View {
@@ -145,9 +147,16 @@ struct MediaSourcePicker: View {
         case reachedEnd
     }
 
-    init(item: MediaItem, startsOver: Bool = false) {
+    /// The one server asked for streams, when the title was opened from that
+    /// server's own Library; otherwise every server and IPTV provider.
+    private let givenScope: UUID?
+    @Environment(\.mediaStreamScope) private var environmentScope
+    private var scope: UUID? { givenScope ?? environmentScope }
+
+    init(item: MediaItem, startsOver: Bool = false, scope: UUID? = nil) {
         _originalItem = State(initialValue: item.withMetadata(nil))
         _startsOver = State(initialValue: startsOver)
+        givenScope = scope
     }
     /// Set when the picker went straight to the only stream there was, so
     /// closing the player closes the picker too, rather than leaving a list
@@ -297,9 +306,13 @@ struct MediaSourcePicker: View {
         // the provider's own titles -- failing is the screen's error.
         var lookups = library.streamServers(for: title).map { StreamLookup.server($0) }
         var ownIndex = 0
+        // From a server's own Library, that server alone: its copies, and no
+        // other server's or IPTV provider's.
+        let scoped = scope.flatMap { id in lookups.first { $0.id == id } }
+        if let scoped { lookups = [scoped] }
         // Each IPTV provider asked on its own, ahead of the servers, and listed
         // under its own name.
-        let providers = library.streamProviders(for: title)
+        let providers = scoped == nil ? library.streamProviders(for: title) : []
         lookups.insert(contentsOf: providers.map { StreamLookup.provider(id: $0.id, name: $0.name) }, at: 0)
         if !providers.isEmpty, !title.isProviderTitle, lookups.count > providers.count { ownIndex = providers.count }
         pendingServers = lookups.count

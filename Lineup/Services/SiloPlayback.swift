@@ -375,21 +375,30 @@ final class SiloPlaybackSession {
         let capabilities: [String: Any] = ["video_evidence": "declared", "audio_evidence": "declared",
             "codecs_video": video, "codecs_video_hardware": hardware, "codecs_audio": audio,
             "containers": containers, "hdr": true, "max_resolution": "2160p"]
-        func delivery(_ formats: [String]) -> [String: Any] {
+        func delivery(_ formats: [String], claims: [String] = []) -> [String: Any] {
             ["enabled": true, "supported_on_device": true, "containers": formats, "video_codecs": video,
                 "audio_decode_codecs": audio, "audio_passthrough_codecs": [],
                 // The engines draw styled subtitles themselves.
                 "subtitles": ["embedded_text": true, "sidecar_text": false, "ass_styling": true,
                     "embedded_bitmap": true, "sidecar_bitmap": false, "font_attachments": false],
-                "features": [], "auth_header_refresh": false, "validated_claims": [], "transformations": []]
+                "features": [], "auth_header_refresh": false, "validated_claims": claims, "transformations": []]
         }
         // Keyed by delivery class: the file as it is, a remux sent as one
         // stream, and HLS in either segment container.
+        //
+        // The file as it is goes to an engine that reads its HDR10, HLG or
+        // Dolby Vision itself and shows it on whatever screen is attached,
+        // as it does a file from any other server. Saying so lets Silo send
+        // a 4K HDR film untouched. Without it, Silo would send HDR only to a
+        // player that had named the screen's HDR formats, and Lineup names
+        // none: it asked Silo to convert every HDR film, which a server with
+        // conversion off -- or 4K conversion off, as most are -- refused,
+        // while the same film played at 1080p, in SDR.
         let context: [String: Any] = ["protocol_version": 3, "form_factor": form,
             "app_version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.19.0",
             "app_build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
             "device": ["platform": platform, "manufacturer": "Apple", "model": UIDevice.current.model, "os_version": UIDevice.current.systemVersion],
-            "output": [:], "deliveries": ["original_http": delivery(containers),
+            "output": [:], "deliveries": ["original_http": delivery(containers, claims: ["client_managed_dynamic_range_v1"]),
                                           "progressive": delivery(["mp4", "matroska", "mkv", "mpegts"]),
                                           "hls": delivery(["fmp4", "mp4", "mpegts", "ts"])]]
         return (capabilities, context)

@@ -38,6 +38,12 @@ struct MobileTeamPageTarget: Identifiable, Hashable {
         self.followKey = side.key
     }
 
+    /// A side's ESPN page by the team id a game carries.
+    static func path(league: SportsLeague, teamID: String?, competition: String?) -> TeamPagePath? {
+        guard let teamID, !teamID.isEmpty, let espn = espnPath(league, competition: competition) else { return nil }
+        return TeamPagePath(sport: espn.sport, league: espn.league, teamID: teamID)
+    }
+
     private static func espnPath(_ league: SportsLeague, competition: String?) -> (sport: String, league: String)? {
         switch league {
         case .nfl: return ("football", "nfl")
