@@ -352,6 +352,7 @@ struct GuideView: View {
                 .transition(.opacity)
                 }
                 }
+                .tvBackToTabs()
                 .animation(.easeInOut(duration: 0.25), value: browsing)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .background(GuidePalette.background.ignoresSafeArea())

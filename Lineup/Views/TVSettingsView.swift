@@ -51,6 +51,7 @@ struct AccountView: View {
     var body: some View {
         NavigationStack {
             settingsCanvas
+            .tvBackToTabs()
             .onAppear {
                 media.loadShelvesIfNeeded()
                 media.loadMDBListIntegrationIfNeeded()

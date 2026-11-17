@@ -99,6 +99,7 @@ struct MediaServersView: View {
             Group {
             #if os(tvOS)
             TVMediaServersHome(addingServer: $addingServer, searchingLibrary: $searchingLibrary)
+                .tvBackToTabs()
             #else
             Group {
                 // The built-in rows come from public charts and need no server:
