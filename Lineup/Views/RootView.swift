@@ -181,14 +181,12 @@ private struct TVTabItem: Identifiable {
 /// The tabs along the top, drawn by Lineup rather than by tvOS, whose own bar
 /// paints a white plate behind the tab the remote is on. Here, as everywhere
 /// in the app, the tab under the remote rises, larger and with a shadow under
-/// it; the chosen one is the bright one, with a short bar of the accent under
-/// it that slides from tab to tab.
+/// it; the chosen one is the bright one.
 private struct TVTabStrip: View {
     let tabs: [TVTabItem]
     let selection: Int
     var focus: FocusState<Int?>.Binding
     let choose: (Int) -> Void
-    @Namespace private var marker
 
     var body: some View {
         HStack(spacing: 18) {
@@ -202,13 +200,6 @@ private struct TVTabStrip: View {
                 }
                 .foregroundStyle(chosen || focused ? Color.white : Color.white.opacity(0.55))
                 .padding(.horizontal, 24).padding(.vertical, 14)
-                .background(alignment: .bottom) {
-                    if chosen {
-                        Capsule().fill(LineupStyle.highlight)
-                            .frame(width: 38, height: 5)
-                            .matchedGeometryEffect(id: "chosen", in: marker)
-                    }
-                }
                 .contentShape(Rectangle())
                 .focusable()
                 .focused(focus, equals: tab.tag)
