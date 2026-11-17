@@ -315,72 +315,15 @@ struct MobileGamePreview: View {
     // MARK: Loading
 
     /// The game's channels in every enabled playlist, the playing one's
-    /// first: those its guide confirms, as the Channels sheet finds them, and
-    /// apart from those, each playlist's feeds of the network it is on.
+    /// first: those its guide confirms, and apart from those, each
+    /// playlist's feeds of the network it is on.
     private func findChannels() async {
-        let root = library.providerRoot
-        let event = current
-        let profiles = root.enabledProfiles
-        let board = root.eventChannelTournamentBoard
-        let order = Dictionary(uniqueKeysWithValues: profiles.enumerated().map { ($1.id, $0) })
-        func ordered(_ list: [MobileProviderChannel]) -> [MobileProviderChannel] {
-            list.enumerated().sorted {
-                let left = order[$0.element.profile.id] ?? Int.max
-                let right = order[$1.element.profile.id] ?? Int.max
-                return left == right ? $0.offset < $1.offset : left < right
-            }.map(\.element)
-        }
         findingChannels = true
-        var confirmed: [MobileProviderChannel] = []
-        var network: [MobileProviderChannel] = []
-        if let active = root.activeProfile, order[active.id] != nil {
-            let matched = await root.eventChannels(for: event)
-            guard !Task.isCancelled else { return }
-            let streams = root.streams, categories = root.categories, programs = root.programsByChannel
-            let taken = Set(matched.map(\.id))
-            let fallback = await Task.detached(priority: .userInitiated) {
-                NetworkChannelFallback.channels(for: event, streams: streams, categories: categories,
-                                                programs: programs, excluding: taken)
-            }.value
-            guard !Task.isCancelled else { return }
-            confirmed += matched.map { MobileProviderChannel(profile: active, channel: $0) }
-            network += fallback.map { MobileProviderChannel(profile: active, channel: $0) }
-            channels = ordered(confirmed)
-            networkChannels = ordered(network)
+        await MobileGameChannels.find(in: library, game: current) { results in
+            channels = results.confirmed
+            networkChannels = results.network
+            if results.finished { findingChannels = false }
         }
-        let others = profiles.filter { $0.id != root.activeProfile?.id }
-            .map { ($0, KeychainStore.password(profileID: $0.id)) }
-        await withTaskGroup(of: (UUID, [LiveEventChannel], [LiveEventChannel]).self) { group in
-            for (profile, secret) in others {
-                group.addTask { await Self.channels(in: profile, secret: secret, game: event, board: board) }
-            }
-            for await (id, matched, fallback) in group {
-                guard !Task.isCancelled else { group.cancelAll(); return }
-                guard let profile = profiles.first(where: { $0.id == id }) else { continue }
-                confirmed += matched.map { MobileProviderChannel(profile: profile, channel: $0) }
-                network += fallback.map { MobileProviderChannel(profile: profile, channel: $0) }
-                channels = ordered(confirmed)
-                networkChannels = ordered(network)
-            }
-        }
-        guard !Task.isCancelled else { return }
-        findingChannels = false
-    }
-
-    /// One playlist other than the playing one, from its saved copy: the
-    /// channels its guide confirms, and its feeds of the game's network.
-    nonisolated private static func channels(in profile: XtreamProfile, secret: String?, game: SportsGame,
-                                             board: [[String]]) async -> (UUID, [LiveEventChannel], [LiveEventChannel]) {
-        guard let secret,
-              let snapshot = try? await MobileProviderCatalog.shared.snapshot(for: profile, secret: secret) else {
-            return (profile.id, [], [])
-        }
-        return await Task.detached(priority: .userInitiated) {
-            let matched = snapshot.matching(game, board: board)
-            let fallback = NetworkChannelFallback.channels(for: game, streams: snapshot.streams,
-                categories: snapshot.categories, programs: snapshot.programs, excluding: Set(matched.map(\.id)))
-            return (profile.id, matched, fallback)
-        }.value
     }
 
     /// Each side's last five results, oldest first, from its ESPN schedule.

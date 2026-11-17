@@ -30,6 +30,9 @@ struct MobileEventChannelsSheet: View {
     let playingProfileID: UUID?
     let onPick: (MobileProviderChannel) -> Void
     @State private var channels: [MobileProviderChannel] = []
+    /// Each playlist's feeds of the network the game is on, beyond those a
+    /// guide confirms.
+    @State private var networkChannels: [MobileProviderChannel] = []
     @State private var providerIssues: [MobileProviderIssue] = []
     @State private var loading = true
     @State private var waiting = false
@@ -46,7 +49,8 @@ struct MobileEventChannelsSheet: View {
     private var current: SportsGame { library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game }
 
     var body: some View {
-        MobileEventChannelsContent(game: current, channels: channels, loading: loading,
+        MobileEventChannelsContent(game: current, channels: channels, networkChannels: networkChannels,
+            loading: loading,
             waiting: waiting, playingID: playingID, playingProfileID: playingProfileID,
             activeProviderName: library.profiles.first { $0.id == playingProfileID }?.name, providerIssues: providerIssues, onPick: { entry in
                 // Activation revalidates this exact source and evidence after
@@ -69,72 +73,29 @@ struct MobileEventChannelsSheet: View {
         retry += 1
     }
 
+    /// The game's channels in every enabled playlist, found as the page a
+    /// game still to come finds them: those a guide confirms, then each
+    /// playlist's feeds of the network the game is on.
     private func load() async {
         guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
         let event = current
-        let profiles = library.enabledProfiles
-        let board = library.eventChannelTournamentBoard
         loading = true
-        providerIssues = []
         waiting = !library.eventChannelsReady(for: event) && library.channelsAreSyncing
-        let active = await library.eventChannels(for: event)
-        guard !Task.isCancelled else { return }
-        channels = profiles.first(where: { $0.id == openedProfileID }).map { profile in
-            active.map { MobileProviderChannel(profile: profile, channel: $0) }
-        } ?? []
-        // Do not wait on slower services before displaying the active provider.
-        let jobs = profiles.filter { $0.id != openedProfileID }.map { profile in
-            (profile, KeychainStore.password(profileID: profile.id))
+        await MobileGameChannels.find(in: library, game: event) { results in
+            guard library.activeProfile?.id == openedProfileID else { return }
+            channels = results.confirmed
+            networkChannels = results.network
+            providerIssues = results.issues
+            if results.finished { loading = false }
         }
-        await withTaskGroup(of: (UUID, [LiveEventChannel]?, String?).self) { group in
-            for job in jobs.prefix(2) {
-                group.addTask { await Self.matchProvider(job.0, secret: job.1, game: event, board: board) }
-            }
-            var next = 2
-            while let (id, matches, issue) = await group.next() {
-                guard !Task.isCancelled, library.activeProfile?.id == openedProfileID else {
-                    group.cancelAll(); break
-                }
-                if let profile = library.profiles.first(where: { $0.id == id }),
-                   let original = profiles.first(where: { $0.id == id }),
-                   SportsLibrary.sameProviderConnection(profile, original) {
-                    if let matches { channels += matches.map { MobileProviderChannel(profile: profile, channel: $0) } }
-                    if let issue { providerIssues.append(.init(id: profile.id, message: "\(profile.name): \(issue)")) }
-                }
-                if next < jobs.count {
-                    let job = jobs[next]
-                    next += 1
-                    group.addTask { await Self.matchProvider(job.0, secret: job.1, game: event, board: board) }
-                }
-            }
-        }
-        guard !Task.isCancelled else { return }
-        // Completion order varies by server; display order stays predictable.
-        let order = Dictionary(uniqueKeysWithValues: profiles.enumerated().map { ($1.id, $0) })
-        channels = channels.enumerated().sorted {
-            let left = order[$0.element.profile.id] ?? Int.max
-            let right = order[$1.element.profile.id] ?? Int.max
-            return left == right ? $0.offset < $1.offset : left < right
-        }.map(\.element)
-        loading = false
-    }
-
-    nonisolated private static func matchProvider(_ profile: XtreamProfile, secret: String?,
-        game: SportsGame, board: [[String]]) async -> (UUID, [LiveEventChannel]?, String?) {
-        guard let secret else { return (profile.id, nil, "Sign in again in Settings → IPTV") }
-        do {
-            let snapshot = try await MobileProviderCatalog.shared.snapshot(for: profile, secret: secret)
-            try Task.checkCancellation()
-            let work = Task.detached(priority: .userInitiated) { snapshot.matching(game, board: board) }
-            let matches = await withTaskCancellationHandler(operation: { await work.value }, onCancel: { work.cancel() })
-            return (profile.id, matches, nil)
-        } catch { return (profile.id, nil, "Could not load channels or guide") }
+        guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
     }
 }
 
 struct MobileEventChannelsContent: View {
     let game: SportsGame
     let channels: [MobileProviderChannel]
+    var networkChannels: [MobileProviderChannel] = []
     let loading: Bool
     let waiting: Bool
     let playingID: Int?
@@ -163,42 +124,47 @@ struct MobileEventChannelsContent: View {
             }
             .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 16)
             Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1).padding(.horizontal, 20)
-            if (loading || waiting) && channels.isEmpty && providerIssues.isEmpty {
-                ProgressView(waiting ? "Matching event channels…" : "Finding channels…")
+            if (loading || waiting) && channels.isEmpty && networkChannels.isEmpty && providerIssues.isEmpty {
+                ProgressView(waiting ? "Matching event channels…" : "Looking through your playlists…")
                     .font(.inter(15)).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    // As the page a game still to come opens lists them:
+                    // what a guide confirms from every playlist, then each
+                    // playlist's feeds of the game's network.
+                    LazyVStack(alignment: .leading, spacing: 10) {
                         if let name = activeProviderName {
                             Label("Playing provider: \(name)", systemImage: "checkmark.circle.fill")
                                 .font(.inter(12, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
-                        Text("Channels from all enabled providers")
-                            .font(.inter(11)).foregroundStyle(LineupPresentationStyle.secondary)
                         ForEach(providerIssues) { issue in
                             Label(issue.message, systemImage: "exclamationmark.triangle")
                                 .font(.inter(12)).foregroundStyle(LineupPresentationStyle.secondary)
                         }
-                        if loading { ProgressView("Checking other providers…").font(.inter(12)) }
-                        if channels.isEmpty && !loading {
+                        if channels.isEmpty && networkChannels.isEmpty && !loading {
                             LineupUnavailableView("No matching channels", systemImage: "tv.slash",
-                                description: Text("No channels could be verified for this event. You can search your provider using Choose Another Channel in the event menu."))
+                                description: Text("No channels could be found for this event in your playlists. You can search your provider using Choose Another Channel in the event menu."))
                             .frame(maxWidth: .infinity).padding(.vertical, 20)
                         }
-                        Text("\(channels.count) \(channels.count == 1 ? "CHANNEL" : "CHANNELS")")
-                            .font(.inter(11, .heavy)).tracking(1).foregroundStyle(LineupPanelStyle.caption)
-                            .padding(.bottom, 2)
-                        Text("Quality labels supplied by your provider")
-                            .font(.inter(11)).foregroundStyle(LineupPresentationStyle.secondary)
-                        ForEach(MobileProviderChannelSection.grouped(channels)) { section in
-                            Text(section.title)
-                                .font(.inter(15, .heavy)).foregroundStyle(LineupPanelStyle.caption)
-                                .padding(.top, 8).accessibilityAddTraits(.isHeader)
-                            ForEach(section.channels) { channel in
-                                MobileEventChannelRow(source: channel,
-                                    isPlaying: channel.id.streamID == playingID && channel.id.providerID == playingProfileID,
-                                    live: game.isLive, fallback: game.matchupLine) { onPick(channel) }
+                        ForEach(channels) { channel in row(channel, fallback: game.matchupLine) }
+                        if !networkChannels.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("On \(game.broadcast)").font(.inter(17, .bold))
+                                Text("Your guide doesn't list it on these, but \(game.broadcast) is showing it.")
+                                    .font(.inter(13)).foregroundStyle(LineupPresentationStyle.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
+                            .padding(.top, channels.isEmpty ? 0 : 10).padding(.horizontal, 4)
+                            .accessibilityAddTraits(.isHeader)
+                            ForEach(networkChannels) { channel in row(channel, fallback: "On \(game.broadcast)") }
+                        }
+                        if loading && !(channels.isEmpty && networkChannels.isEmpty) {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Checking your other playlists…").font(.inter(13))
+                                    .foregroundStyle(LineupPresentationStyle.secondary)
+                            }
+                            .padding(.horizontal, 4)
                         }
                     }
                     .padding(20)
@@ -208,6 +174,12 @@ struct MobileEventChannelsContent: View {
         }
         .foregroundStyle(LineupPresentationStyle.text)
         .background(LineupPresentationStyle.ground.ignoresSafeArea())
+    }
+
+    private func row(_ channel: MobileProviderChannel, fallback: String) -> some View {
+        MobileEventChannelRow(source: channel,
+            isPlaying: channel.id.streamID == playingID && channel.id.providerID == playingProfileID,
+            live: game.isLive, fallback: fallback) { onPick(channel) }
     }
 }
 
