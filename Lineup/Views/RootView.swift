@@ -145,81 +145,199 @@ extension EnvironmentValues {
     }
 }
 
-private extension View {
-    func tabBar(hidden: Bool) -> some View {
-        toolbar(hidden ? .hidden : .visible, for: .tabBar)
+/// Takes the remote up to the tabs: what Back does at the top of a tab.
+private struct TVShowTabsKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var tvShowTabs: (() -> Void)? {
+        get { self[TVShowTabsKey.self] }
+        set { self[TVShowTabsKey.self] = newValue }
+    }
+}
+
+private struct TVBackToTabs: ViewModifier {
+    @Environment(\.tvShowTabs) private var showTabs
+    func body(content: Content) -> some View { content.onExitCommand(perform: showTabs) }
+}
+
+extension View {
+    /// Back from a tab's own screen goes up to the tabs, as it did with the
+    /// system's tab bar. Put on a tab's root screen, inside any navigation
+    /// stack, so a page opened over it still goes back to the screen.
+    func tvBackToTabs() -> some View { modifier(TVBackToTabs()) }
+}
+
+/// One of the tabs along the top.
+private struct TVTabItem: Identifiable {
+    let tag: Int
+    let title: String
+    let symbol: String
+    let chosenSymbol: String
+    var id: Int { tag }
+}
+
+/// The tabs along the top, drawn by Lineup rather than by tvOS, whose own bar
+/// paints a white plate behind the tab the remote is on. Here, as everywhere
+/// in the app, the tab under the remote rises, larger and with a shadow under
+/// it; the chosen one is the bright one, with a short bar of the accent under
+/// it that slides from tab to tab.
+private struct TVTabStrip: View {
+    let tabs: [TVTabItem]
+    let selection: Int
+    var focus: FocusState<Int?>.Binding
+    let choose: (Int) -> Void
+    @Namespace private var marker
+
+    var body: some View {
+        HStack(spacing: 18) {
+            ForEach(tabs) { tab in
+                let chosen = selection == tab.tag
+                let focused = focus.wrappedValue == tab.tag
+                HStack(spacing: 12) {
+                    Image(systemName: chosen ? tab.chosenSymbol : tab.symbol)
+                        .font(.system(size: 26, weight: .semibold))
+                    Text(tab.title).font(.inter(27, chosen || focused ? .bold : .semibold))
+                }
+                .foregroundStyle(chosen || focused ? Color.white : Color.white.opacity(0.55))
+                .padding(.horizontal, 24).padding(.vertical, 14)
+                .background(alignment: .bottom) {
+                    if chosen {
+                        Capsule().fill(LineupStyle.highlight)
+                            .frame(width: 38, height: 5)
+                            .matchedGeometryEffect(id: "chosen", in: marker)
+                    }
+                }
+                .contentShape(Rectangle())
+                .focusable()
+                .focused(focus, equals: tab.tag)
+                .focusEffectDisabled()
+                .tvSelectAction { choose(tab.tag) }
+                .scaleEffect(focused ? 1.14 : 1)
+                .offset(y: focused ? -7 : 0)
+                .lineupShadow(.lifted, on: focused)
+                .zIndex(focused ? 1 : 0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.78), value: focused)
+                .animation(.spring(response: 0.38, dampingFraction: 0.86), value: chosen)
+                .accessibilityLabel(tab.title)
+                .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)
+            }
+        }
+        .padding(.top, 24).padding(.bottom, 12)
+        .frame(maxWidth: .infinity)
+        .focusSection()
     }
 }
 
 struct MainView: View {
-    @State private var selectedTab = 0
+    @State private var selectedTab: Int
     @State private var tabBar = TVTabBarState()
+    /// The tabs opened so far. Each is kept once opened, as the system's tab
+    /// view kept them, so coming back to one finds it as it was left.
+    @State private var opened: Set<Int>
+    @FocusState private var tabFocus: Int?
     /// The accent chosen on the phone, which iCloud brings here: the tabs
     /// are drawn again in it when it changes, as the phone's are.
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
 
+    private static let tabs = [
+        TVTabItem(tag: 0, title: "Sports", symbol: "play.rectangle", chosenSymbol: "play.rectangle.fill"),
+        TVTabItem(tag: 1, title: "TV Guide", symbol: "list.bullet.rectangle", chosenSymbol: "list.bullet.rectangle.fill"),
+        TVTabItem(tag: 2, title: "Library", symbol: "play.square.stack", chosenSymbol: "play.square.stack.fill"),
+        TVTabItem(tag: 4, title: "Search", symbol: "magnifyingglass", chosenSymbol: "magnifyingglass"),
+        TVTabItem(tag: 3, title: "Settings", symbol: "person.crop.circle", chosenSymbol: "person.crop.circle.fill")
+    ]
+
     init(initialTab: Int = 0) {
         _selectedTab = State(initialValue: initialTab)
+        _opened = State(initialValue: [initialTab])
     }
 
     var body: some View {
-        // The tabs are Lineup's primary navigation, not transient playback
-        // chrome. Leaving visibility on automatic lets tvOS hide the bar
-        // during a Library push or full-screen player and occasionally fail
-        // to restore it afterward, so every tab states it, and only a title's
-        // page takes it away (`TVTabBarState`).
-        TabView(selection: $selectedTab) {
-            LiveView(isActive: selectedTab == 0)
-                .environment(\.tvPlaybackPlace, .sports)
-                .lineupAccentScope(accent)
-                .tabBar(hidden: tabBar.hidden)
-                .tabItem { Label("Sports", systemImage: selectedTab == 0 ? "play.rectangle.fill" : "play.rectangle") }
-                .tag(0)
-            GuideView(isActive: selectedTab == 1)
-                .environment(\.tvPlaybackPlace, .guide)
-                .lineupAccentScope(accent)
-                .tabBar(hidden: tabBar.hidden)
-                .tabItem { Label("TV Guide", systemImage: selectedTab == 1 ? "list.bullet.rectangle.fill" : "list.bullet.rectangle") }
-                .tag(1)
-            MediaServersView()
-                .environment(\.tvTabIsActive, selectedTab == 2)
-                .environment(\.tvPlaybackPlace, .library)
-                .lineupAccentScope(accent)
-                .tabBar(hidden: tabBar.hidden)
-                .tabItem { Label("Library", systemImage: selectedTab == 2 ? "play.square.stack.fill" : "play.square.stack") }
-                .tag(2)
-            // Everything at once -- the Library, live TV, the guide and VOD --
-            // each result saying which of the other tabs it lives in.
-            AppSearchView()
-                .environment(\.tvPlaybackPlace, .search)
-                .lineupAccentScope(accent)
-                .tabBar(hidden: tabBar.hidden)
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }
-                .tag(4)
-            // Not rebuilt for a new accent: the accent is chosen here, and
-            // rebuilding would throw the remote off the swatch it is on.
-            AccountView(selectedTab: $selectedTab)
-                .environment(\.tvTabIsActive, selectedTab == 3)
-                .environment(\.tvPlaybackPlace, .library)
-                .tabBar(hidden: tabBar.hidden)
-                .tabItem { Label("Settings", systemImage: selectedTab == 3 ? "person.crop.circle.fill" : "person.crop.circle") }
-                .tag(3)
+        // The tabs are Lineup's primary navigation, so they stay up; only a
+        // title's page takes them away (`TVTabBarState`).
+        VStack(spacing: 0) {
+            if !tabBar.hidden {
+                TVTabStrip(tabs: Self.tabs, selection: selectedTab, focus: $tabFocus) { selectedTab = $0 }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+            ZStack {
+                ForEach(Self.tabs) { tab in
+                    if opened.contains(tab.tag) {
+                        let shown = selectedTab == tab.tag
+                        page(tab.tag)
+                            .opacity(shown ? 1 : 0)
+                            // A tab out of sight takes no focus and no taps.
+                            .disabled(!shown)
+                            .accessibilityHidden(!shown)
+                            .zIndex(shown ? 1 : 0)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .animation(.easeInOut(duration: 0.25), value: tabBar.hidden)
         .environment(\.tvTabBar, tabBar)
-        // Every tab sits on the same plain ground under the same tab bar.
+        .environment(\.tvShowTabs, { tabFocus = selectedTab })
+        // Every tab sits on the same plain ground under the same tabs.
         .background(LineupStyle.background.ignoresSafeArea())
+        // Moving along the tabs shows each one, as the system's tabs did.
+        .onChange(of: tabFocus) { _, tab in
+            if let tab, tab != selectedTab { selectedTab = tab }
+        }
         // A tab changed is a tab's own screen showing.
         .onChange(of: selectedTab, initial: true) { _, tab in
+            opened.insert(tab)
             tabBar.reset()
             FrameStallMonitor.shared.tab = [0: "Sports", 1: "TV Guide", 2: "Library", 3: "Settings", 4: "Search"][tab] ?? "Tab \(tab)"
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(.white)
-        // Beside the tab bar, where the set's own notices appear, over every
+        // Beside the tabs, where the set's own notices appear, over every
         // tab. A player covers it: they are all full-screen presentations.
         .overlay(alignment: .topTrailing) {
             if selectedTab == 1 { DataRefreshPopup() }
         }
     }
+
+    @ViewBuilder
+    private func page(_ tag: Int) -> some View {
+        switch tag {
+        case 0:
+            LiveView(isActive: selectedTab == 0)
+                .environment(\.tvPlaybackPlace, .sports)
+                .lineupAccentScope(accent)
+                .tvBackToTabs()
+        case 1:
+            GuideView(isActive: selectedTab == 1)
+                .environment(\.tvPlaybackPlace, .guide)
+                .lineupAccentScope(accent)
+        case 2:
+            MediaServersView()
+                .environment(\.tvTabIsActive, selectedTab == 2)
+                .environment(\.tvPlaybackPlace, .library)
+                .lineupAccentScope(accent)
+        case 4:
+            // Everything at once -- the Library, live TV, the guide and VOD --
+            // each result saying which of the other tabs it lives in.
+            AppSearchView()
+                .environment(\.tvPlaybackPlace, .search)
+                .lineupAccentScope(accent)
+        default:
+            // Not rebuilt for a new accent: the accent is chosen here, and
+            // rebuilding would throw the remote off the swatch it is on.
+            AccountView(selectedTab: $selectedTab)
+                .environment(\.tvTabIsActive, selectedTab == 3)
+                .environment(\.tvPlaybackPlace, .library)
+        }
+    }
+}
+#endif
+
+#if !os(tvOS)
+extension View {
+    /// Only the television's tabs are reached with Back.
+    func tvBackToTabs() -> some View { self }
 }
 #endif
