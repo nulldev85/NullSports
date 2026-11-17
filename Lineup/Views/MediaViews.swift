@@ -7,6 +7,9 @@ import UIKit
 /// A title somebody chose to play.
 struct MediaPlayRequest: Identifiable {
     let item: MediaItem
+    /// The one server to ask for its streams, from a server's own Library;
+    /// nil asks every server and IPTV provider.
+    var scope: UUID? = nil
     let id = UUID()
 }
 
@@ -20,15 +23,27 @@ struct MediaPlayRequest: Identifiable {
 /// as watched -- three or four minutes before its end. Each of those took the
 /// player with it, mid-episode. The tab outlives all of that.
 struct MediaPlayAction {
-    let play: (MediaItem) -> Void
-    func callAsFunction(_ item: MediaItem) { play(item) }
+    let play: (MediaItem, UUID?) -> Void
+    func callAsFunction(_ item: MediaItem, scope: UUID? = nil) { play(item, scope) }
 }
 
 private struct MediaPlayActionKey: EnvironmentKey {
     static let defaultValue: MediaPlayAction? = nil
 }
 
+private struct MediaStreamScopeKey: EnvironmentKey {
+    static let defaultValue: UUID? = nil
+}
+
 extension EnvironmentValues {
+    /// Set by a server's own Library: a title played from in there is asked
+    /// for its streams of that server alone. Lineup's Library sets none, and
+    /// asks every server and IPTV provider.
+    var mediaStreamScope: UUID? {
+        get { self[MediaStreamScopeKey.self] }
+        set { self[MediaStreamScopeKey.self] = newValue }
+    }
+
     var playMedia: MediaPlayAction? {
         get { self[MediaPlayActionKey.self] }
         set { self[MediaPlayActionKey.self] = newValue }
@@ -67,13 +82,13 @@ struct MediaServersView: View {
 
     var body: some View {
         stack
-            .environment(\.playMedia, MediaPlayAction { playing = MediaPlayRequest(item: $0) })
+            .environment(\.playMedia, MediaPlayAction { playing = MediaPlayRequest(item: $0, scope: $1) })
             #if os(tvOS)
-            .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item, scope: request.scope) }
             #else
             // Full screen, as the streams found are the whole of what the
             // viewer is choosing between, edge to edge on every iPhone.
-            .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item) }
+            .lineupFullScreenCover(item: $playing) { request in MediaSourcePicker(item: request.item, scope: request.scope) }
             .lineupSheet(item: $choosingProfile) { source in
                 MobileJellyfinProfilePicker(source: source).environment(media)
             }
@@ -146,7 +161,7 @@ struct MediaServersView: View {
             .navigationDestination(isPresented: $collectionsOpen) { MobileLibraryCollectionsView() }
             .toolbar {
                 LineupToolbarItem(placement: .primaryAction) {
-                    MobileDropdownButton(isOpen: optionsOpen, label: "Library options") {
+                    MobileDropdownButton(isOpen: optionsOpen, label: "Choose a Library") {
                         setOptions(!optionsOpen)
                     }
                 }
@@ -208,6 +223,11 @@ struct MediaServersView: View {
         .onReceive(NotificationCenter.default.publisher(for: .lineupReturnToLibraryFront)) { _ in
             frontPage += 1
         }
+        // Search Library, from Settings: Lineup's Library, searching.
+        .onReceive(NotificationCenter.default.publisher(for: .lineupOpenLibrarySearch)) { _ in
+            serverLibrary = ""
+            searchingLibrary = true
+        }
         #endif
     }
 
@@ -219,95 +239,19 @@ struct MediaServersView: View {
         }
     }
 
-    /// What the Library's dropdown offers: its shelves -- the ones that can
-    /// go a list of their own inside it -- then its servers.
+    /// What the Library's dropdown offers: which Library to show -- Lineup's,
+    /// which brings every server together, or one server's own, laid out as
+    /// its own app lays it out. The rest of what it used to hold -- shelves,
+    /// collections, servers, Seerr -- is in Settings › Library.
     private var optionsSections: [MobileMenuSection] {
-        var removable = media.removableShelves.map { shelf in
-            MobileMenuItem(media.shelfName(shelf), id: "remove-\(shelf.id)", isDestructive: true) {
-                media.removeShelf(shelf)
-            }
+        let shown = serverLibraryProfile
+        let lineup = MobileMenuItem("Lineup", symbol: "square.stack.3d.up", id: "server-library-lineup",
+                                    isSelected: shown == nil) { serverLibrary = "" }
+        let servers = media.serverLibraryProfiles.map { server in
+            MobileMenuItem(server.name, symbol: "externaldrive.fill", id: "server-library-" + server.id.uuidString,
+                           isSelected: shown?.id == server.id) { serverLibrary = server.id.uuidString }
         }
-        // The Collections row is no catalog, but it goes the same way and
-        // comes back from Add Shelf like the other rows Lineup brings.
-        if media.showsCollectionsRow {
-            removable.insert(MobileMenuItem("Collections", id: "remove-collections", isDestructive: true) {
-                media.setShowsCollectionsRow(false)
-            }, at: 0)
-        }
-        var servers = [
-            MobileMenuItem("Seerr · Discover & Requests", imageName: "SeerrLogo") { showingSeerr = true },
-            MobileMenuItem("Refresh", symbol: "arrow.clockwise",
-                           isEnabled: !media.isLoading && media.hasAnySource) {
-                Task { await media.reload() }
-            },
-            MobileMenuItem("Add Server", symbol: "externaldrive.badge.plus") { addingServer = true }
-        ]
-        let jellyfin = media.profiles.filter { $0.brand == .jellyfin }
-        for source in jellyfin {
-            let title = jellyfin.count == 1 ? "Switch Profile" : "Switch Profile · " + source.name
-            servers.append(MobileMenuItem(title, symbol: "person.2") { choosingProfile = source })
-        }
-        // Whose films and shows the Library shows, with more than one Xtream
-        // provider: all of them, or one by the name it was given.
-        let vodProviders = media.providerVODChoices
-        if !vodProviders.isEmpty {
-            let chosen = media.providerVODSelection
-            let choices = [MobileMenuItem("All", symbol: "square.stack.3d.up", id: "vod-all", isSelected: chosen == nil) {
-                Task { await media.selectProviderVOD(nil) }
-            }] + vodProviders.map { provider in
-                MobileMenuItem(provider.name, symbol: "antenna.radiowaves.left.and.right",
-                               id: "vod-" + provider.id.uuidString, isSelected: chosen == provider.id) {
-                    Task { await media.selectProviderVOD(provider.id) }
-                }
-            }
-            let shownName = chosen.flatMap { id in vodProviders.first { $0.id == id }?.name } ?? "All"
-            servers.insert(MobileMenuItem("VOD · " + shownName, symbol: "film.stack",
-                                          id: "vod-provider",
-                                          children: [MobileMenuSection(id: "vod-providers", items: choices)]), at: 0)
-        }
-        // Each server's own Library, laid out the way its own app lays it
-        // out, or Lineup's, which brings them all together.
-        let ownLibraries = media.serverLibraryProfiles
-        if !ownLibraries.isEmpty {
-            let shown = serverLibraryProfile
-            let choices = [MobileMenuItem("Lineup Library", symbol: "square.stack.3d.up", id: "server-library-lineup",
-                                          isSelected: shown == nil) { serverLibrary = "" }]
-                + ownLibraries.map { server in
-                    MobileMenuItem(server.name, symbol: "externaldrive.fill",
-                                   id: "server-library-" + server.id.uuidString,
-                                   isSelected: shown?.id == server.id) { serverLibrary = server.id.uuidString }
-                }
-            servers.insert(MobileMenuItem("Media Server Libraries · " + (shown?.name ?? "Lineup"),
-                                          symbol: "rectangle.stack", id: "server-libraries",
-                                          children: [MobileMenuSection(id: "server-library-choices", items: choices)]),
-                           at: 0)
-        }
-        if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
-            servers.append(MobileMenuItem("Clear Local Tracking", symbol: "trash", isDestructive: true) {
-                clearingHistory = true
-            })
-        }
-        return [
-            MobileMenuSection(id: "shelves", items: [
-                // Search asks the servers and the IPTV provider, not the
-                // shelves: a Library of only built-in rows -- Trending,
-                // Continue Watching -- has every bit as much to search.
-                MobileMenuItem("Search", symbol: "magnifyingglass") {
-                    searchingLibrary = true
-                },
-                MobileMenuItem("Collections", symbol: "folder.fill") { collectionsOpen = true },
-                MobileMenuItem("Add Shelf", symbol: "plus.rectangle.on.rectangle", isEnabled: media.hasAnySource) {
-                    choosingShelf = true
-                },
-                MobileMenuItem("Remove Shelf", symbol: "minus.rectangle", isEnabled: !removable.isEmpty,
-                               children: [MobileMenuSection(id: "removable", items: removable)]),
-                MobileMenuItem("Edit Shelves", symbol: "arrow.up.arrow.down",
-                               isEnabled: media.libraryRows.count >= 2) {
-                    reorderingShelves = true
-                }
-            ]),
-            MobileMenuSection(id: "servers", items: servers)
-        ]
+        return [MobileMenuSection(id: "libraries", items: [lineup] + servers)]
     }
     #endif
 }

@@ -65,8 +65,18 @@ private struct MobileServerLibraryContent: View {
         .scrollIndicators(.hidden)
         .tint(LineupStyle.text)
         .background(LineupStyle.background.ignoresSafeArea())
-        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
-        .navigationDestination(item: $seeing) { row in MobileServerLibraryRowScreen(model: model, row: row) }
+        // Everything opened from here, and anything opened from that, is
+        // played from this server alone.
+        .navigationDestination(item: $pushed) { item in
+            MediaBrowseDestination(item: item).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .navigationDestination(item: $seeing) { row in
+            MobileServerLibraryRowScreen(model: model, row: row).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .navigationDestination(for: MediaItem.self) { item in
+            MediaBrowseDestination(item: item).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .environment(\.mediaStreamScope, model.profile.id)
     }
 
     // MARK: Header
@@ -415,7 +425,10 @@ struct MobileServerLibraryRowScreen: View {
         .background(LineupStyle.background.ignoresSafeArea())
         .navigationTitle(row.title)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .navigationDestination(item: $pushed) { item in
+            MediaBrowseDestination(item: item).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .environment(\.mediaStreamScope, model.profile.id)
         .task {
             guard items == nil else { return }
             do { items = try await model.rowTitles(row) }
