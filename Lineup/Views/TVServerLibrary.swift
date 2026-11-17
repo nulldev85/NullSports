@@ -17,7 +17,7 @@ struct TVServerLibrarySwitcher: View {
                         serverLibrary = ""
                     }
                     ForEach(servers) { server in
-                        TVServerLibraryChip(title: server.name, symbol: "externaldrive.fill",
+                        TVServerLibraryChip(title: server.name, logo: server.brand, brand: server.brand,
                                             chosen: server.id.uuidString == serverLibrary) {
                             serverLibrary = server.id.uuidString
                         }
@@ -31,24 +31,37 @@ struct TVServerLibrarySwitcher: View {
     }
 }
 
-/// A chip in one of the Library's rows of choices: filled when chosen.
+/// A chip in one of the Library's rows of choices: filled when chosen, in
+/// its server's logo colours when it belongs to one, white otherwise.
 struct TVServerLibraryChip: View {
     let title: String
     var symbol: String? = nil
+    /// A server's logo, ahead of its name.
+    var logo: MediaServerBrand? = nil
     var detail: String? = nil
+    /// Whose colours it is filled with when chosen.
+    var brand: MediaServerBrand? = nil
     let chosen: Bool
     let action: () -> Void
 
     var body: some View {
         TVSelectable(scale: LineupStyle.controlLift, fillRadius: 30, drawsFocusChrome: false, action: action) {
             HStack(spacing: 10) {
-                if let symbol { Image(systemName: symbol).font(.system(size: 22, weight: .bold)) }
+                if let logo { MediaServerLogo(brand: logo).frame(width: 30, height: 30) }
+                else if let symbol { Image(systemName: symbol).font(.system(size: 22, weight: .bold)) }
                 Text(title).font(.inter(24, chosen ? .bold : .semibold)).lineLimit(1)
                 if let detail { Text(detail).font(.inter(19, .semibold)).opacity(0.6) }
             }
-            .foregroundStyle(chosen ? Color.black : LineupStyle.text)
+            .foregroundStyle(chosen ? (brand == nil ? Color.black : Color.white) : LineupStyle.text)
             .padding(.horizontal, 26).frame(height: 60)
-            .background(chosen ? Color.white : LineupStyle.surface, in: Capsule())
+            .background {
+                if chosen, let brand {
+                    Capsule().fill(brand.logoGradient)
+                        .shadow(color: brand.loginTint.opacity(0.5), radius: 16, y: 6)
+                } else {
+                    Capsule().fill(chosen ? Color.white : LineupStyle.surface)
+                }
+            }
         }
     }
 }
@@ -58,33 +71,19 @@ struct TVServerLibraryChip: View {
 struct TVServerLibraryScreen: View {
     @Environment(MediaLibrary.self) private var media
     let profile: MediaServerProfile
-    @State private var model: ServerLibraryModel?
-    @State private var unavailable = false
 
     var body: some View {
-        Group {
-            if let model, model.profile.id == profile.id {
-                TVServerLibraryContent(model: model)
-            } else {
-                VStack(spacing: 0) {
-                    TVServerLibrarySwitcher()
-                    if unavailable {
-                        Text("\(profile.name)'s own Library can't be shown right now.")
-                            .font(.inter(24)).foregroundStyle(LineupPanelStyle.quiet)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
+        if let model = media.serverLibraryModel(for: profile) {
+            TVServerLibraryContent(model: model)
+                .id(profile.id)
+                .task(id: profile.id) { await model.start() }
+        } else {
+            VStack(spacing: 0) {
+                TVServerLibrarySwitcher()
+                Text("\(profile.name)'s own Library can't be shown right now.")
+                    .font(.inter(24)).foregroundStyle(LineupPanelStyle.quiet)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        }
-        .task(id: profile.id) {
-            guard model?.profile.id != profile.id else { return }
-            guard let browser = media.serverLibraryBrowser(for: profile) else { unavailable = true; return }
-            unavailable = false
-            let made = ServerLibraryModel(profile: profile, browser: browser)
-            model = made
-            await made.start()
         }
     }
 }
@@ -98,6 +97,9 @@ private struct TVServerLibraryContent: View {
     @State private var choosingSort = false
     @State private var choosingFilter = false
     @State private var shuffling = false
+
+    /// The server's own colours, from its logo.
+    private var brand: MediaServerBrand { model.profile.brand }
 
     private let columns = [GridItem(.adaptive(minimum: 240, maximum: 290), spacing: 40, alignment: .top)]
 
@@ -115,6 +117,10 @@ private struct TVServerLibraryContent: View {
             .padding(.top, 10).padding(.bottom, 80)
         }
         .scrollClipDisabled()
+        .tint(brand.loginTint)
+        .background(alignment: .top) {
+            brand.logoWash(0.22).frame(height: 620).ignoresSafeArea()
+        }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $seeing) { row in TVServerLibraryRowScreen(model: model, row: row) }
         .tvChoices(model.profile.name, symbol: "rectangle.stack", isPresented: $choosingLibrary) {
@@ -150,7 +156,7 @@ private struct TVServerLibraryContent: View {
                 }
                 Rectangle().fill(LineupStyle.line).frame(width: 2, height: 40).padding(.horizontal, 8)
                 ForEach(ServerLibraryModel.Tab.allCases) { tab in
-                    TVServerLibraryChip(title: tab.title, chosen: model.tab == tab) { model.tab = tab }
+                    TVServerLibraryChip(title: tab.title, brand: brand, chosen: model.tab == tab) { model.tab = tab }
                 }
             }
             .padding(.horizontal, 80).padding(.vertical, 14)
@@ -184,6 +190,7 @@ private struct TVServerLibraryContent: View {
                             TVSelectable(scale: LineupStyle.cardLift, fillRadius: 16, action: { seeing = row }) {
                                 VStack(spacing: 12) {
                                     Image(systemName: "chevron.right.circle.fill").font(.system(size: 54))
+                                        .foregroundStyle(brand.loginTint)
                                     Text("See All").font(.inter(24, .semibold))
                                 }
                                 .foregroundStyle(LineupStyle.text)
@@ -233,7 +240,7 @@ private struct TVServerLibraryContent: View {
                                 detail: model.browse.sort.direction(descending: model.browse.descending),
                                 chosen: false) { choosingSort = true }
             TVServerLibraryChip(title: model.browse.genre ?? "Filter", symbol: "line.3.horizontal.decrease",
-                                chosen: model.browse.isFiltered) { choosingFilter = true }
+                                brand: brand, chosen: model.browse.isFiltered) { choosingFilter = true }
             TVServerLibraryChip(title: "Shuffle", symbol: "shuffle", chosen: false) {
                 guard !shuffling else { return }
                 shuffling = true
@@ -378,7 +385,13 @@ private struct TVServerLibraryRowScreen: View {
             .padding(.horizontal, 80).padding(.vertical, 40)
         }
         .scrollClipDisabled()
-        .background(LineupStyle.background.ignoresSafeArea())
+        .background {
+            ZStack(alignment: .top) {
+                LineupStyle.background
+                model.profile.brand.logoWash(0.18).frame(height: 520)
+            }
+            .ignoresSafeArea()
+        }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .task {
             guard items == nil else { return }

@@ -730,14 +730,22 @@ extension JellyfinClient: ServerLibraryBrowsing {
             ("top-rated", "Top Rated", ServerLibraryBrowse(sort: .rating, descending: true)),
             ("random", "Random Picks", ServerLibraryBrowse(sort: .random))
         ]
-        var sorted: [ServerLibraryRow] = []
-        for view in views {
-            guard let found = try? await serverLibraryTitles(userID: userID, library: library,
-                                                             browse: view.browse, cursor: nil),
-                  !found.items.isEmpty else { continue }
-            sorted.append(ServerLibraryRow(id: view.id, title: view.title,
-                                           items: Array(found.items.prefix(ServerLibraryQuery.rowSize)),
-                                           source: .browse(view.browse), total: found.total))
+        // Every row is asked for at once, and kept in this order.
+        let found = await withTaskGroup(of: (Int, ServerLibraryPage?).self) { group -> [Int: ServerLibraryPage] in
+            for (index, view) in views.enumerated() {
+                group.addTask {
+                    (index, try? await serverLibraryTitles(userID: userID, library: library, browse: view.browse, cursor: nil))
+                }
+            }
+            var pages: [Int: ServerLibraryPage] = [:]
+            for await (index, page) in group { if let page { pages[index] = page } }
+            return pages
+        }
+        let sorted = views.enumerated().compactMap { index, view -> ServerLibraryRow? in
+            guard let page = found[index], !page.items.isEmpty else { return nil }
+            return ServerLibraryRow(id: view.id, title: view.title,
+                                    items: Array(page.items.prefix(ServerLibraryQuery.rowSize)),
+                                    source: .browse(view.browse), total: page.total)
         }
         var rows: [ServerLibraryRow] = []
         if let watching = await resume?.items, !watching.isEmpty {

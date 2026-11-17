@@ -6,29 +6,17 @@ import SwiftUI
 struct MobileServerLibraryScreen: View {
     @Environment(MediaLibrary.self) private var media
     let profile: MediaServerProfile
-    @State private var model: ServerLibraryModel?
-    @State private var unavailable = false
 
     var body: some View {
-        Group {
-            if let model, model.profile.id == profile.id {
-                MobileServerLibraryContent(model: model)
-            } else if unavailable {
-                Text("\(profile.name)'s own Library can't be shown right now.")
-                    .font(.inter(16)).foregroundStyle(LineupPanelStyle.quiet)
-                    .multilineTextAlignment(.center).padding(32)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .task(id: profile.id) {
-            guard model?.profile.id != profile.id else { return }
-            guard let browser = media.serverLibraryBrowser(for: profile) else { unavailable = true; return }
-            unavailable = false
-            let made = ServerLibraryModel(profile: profile, browser: browser)
-            model = made
-            await made.start()
+        if let model = media.serverLibraryModel(for: profile) {
+            MobileServerLibraryContent(model: model)
+                .id(profile.id)
+                .task(id: profile.id) { await model.start() }
+        } else {
+            Text("\(profile.name)'s own Library can't be shown right now.")
+                .font(.inter(16)).foregroundStyle(LineupPanelStyle.quiet)
+                .multilineTextAlignment(.center).padding(32)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -39,6 +27,10 @@ private struct MobileServerLibraryContent: View {
     @State private var pushed: MediaItem?
     @State private var seeing: ServerLibraryRow?
     @State private var shuffling = false
+
+    /// The server's own colours, from its logo, over the app's dark ground.
+    private var brand: MediaServerBrand { model.profile.brand }
+    private var accent: Color { brand.loginTint }
 
     private let columns = [GridItem(.flexible(), spacing: 12, alignment: .top),
                            GridItem(.flexible(), spacing: 12, alignment: .top),
@@ -58,7 +50,14 @@ private struct MobileServerLibraryContent: View {
             .padding(.bottom, 120)
         }
         .scrollIndicators(.hidden)
-        .background(LineupStyle.background.ignoresSafeArea())
+        .tint(accent)
+        .background {
+            ZStack(alignment: .top) {
+                LineupStyle.background
+                brand.logoWash(0.26).frame(height: 420)
+            }
+            .ignoresSafeArea()
+        }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $seeing) { row in MobileServerLibraryRowScreen(model: model, row: row) }
     }
@@ -89,8 +88,11 @@ private struct MobileServerLibraryContent: View {
             } else {
                 title(chevron: false)
             }
-            Text(model.profile.name)
-                .font(.inter(15, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+            HStack(spacing: 7) {
+                MediaServerLogo(brand: brand).frame(width: 16, height: 16)
+                Text(model.profile.name)
+                    .font(.inter(15, .medium)).foregroundStyle(LineupPanelStyle.quiet)
+            }
         }
         .padding(.horizontal, 16).padding(.top, 8)
     }
@@ -102,7 +104,7 @@ private struct MobileServerLibraryContent: View {
                 .lineLimit(1).minimumScaleFactor(0.7)
             if chevron {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 18, weight: .bold)).foregroundStyle(LineupStyle.text)
+                    .font(.system(size: 18, weight: .bold)).foregroundStyle(accent)
             }
         }
     }
@@ -117,9 +119,17 @@ private struct MobileServerLibraryContent: View {
                     } label: {
                         Text(tab.title)
                             .font(.inter(17, chosen ? .bold : .semibold))
-                            .foregroundStyle(chosen ? Color.black : LineupPanelStyle.quiet)
+                            .foregroundStyle(chosen ? Color.white : LineupPanelStyle.quiet)
                             .padding(.horizontal, 22).frame(height: 44)
-                            .background(chosen ? Color.white : LineupStyle.surface, in: Capsule())
+                            .background {
+                                if chosen {
+                                    Capsule().fill(brand.logoGradient)
+                                        .shadow(color: accent.opacity(0.45), radius: 10, y: 3)
+                                } else {
+                                    Capsule().fill(LineupStyle.surface)
+                                }
+                            }
+                            .animation(.easeOut(duration: 0.18), value: chosen)
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(chosen ? .isSelected : [])
@@ -157,7 +167,7 @@ private struct MobileServerLibraryContent: View {
                         HStack(spacing: 8) {
                             rowTitle(row)
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 17, weight: .bold)).foregroundStyle(LineupPanelStyle.quiet)
+                                .font(.system(size: 17, weight: .bold)).foregroundStyle(accent)
                         }
                     }
                     .buttonStyle(.plain)
@@ -284,10 +294,10 @@ private struct MobileServerLibraryContent: View {
                 Text(detail).font(.inter(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
             }
         }
-        .foregroundStyle(active ? LineupStyle.highlight : LineupStyle.text)
+        .foregroundStyle(active ? accent : LineupStyle.text)
         .padding(.horizontal, 16).frame(height: 44)
         .background(LineupStyle.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .overlay(Capsule().strokeBorder(active ? accent.opacity(0.7) : Color.white.opacity(0.08), lineWidth: 1))
     }
 
     // MARK: Collections
@@ -356,6 +366,7 @@ private struct MobileServerLibraryContent: View {
                 .multilineTextAlignment(.center)
             Button("Try Again") { Task { await model.retry() } }
                 .lineupProminentButton()
+                .tint(accent)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 40).padding(.horizontal, 24)
     }
@@ -396,7 +407,14 @@ struct MobileServerLibraryRowScreen: View {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 60)
             }
         }
-        .background(LineupStyle.background.ignoresSafeArea())
+        .tint(model.profile.brand.loginTint)
+        .background {
+            ZStack(alignment: .top) {
+                LineupStyle.background
+                model.profile.brand.logoWash(0.18).frame(height: 320)
+            }
+            .ignoresSafeArea()
+        }
         .navigationTitle(row.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }

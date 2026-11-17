@@ -6,7 +6,7 @@ import Foundation
 // from its own catalog, so Silo looks like Silo and Jellyfin like Jellyfin.
 
 /// How a server library's grid is ordered.
-enum ServerLibrarySort: String, CaseIterable, Sendable {
+enum ServerLibrarySort: String, CaseIterable, Codable, Sendable {
     case title, added, released, rating, random
 
     var label: String {
@@ -35,7 +35,7 @@ enum ServerLibrarySort: String, CaseIterable, Sendable {
 }
 
 /// What a server library's grid shows: its order, and what it is narrowed to.
-struct ServerLibraryBrowse: Hashable, Sendable {
+struct ServerLibraryBrowse: Hashable, Codable, Sendable {
     var sort: ServerLibrarySort = .title
     var descending = false
     var genre: String?
@@ -48,7 +48,7 @@ struct ServerLibraryBrowse: Hashable, Sendable {
 /// What a server writes on a poster about the file it holds: "1080P" and
 /// "EAC3" across the top, "WEBRIP" or "REMUX" at the foot. Only servers
 /// that send it on a listing have any.
-struct ServerLibraryBadges: Hashable, Sendable {
+struct ServerLibraryBadges: Hashable, Codable, Sendable {
     var top: [String] = []
     var bottom: String?
 
@@ -66,16 +66,16 @@ struct ServerLibraryBadges: Hashable, Sendable {
 
 /// One of the server's collections, with what its card says under its
 /// name: where it came from ("Tmdb", "Mdblist"), when the server says.
-struct ServerLibraryCollection: Identifiable, Hashable, Sendable {
+struct ServerLibraryCollection: Identifiable, Hashable, Codable, Sendable {
     let item: MediaItem
     var detail: String?
     var id: String { item.libraryKey }
 }
 
 /// One row of a server library's Recommended page.
-struct ServerLibraryRow: Identifiable, Hashable, Sendable {
+struct ServerLibraryRow: Identifiable, Hashable, Codable, Sendable {
     /// Where the rest of the row is read from, for its full list.
-    enum Source: Hashable, Sendable {
+    enum Source: Hashable, Codable, Sendable {
         /// A row the server builds itself: Silo's sections.
         case section(String)
         /// A row that is a sorted, narrowed view of the library.
@@ -95,7 +95,7 @@ struct ServerLibraryRow: Identifiable, Hashable, Sendable {
 }
 
 /// A server library's Recommended page.
-struct ServerLibraryHome: Sendable {
+struct ServerLibraryHome: Codable, Sendable {
     var rows: [ServerLibraryRow] = []
     var badges: [String: ServerLibraryBadges] = [:]
 }

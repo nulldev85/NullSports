@@ -448,7 +448,14 @@ final class MediaLibrary {
     @ObservationIgnored private var seriesReconcileTasks: [UUID: Task<Void, Never>] = [:]
     /// One client per server. Making one reads its token from the Keychain,
     /// and every poster on screen asks for one.
-    @ObservationIgnored private var clients: [UUID: any MediaServerClient] = [:]
+    @ObservationIgnored private var clients: [UUID: any MediaServerClient] = [:] {
+        // A server's own Library goes with the connection it was read over:
+        // a new sign-in or a removed server starts it afresh.
+        didSet { serverLibraryModels = serverLibraryModels.filter { clients[$0.key] != nil } }
+    }
+    /// Each server's own Library as it was last shown, kept so going back to
+    /// it is instant rather than a new load.
+    @ObservationIgnored private var serverLibraryModels: [UUID: ServerLibraryModel] = [:]
     /// A successful Library is restored before the network is touched on the
     /// next launch. The refresh still runs, but it replaces a useful screen
     /// instead of a spinner.
@@ -4939,6 +4946,16 @@ final class MediaLibrary {
     func serverLibraryBrowser(for profile: MediaServerProfile) -> (any ServerLibraryBrowsing)? {
         guard profiles.contains(where: { $0.id == profile.id }) else { return nil }
         return (try? client(for: profile)) as? any ServerLibraryBrowsing
+    }
+
+    /// One server's own Library: the one already shown if there is one, so
+    /// it comes back as it was left, or a new one.
+    func serverLibraryModel(for profile: MediaServerProfile) -> ServerLibraryModel? {
+        if let kept = serverLibraryModels[profile.id], kept.profile == profile { return kept }
+        guard let browser = serverLibraryBrowser(for: profile) else { return nil }
+        let made = ServerLibraryModel(profile: profile, browser: browser, defaults: defaults)
+        serverLibraryModels[profile.id] = made
+        return made
     }
 
     /// Which Library the tab shows: Lineup's own, or one server's.

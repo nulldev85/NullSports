@@ -46,6 +46,32 @@ struct MediaServerLogoRow: View {
 }
 
 extension MediaServerBrand {
+    /// The colours of the brand's own logo, for its own Library: Jellyfin's
+    /// purple into blue, Emby's green, Silo's blue, red and orange.
+    var logoColors: [Color] {
+        switch self {
+        case .jellyfin: [Color(red: 0xAA / 255, green: 0x5C / 255, blue: 0xC3 / 255),
+                         Color(red: 0x00 / 255, green: 0xA4 / 255, blue: 0xDC / 255)]
+        case .emby: [Color(red: 0x52 / 255, green: 0xB5 / 255, blue: 0x4B / 255),
+                     Color(red: 0.24, green: 0.56, blue: 0.22)]
+        case .silo: [Color(red: 0.09, green: 0.31, blue: 1.0), Color(red: 0.91, green: 0.12, blue: 0.26),
+                     Color(red: 1.0, green: 0.52, blue: 0.08)]
+        }
+    }
+
+    /// The logo's colours run corner to corner: a chosen chip's fill.
+    var logoGradient: LinearGradient {
+        LinearGradient(colors: logoColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
+    /// A wash of the logo's colours at the top of its Library, fading into
+    /// the app's own dark ground.
+    func logoWash(_ strength: Double) -> LinearGradient {
+        LinearGradient(colors: [logoColors[0].opacity(strength), (logoColors.last ?? logoColors[0]).opacity(strength * 0.35),
+                                .clear],
+                       startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.55))
+    }
+
     var loginTint: Color {
         switch self {
         case .jellyfin: Color(red: 0.67, green: 0.36, blue: 0.76)

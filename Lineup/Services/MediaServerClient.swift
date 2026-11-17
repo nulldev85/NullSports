@@ -1,6 +1,6 @@
 import Foundation
 
-enum CatalogMediaFilter: String, CaseIterable, Sendable {
+enum CatalogMediaFilter: String, CaseIterable, Codable, Sendable {
     case all = "All"
     case movies = "Movies"
     case shows = "TV Shows"
