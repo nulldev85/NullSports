@@ -56,11 +56,6 @@ extension MediaServerBrand {
         }
     }
 
-    /// The logo's colours as its Library wears them: the same hues, softened
-    /// and drawn down toward the app's dark ground, the way the app's own
-    /// accents sit on it, rather than at the full strength of a logo.
-    var libraryColors: [Color] { logoRGB.map { Self.toned($0, lift: 0) } }
-
     /// The logo's colours as a card wears them, the way the Sports cards
     /// wear a team's: the colour itself, a dark one lifted so it reads, laid
     /// faintly over the card rather than filling it.
@@ -74,39 +69,6 @@ extension MediaServerBrand {
             }
             return Color(red: red, green: green, blue: blue)
         }
-    }
-
-    /// The Library's one colour, for what is chosen: its logo's first.
-    var libraryTint: Color { libraryColors[0] }
-
-    /// The same colour lifted a little, for a chevron or a word on the dark
-    /// ground, where the deeper one would sink.
-    var libraryAccent: Color { Self.toned(logoRGB[0], lift: 0.32) }
-
-    /// A chosen chip's fill: the logo's colours, toned, corner to corner.
-    var libraryGradient: LinearGradient {
-        LinearGradient(colors: libraryColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    /// A faint wash of the Library's colour at the top, fading into the
-    /// app's own ground.
-    func libraryWash(_ strength: Double) -> LinearGradient {
-        LinearGradient(colors: [libraryTint.opacity(strength), libraryTint.opacity(strength * 0.3), .clear],
-                       startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.55))
-    }
-
-    /// A third of the way to grey, then a quarter of the way to the app's
-    /// charcoal; `lift` then takes it that far toward white.
-    private static func toned(_ colour: (red: Double, green: Double, blue: Double), lift: Double) -> Color {
-        let grey = 0.299 * colour.red + 0.587 * colour.green + 0.114 * colour.blue
-        let ground = (red: 0.11, green: 0.11, blue: 0.12)
-        func channel(_ value: Double, _ base: Double) -> Double {
-            let softened = value + (grey - value) * 0.32
-            let deepened = softened * 0.74 + base * 0.26
-            return deepened + (1 - deepened) * lift
-        }
-        return Color(red: channel(colour.red, ground.red), green: channel(colour.green, ground.green),
-                     blue: channel(colour.blue, ground.blue))
     }
 
     var loginTint: Color {

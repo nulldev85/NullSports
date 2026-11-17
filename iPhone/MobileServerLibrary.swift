@@ -30,7 +30,19 @@ private struct MobileServerLibraryContent: View {
 
     /// The server's own colours, from its logo, over the app's dark ground.
     private var brand: MediaServerBrand { model.profile.brand }
-    private var accent: Color { brand.libraryAccent }
+    /// Chevrons and spinners: the app's own quiet tone. The server's colours
+    /// are laid faintly across what is chosen, as a live game's card carries
+    /// its teams' colours, rather than painted on anything.
+    private var accent: Color { LineupPanelStyle.quiet }
+
+    /// What is chosen: the server's colours faint across the app's card.
+    private func chosenFill<S: Shape>(_ shape: S) -> some View {
+        ZStack {
+            shape.fill(LineupStyle.surface)
+            shape.fill(LinearGradient(colors: brand.cardTints.map { $0.opacity(0.19) },
+                                      startPoint: .leading, endPoint: .trailing))
+        }
+    }
 
     private let columns = [GridItem(.flexible(), spacing: 12, alignment: .top),
                            GridItem(.flexible(), spacing: 12, alignment: .top),
@@ -50,14 +62,8 @@ private struct MobileServerLibraryContent: View {
             .padding(.bottom, 120)
         }
         .scrollIndicators(.hidden)
-        .tint(accent)
-        .background {
-            ZStack(alignment: .top) {
-                LineupStyle.background
-                brand.libraryWash(0.30).frame(height: 420)
-            }
-            .ignoresSafeArea()
-        }
+        .tint(LineupStyle.text)
+        .background(LineupStyle.background.ignoresSafeArea())
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $seeing) { row in MobileServerLibraryRowScreen(model: model, row: row) }
     }
@@ -119,15 +125,12 @@ private struct MobileServerLibraryContent: View {
                     } label: {
                         Text(tab.title)
                             .font(.inter(17, chosen ? .bold : .semibold))
-                            .foregroundStyle(chosen ? Color.white : LineupPanelStyle.quiet)
+                            .foregroundStyle(chosen ? LineupStyle.text : LineupPanelStyle.quiet)
                             .padding(.horizontal, 22).frame(height: 44)
                             .background {
-                                if chosen {
-                                    Capsule().fill(brand.libraryGradient)
-                                } else {
-                                    Capsule().fill(LineupStyle.surface)
-                                }
+                                if chosen { chosenFill(Capsule()) } else { Capsule().fill(LineupStyle.surface) }
                             }
+                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
                             .animation(.easeOut(duration: 0.18), value: chosen)
                     }
                     .buttonStyle(.plain)
@@ -293,10 +296,12 @@ private struct MobileServerLibraryContent: View {
                 Text(detail).font(.inter(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
             }
         }
-        .foregroundStyle(active ? accent : LineupStyle.text)
+        .foregroundStyle(LineupStyle.text)
         .padding(.horizontal, 16).frame(height: 44)
-        .background(LineupStyle.surface, in: Capsule())
-        .overlay(Capsule().strokeBorder(active ? accent.opacity(0.7) : Color.white.opacity(0.08), lineWidth: 1))
+        .background {
+            if active { chosenFill(Capsule()) } else { Capsule().fill(LineupStyle.surface) }
+        }
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
     }
 
     // MARK: Collections
@@ -365,7 +370,6 @@ private struct MobileServerLibraryContent: View {
                 .multilineTextAlignment(.center)
             Button("Try Again") { Task { await model.retry() } }
                 .lineupProminentButton()
-                .tint(accent)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 40).padding(.horizontal, 24)
     }
@@ -406,14 +410,8 @@ struct MobileServerLibraryRowScreen: View {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 60)
             }
         }
-        .tint(model.profile.brand.libraryAccent)
-        .background {
-            ZStack(alignment: .top) {
-                LineupStyle.background
-                model.profile.brand.libraryWash(0.22).frame(height: 320)
-            }
-            .ignoresSafeArea()
-        }
+        .tint(LineupStyle.text)
+        .background(LineupStyle.background.ignoresSafeArea())
         .navigationTitle(row.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
