@@ -13,6 +13,9 @@ struct MobileGamePreview: View {
     let onPick: (MobileProviderChannel) -> Void
 
     @State private var channels: [MobileProviderChannel] = []
+    /// Each playlist's feeds of the network the game is on, for when the
+    /// guide does not name it yet.
+    @State private var networkChannels: [MobileProviderChannel] = []
     @State private var findingChannels = true
     @State private var awayForm: [TeamPageGame.Outcome]?
     @State private var homeForm: [TeamPageGame.Outcome]?
@@ -171,30 +174,53 @@ struct MobileGamePreview: View {
     private var whereToWatch: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Where to Watch").font(.inter(24, .heavy)).padding(.horizontal, 20)
-            if channels.isEmpty {
+            if channels.isEmpty && networkChannels.isEmpty {
                 HStack(spacing: 10) {
                     if findingChannels { ProgressView() }
-                    Text(findingChannels ? "Finding it in your guide…"
-                         : "Not in your guide yet. Channels usually show up closer to the start.")
+                    Text(findingChannels ? "Looking through your playlists…"
+                         : "Not in your playlists or guide yet. Channels usually show up closer to the start.")
                         .font(.inter(14)).foregroundStyle(LineupPresentationStyle.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
                 .padding(.horizontal, 16)
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(channels) { channel in
-                        MobileEventChannelRow(source: channel, isPlaying: false, live: false,
-                                              fallback: current.matchupLine) {
-                            onPick(channel)
-                            dismiss()
-                        }
-                    }
+            }
+            if !channels.isEmpty {
+                channelList(channels, fallback: current.matchupLine)
+            }
+            if !networkChannels.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("On \(current.broadcast)").font(.inter(17, .bold))
+                    Text("Your guide hasn't listed it on these yet, but \(current.broadcast) is showing it.")
+                        .font(.inter(13)).foregroundStyle(LineupPresentationStyle.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 20).padding(.top, channels.isEmpty ? 0 : 8)
+                channelList(networkChannels, fallback: "On \(current.broadcast) at "
+                            + current.start.formatted(date: .omitted, time: .shortened))
+            }
+            if findingChannels && !(channels.isEmpty && networkChannels.isEmpty) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Checking your other playlists…").font(.inter(13))
+                        .foregroundStyle(LineupPresentationStyle.secondary)
+                }
+                .padding(.horizontal, 20)
             }
         }
+    }
+
+    private func channelList(_ list: [MobileProviderChannel], fallback: String) -> some View {
+        VStack(spacing: 10) {
+            ForEach(list) { channel in
+                MobileEventChannelRow(source: channel, isPlaying: false, live: false, fallback: fallback) {
+                    onPick(channel)
+                    dismiss()
+                }
+            }
+        }
+        .padding(.horizontal, 16)
     }
 
     // MARK: Reminder
@@ -276,43 +302,73 @@ struct MobileGamePreview: View {
 
     // MARK: Loading
 
-    /// The channels every enabled provider has for the game, the playing
-    /// provider's first, as the Channels sheet finds them.
+    /// The game's channels in every enabled playlist, the playing one's
+    /// first: those its guide confirms, as the Channels sheet finds them, and
+    /// apart from those, each playlist's feeds of the network it is on.
     private func findChannels() async {
         let root = library.providerRoot
         let event = current
         let profiles = root.enabledProfiles
         let board = root.eventChannelTournamentBoard
+        let order = Dictionary(uniqueKeysWithValues: profiles.enumerated().map { ($1.id, $0) })
+        func ordered(_ list: [MobileProviderChannel]) -> [MobileProviderChannel] {
+            list.enumerated().sorted {
+                let left = order[$0.element.profile.id] ?? Int.max
+                let right = order[$1.element.profile.id] ?? Int.max
+                return left == right ? $0.offset < $1.offset : left < right
+            }.map(\.element)
+        }
         findingChannels = true
-        var found: [MobileProviderChannel] = []
-        if let active = root.activeProfile {
-            found = await root.eventChannels(for: event).map { MobileProviderChannel(profile: active, channel: $0) }
+        var confirmed: [MobileProviderChannel] = []
+        var network: [MobileProviderChannel] = []
+        if let active = root.activeProfile, order[active.id] != nil {
+            let matched = await root.eventChannels(for: event)
             guard !Task.isCancelled else { return }
-            channels = found
+            let streams = root.streams, categories = root.categories, programs = root.programsByChannel
+            let taken = Set(matched.map(\.id))
+            let fallback = await Task.detached(priority: .userInitiated) {
+                NetworkChannelFallback.channels(for: event, streams: streams, categories: categories,
+                                                programs: programs, excluding: taken)
+            }.value
+            guard !Task.isCancelled else { return }
+            confirmed += matched.map { MobileProviderChannel(profile: active, channel: $0) }
+            network += fallback.map { MobileProviderChannel(profile: active, channel: $0) }
+            channels = ordered(confirmed)
+            networkChannels = ordered(network)
         }
         let others = profiles.filter { $0.id != root.activeProfile?.id }
             .map { ($0, KeychainStore.password(profileID: $0.id)) }
-        await withTaskGroup(of: (UUID, [LiveEventChannel]?).self) { group in
+        await withTaskGroup(of: (UUID, [LiveEventChannel], [LiveEventChannel]).self) { group in
             for (profile, secret) in others {
-                group.addTask {
-                    let answer = await MobileEventChannelsSheet.matchProvider(profile, secret: secret, game: event, board: board)
-                    return (answer.0, answer.1)
-                }
+                group.addTask { await Self.channels(in: profile, secret: secret, game: event, board: board) }
             }
-            for await (id, matches) in group {
+            for await (id, matched, fallback) in group {
                 guard !Task.isCancelled else { group.cancelAll(); return }
-                guard let profile = profiles.first(where: { $0.id == id }), let matches else { continue }
-                found += matches.map { MobileProviderChannel(profile: profile, channel: $0) }
+                guard let profile = profiles.first(where: { $0.id == id }) else { continue }
+                confirmed += matched.map { MobileProviderChannel(profile: profile, channel: $0) }
+                network += fallback.map { MobileProviderChannel(profile: profile, channel: $0) }
+                channels = ordered(confirmed)
+                networkChannels = ordered(network)
             }
         }
         guard !Task.isCancelled else { return }
-        let order = Dictionary(uniqueKeysWithValues: profiles.enumerated().map { ($1.id, $0) })
-        channels = found.enumerated().sorted {
-            let left = order[$0.element.profile.id] ?? Int.max
-            let right = order[$1.element.profile.id] ?? Int.max
-            return left == right ? $0.offset < $1.offset : left < right
-        }.map(\.element)
         findingChannels = false
+    }
+
+    /// One playlist other than the playing one, from its saved copy: the
+    /// channels its guide confirms, and its feeds of the game's network.
+    nonisolated private static func channels(in profile: XtreamProfile, secret: String?, game: SportsGame,
+                                             board: [[String]]) async -> (UUID, [LiveEventChannel], [LiveEventChannel]) {
+        guard let secret,
+              let snapshot = try? await MobileProviderCatalog.shared.snapshot(for: profile, secret: secret) else {
+            return (profile.id, [], [])
+        }
+        return await Task.detached(priority: .userInitiated) {
+            let matched = snapshot.matching(game, board: board)
+            let fallback = NetworkChannelFallback.channels(for: game, streams: snapshot.streams,
+                categories: snapshot.categories, programs: snapshot.programs, excluding: Set(matched.map(\.id)))
+            return (profile.id, matched, fallback)
+        }.value
     }
 
     /// Each side's last five results, oldest first, from its ESPN schedule.

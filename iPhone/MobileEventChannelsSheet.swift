@@ -119,7 +119,7 @@ struct MobileEventChannelsSheet: View {
         loading = false
     }
 
-    nonisolated static func matchProvider(_ profile: XtreamProfile, secret: String?,
+    nonisolated private static func matchProvider(_ profile: XtreamProfile, secret: String?,
         game: SportsGame, board: [[String]]) async -> (UUID, [LiveEventChannel]?, String?) {
         guard let secret else { return (profile.id, nil, "Sign in again in Settings → IPTV") }
         do {
