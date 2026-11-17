@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// What a game's channels are, as they come in: those a guide confirms, from
 /// the playing playlist first and then every other one; apart from those,
@@ -90,5 +90,81 @@ enum MobileGameChannels {
         let (matched, fallback) = await withTaskCancellationHandler(operation: { await work.value },
                                                                      onCancel: { work.cancel() })
         return (profile.id, matched, fallback, nil)
+    }
+}
+
+/// A game's channels as Where to Watch lists them, on the page a game still
+/// to come opens and in Channels on a live one: those a guide confirms from
+/// every playlist, then each playlist's feeds of the game's network.
+struct MobileWhereToWatch: View {
+    let game: SportsGame
+    let channels: [MobileProviderChannel]
+    let networkChannels: [MobileProviderChannel]
+    var issues: [MobileProviderIssue] = []
+    /// Some playlist has yet to answer.
+    let finding: Bool
+    var playingID: Int?
+    var playingProfileID: UUID?
+    let onPick: (MobileProviderChannel) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if channels.isEmpty && networkChannels.isEmpty {
+                HStack(spacing: 10) {
+                    if finding { ProgressView() }
+                    Text(finding ? "Looking through your playlists…" : emptyMessage)
+                        .font(.inter(14)).foregroundStyle(LineupPresentationStyle.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
+                .padding(.horizontal, 16)
+            }
+            if !channels.isEmpty {
+                list(channels, fallback: game.matchupLine)
+            }
+            if !networkChannels.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("On \(game.broadcast)").font(.inter(17, .bold))
+                    Text("Your guide hasn't listed it on these yet, but \(game.broadcast) is showing it.")
+                        .font(.inter(13)).foregroundStyle(LineupPresentationStyle.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 20).padding(.top, channels.isEmpty ? 0 : 8)
+                .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
+                list(networkChannels, fallback: game.isLive ? "On \(game.broadcast)"
+                     : "On \(game.broadcast) at " + game.start.formatted(date: .omitted, time: .shortened))
+            }
+            if finding && !(channels.isEmpty && networkChannels.isEmpty) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Checking your other playlists…").font(.inter(13))
+                        .foregroundStyle(LineupPresentationStyle.secondary)
+                }
+                .padding(.horizontal, 20)
+            }
+            ForEach(issues) { issue in
+                Label(issue.message, systemImage: "exclamationmark.triangle")
+                    .font(.inter(12)).foregroundStyle(LineupPresentationStyle.secondary)
+                    .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    private var emptyMessage: String {
+        game.isLive
+            ? "Not in your playlists or guide. Choose Another Channel in the game's menu searches your provider."
+            : "Not in your playlists or guide yet. Channels usually show up closer to the start."
+    }
+
+    private func list(_ list: [MobileProviderChannel], fallback: String) -> some View {
+        VStack(spacing: 10) {
+            ForEach(list) { channel in
+                MobileEventChannelRow(source: channel,
+                    isPlaying: channel.id.streamID == playingID && channel.id.providerID == playingProfileID,
+                    live: game.isLive, fallback: fallback) { onPick(channel) }
+            }
+        }
+        .padding(.horizontal, 16)
     }
 }

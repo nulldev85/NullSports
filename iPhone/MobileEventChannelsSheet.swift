@@ -52,7 +52,7 @@ struct MobileEventChannelsSheet: View {
         MobileEventChannelsContent(game: current, channels: channels, networkChannels: networkChannels,
             loading: loading,
             waiting: waiting, playingID: playingID, playingProfileID: playingProfileID,
-            activeProviderName: library.profiles.first { $0.id == playingProfileID }?.name, providerIssues: providerIssues, onPick: { entry in
+            providerIssues: providerIssues, onPick: { entry in
                 // Activation revalidates this exact source and evidence after
                 // the sheet dismisses, before recording a manual preference.
                 guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
@@ -100,7 +100,6 @@ struct MobileEventChannelsContent: View {
     let waiting: Bool
     let playingID: Int?
     let playingProfileID: UUID?
-    let activeProviderName: String?
     let providerIssues: [MobileProviderIssue]
     let onPick: (MobileProviderChannel) -> Void
     let onClose: () -> Void
@@ -124,63 +123,20 @@ struct MobileEventChannelsContent: View {
             }
             .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 16)
             Rectangle().fill(LineupPresentationStyle.divider).frame(height: 1).padding(.horizontal, 20)
-            if (loading || waiting) && channels.isEmpty && networkChannels.isEmpty && providerIssues.isEmpty {
-                ProgressView(waiting ? "Matching event channels…" : "Looking through your playlists…")
-                    .font(.inter(15)).frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    // As the page a game still to come opens lists them:
-                    // what a guide confirms from every playlist, then each
-                    // playlist's feeds of the game's network.
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        if let name = activeProviderName {
-                            Label("Playing provider: \(name)", systemImage: "checkmark.circle.fill")
-                                .font(.inter(12, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
-                        }
-                        ForEach(providerIssues) { issue in
-                            Label(issue.message, systemImage: "exclamationmark.triangle")
-                                .font(.inter(12)).foregroundStyle(LineupPresentationStyle.secondary)
-                        }
-                        if channels.isEmpty && networkChannels.isEmpty && !loading {
-                            LineupUnavailableView("No matching channels", systemImage: "tv.slash",
-                                description: Text("No channels could be found for this event in your playlists. You can search your provider using Choose Another Channel in the event menu."))
-                            .frame(maxWidth: .infinity).padding(.vertical, 20)
-                        }
-                        ForEach(channels) { channel in row(channel, fallback: game.matchupLine) }
-                        if !networkChannels.isEmpty {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("On \(game.broadcast)").font(.inter(17, .bold))
-                                Text("Your guide doesn't list it on these, but \(game.broadcast) is showing it.")
-                                    .font(.inter(13)).foregroundStyle(LineupPresentationStyle.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(.top, channels.isEmpty ? 0 : 10).padding(.horizontal, 4)
-                            .accessibilityAddTraits(.isHeader)
-                            ForEach(networkChannels) { channel in row(channel, fallback: "On \(game.broadcast)") }
-                        }
-                        if loading && !(channels.isEmpty && networkChannels.isEmpty) {
-                            HStack(spacing: 8) {
-                                ProgressView().controlSize(.small)
-                                Text("Checking your other playlists…").font(.inter(13))
-                                    .foregroundStyle(LineupPresentationStyle.secondary)
-                            }
-                            .padding(.horizontal, 4)
-                        }
-                    }
-                    .padding(20)
-                }
-                .scrollBounceBehavior(.basedOnSize)
+            ScrollView {
+                // The list Where to Watch shows on the page a game still to
+                // come opens, the same in every way.
+                MobileWhereToWatch(game: game, channels: channels, networkChannels: networkChannels,
+                                   issues: providerIssues, finding: loading || waiting,
+                                   playingID: playingID, playingProfileID: playingProfileID, onPick: onPick)
+                    .padding(.vertical, 20)
             }
+            .scrollBounceBehavior(.basedOnSize)
         }
         .foregroundStyle(LineupPresentationStyle.text)
         .background(LineupPresentationStyle.ground.ignoresSafeArea())
     }
 
-    private func row(_ channel: MobileProviderChannel, fallback: String) -> some View {
-        MobileEventChannelRow(source: channel,
-            isPlaying: channel.id.streamID == playingID && channel.id.providerID == playingProfileID,
-            live: game.isLive, fallback: fallback) { onPick(channel) }
-    }
 }
 
 struct MobileEventChannelRow: View {

@@ -16,6 +16,7 @@ struct MobileGamePreview: View {
     /// Each playlist's feeds of the network the game is on, for when the
     /// guide does not name it yet.
     @State private var networkChannels: [MobileProviderChannel] = []
+    @State private var channelIssues: [MobileProviderIssue] = []
     @State private var findingChannels = true
     @State private var awayForm: [TeamPageGame.Outcome]?
     @State private var homeForm: [TeamPageGame.Outcome]?
@@ -186,53 +187,12 @@ struct MobileGamePreview: View {
     private var whereToWatch: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Where to Watch").font(.inter(24, .heavy)).padding(.horizontal, 20)
-            if channels.isEmpty && networkChannels.isEmpty {
-                HStack(spacing: 10) {
-                    if findingChannels { ProgressView() }
-                    Text(findingChannels ? "Looking through your playlists…"
-                         : "Not in your playlists or guide yet. Channels usually show up closer to the start.")
-                        .font(.inter(14)).foregroundStyle(LineupPresentationStyle.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
-                .padding(.horizontal, 16)
-            }
-            if !channels.isEmpty {
-                channelList(channels, fallback: current.matchupLine)
-            }
-            if !networkChannels.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("On \(current.broadcast)").font(.inter(17, .bold))
-                    Text("Your guide hasn't listed it on these yet, but \(current.broadcast) is showing it.")
-                        .font(.inter(13)).foregroundStyle(LineupPresentationStyle.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, 20).padding(.top, channels.isEmpty ? 0 : 8)
-                channelList(networkChannels, fallback: "On \(current.broadcast) at "
-                            + current.start.formatted(date: .omitted, time: .shortened))
-            }
-            if findingChannels && !(channels.isEmpty && networkChannels.isEmpty) {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Checking your other playlists…").font(.inter(13))
-                        .foregroundStyle(LineupPresentationStyle.secondary)
-                }
-                .padding(.horizontal, 20)
+            MobileWhereToWatch(game: current, channels: channels, networkChannels: networkChannels,
+                               issues: channelIssues, finding: findingChannels) { channel in
+                onPick(channel)
+                dismiss()
             }
         }
-    }
-
-    private func channelList(_ list: [MobileProviderChannel], fallback: String) -> some View {
-        VStack(spacing: 10) {
-            ForEach(list) { channel in
-                MobileEventChannelRow(source: channel, isPlaying: false, live: false, fallback: fallback) {
-                    onPick(channel)
-                    dismiss()
-                }
-            }
-        }
-        .padding(.horizontal, 16)
     }
 
     // MARK: Reminder
@@ -322,6 +282,7 @@ struct MobileGamePreview: View {
         await MobileGameChannels.find(in: library, game: current) { results in
             channels = results.confirmed
             networkChannels = results.network
+            channelIssues = results.issues
             if results.finished { findingChannels = false }
         }
     }
