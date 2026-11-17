@@ -20,6 +20,9 @@ struct MobileGamePreview: View {
     @State private var awayForm: [TeamPageGame.Outcome]?
     @State private var homeForm: [TeamPageGame.Outcome]?
 
+    /// The widest the page's column grows.
+    static let columnWidth: CGFloat = 620
+
     /// The game as the schedule has it now: a start time moved, a rank added.
     private var current: SportsGame {
         library.providerRoot.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
@@ -39,6 +42,12 @@ struct MobileGamePreview: View {
                 remindButton
                 if !current.isEvent { form }
             }
+            // A column as wide as a phone's, centred: on the unfolded Duo or
+            // a phone on its side the page reads as it does upright, rather
+            // than its rows and the two sides stretched across the screen.
+            // The teams' colours behind it still run edge to edge.
+            .frame(maxWidth: Self.columnWidth)
+            .frame(maxWidth: .infinity)
             .padding(.bottom, 40)
         }
         .scrollIndicators(.hidden)
