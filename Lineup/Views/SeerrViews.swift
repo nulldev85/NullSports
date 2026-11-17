@@ -153,10 +153,6 @@ struct SeerrSettingsView: View {
     @State private var password = ""
     @State private var key = ""
     @State private var method: SeerrSignInMethod = .local
-    @State private var pinCode: String?
-    @State private var linkingPlex: Task<Void, Never>?
-    @State private var plexRequestID = UUID()
-    @State private var plexError: String?
     @State private var editing = false
     @State private var confirmingDisconnect = false
 
@@ -196,17 +192,7 @@ struct SeerrSettingsView: View {
                         .padding(.horizontal, 1).padding(.vertical, 2)
                         #endif
                     }.scrollIndicators(.hidden)
-                    if method == .plex {
-                        if let pinCode {
-                            Text(pinCode).font(.inter(40, .heavy))
-                            Text("Open plex.tv/link on another device and enter this code to sign in to Seerr.")
-                                .font(.inter(.callout)).foregroundStyle(LineupPresentationStyle.secondary)
-                        }
-                        IntegrationAction(title: linkingPlex != nil ? "Waiting for Plex…" : "Sign In with Plex", symbol: "link") { linkPlex() }
-                            .disabled(linkingPlex != nil || media.seerr.isConnecting || address.isEmpty)
-                        if linkingPlex != nil { IntegrationAction(title: "Cancel Link", symbol: "xmark") { cancelPlexLink() } }
-                        IntegrationErrorText(message: plexError)
-                    } else {
+                    Group {
                         if method == .apiKey { IntegrationField(title: "API key", text: $key, secure: true) }
                         else {
                             IntegrationField(title: method == .local ? "Seerr email" : "Username", text: $email)
@@ -220,7 +206,7 @@ struct SeerrSettingsView: View {
                             }
                         }.disabled(media.seerr.isConnecting || address.isEmpty || (method == .apiKey ? key.isEmpty : email.isEmpty || (method == .local && password.isEmpty)))
                     }
-                    Text("Connect an account enabled on your configured Seerr server, or use its API key. Plex uses a code; Jellyfin and Emby use the server already linked to Seerr. Your session stays in this device’s Keychain. Seerr controls permissions, approvals and quotas.")
+                    Text("Connect an account enabled on your configured Seerr server, or use its API key. Jellyfin and Emby use the server already linked to Seerr. Your session stays in this device’s Keychain. Seerr controls permissions, approvals and quotas.")
                         .font(.inter(.caption)).foregroundStyle(LineupPresentationStyle.secondary)
                 }.padding(20)
                 #if os(tvOS)
@@ -237,44 +223,6 @@ struct SeerrSettingsView: View {
         #endif
         .task { address = media.seerr.connection?.address ?? ""; await media.seerr.refreshAccount() }
         .integrationConfirm("Disconnect Seerr?", isPresented: $confirmingDisconnect, destructive: true) { media.seerr.disconnect() }
-        .onChange(of: method) { _, _ in cancelPlexLink() }
-        .onChange(of: address) { _, _ in cancelPlexLink() }
-        .onDisappear { cancelPlexLink() }
-    }
-
-    private func cancelPlexLink() {
-        plexRequestID = UUID(); linkingPlex?.cancel(); linkingPlex = nil; pinCode = nil
-    }
-    private func linkPlex() {
-        cancelPlexLink(); plexError = nil
-        let request = UUID(); plexRequestID = request
-        let target = address, displayName = name
-        linkingPlex = Task { @MainActor in
-            defer { if plexRequestID == request { linkingPlex = nil; pinCode = nil } }
-            do {
-                let api = try SeerrClient(address: target, credential: .init())
-                let settings = try await api.publicSettings()
-                guard settings.initialized, let identifier = settings.plexClientIdentifier, !identifier.isEmpty else {
-                    throw MediaIntegrationError.unavailable("Configure Seerr in its web app before linking a Plex account.")
-                }
-                let pin = try await PlexAccount.requestPin(clientID: identifier)
-                try Task.checkCancellation()
-                guard plexRequestID == request else { return }
-                pinCode = pin.code
-                let deadline = Date().addingTimeInterval(15 * 60)
-                while Date() < deadline {
-                    try await Task.sleep(for: .seconds(2))
-                    let checked = try await PlexAccount.checkPin(pin.id, clientID: identifier)
-                    if let token = checked.authToken {
-                        try Task.checkCancellation()
-                        guard plexRequestID == request, address == target, method == .plex else { return }
-                        if await media.seerr.connect(name: displayName, address: target, apiKey: "", email: "", password: "", method: .plex, plexToken: token) { editing = false }
-                        return
-                    }
-                }
-                plexError = "That Plex code expired. Get a new code to try again."
-            } catch { if !Task.isCancelled, plexRequestID == request { plexError = error.localizedDescription } }
-        }
     }
 }
 

@@ -1,6 +1,6 @@
 import Foundation
 
-enum CatalogMediaFilter: String, CaseIterable, Sendable {
+enum CatalogMediaFilter: String, CaseIterable, Codable, Sendable {
     case all = "All"
     case movies = "Movies"
     case shows = "TV Shows"
@@ -22,9 +22,8 @@ enum CatalogMediaFilter: String, CaseIterable, Sendable {
 /// What the Library asks of a media server, whatever software it runs.
 ///
 /// Jellyfin and Emby answer through `JellyfinClient` -- Emby's API is the one
-/// Jellyfin grew from, and differs in little more than where it lives -- and
-/// Plex through `PlexClient`, which asks Plex its own way and hands back the
-/// same items. Silo uses its native v2 catalog and protocol-v3 playback plans.
+/// Jellyfin grew from, and differs in little more than where it lives. Silo
+/// uses its native v2 catalog and protocol-v3 playback plans.
 /// Everything above this sees one kind of server.
 ///
 /// Every requirement takes all of its arguments. Defaults belong to the
@@ -49,8 +48,7 @@ protocol MediaServerClient: Sendable {
     func search(userID: String, query: String, types: [String]) async throws -> [MediaItem]
     func imageURL(itemID: String, type: String, maxWidth: Int) -> URL?
     /// A title's artwork, from what the title itself says about it. Jellyfin
-    /// and Emby name art by the item; Plex hands each item the paths of its
-    /// own art, and those are what it is asked for.
+    /// and Emby name art by the item; Silo hands each item its own art.
     func artworkURL(for item: MediaItem, type: String, maxWidth: Int) -> URL?
     /// An episode's show's poster.
     func seriesPosterURL(for episode: MediaItem, maxWidth: Int) -> URL?

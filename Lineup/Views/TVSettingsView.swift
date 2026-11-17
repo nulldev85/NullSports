@@ -312,7 +312,7 @@ struct AccountView: View {
                                  detail: "Open the Library tab with all your connected sources.") { selectedTab = 2 }
             }
             TVSettingsAction(symbol: "plus", title: "Add Media Server",
-                             detail: "Connect your Jellyfin, Emby, Plex or another supported server.") { addingMediaServer = true }
+                             detail: "Connect your Jellyfin, Emby or Silo server.") { addingMediaServer = true }
         }
     }
 

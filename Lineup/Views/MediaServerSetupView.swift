@@ -55,8 +55,8 @@ struct MediaServerSetupView: View {
                             .accessibilityHidden(!shown)
                     }
                 }
-                // Down from any logo lands here, the Plex one at the far
-                // right included, whatever sits directly beneath it.
+                // Down from any logo lands here, the one at the far right
+                // included, whatever sits directly beneath it.
                 .focusSection()
                 if let error = media.errorMessage {
                     Text(error).font(.inter(.callout)).foregroundStyle(LineupStyle.live)
@@ -155,8 +155,6 @@ struct MediaServerSetupView: View {
         Group {
             if brand == .silo {
                 SiloSignInPanel(onAdded: { dismiss() })
-            } else if brand == .plex {
-                PlexLinkPanel(onAdded: { dismiss() })
             } else {
                 MediaServerSignInPanel(brand: brand, form: form(for: brand), isSelected: brand == software,
                                        onAdded: { dismiss() }) { sign in
@@ -706,153 +704,6 @@ struct MediaServerChoice: View {
     private var checkSize: CGFloat { 18 }
     #else
     private var checkSize: CGFloat { 10 }
-    #endif
-}
-
-/// Linking a Plex account, Plex's own way: a short code entered at
-/// plex.tv/link, then the account's servers to choose from.
-///
-/// No password passes through Lineup. The account's token comes back to the
-/// device that asked for the code, and each server's own token with it.
-private struct PlexLinkPanel: View {
-    @Environment(MediaLibrary.self) private var media
-    @Environment(\.openURL) private var openURL
-    let onAdded: () -> Void
-
-    private enum Step {
-        case start
-        case waiting(code: String)
-        case finding
-        case choosing([PlexAccount.Server])
-        case failed(String)
-    }
-
-    @State private var step: Step = .start
-    @State private var accountName = "Plex"
-    @State private var linking: Task<Void, Never>?
-
-    var body: some View {
-        MediaServerPanel(brand: .plex, title: "Link your Plex account") {
-            switch step {
-            case .start:
-                Text("You'll get a short code to enter at plex.tv/link on any phone or computer. Lineup never sees your Plex password.")
-                    .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button { link() } label: { actionTitle("Link Plex Account") }
-                    .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
-            case .waiting(let code):
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Go to **plex.tv/link** and enter this code:")
-                        .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
-                    Text(code)
-                        .font(.interDigits(codeSize, .heavy)).tracking(codeSize * 0.22)
-                        .foregroundStyle(LineupPresentationStyle.text)
-                        .padding(.horizontal, codeSize * 0.6).padding(.vertical, codeSize * 0.3)
-                        .background(LineupPresentationStyle.row, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text("Waiting for Plex…").font(.inter(captionSize)).foregroundStyle(LineupPresentationStyle.secondary)
-                    }
-                }
-                #if !os(tvOS)
-                Button { openURL(URL(string: "https://plex.tv/link")!) } label: { actionTitle("Open plex.tv/link") }
-                    .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
-                #endif
-            case .finding:
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Finding your Plex servers…").font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
-                }
-            case .choosing(let servers):
-                Text("Choose the server to add.")
-                    .font(.inter(bodySize)).foregroundStyle(LineupPresentationStyle.secondary)
-                VStack(alignment: .leading, spacing: 12) {
-                    ForEach(servers) { server in
-                        Button { add(server) } label: {
-                            HStack(spacing: 12) {
-                                MediaServerLogo(brand: .plex).frame(width: rowLogo, height: rowLogo)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(server.name).font(.inter(bodySize, .semibold)).foregroundStyle(LineupPresentationStyle.text)
-                                    Text(server.owned == false ? "Shared with you" : "Your server")
-                                        .font(.inter(captionSize)).foregroundStyle(LineupPresentationStyle.secondary)
-                                }
-                                #if os(tvOS)
-                                Spacer(minLength: 0)
-                                #endif
-                            }
-                        }
-                        .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
-                    }
-                }
-            case .failed(let message):
-                Text(message).font(.inter(bodySize)).foregroundStyle(LineupStyle.live)
-                Button { link() } label: { actionTitle("Try Again") }
-                    .buttonStyle(IntegrationButtonStyle()).focusEffectDisabled()
-            }
-        }
-        .onDisappear { linking?.cancel() }
-    }
-
-    private func actionTitle(_ title: String) -> some View {
-        Text(title)
-    }
-
-    private func link() {
-        linking?.cancel()
-        linking = Task { @MainActor in
-            do {
-                let clientID = media.plexClientID
-                let pin = try await PlexAccount.requestPin(clientID: clientID)
-                withAnimation(.smooth) { step = .waiting(code: pin.code) }
-                // A code lasts about a quarter of an hour. A check that fails
-                // on the way is asked again: one dropped request is no reason
-                // to send the viewer back for a new code.
-                let deadline = Date().addingTimeInterval(15 * 60)
-                var token: String?
-                while token == nil, Date() < deadline {
-                    try await Task.sleep(for: .seconds(2))
-                    token = (try? await PlexAccount.checkPin(pin.id, clientID: clientID))?.authToken
-                }
-                guard let token else {
-                    step = .failed("That code has expired. Get a new one and try again.")
-                    return
-                }
-                withAnimation(.smooth) { step = .finding }
-                accountName = (try? await PlexAccount.user(token: token, clientID: clientID))?.displayName ?? "Plex"
-                let servers = try await PlexAccount.servers(token: token, clientID: clientID)
-                guard !servers.isEmpty else {
-                    step = .failed("This Plex account has no servers to add.")
-                    return
-                }
-                // One server is the one meant; several are a choice.
-                if servers.count == 1 {
-                    add(servers[0])
-                } else {
-                    withAnimation(.smooth) { step = .choosing(servers) }
-                }
-            } catch is CancellationError {
-            } catch {
-                step = .failed(error.localizedDescription)
-            }
-        }
-    }
-
-    private func add(_ server: PlexAccount.Server) {
-        Task { @MainActor in
-            if await media.addPlexServer(server, accountName: accountName) { onAdded() }
-        }
-    }
-
-    #if os(tvOS)
-    private var bodySize: CGFloat { 24 }
-    private var captionSize: CGFloat { 20 }
-    private var codeSize: CGFloat { 64 }
-    private var rowLogo: CGFloat { 40 }
-    #else
-    private var bodySize: CGFloat { 15 }
-    private var captionSize: CGFloat { 12 }
-    private var codeSize: CGFloat { 34 }
-    private var rowLogo: CGFloat { 30 }
     #endif
 }
 

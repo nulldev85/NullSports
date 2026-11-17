@@ -56,7 +56,7 @@ final class SeerrStore {
     }
 
     func connect(name: String, address: String, apiKey: String, email: String, password: String,
-                 method: SeerrSignInMethod = .local, plexToken: String? = nil) async -> Bool {
+                 method: SeerrSignInMethod = .local) async -> Bool {
         guard !isConnecting else { return false }
         let request = UUID(); generation = request
         isConnecting = true; error = nil
@@ -76,9 +76,6 @@ final class SeerrStore {
                 switch method {
                 case .jellyfin, .emby:
                     result = try await client.signInMediaServer(username: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password, emby: method == .emby)
-                case .plex:
-                    guard let plexToken else { throw MediaIntegrationError.invalidResponse }
-                    result = try await client.signInPlex(token: plexToken)
                 case .local, .apiKey:
                     result = try await client.signIn(email: email.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
                 }

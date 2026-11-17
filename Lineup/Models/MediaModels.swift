@@ -6,8 +6,8 @@ struct MediaServerProfile: Codable, Identifiable, Equatable, Sendable {
     var serverURL: String
     var username: String
     var userID: String
-    /// The software the server runs. Saved only since Emby and Plex joined
-    /// Jellyfin, so a server saved before then reads as the Jellyfin it was.
+    /// The software the server runs. Saved only since Emby joined Jellyfin,
+    /// so a server saved before then reads as the Jellyfin it was.
     var software: MediaServerBrand?
     var jellyfinServerID: String? = nil
     var primaryImageTag: String? = nil
@@ -26,6 +26,37 @@ struct MediaServerProfile: Codable, Identifiable, Equatable, Sendable {
 
     var brand: MediaServerBrand { software ?? .jellyfin }
 
+    /// Saved for software Lineup no longer connects to -- Plex -- and left
+    /// out wherever saved servers are read.
+    private(set) var isRetired = false
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, serverURL, username, userID, software, jellyfinServerID, primaryImageTag, siloProfileID
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        serverURL = try values.decode(String.self, forKey: .serverURL)
+        username = try values.decode(String.self, forKey: .username)
+        userID = try values.decode(String.self, forKey: .userID)
+        // Read as text, so one server of a kind no longer offered does not
+        // take every saved server down with it.
+        let kind = try values.decodeIfPresent(String.self, forKey: .software)
+        software = kind.flatMap(MediaServerBrand.init(rawValue:))
+        isRetired = kind != nil && software == nil
+        jellyfinServerID = try values.decodeIfPresent(String.self, forKey: .jellyfinServerID)
+        primaryImageTag = try values.decodeIfPresent(String.self, forKey: .primaryImageTag)
+        siloProfileID = try values.decodeIfPresent(String.self, forKey: .siloProfileID)
+    }
+
+    /// Saved servers as they were written, without any of a kind Lineup no
+    /// longer connects to.
+    static func saved(from data: Data) -> [MediaServerProfile]? {
+        (try? JSONDecoder().decode([MediaServerProfile].self, from: data))?.filter { !$0.isRetired }
+    }
+
     /// The picker and personal links for one AIOStreams mount can differ by user.
     /// Use the common mount only for account grouping. Requests use the full saved URL.
     var jellyfinAccountEndpoint: String {
@@ -40,19 +71,9 @@ struct MediaServerProfile: Codable, Identifiable, Equatable, Sendable {
         return url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 
-    /// The server's host as a person would know it. Plex reaches a server
-    /// through a certificate name that spells its address with dashes,
-    /// 192-168-1-50.<hash>.plex.direct, and that address is what is shown.
+    /// The server's host as a person would know it.
     var displayHost: String {
-        guard let host = URL(string: serverURL)?.host else { return serverURL }
-        let labels = host.split(separator: ".")
-        if host.hasSuffix(".plex.direct"), let first = labels.first {
-            let octets = first.split(separator: "-", omittingEmptySubsequences: false)
-            if octets.count == 4, octets.allSatisfy({ UInt8($0) != nil }) {
-                return octets.joined(separator: ".")
-            }
-        }
-        return host
+        URL(string: serverURL)?.host ?? serverURL
     }
 }
 
@@ -61,7 +82,6 @@ struct MediaServerProfile: Codable, Identifiable, Equatable, Sendable {
 enum MediaServerBrand: String, Codable, CaseIterable, Sendable, Equatable {
     case jellyfin
     case emby
-    case plex
     case silo
 
     static func of(_ profile: MediaServerProfile) -> MediaServerBrand { profile.brand }
@@ -77,7 +97,6 @@ enum MediaServerBrand: String, Codable, CaseIterable, Sendable, Equatable {
         switch self {
         case .jellyfin: return "Jellyfin"
         case .emby: return "Emby"
-        case .plex: return "Plex"
         case .silo: return "Silo"
         }
     }
@@ -87,7 +106,6 @@ enum MediaServerBrand: String, Codable, CaseIterable, Sendable, Equatable {
         switch self {
         case .jellyfin: return "Your Jellyfin user. Servers built on Jellyfin sign in the same way."
         case .emby: return "Your Emby user, on your Emby Server."
-        case .plex: return "A short code links your account. No password needed."
         case .silo: return "Connect your Silo account or API key, then choose your household profile."
         }
     }
@@ -392,7 +410,7 @@ struct MediaItem: Codable, Identifiable, Hashable, Sendable {
     var isUpcomingPlaceholder: Bool { id.hasPrefix(Self.upcomingPrefix) }
 
     /// When it first airs, read from the premiere date: a full timestamp
-    /// from a server or TVmaze, or a bare day from Plex.
+    /// from a server or TVmaze, or a bare day.
     var premiereDay: Date? {
         guard let raw = premiereDate, raw.count >= 10 else { return nil }
         if raw.count >= 19, let date = Self.timestampFormatter.date(from: String(raw.prefix(19))) { return date }
@@ -1400,10 +1418,6 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// Where a stream that no media server serves plays from: the IPTV
     /// provider's own address for a film or an episode.
     var directURL: URL? = nil
-    /// A media server's own file played straight from it -- Plex's -- which
-    /// has a direct address too but is that server's, not an IPTV
-    /// provider's.
-    var isServerFile = false
     var playSessionID: String? = nil
     /// Native Silo chooses this exact version before returning a signed plan.
     var siloFileID: String? = nil
@@ -1526,7 +1540,7 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     }
 
     /// From an IPTV provider: listed first.
-    var isVOD: Bool { directURL != nil && siloLease == nil && !isServerFile }
+    var isVOD: Bool { directURL != nil && siloLease == nil }
 
     /// Found by an add-on server -- AIOStreams and the like -- rather than
     /// held by a media server: listed after the media servers.

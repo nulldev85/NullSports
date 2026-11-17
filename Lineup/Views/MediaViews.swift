@@ -55,6 +55,15 @@ struct MediaServersView: View {
     /// that ended with nothing after it leads there.
     @State private var frontPage = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The Library the tab shows: Lineup's own when empty, or the id of the
+    /// server whose own Library it shows.
+    @AppStorage(MediaLibrary.serverLibraryKey) private var serverLibrary = ""
+
+    /// The server whose own Library is showing, while it is still connected.
+    private var serverLibraryProfile: MediaServerProfile? {
+        guard !serverLibrary.isEmpty else { return nil }
+        return media.serverLibraryProfiles.first { $0.id.uuidString == serverLibrary }
+    }
 
     var body: some View {
         stack
@@ -98,7 +107,7 @@ struct MediaServersView: View {
                 // loads. This waits only while there is nothing at all to show.
                 if !media.hasAnySource && media.builtInShelves.isEmpty {
                     LineupUnavailableView(title: "Add a Media Server", symbol: "play.square.stack",
-                                          description: Text("Connect a Jellyfin, Emby, Plex or Silo server to watch your own library here.")) {
+                                          description: Text("Connect a Jellyfin, Emby or Silo server to watch your own library here.")) {
                         VStack(spacing: 18) {
                             MediaServerLogoRow(size: 34)
                             Button("Add Media Server") { addingServer = true }
@@ -121,6 +130,8 @@ struct MediaServersView: View {
                         Button("Try Again") { Task { await media.reload() } }
                             .lineupProminentButton()
                     }
+                } else if let server = serverLibraryProfile {
+                    MobileServerLibraryScreen(profile: server)
                 } else {
                     MediaCatalogsScreen(catalogs: media.mobileShelfCatalogs, searchPresented: $searchingLibrary,
                                         onAddServer: media.hasAnySource ? nil : { addingServer = true })
@@ -253,6 +264,23 @@ struct MediaServersView: View {
             servers.insert(MobileMenuItem("VOD · " + shownName, symbol: "film.stack",
                                           id: "vod-provider",
                                           children: [MobileMenuSection(id: "vod-providers", items: choices)]), at: 0)
+        }
+        // Each server's own Library, laid out the way its own app lays it
+        // out, or Lineup's, which brings them all together.
+        let ownLibraries = media.serverLibraryProfiles
+        if !ownLibraries.isEmpty {
+            let shown = serverLibraryProfile
+            let choices = [MobileMenuItem("Lineup Library", symbol: "square.stack.3d.up", id: "server-library-lineup",
+                                          isSelected: shown == nil) { serverLibrary = "" }]
+                + ownLibraries.map { server in
+                    MobileMenuItem(server.name, symbol: "externaldrive.fill",
+                                   id: "server-library-" + server.id.uuidString,
+                                   isSelected: shown?.id == server.id) { serverLibrary = server.id.uuidString }
+                }
+            servers.insert(MobileMenuItem("Media Server Libraries · " + (shown?.name ?? "Lineup"),
+                                          symbol: "rectangle.stack", id: "server-libraries",
+                                          children: [MobileMenuSection(id: "server-library-choices", items: choices)]),
+                           at: 0)
         }
         if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
             servers.append(MobileMenuItem("Clear Local Tracking", symbol: "trash", isDestructive: true) {
@@ -610,6 +638,7 @@ private struct TVMediaServersHome: View {
     @Environment(\.tvTabBar) private var tabBar
     @Binding var addingServer: Bool
     @Binding var searchingLibrary: Bool
+    @AppStorage(MediaLibrary.serverLibraryKey) private var serverLibrary = ""
 
     var body: some View {
         Group {
@@ -633,6 +662,9 @@ private struct TVMediaServersHome: View {
                 }
                 .foregroundStyle(LineupStyle.lightPurple)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let server = media.serverLibraryProfiles.first(where: { $0.id.uuidString == serverLibrary }) {
+                // One server's own Library, chosen at the top of the shelves.
+                TVServerLibraryScreen(profile: server)
             } else {
                 MediaCatalogsScreen(catalogs: media.shelves, searchPresented: $searchingLibrary)
             }
@@ -668,7 +700,7 @@ private struct TVMediaEmptyState: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Bring your media to the big screen.")
                     .font(.inter(32, .semibold))
-                Text("Connect your Jellyfin, Emby or Plex server and watch your own library on the big screen.")
+                Text("Connect your Jellyfin, Emby or Silo server and watch your own library on the big screen.")
                     .font(.inter(18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
                 HStack(spacing: 16) {
                     Button("Connect a Server", systemImage: "plus", action: addServer)
@@ -838,6 +870,8 @@ struct MediaCatalogsScreen: View {
                     // nothing behind them changes as the remote moves.
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 48) {
+                            // Lineup's Library, or one server's own.
+                            TVServerLibrarySwitcher()
                             libraryShelves
                         }
                         .padding(.top, 24)
@@ -2038,7 +2072,7 @@ struct MobileAddServerPrompt: View {
             MediaServerLogoRow(size: 24)
             Text("Add a media server to play these")
                 .font(.inter(.headline, .semibold)).foregroundStyle(LineupStyle.text)
-            Text("Connect Jellyfin, Emby, Plex or Silo. Until then, every title shows its details but can't play.")
+            Text("Connect Jellyfin, Emby or Silo. Until then, every title shows its details but can't play.")
                 .font(.inter(.subheadline)).foregroundStyle(LineupPresentationStyle.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Add Media Server", action: action).lineupProminentButton()

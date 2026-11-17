@@ -34,7 +34,7 @@ final class UpcomingEpisodeTests: XCTestCase {
     }
 
     func testAirDatesAreReadFromEveryServer() {
-        // Jellyfin's seven-digit fractions, TVmaze's offset, and Plex's day.
+        // Jellyfin's seven-digit fractions, TVmaze's offset, and a bare day.
         XCTAssertNotNil(episode(premiere: "2026-08-11T00:00:00.0000000Z").premiereDay)
         XCTAssertNotNil(episode(premiere: "2026-08-11T01:00:00+00:00").premiereDay)
         XCTAssertNotNil(episode(premiere: "2026-08-11").premiereDay)

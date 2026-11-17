@@ -59,7 +59,6 @@ struct MobileSeerrSignInChoice: View {
     @ViewBuilder private var mark: some View {
         switch method {
         case .local: Image("SeerrLogo").renderingMode(.original).resizable().scaledToFit()
-        case .plex: MediaServerLogo(brand: .plex)
         case .jellyfin: MediaServerLogo(brand: .jellyfin)
         case .emby: MediaServerLogo(brand: .emby)
         case .apiKey: Image(systemName: "key.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(LineupStyle.highlight)

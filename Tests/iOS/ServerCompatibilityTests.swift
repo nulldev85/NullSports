@@ -32,29 +32,6 @@ final class ServerCompatibilityTests: XCTestCase {
         }
     }
 
-    func testPlexCollectionFindsShowsOnALaterPageOfTheSameCollection() async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [CompatibilityProtocol.self]
-        let session = URLSession(configuration: configuration)
-        defer { session.invalidateAndCancel(); CompatibilityProtocol.install(nil) }
-        let client = try PlexClient(serverURL: "https://example.test", token: "token", clientID: "device", session: session)
-        let parent = try JSONDecoder().decode(MediaItem.self, from: Data(#"{"Id":"plex-collection:42","Name":"Mixed","Type":"BoxSet"}"#.utf8))
-        CompatibilityProtocol.install { request in
-            XCTAssertEqual(request.url?.path, "/library/collections/42/children")
-            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
-            let start = query.first { $0.name == "X-Plex-Container-Start" }?.value
-            XCTAssertTrue(["0", "100"].contains(start ?? ""))
-            let page = start == "0"
-                ? (1...100).map { ["ratingKey": "m\($0)", "title": "Movie", "type": "movie"] }
-                : [["ratingKey": "s1", "title": "Show", "type": "show"]]
-            let container: [String: Any] = ["Metadata": page, "size": page.count, "totalSize": 101]
-            let data = try JSONSerialization.data(withJSONObject: ["MediaContainer": container])
-            return String(decoding: data, as: UTF8.self)
-        }
-        let shows = try await client.items(userID: "viewer", parent: parent, sortBy: "SortName", limit: 40, filter: .shows)
-        XCTAssertEqual(shows.map(\.id), ["s1"])
-    }
-
     func testRequiredGenreCatalogUsesItsAdvertisedAllValueOrFirstAvailableGenre() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CompatibilityProtocol.self]
