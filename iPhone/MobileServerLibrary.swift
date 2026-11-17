@@ -30,7 +30,7 @@ private struct MobileServerLibraryContent: View {
 
     /// The server's own colours, from its logo, over the app's dark ground.
     private var brand: MediaServerBrand { model.profile.brand }
-    private var accent: Color { brand.loginTint }
+    private var accent: Color { brand.libraryAccent }
 
     private let columns = [GridItem(.flexible(), spacing: 12, alignment: .top),
                            GridItem(.flexible(), spacing: 12, alignment: .top),
@@ -54,7 +54,7 @@ private struct MobileServerLibraryContent: View {
         .background {
             ZStack(alignment: .top) {
                 LineupStyle.background
-                brand.logoWash(0.26).frame(height: 420)
+                brand.libraryWash(0.30).frame(height: 420)
             }
             .ignoresSafeArea()
         }
@@ -123,8 +123,7 @@ private struct MobileServerLibraryContent: View {
                             .padding(.horizontal, 22).frame(height: 44)
                             .background {
                                 if chosen {
-                                    Capsule().fill(brand.logoGradient)
-                                        .shadow(color: accent.opacity(0.45), radius: 10, y: 3)
+                                    Capsule().fill(brand.libraryGradient)
                                 } else {
                                     Capsule().fill(LineupStyle.surface)
                                 }
@@ -407,11 +406,11 @@ struct MobileServerLibraryRowScreen: View {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 60)
             }
         }
-        .tint(model.profile.brand.loginTint)
+        .tint(model.profile.brand.libraryAccent)
         .background {
             ZStack(alignment: .top) {
                 LineupStyle.background
-                model.profile.brand.logoWash(0.18).frame(height: 320)
+                model.profile.brand.libraryWash(0.22).frame(height: 320)
             }
             .ignoresSafeArea()
         }

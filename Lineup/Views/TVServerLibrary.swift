@@ -56,8 +56,7 @@ struct TVServerLibraryChip: View {
             .padding(.horizontal, 26).frame(height: 60)
             .background {
                 if chosen, let brand {
-                    Capsule().fill(brand.logoGradient)
-                        .shadow(color: brand.loginTint.opacity(0.5), radius: 16, y: 6)
+                    Capsule().fill(brand.libraryGradient)
                 } else {
                     Capsule().fill(chosen ? Color.white : LineupStyle.surface)
                 }
@@ -117,9 +116,9 @@ private struct TVServerLibraryContent: View {
             .padding(.top, 10).padding(.bottom, 80)
         }
         .scrollClipDisabled()
-        .tint(brand.loginTint)
+        .tint(brand.libraryAccent)
         .background(alignment: .top) {
-            brand.logoWash(0.22).frame(height: 620).ignoresSafeArea()
+            brand.libraryWash(0.26).frame(height: 620).ignoresSafeArea()
         }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $seeing) { row in TVServerLibraryRowScreen(model: model, row: row) }
@@ -190,7 +189,7 @@ private struct TVServerLibraryContent: View {
                             TVSelectable(scale: LineupStyle.cardLift, fillRadius: 16, action: { seeing = row }) {
                                 VStack(spacing: 12) {
                                     Image(systemName: "chevron.right.circle.fill").font(.system(size: 54))
-                                        .foregroundStyle(brand.loginTint)
+                                        .foregroundStyle(brand.libraryAccent)
                                     Text("See All").font(.inter(24, .semibold))
                                 }
                                 .foregroundStyle(LineupStyle.text)
@@ -388,7 +387,7 @@ private struct TVServerLibraryRowScreen: View {
         .background {
             ZStack(alignment: .top) {
                 LineupStyle.background
-                model.profile.brand.logoWash(0.18).frame(height: 520)
+                model.profile.brand.libraryWash(0.22).frame(height: 520)
             }
             .ignoresSafeArea()
         }

@@ -46,30 +46,52 @@ struct MediaServerLogoRow: View {
 }
 
 extension MediaServerBrand {
-    /// The colours of the brand's own logo, for its own Library: Jellyfin's
-    /// purple into blue, Emby's green, Silo's blue, red and orange.
-    var logoColors: [Color] {
+    /// The colours of the brand's own logo: Jellyfin's purple into blue,
+    /// Emby's green, Silo's blue, red and orange.
+    private var logoRGB: [(red: Double, green: Double, blue: Double)] {
         switch self {
-        case .jellyfin: [Color(red: 0xAA / 255, green: 0x5C / 255, blue: 0xC3 / 255),
-                         Color(red: 0x00 / 255, green: 0xA4 / 255, blue: 0xDC / 255)]
-        case .emby: [Color(red: 0x52 / 255, green: 0xB5 / 255, blue: 0x4B / 255),
-                     Color(red: 0.24, green: 0.56, blue: 0.22)]
-        case .silo: [Color(red: 0.09, green: 0.31, blue: 1.0), Color(red: 0.91, green: 0.12, blue: 0.26),
-                     Color(red: 1.0, green: 0.52, blue: 0.08)]
+        case .jellyfin: [(0xAA / 255, 0x5C / 255, 0xC3 / 255), (0x00 / 255, 0xA4 / 255, 0xDC / 255)]
+        case .emby: [(0x52 / 255, 0xB5 / 255, 0x4B / 255), (0.24, 0.56, 0.22)]
+        case .silo: [(0.09, 0.31, 1.0), (0.91, 0.12, 0.26), (1.0, 0.52, 0.08)]
         }
     }
 
-    /// The logo's colours run corner to corner: a chosen chip's fill.
-    var logoGradient: LinearGradient {
-        LinearGradient(colors: logoColors, startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// The logo's colours as its Library wears them: the same hues, softened
+    /// and drawn down toward the app's dark ground, the way the app's own
+    /// accents sit on it, rather than at the full strength of a logo.
+    var libraryColors: [Color] { logoRGB.map { Self.toned($0, lift: 0) } }
+
+    /// The Library's one colour, for what is chosen: its logo's first.
+    var libraryTint: Color { libraryColors[0] }
+
+    /// The same colour lifted a little, for a chevron or a word on the dark
+    /// ground, where the deeper one would sink.
+    var libraryAccent: Color { Self.toned(logoRGB[0], lift: 0.32) }
+
+    /// A chosen chip's fill: the logo's colours, toned, corner to corner.
+    var libraryGradient: LinearGradient {
+        LinearGradient(colors: libraryColors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 
-    /// A wash of the logo's colours at the top of its Library, fading into
-    /// the app's own dark ground.
-    func logoWash(_ strength: Double) -> LinearGradient {
-        LinearGradient(colors: [logoColors[0].opacity(strength), (logoColors.last ?? logoColors[0]).opacity(strength * 0.35),
-                                .clear],
+    /// A faint wash of the Library's colour at the top, fading into the
+    /// app's own ground.
+    func libraryWash(_ strength: Double) -> LinearGradient {
+        LinearGradient(colors: [libraryTint.opacity(strength), libraryTint.opacity(strength * 0.3), .clear],
                        startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.55))
+    }
+
+    /// A third of the way to grey, then a quarter of the way to the app's
+    /// charcoal; `lift` then takes it that far toward white.
+    private static func toned(_ colour: (red: Double, green: Double, blue: Double), lift: Double) -> Color {
+        let grey = 0.299 * colour.red + 0.587 * colour.green + 0.114 * colour.blue
+        let ground = (red: 0.11, green: 0.11, blue: 0.12)
+        func channel(_ value: Double, _ base: Double) -> Double {
+            let softened = value + (grey - value) * 0.32
+            let deepened = softened * 0.74 + base * 0.26
+            return deepened + (1 - deepened) * lift
+        }
+        return Color(red: channel(colour.red, ground.red), green: channel(colour.green, ground.green),
+                     blue: channel(colour.blue, ground.blue))
     }
 
     var loginTint: Color {
