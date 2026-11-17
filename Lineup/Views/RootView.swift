@@ -218,7 +218,15 @@ private struct TVTabStrip: View {
         .padding(.top, 24).padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .focusSection()
+        // Up into the tabs lands on the tab already chosen, not the one
+        // nearest the card the remote left: that was often Library, and
+        // landing on a tab opens it.
+        .defaultFocus(focus, selection, priority: .userInitiated)
     }
+}
+
+private final class TVTabsLeft {
+    var at: TimeInterval = 0
 }
 
 struct MainView: View {
@@ -228,6 +236,9 @@ struct MainView: View {
     /// view kept them, so coming back to one finds it as it was left.
     @State private var opened: Set<Int>
     @FocusState private var tabFocus: Int?
+    /// When the remote last left the tabs. Not observed: nothing is drawn
+    /// from it.
+    @State private var tabsLeft = TVTabsLeft()
     /// The accent chosen on the phone, which iCloud brings here: the tabs
     /// are drawn again in it when it changes, as the phone's are.
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
@@ -274,8 +285,17 @@ struct MainView: View {
         // Every tab sits on the same plain ground under the same tabs.
         .background(LineupStyle.background.ignoresSafeArea())
         // Moving along the tabs shows each one, as the system's tabs did.
-        .onChange(of: tabFocus) { _, tab in
-            if let tab, tab != selectedTab { selectedTab = tab }
+        .onChange(of: tabFocus) { from, tab in
+            let now = ProcessInfo.processInfo.systemUptime
+            guard let tab else { tabsLeft.at = now; return }
+            guard tab != selectedTab else { return }
+            // Coming up from a tab's screen is never a choice of another
+            // tab, wherever the focus engine put the remote; moving along
+            // the tabs is. A move along them can pass through no tab for
+            // an instant, so only a remote that has been away a while is
+            // coming up from below.
+            guard from != nil || now - tabsLeft.at < 0.2 else { tabFocus = selectedTab; return }
+            selectedTab = tab
         }
         // A tab changed is a tab's own screen showing.
         .onChange(of: selectedTab, initial: true) { _, tab in
