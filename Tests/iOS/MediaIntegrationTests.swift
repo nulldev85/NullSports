@@ -616,6 +616,13 @@ final class MediaIntegrationTests: XCTestCase {
                 XCTAssertEqual(body["profile_id"] as? String, "profile:1")
                 XCTAssertEqual(body["start_position"] as? Double, 600)
                 XCTAssertEqual(body["progress_persistence"] as? String, "server")
+                // The engines show HDR and Dolby Vision from the file as it
+                // is, so Silo sends a 4K HDR film untouched.
+                let context = try XCTUnwrap(body["client_playback_context"] as? [String: Any])
+                let deliveries = try XCTUnwrap(context["deliveries"] as? [String: [String: Any]])
+                XCTAssertEqual(deliveries["original_http"]?["validated_claims"] as? [String],
+                               ["client_managed_dynamic_range_v1"])
+                XCTAssertEqual(deliveries["hls"]?["validated_claims"] as? [String], [])
                 return .json(Self.plan(offset: 598, playerStart: 2, planID: "plan:1"), status: 201)
             }
             if path.hasSuffix("/replan") {
