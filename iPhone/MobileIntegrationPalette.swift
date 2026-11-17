@@ -12,14 +12,12 @@ struct MobileIntegrationPalette {
         case .local, .apiKey: return .init(colors: [Color(red: 0.65, green: 0.49, blue: 0.98), Color(red: 0.39, green: 0.40, blue: 0.95), Color(red: 0.78, green: 0.66, blue: 1)])
         case .jellyfin: return .server(.jellyfin)
         case .emby: return .server(.emby)
-        case .plex: return .server(.plex)
         }
     }
     static func server(_ brand: MediaServerBrand) -> Self {
         switch brand {
         case .jellyfin: return .init(colors: [Color(red: 170/255, green: 92/255, blue: 195/255), Color(red: 0, green: 164/255, blue: 220/255)])
         case .emby: return .init(colors: [Color(red: 82/255, green: 181/255, blue: 75/255), Color(red: 0.32, green: 0.71, blue: 0.29), .white])
-        case .plex: return .init(colors: [Color(red: 229/255, green: 160/255, blue: 13/255), Color(red: 31/255, green: 31/255, blue: 31/255)])
         case .silo: return .init(colors: [Color(red: 0.09, green: 0.31, blue: 1), Color(red: 0.91, green: 0.12, blue: 0.26), Color(red: 1, green: 0.52, blue: 0.08)])
         }
     }

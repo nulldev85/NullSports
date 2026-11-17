@@ -4,12 +4,12 @@ enum SeerrMediaKind: String, Codable, CaseIterable, Sendable { case movie, tv
     var title: String { self == .movie ? "Movies" : "Series" }
 }
 enum SeerrSignInMethod: String, CaseIterable, Sendable {
-    case local, plex, jellyfin, emby, apiKey
+    case local, jellyfin, emby, apiKey
     var title: String {
-        switch self { case .local: "Seerr Account"; case .plex: "Plex"; case .jellyfin: "Jellyfin"; case .emby: "Emby"; case .apiKey: "API Key" }
+        switch self { case .local: "Seerr Account"; case .jellyfin: "Jellyfin"; case .emby: "Emby"; case .apiKey: "API Key" }
     }
 }
-struct SeerrPublicSettings: Decodable, Sendable { let initialized: Bool; let plexClientIdentifier: String? }
+struct SeerrPublicSettings: Decodable, Sendable { let initialized: Bool }
 
 struct SeerrUser: Codable, Sendable, Equatable {
     let id: Int
@@ -180,9 +180,6 @@ actor SeerrClient {
     }
     func signInMediaServer(username: String, password: String, emby: Bool) async throws -> (SeerrUser, SeerrCredential) {
         try await establishSession(route: "jellyfin", body: ["username": username, "password": password, "serverType": emby ? 3 : 2])
-    }
-    func signInPlex(token: String) async throws -> (SeerrUser, SeerrCredential) {
-        try await establishSession(route: "plex", body: ["authToken": token])
     }
     func publicSettings() async throws -> SeerrPublicSettings {
         let (data, _) = try await http.send(["api", "v1", "settings", "public"])

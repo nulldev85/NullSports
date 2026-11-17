@@ -53,7 +53,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Scan the setup code on your Apple TV to set it up from this iPhone.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Connect to IPTV providers, Jellyfin, Emby, Plex or Silo media servers, and the Apple TV you set up, on your local network.</string>
+	<string>Connect to IPTV providers, Jellyfin, Emby or Silo media servers, and the Apple TV you set up, on your local network.</string>
 	<!-- Keeps audio decoding when Lineup is backgrounded, and is what lets
 	     AVPictureInPictureController carry a stream into the system window. -->
 	<key>UIBackgroundModes</key>

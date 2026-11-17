@@ -201,14 +201,23 @@ final class MultiServerTests: XCTestCase {
         XCTAssertEqual(vod.group, "VOD - null", "A provider's copies are grouped under its own name")
         vod.serverName = nil
         XCTAssertEqual(vod.group, "VOD")
+    }
 
-        // A Plex file plays from its own address too, but it is the server's.
-        var plex = try decoder.decode(MediaPlaybackSource.self, from: Data(#"{"Id":"/library/parts/1","Name":"4K"}"#.utf8))
-        plex.serverName = "Den Plex"
-        plex.directURL = URL(string: "http://plex.example:32400/library/parts/1?X-Plex-Token=t")
-        plex.isServerFile = true
-        XCTAssertFalse(plex.isVOD)
-        XCTAssertEqual(plex.group, "Den Plex")
+    /// A server saved before Emby joined reads as the Jellyfin it was, and
+    /// one saved for Plex, which Lineup no longer connects to, is left out
+    /// without taking the others with it.
+    func testSavedServersReadWithoutTheRetiredOnes() throws {
+        let saved = """
+        [{"id":"7B2B3B66-6B61-4B2C-9C2A-0B9E7A1C2D3E","name":"Home","serverURL":"http://home:8096","username":"me","userID":"u1"},
+         {"id":"1C2B3B66-6B61-4B2C-9C2A-0B9E7A1C2D3F","name":"Den","serverURL":"http://den:32400","username":"me","userID":"m1","software":"plex"},
+         {"id":"2D2B3B66-6B61-4B2C-9C2A-0B9E7A1C2D30","name":"Silo","serverURL":"https://silo.test","username":"me","userID":"s1","software":"silo","siloProfileID":"p1"}]
+        """
+        let profiles = try XCTUnwrap(MediaServerProfile.saved(from: Data(saved.utf8)))
+        XCTAssertEqual(profiles.map(\.name), ["Home", "Silo"])
+        XCTAssertEqual(profiles.map(\.brand), [.jellyfin, .silo])
+        XCTAssertEqual(profiles.last?.siloProfileID, "p1")
+        let again = try JSONDecoder().decode([MediaServerProfile].self, from: JSONEncoder().encode(profiles))
+        XCTAssertEqual(again, profiles)
     }
 
     /// The IPTV providers' copies come first, then the media servers', then

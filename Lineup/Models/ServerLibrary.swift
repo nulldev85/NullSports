@@ -3,7 +3,7 @@ import Foundation
 // A media server's own Library, the way its own app lays it out: one of its
 // libraries at a time -- Movies, Shows -- as the rows the server recommends,
 // every title in a grid, and the server's collections. Each server answers
-// from its own catalog, so Silo looks like Silo and Plex like Plex.
+// from its own catalog, so Silo looks like Silo and Jellyfin like Jellyfin.
 
 /// How a server library's grid is ordered.
 enum ServerLibrarySort: String, CaseIterable, Sendable {

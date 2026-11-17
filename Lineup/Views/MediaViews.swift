@@ -106,7 +106,7 @@ struct MediaServersView: View {
                 // loads. This waits only while there is nothing at all to show.
                 if !media.hasAnySource && media.builtInShelves.isEmpty {
                     LineupUnavailableView(title: "Add a Media Server", symbol: "play.square.stack",
-                                          description: Text("Connect a Jellyfin, Emby, Plex or Silo server to watch your own library here.")) {
+                                          description: Text("Connect a Jellyfin, Emby or Silo server to watch your own library here.")) {
                         VStack(spacing: 18) {
                             MediaServerLogoRow(size: 34)
                             Button("Add Media Server") { addingServer = true }
@@ -699,7 +699,7 @@ private struct TVMediaEmptyState: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Bring your media to the big screen.")
                     .font(.inter(32, .semibold))
-                Text("Connect your Jellyfin, Emby or Plex server and watch your own library on the big screen.")
+                Text("Connect your Jellyfin, Emby or Silo server and watch your own library on the big screen.")
                     .font(.inter(18)).opacity(0.68).frame(maxWidth: 590, alignment: .leading)
                 HStack(spacing: 16) {
                     Button("Connect a Server", systemImage: "plus", action: addServer)
@@ -2071,7 +2071,7 @@ struct MobileAddServerPrompt: View {
             MediaServerLogoRow(size: 24)
             Text("Add a media server to play these")
                 .font(.inter(.headline, .semibold)).foregroundStyle(LineupStyle.text)
-            Text("Connect Jellyfin, Emby, Plex or Silo. Until then, every title shows its details but can't play.")
+            Text("Connect Jellyfin, Emby or Silo. Until then, every title shows its details but can't play.")
                 .font(.inter(.subheadline)).foregroundStyle(LineupPresentationStyle.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Add Media Server", action: action).lineupProminentButton()

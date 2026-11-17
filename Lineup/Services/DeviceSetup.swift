@@ -194,17 +194,10 @@ enum DeviceSetup {
 
     /// The same server: the same software and the same account on it. A
     /// Jellyfin or Emby user id belongs to its server, whichever address
-    /// reaches it. A Plex account's id is the same on each of its servers, so
-    /// the server is told by its plex.direct name, or by its address.
+    /// reaches it.
     static func serverIdentity(_ entry: [String: Any]) -> String? {
         let software = (entry["software"] as? String) ?? MediaServerBrand.jellyfin.rawValue
         guard let user = (entry["userID"] as? String)?.lowercased(), !user.isEmpty else { return nil }
-        if software == MediaServerBrand.plex.rawValue {
-            guard let host = normalizedAddress(entry["serverURL"]).flatMap({ URL(string: $0)?.host }) else { return nil }
-            let labels = host.split(separator: ".")
-            let server = host.hasSuffix(".plex.direct") && labels.count > 2 ? String(labels[1]) : host
-            return "\(software)|\(user)|\(server)"
-        }
         return "\(software)|\(user)|\((entry["siloProfileID"] as? String) ?? "")"
     }
 

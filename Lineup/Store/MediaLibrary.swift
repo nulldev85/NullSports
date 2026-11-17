@@ -549,7 +549,7 @@ final class MediaLibrary {
         providerVOD = ProviderVOD(defaults: defaults)
         isMDBListConnected = trackingKey() != nil
         if let data = defaults.data(forKey: profilesKey),
-           let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) {
+           let saved = MediaServerProfile.saved(from: data) {
             savedProfiles = saved
             updateActiveAccounts()
         }
@@ -1078,8 +1078,8 @@ final class MediaLibrary {
         try await saveAuthentication(result, client: client, name: "")
     }
 
-    /// The device's id as Plex counts devices, for linking it to a Plex account.
-    var plexClientID: String { deviceID }
+    /// This device's id, as a server that counts devices is told it.
+    var serverDeviceID: String { deviceID }
 
     func addSiloServer(_ client: SiloClient, account: SiloAccount, household: SiloProfile, name: String) async -> Bool {
         guard !isAddingServer else { return false }
@@ -1100,39 +1100,6 @@ final class MediaLibrary {
             try await adopt(profile, token: secret, replacing: existing)
             return true
         } catch { errorMessage = error.localizedDescription; return false }
-    }
-
-    /// A Plex server the linked account can reach, at the first of its
-    /// addresses that answers -- on the same network if it can be.
-    func addPlexServer(_ server: PlexAccount.Server, accountName: String) async -> Bool {
-        isAddingServer = true
-        errorMessage = nil
-        defer { isAddingServer = false }
-        guard let token = server.accessToken else {
-            errorMessage = "Plex didn't give Lineup access to \(server.name). Try linking again."
-            return false
-        }
-        guard let address = await PlexAccount.reachableAddress(of: server, clientID: deviceID) else {
-            errorMessage = "Couldn't reach \(server.name). Make sure it's running and that Remote Access is on, or that this device is on the same network."
-            return false
-        }
-        var profile = MediaServerProfile(name: server.name, serverURL: address.absoluteString,
-                                         username: accountName, userID: server.clientIdentifier,
-                                         software: .plex)
-        // The same server linked again is a new address and token for it.
-        let existing = savedProfiles.firstIndex { $0.brand == .plex && $0.userID == server.clientIdentifier }
-        if let existing {
-            profile = MediaServerProfile(id: savedProfiles[existing].id, name: server.name,
-                                         serverURL: address.absoluteString, username: accountName,
-                                         userID: server.clientIdentifier, software: .plex)
-        }
-        do {
-            try await adopt(profile, token: token, replacing: existing)
-            return true
-        } catch {
-            errorMessage = error.localizedDescription
-            return false
-        }
     }
 
     /// A server signed in to: its token kept, it joins the list, and its
@@ -4211,7 +4178,7 @@ final class MediaLibrary {
 
     /// Whether a server can be asked for everything it holds at once.
     ///
-    /// A Jellyfin, Emby or Plex server answers that from its own database. An
+    /// A Jellyfin or Emby server answers that from its own database. An
     /// AIOStreams server holds nothing: it fetches every catalog from every
     /// addon behind it to answer, which is the long wait its collections exist
     /// to avoid. Lineup asks it only for what is on screen -- a shelf, a
@@ -4957,14 +4924,14 @@ final class MediaLibrary {
         return value
     }
 
-    /// The client for a server, in the software's own terms: Plex its own
+    /// The client for a server, in the software's own terms: Silo its own
     /// way, Jellyfin and Emby through the API they share.
     // MARK: - Each server's own Library
 
     /// The servers whose Library can be shown the way their own app shows it,
     /// in the order they were added.
     var serverLibraryProfiles: [MediaServerProfile] {
-        // Every kind Lineup connects to has one: Jellyfin, Emby, Plex, Silo.
+        // Every kind Lineup connects to has one: Jellyfin, Emby and Silo.
         profiles
     }
 
@@ -5002,8 +4969,6 @@ final class MediaLibrary {
                         catch { self.errorMessage = "Silo refreshed your sign-in, but it could not be saved. Reconnect before closing the app." }
                     }
                 })
-        case .plex:
-            made = try PlexClient(serverURL: profile.serverURL, token: token, clientID: deviceID)
         case .jellyfin, .emby:
             made = try JellyfinClient(serverURL: profile.serverURL, accessToken: token, deviceID: deviceID,
                                       software: profile.brand, userID: profile.userID)
@@ -5210,7 +5175,7 @@ final class MediaLibrary {
         await restoreCachedLibrary()
         isMDBListConnected = MDBListKeychainStore.apiKey() != nil
         guard let data = defaults.data(forKey: profilesKey),
-              let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) else { return }
+              let saved = MediaServerProfile.saved(from: data) else { return }
         let known = Set(profiles.map(\.id))
         let kept = Set(saved.map(\.id))
         for gone in profiles where !kept.contains(gone.id) {
@@ -5252,7 +5217,7 @@ final class MediaLibrary {
         shelfOrder = defaults.stringArray(forKey: shelfOrderKey) ?? []
         shelfNames = defaults.dictionary(forKey: shelfNamesKey) as? [String: String] ?? [:]
         guard let data = defaults.data(forKey: profilesKey),
-              let saved = try? JSONDecoder().decode([MediaServerProfile].self, from: data) else { return }
+              let saved = MediaServerProfile.saved(from: data) else { return }
         let known = Set(profiles.map(\.id))
         let kept = Set(saved.map(\.id))
         for gone in profiles where !kept.contains(gone.id) { servers[gone.id] = nil }
@@ -6590,7 +6555,7 @@ extension MediaLibrary {
     }
 
     /// A session on a server that keeps progress for its apps. Titles from
-    /// the IPTV provider, Plex and Silo keep their own and are left out.
+    /// the IPTV provider and Silo keep their own and are left out.
     fileprivate func beginServerReport(for item: MediaItem, id: UUID, mediaSourceID: String?,
                                        playedOn: (profileID: UUID, itemID: String)?) {
         guard serverTrackingEnabled, serverReports[id] == nil, let owner = serverID(of: item),

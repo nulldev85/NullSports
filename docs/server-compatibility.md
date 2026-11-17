@@ -25,7 +25,7 @@ Contract fixtures are synthetic; no tester account or private source is needed.
 - Keep page/catalog lookups lazy: no MediaSources field and no addon resolution
   simply to open a movie/show page. Ask PlaybackInfo when Play opens the list.
 - Use advertised feature versions. Send Fresh when versions are supported;
-  plain Jellyfin/Emby/Plex keep their normal requests.
+  plain Jellyfin/Emby keep their normal requests.
 - Read `aiostreams.id`, name, description and bingeGroup, and preserve the
   server's authoritative order for documented version lists. BingeGroup is
   retained as metadata; automatic matching of the next episode's release group

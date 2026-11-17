@@ -667,27 +667,20 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertEqual(http.resolvedURL("/base/api/v2/stream/one")?.path, "/base/api/v2/stream/one")
     }
 
-    func testSeerrMediaServerAndPlexSignInsUseTheConfiguredSeerrSession() async throws {
+    func testSeerrMediaServerSignInsUseTheConfiguredSeerrSession() async throws {
         let session = session(); defer { session.invalidateAndCancel() }
-        for method in [SeerrSignInMethod.jellyfin, .emby, .plex] {
+        for method in [SeerrSignInMethod.jellyfin, .emby] {
             let client = try SeerrClient(address: "https://seerr-contract.test/base", credential: .init(), session: session)
             MediaIntegrationProtocol.install { request in
                 let body = try MediaIntegrationProtocol.body(request)
-                if method == .plex {
-                    XCTAssertEqual(request.url!.path, "/base/api/v1/auth/plex")
-                    XCTAssertEqual(body["authToken"] as? String, "fixture-plex-token")
-                } else {
-                    XCTAssertEqual(request.url!.path, "/base/api/v1/auth/jellyfin")
-                    XCTAssertEqual(body["serverType"] as? Int, method == .emby ? 3 : 2)
-                    XCTAssertEqual(body["username"] as? String, "viewer")
-                    XCTAssertNil(body["hostname"], "The client must not reconfigure Seerr's linked media server")
-                }
+                XCTAssertEqual(request.url!.path, "/base/api/v1/auth/jellyfin")
+                XCTAssertEqual(body["serverType"] as? Int, method == .emby ? 3 : 2)
+                XCTAssertEqual(body["username"] as? String, "viewer")
+                XCTAssertNil(body["hostname"], "The client must not reconfigure Seerr's linked media server")
                 return .init(status: 200, json: #"{"id":7,"permissions":32}"#,
                     headers: ["Set-Cookie": "connect.sid=fixture-session; Path=/base; HttpOnly"])
             }
-            let signedIn: (SeerrUser, SeerrCredential)
-            if method == .plex { signedIn = try await client.signInPlex(token: "fixture-plex-token") }
-            else { signedIn = try await client.signInMediaServer(username: "viewer", password: "fixture", emby: method == .emby) }
+            let signedIn = try await client.signInMediaServer(username: "viewer", password: "fixture", emby: method == .emby)
             XCTAssertEqual(signedIn.0.id, 7)
             XCTAssertEqual(signedIn.1.cookie, "fixture-session")
         }

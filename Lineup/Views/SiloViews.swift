@@ -179,7 +179,7 @@ struct SiloSignInPanel: View {
         defer { busy = false }
         do {
             let client = try SiloClient(address: address, credential: .init(accessToken: useKey ? key.trimmingCharacters(in: .whitespacesAndNewlines) : ""),
-                profileID: nil, deviceID: media.plexClientID)
+                profileID: nil, deviceID: media.serverDeviceID)
             _ = try await client.publicInfo()
             let user: SiloAccount
             if useKey { user = try await client.account() }

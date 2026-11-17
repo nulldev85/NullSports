@@ -25,22 +25,6 @@ struct MediaServerLogo: View {
                 .fill(Color(red: 0x52 / 255, green: 0xB5 / 255, blue: 0x4B / 255), style: FillStyle(eoFill: true))
                 .aspectRatio(1, contentMode: .fit)
                 .accessibilityLabel(brand.name)
-        case .plex:
-            // Plex's own app mark: its chevron, gold on black.
-            GeometryReader { proxy in
-                let side = min(proxy.size.width, proxy.size.height)
-                RoundedRectangle(cornerRadius: side * 0.22, style: .continuous)
-                    .fill(Color(red: 0x1F / 255, green: 0x1F / 255, blue: 0x1F / 255))
-                    .overlay {
-                        PlexChevron()
-                            .fill(Color(red: 0xE5 / 255, green: 0xA0 / 255, blue: 0x0D / 255))
-                            .padding(side * 0.2)
-                    }
-                    .frame(width: side, height: side)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .aspectRatio(1, contentMode: .fit)
-            .accessibilityLabel(brand.name)
         }
     }
 }
@@ -57,7 +41,7 @@ struct MediaServerLogoRow: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Jellyfin, Emby, Plex or Silo")
+        .accessibilityLabel("Jellyfin, Emby or Silo")
     }
 }
 
@@ -66,7 +50,6 @@ extension MediaServerBrand {
         switch self {
         case .jellyfin: Color(red: 0.67, green: 0.36, blue: 0.76)
         case .emby: Color(red: 0.32, green: 0.71, blue: 0.29)
-        case .plex: Color(red: 0.90, green: 0.63, blue: 0.05)
         case .silo: Color(red: 0.09, green: 0.31, blue: 1.0)
         }
     }
@@ -125,29 +108,6 @@ private struct EmbyMark: Shape {
     }
 }
 
-/// Plex's chevron, as the letter x of its wordmark draws it (Simple Icons,
-/// icons/plex.svg, CC0), centred in whatever square it is given.
-private struct PlexChevron: Shape {
-    func path(in rect: CGRect) -> Path {
-        // The chevron's own box in the wordmark: x 16.752...21.39, y 8.623...15.29.
-        let width: CGFloat = 4.638, height: CGFloat = 6.667
-        let scale = min(rect.width / width, rect.height / height)
-        let origin = CGPoint(x: rect.midX - width * scale / 2, y: rect.midY - height * scale / 2)
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: origin.x + (x - 16.752) * scale, y: origin.y + (y - 8.623) * scale)
-        }
-        var path = Path()
-        path.move(to: p(19.142, 15.29))
-        path.addLine(to: p(16.752, 15.29))
-        path.addLine(to: p(18.999, 11.958))
-        path.addLine(to: p(16.752, 8.623))
-        path.addLine(to: p(19.142, 8.623))
-        path.addLine(to: p(21.39, 11.958))
-        path.closeSubpath()
-        return path
-    }
-}
-
 /// Jellyfin's mark: a rounded triangle with a smaller one inside it.
 ///
 /// Drawn from the path in Jellyfin's own artwork (jellyfin-ux,
@@ -187,19 +147,13 @@ private struct JellyfinMark: Shape {
 }
 
 /// A server's mark as a Settings tile: on a dark rounded square, the way an
-/// app's icon sits in a list. Plex's mark is a square of its own already.
+/// app's icon sits in a list.
 struct MediaServerLogoTile: View {
     let brand: MediaServerBrand
     var size: CGFloat = 30
 
     var body: some View {
-        Group {
-            if case .plex = brand {
-                MediaServerLogo(brand: brand)
-            } else {
-                MediaServerLogo(brand: brand).padding(size * 0.17)
-            }
-        }
+        MediaServerLogo(brand: brand).padding(size * 0.17)
         .frame(width: size, height: size)
         .background(LineupPanelStyle.listLogoTile,
                     in: RoundedRectangle(cornerRadius: size * 0.26, style: .continuous))
