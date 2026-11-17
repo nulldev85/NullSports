@@ -76,9 +76,12 @@ struct MobileGamePreview: View {
 
     private var header: some View {
         VStack(spacing: 18) {
-            Text(competitionName)
-                .font(.inter(14, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
-                .lineLimit(1).frame(maxWidth: .infinity)
+            // The league's own mark, or a soccer competition's, where its
+            // name used to be.
+            SportsMark(league: current.isNFLRedZone ? .nfl : current.league,
+                       competition: current.league == .soccer ? current.competition : nil, size: 46)
+                .frame(maxWidth: .infinity)
+                .accessibilityLabel(competitionName)
             if current.isEvent {
                 VStack(spacing: 10) {
                     Text(current.matchupLine).font(.inter(26, .heavy)).multilineTextAlignment(.center)
