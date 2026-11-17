@@ -1400,6 +1400,10 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// Where a stream that no media server serves plays from: the IPTV
     /// provider's own address for a film or an episode.
     var directURL: URL? = nil
+    /// A media server's own file played straight from it -- Plex's -- which
+    /// has a direct address too but is that server's, not an IPTV
+    /// provider's.
+    var isServerFile = false
     var playSessionID: String? = nil
     /// Native Silo chooses this exact version before returning a signed plan.
     var siloFileID: String? = nil
@@ -1511,7 +1515,7 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     /// server that names none had its streams split by the first line of
     /// their names -- by quality.
     var group: String {
-        if directURL != nil && siloLease == nil { return Self.vodGroup(serverName) }
+        if isVOD { return Self.vodGroup(serverName) }
         return serverName ?? provider
     }
 
@@ -1522,7 +1526,7 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     }
 
     /// From an IPTV provider: listed first.
-    var isVOD: Bool { directURL != nil && siloLease == nil }
+    var isVOD: Bool { directURL != nil && siloLease == nil && !isServerFile }
 
     /// Found by an add-on server -- AIOStreams and the like -- rather than
     /// held by a media server: listed after the media servers.

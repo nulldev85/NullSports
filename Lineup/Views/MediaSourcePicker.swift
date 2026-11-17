@@ -326,28 +326,45 @@ struct MediaSourcePicker: View {
                         switch lookup {
                         case .server(let server):
                             return (index, .success(try await library.playbackSources(for: title, on: server)))
-                        case .provider(let id, _):
-                            return (index, .success(try await library.providerSources(for: title, provider: id)))
+                        case .provider(let id, let name):
+                            // Each copy carries the provider that was asked,
+                            // so it is listed and counted under that
+                            // provider's tab and no other.
+                            let streams = try await library.providerSources(for: title, provider: id)
+                            return (index, .success(streams.map { stream in
+                                var stream = stream
+                                stream.serverID = id
+                                stream.serverName = name
+                                return stream
+                            }))
                         }
                     } catch { return (index, .failure(error)) }
                 }
             }
             for await (index, answer) in group {
-                guard currentRun == run else { continue }
+                guard currentRun == run, !Task.isCancelled else { continue }
                 pendingServers -= 1
+                // The tab is found by the place it is for, not by position:
+                // only this run's own tabs are ever written.
+                let tab = serverStatus.firstIndex { $0.id == lookups[index].id }
                 switch answer {
                 case .success(let streams):
                     found[index] = streams
-                    serverStatus[index].phase = .found(streams.count)
+                    if let tab { serverStatus[tab].phase = .found(streams.count) }
                 // The title's own place failing is the error for the screen.
                 // Any server's outcome is said in its tab at the top.
                 case .failure(let problem):
                     found[index] = found[index] ?? []
                     if index == ownIndex { failure = problem }
+                    guard let tab else { break }
                     if let miss = problem as? MediaLibrary.StreamLookupError {
-                        serverStatus[index].phase = .notOnServer(tried: miss.tried)
-                    } else if !MediaLibrary.isCancellation(problem) {
-                        serverStatus[index].phase = .failed(problem.localizedDescription)
+                        serverStatus[tab].phase = .notOnServer(tried: miss.tried)
+                    } else if MediaLibrary.isCancellation(problem) {
+                        // Stopped while the list was still open: said, never
+                        // left spinning.
+                        serverStatus[tab].phase = .failed("It stopped before answering. Open the title again to retry.")
+                    } else {
+                        serverStatus[tab].phase = .failed(problem.localizedDescription)
                     }
                 }
                 // Each release once, though two servers offer it.
@@ -370,6 +387,10 @@ struct MediaSourcePicker: View {
         // Nothing to play: the list says so, and the viewer chooses from here.
         autoPicks = false
         guard !Task.isCancelled, currentRun == run else { return }
+        // Every place has answered by now; a tab still waiting never heard.
+        for tab in serverStatus.indices where serverStatus[tab].isWaiting {
+            serverStatus[tab].phase = .failed("It stopped before answering. Open the title again to retry.")
+        }
         if sources.isEmpty, let failure { error = failure.localizedDescription }
         pendingServers = 0
         loading = false

@@ -512,7 +512,7 @@ struct MediaStreamRow: View {
     /// Resolution, large, with the dynamic range under it.
     private var tile: some View {
         VStack(spacing: Style.tileGap) {
-            Text(source.quality ?? (source.directURL != nil ? "VOD" : "SD"))
+            Text(source.quality ?? (source.isVOD ? "VOD" : "SD"))
                 .font(.interDigits(Style.tileSize, .heavy))
                 .lineLimit(1).minimumScaleFactor(0.7)
             if let range = dynamicRange {

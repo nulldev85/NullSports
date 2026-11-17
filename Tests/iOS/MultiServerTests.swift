@@ -201,6 +201,14 @@ final class MultiServerTests: XCTestCase {
         XCTAssertEqual(vod.group, "VOD - null", "A provider's copies are grouped under its own name")
         vod.serverName = nil
         XCTAssertEqual(vod.group, "VOD")
+
+        // A Plex file plays from its own address too, but it is the server's.
+        var plex = try decoder.decode(MediaPlaybackSource.self, from: Data(#"{"Id":"/library/parts/1","Name":"4K"}"#.utf8))
+        plex.serverName = "Den Plex"
+        plex.directURL = URL(string: "http://plex.example:32400/library/parts/1?X-Plex-Token=t")
+        plex.isServerFile = true
+        XCTAssertFalse(plex.isVOD)
+        XCTAssertEqual(plex.group, "Den Plex")
     }
 
     /// The IPTV providers' copies come first, then the media servers', then

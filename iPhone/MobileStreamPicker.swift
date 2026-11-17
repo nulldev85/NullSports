@@ -228,7 +228,7 @@ private struct MobileStreamResultRow: View {
         Text(source.isVOD ? source.group : source.releaseName)
             .font(.inter(16, .semibold)).foregroundStyle(LineupStyle.text)
             .lineLimit(3).fixedSize(horizontal: false, vertical: true)
-        if source.directURL != nil {
+        if source.isVOD {
             Text(source.releaseName).font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet).lineLimit(2)
         }
         if !detail.isEmpty {
