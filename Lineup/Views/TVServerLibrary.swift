@@ -31,37 +31,59 @@ struct TVServerLibrarySwitcher: View {
     }
 }
 
-/// A chip in one of the Library's rows of choices: filled when chosen, in
-/// its server's logo colours when it belongs to one, white otherwise.
+/// A chip in one of the Library's rows of choices, drawn as the Sports
+/// cards are: the app's dark card, and when chosen its server's colours laid
+/// faintly across it -- brighter under the remote -- with a hairline edge.
+/// Lineup's own chip takes a faint white in place of a server's colours.
 struct TVServerLibraryChip: View {
     let title: String
     var symbol: String? = nil
     /// A server's logo, ahead of its name.
     var logo: MediaServerBrand? = nil
     var detail: String? = nil
-    /// Whose colours it is filled with when chosen.
+    /// Whose colours it takes when chosen.
     var brand: MediaServerBrand? = nil
     let chosen: Bool
     let action: () -> Void
 
     var body: some View {
         TVSelectable(scale: LineupStyle.controlLift, fillRadius: 30, drawsFocusChrome: false, action: action) {
-            HStack(spacing: 10) {
-                if let logo { MediaServerLogo(brand: logo).frame(width: 30, height: 30) }
-                else if let symbol { Image(systemName: symbol).font(.system(size: 22, weight: .bold)) }
-                Text(title).font(.inter(24, chosen ? .bold : .semibold)).lineLimit(1)
-                if let detail { Text(detail).font(.inter(19, .semibold)).opacity(0.6) }
-            }
-            .foregroundStyle(chosen ? (brand == nil ? Color.black : Color.white) : LineupStyle.text)
-            .padding(.horizontal, 26).frame(height: 60)
-            .background {
-                if chosen, let brand {
-                    Capsule().fill(brand.libraryGradient)
-                } else {
-                    Capsule().fill(chosen ? Color.white : LineupStyle.surface)
-                }
+            TVServerLibraryChipFace(title: title, symbol: symbol, logo: logo, detail: detail,
+                                    brand: brand, chosen: chosen)
+        }
+    }
+}
+
+private struct TVServerLibraryChipFace: View {
+    @Environment(\.lineupTVSelectableFocused) private var focused
+    let title: String
+    let symbol: String?
+    let logo: MediaServerBrand?
+    let detail: String?
+    let brand: MediaServerBrand?
+    let chosen: Bool
+
+    private var tints: [Color] { brand?.cardTints ?? [.white, .white] }
+
+    var body: some View {
+        let strength = brand == nil ? (focused ? 0.2 : 0.13) : (focused ? 0.34 : 0.22)
+        HStack(spacing: 10) {
+            if let logo { MediaServerLogo(brand: logo).frame(width: 30, height: 30) }
+            else if let symbol { Image(systemName: symbol).font(.system(size: 22, weight: .bold)) }
+            Text(title).font(.inter(24, chosen ? .bold : .semibold)).lineLimit(1)
+            if let detail { Text(detail).font(.inter(19, .semibold)).opacity(0.6) }
+        }
+        .foregroundStyle(chosen || focused ? LineupStyle.text.opacity(0.92) : LineupPanelStyle.quiet)
+        .padding(.horizontal, 26).frame(height: 60)
+        .background {
+            if chosen {
+                Capsule().fill(LinearGradient(colors: tints.map { $0.opacity(strength) },
+                                              startPoint: .leading, endPoint: .trailing))
             }
         }
+        .background(focused && !chosen ? LineupPanelStyle.well : LineupPanelStyle.fill, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
+        .animation(.easeOut(duration: 0.12), value: focused)
     }
 }
 
@@ -116,10 +138,7 @@ private struct TVServerLibraryContent: View {
             .padding(.top, 10).padding(.bottom, 80)
         }
         .scrollClipDisabled()
-        .tint(brand.libraryAccent)
-        .background(alignment: .top) {
-            brand.libraryWash(0.26).frame(height: 620).ignoresSafeArea()
-        }
+        .tint(LineupStyle.text)
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .navigationDestination(item: $seeing) { row in TVServerLibraryRowScreen(model: model, row: row) }
         .tvChoices(model.profile.name, symbol: "rectangle.stack", isPresented: $choosingLibrary) {
@@ -189,12 +208,17 @@ private struct TVServerLibraryContent: View {
                             TVSelectable(scale: LineupStyle.cardLift, fillRadius: 16, action: { seeing = row }) {
                                 VStack(spacing: 12) {
                                     Image(systemName: "chevron.right.circle.fill").font(.system(size: 54))
-                                        .foregroundStyle(brand.libraryAccent)
+                                        .foregroundStyle(LineupPanelStyle.quiet)
                                     Text("See All").font(.inter(24, .semibold))
                                 }
                                 .foregroundStyle(LineupStyle.text)
                                 .frame(width: 240, height: 360)
-                                .background(LineupStyle.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .background(LinearGradient(colors: brand.cardTints.map { $0.opacity(0.14) },
+                                                           startPoint: .leading, endPoint: .trailing),
+                                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .background(LineupPanelStyle.fill, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
                             }
                         }
                     } else {
@@ -384,13 +408,7 @@ private struct TVServerLibraryRowScreen: View {
             .padding(.horizontal, 80).padding(.vertical, 40)
         }
         .scrollClipDisabled()
-        .background {
-            ZStack(alignment: .top) {
-                LineupStyle.background
-                model.profile.brand.libraryWash(0.22).frame(height: 520)
-            }
-            .ignoresSafeArea()
-        }
+        .background(LineupStyle.background.ignoresSafeArea())
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
         .task {
             guard items == nil else { return }

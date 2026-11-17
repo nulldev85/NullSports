@@ -61,6 +61,21 @@ extension MediaServerBrand {
     /// accents sit on it, rather than at the full strength of a logo.
     var libraryColors: [Color] { logoRGB.map { Self.toned($0, lift: 0) } }
 
+    /// The logo's colours as a card wears them, the way the Sports cards
+    /// wear a team's: the colour itself, a dark one lifted so it reads, laid
+    /// faintly over the card rather than filling it.
+    var cardTints: [Color] {
+        logoRGB.map { colour in
+            var (red, green, blue) = colour
+            let luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722
+            if luminance < 0.45 {
+                let mix = (0.45 - luminance) / max(0.01, 1 - luminance)
+                red += (1 - red) * mix; green += (1 - green) * mix; blue += (1 - blue) * mix
+            }
+            return Color(red: red, green: green, blue: blue)
+        }
+    }
+
     /// The Library's one colour, for what is chosen: its logo's first.
     var libraryTint: Color { libraryColors[0] }
 
