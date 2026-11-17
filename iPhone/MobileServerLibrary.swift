@@ -44,9 +44,10 @@ private struct MobileServerLibraryContent: View {
         }
     }
 
-    private let columns = [GridItem(.flexible(), spacing: 12, alignment: .top),
-                           GridItem(.flexible(), spacing: 12, alignment: .top),
-                           GridItem(.flexible(), spacing: 12, alignment: .top)]
+    /// Three across on a phone held upright, and as many more as fit on a
+    /// wide screen -- the unfolded Duo, a phone on its side -- rather than
+    /// three posters stretched across it.
+    private let columns = MobileServerLibraryGrid.columns
 
     var body: some View {
         ScrollView {
@@ -387,7 +388,7 @@ struct MobileServerLibraryRowScreen: View {
     var body: some View {
         ScrollView {
             if let items {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 3),
+                LazyVGrid(columns: MobileServerLibraryGrid.columns,
                           spacing: 22) {
                     ForEach(items, id: \.libraryKey) { item in
                         Group {
@@ -421,4 +422,10 @@ struct MobileServerLibraryRowScreen: View {
             catch { failed = error.localizedDescription }
         }
     }
+}
+
+/// The server Library's grid: posters about as wide as a phone's three
+/// across, as many as the screen holds.
+enum MobileServerLibraryGrid {
+    static let columns = [GridItem(.adaptive(minimum: 104, maximum: 168), spacing: 12, alignment: .top)]
 }
