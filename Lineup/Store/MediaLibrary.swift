@@ -4431,10 +4431,15 @@ final class MediaLibrary {
     /// provider's own title came from, or every provider shown.
     func streamProviders(for item: MediaItem) -> [(id: UUID, name: String)] {
         guard item.type == "Movie" || item.type == "Episode" else { return [] }
-        if ProviderItem(id: item.id) != nil {
-            return providerVOD.profile(item.serverID).map { [($0.id, $0.name)] } ?? []
+        // A provider's own title is asked of that provider first, then of
+        // every other provider shown, each for its own copy: a film from
+        // Blue's list can be on Meteor's too.
+        var providers = providerVOD.shown
+        if ProviderItem(id: item.id) != nil, let own = providerVOD.profile(item.serverID) {
+            providers.removeAll { $0.id == own.id }
+            providers.insert(own, at: 0)
         }
-        return providerVOD.shown.map { ($0.id, $0.name) }
+        return providers.map { ($0.id, $0.name) }
     }
 
     /// One provider's streams for a title.
@@ -4443,8 +4448,9 @@ final class MediaLibrary {
             throw StreamLookupError.notOnServer(tried: "That provider isn't signed in")
         }
         let (catalog, index) = try await providerVOD.catalog(id)
-        if let place = ProviderItem(id: item.id) {
-            guard item.serverID == id else { return [] }
+        // Its own provider plays it as listed; any other looks for its copy
+        // by name, year and TMDB id, as for a server's title.
+        if let place = ProviderItem(id: item.id), item.serverID == id {
             return try await providerSources(for: place, item: item, catalog: catalog, index: index, provider: provider)
         }
         return try await providerSources(lookingFor: item, catalog: catalog, index: index, provider: provider)

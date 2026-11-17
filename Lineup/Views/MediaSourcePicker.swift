@@ -161,6 +161,8 @@ struct MediaSourcePicker: View {
     @State private var providerFilter: String?
     /// Servers still being asked. What the others found is listed meanwhile.
     @State private var pendingServers = 0
+    /// The stream search running now; see `loadSources`.
+    @State private var currentRun: UUID?
     /// How each server's search for this title went, said at the top of the
     /// list so a server that added nothing says why.
     @State private var serverStatus: [StreamServerStatus] = []
@@ -301,10 +303,18 @@ struct MediaSourcePicker: View {
         lookups.insert(contentsOf: providers.map { StreamLookup.provider(id: $0.id, name: $0.name) }, at: 0)
         if !providers.isEmpty, !title.isProviderTitle, lookups.count > providers.count { ownIndex = providers.count }
         pendingServers = lookups.count
-        let providerWait = library.providerVOD.waitNote
+        // This search, and no other: one started again over it -- the title
+        // changing as its details arrive -- must not have its results written
+        // over by the one it replaced.
+        let run = UUID()
+        currentRun = run
         serverStatus = lookups.map { lookup -> StreamServerStatus in
             var phase = StreamServerStatus.Phase.looking
-            if case .provider = lookup, let providerWait { phase = .preparing(providerWait) }
+            // Each provider says what it is waiting on: a list being
+            // downloaded is not a search that has stalled.
+            if case .provider(let id, _) = lookup, let wait = library.providerVOD.waitNote(for: id) {
+                phase = .preparing(wait)
+            }
             return StreamServerStatus(id: lookup.id, name: lookup.name, brand: lookup.brand, phase: phase)
         }
         var found: [Int: [MediaPlaybackSource]] = [:]
@@ -323,6 +333,7 @@ struct MediaSourcePicker: View {
                 }
             }
             for await (index, answer) in group {
+                guard currentRun == run else { continue }
                 pendingServers -= 1
                 switch answer {
                 case .success(let streams):
@@ -358,7 +369,7 @@ struct MediaSourcePicker: View {
         }
         // Nothing to play: the list says so, and the viewer chooses from here.
         autoPicks = false
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, currentRun == run else { return }
         if sources.isEmpty, let failure { error = failure.localizedDescription }
         pendingServers = 0
         loading = false

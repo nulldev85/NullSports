@@ -183,7 +183,9 @@ final class ProviderVOD {
         let saved = defaults.data(forKey: "NullSports.profiles")
             .flatMap { try? JSONDecoder().decode([XtreamProfile].self, from: $0) } ?? []
         let off = Set((defaults.stringArray(forKey: "Lineup.disabledIPTVProviders.v1") ?? []).compactMap(UUID.init(uuidString:)))
-        var enabled = saved.filter { !$0.isPlaylist && !off.contains($0.id) }
+        // Each provider once, should the saved list hold one twice.
+        var seen: Set<UUID> = []
+        var enabled = saved.filter { !$0.isPlaylist && !off.contains($0.id) && seen.insert($0.id).inserted }
         #if os(tvOS)
         // The television plays one provider at a time.
         let active = SportsLibrary.storedActiveProfile(in: defaults)
@@ -306,7 +308,14 @@ final class ProviderVOD {
     /// once every list is in memory.
     var waitNote: String? {
         guard let waiting = shown.first(where: { loaded[$0.id] == nil }) else { return nil }
-        return Self.hasCache(profileID: waiting.id) ? "Reading its list…" : "Downloading its list…"
+        return waitNote(for: waiting.id)
+    }
+
+    /// What looking in one provider waits for first: its list read from the
+    /// device, or downloaded -- a big list can take a minute -- or nothing.
+    func waitNote(for id: UUID) -> String? {
+        guard profile(id) != nil, loaded[id] == nil else { return nil }
+        return Self.hasCache(profileID: id) ? "Reading its list…" : "Downloading its list…"
     }
 
     /// Start reading the shown providers' catalogs without waiting for them,
