@@ -14,7 +14,15 @@ struct MobileMultiviewSession: Identifiable {
 /// change of layout: moving a picture moves its frame, not its stream.
 @MainActor
 final class MobileMultiviewPlayers: ObservableObject {
-    let tiles = [MobilePlaybackController(), MobilePlaybackController()]
+    let tiles: [MobilePlaybackController]
+
+    init() {
+        let tiles = [MobilePlaybackController(), MobilePlaybackController()]
+        // Two pictures at once is the point here: neither stops the other.
+        let together = UUID()
+        for tile in tiles { tile.playsAlongside = together }
+        self.tiles = tiles
+    }
 }
 
 /// How the two pictures share the screen.

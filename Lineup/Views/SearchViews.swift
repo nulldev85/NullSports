@@ -56,6 +56,7 @@ struct AppSearchView: View {
                     .padding(.bottom, Metrics.bottomInset)
             }
             .background(LineupStyle.background.ignoresSafeArea())
+            .tvBackToTabs()
             .foregroundStyle(LineupStyle.text)
             // As the Library registers them, so a page opened from here can
             // open the pages under it.

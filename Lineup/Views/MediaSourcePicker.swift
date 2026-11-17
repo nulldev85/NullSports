@@ -30,7 +30,7 @@ enum StreamLookup {
     var name: String {
         switch self {
         case .server(let server): server.name
-        case .provider: "VOD"
+        case .provider(_, let name): MediaPlaybackSource.vodGroup(name)
         }
     }
 }
@@ -161,6 +161,8 @@ struct MediaSourcePicker: View {
     @State private var providerFilter: String?
     /// Servers still being asked. What the others found is listed meanwhile.
     @State private var pendingServers = 0
+    /// The stream search running now; see `loadSources`.
+    @State private var currentRun: UUID?
     /// How each server's search for this title went, said at the top of the
     /// list so a server that added nothing says why.
     @State private var serverStatus: [StreamServerStatus] = []
@@ -295,15 +297,24 @@ struct MediaSourcePicker: View {
         // the provider's own titles -- failing is the screen's error.
         var lookups = library.streamServers(for: title).map { StreamLookup.server($0) }
         var ownIndex = 0
-        if let provider = library.streamProvider(for: title) {
-            lookups.insert(.provider(id: provider.id, name: provider.name), at: 0)
-            if !title.isProviderTitle, lookups.count > 1 { ownIndex = 1 }
-        }
+        // Each IPTV provider asked on its own, ahead of the servers, and listed
+        // under its own name.
+        let providers = library.streamProviders(for: title)
+        lookups.insert(contentsOf: providers.map { StreamLookup.provider(id: $0.id, name: $0.name) }, at: 0)
+        if !providers.isEmpty, !title.isProviderTitle, lookups.count > providers.count { ownIndex = providers.count }
         pendingServers = lookups.count
-        let providerWait = library.providerVOD.waitNote
+        // This search, and no other: one started again over it -- the title
+        // changing as its details arrive -- must not have its results written
+        // over by the one it replaced.
+        let run = UUID()
+        currentRun = run
         serverStatus = lookups.map { lookup -> StreamServerStatus in
             var phase = StreamServerStatus.Phase.looking
-            if case .provider = lookup, let providerWait { phase = .preparing(providerWait) }
+            // Each provider says what it is waiting on: a list being
+            // downloaded is not a search that has stalled.
+            if case .provider(let id, _) = lookup, let wait = library.providerVOD.waitNote(for: id) {
+                phase = .preparing(wait)
+            }
             return StreamServerStatus(id: lookup.id, name: lookup.name, brand: lookup.brand, phase: phase)
         }
         var found: [Int: [MediaPlaybackSource]] = [:]
@@ -315,27 +326,45 @@ struct MediaSourcePicker: View {
                         switch lookup {
                         case .server(let server):
                             return (index, .success(try await library.playbackSources(for: title, on: server)))
-                        case .provider:
-                            return (index, .success(try await library.providerSources(for: title)))
+                        case .provider(let id, let name):
+                            // Each copy carries the provider that was asked,
+                            // so it is listed and counted under that
+                            // provider's tab and no other.
+                            let streams = try await library.providerSources(for: title, provider: id)
+                            return (index, .success(streams.map { stream in
+                                var stream = stream
+                                stream.serverID = id
+                                stream.serverName = name
+                                return stream
+                            }))
                         }
                     } catch { return (index, .failure(error)) }
                 }
             }
             for await (index, answer) in group {
+                guard currentRun == run, !Task.isCancelled else { continue }
                 pendingServers -= 1
+                // The tab is found by the place it is for, not by position:
+                // only this run's own tabs are ever written.
+                let tab = serverStatus.firstIndex { $0.id == lookups[index].id }
                 switch answer {
                 case .success(let streams):
                     found[index] = streams
-                    serverStatus[index].phase = .found(streams.count)
+                    if let tab { serverStatus[tab].phase = .found(streams.count) }
                 // The title's own place failing is the error for the screen.
                 // Any server's outcome is said in its tab at the top.
                 case .failure(let problem):
                     found[index] = found[index] ?? []
                     if index == ownIndex { failure = problem }
+                    guard let tab else { break }
                     if let miss = problem as? MediaLibrary.StreamLookupError {
-                        serverStatus[index].phase = .notOnServer(tried: miss.tried)
-                    } else if !MediaLibrary.isCancellation(problem) {
-                        serverStatus[index].phase = .failed(problem.localizedDescription)
+                        serverStatus[tab].phase = .notOnServer(tried: miss.tried)
+                    } else if MediaLibrary.isCancellation(problem) {
+                        // Stopped while the list was still open: said, never
+                        // left spinning.
+                        serverStatus[tab].phase = .failed("It stopped before answering. Open the title again to retry.")
+                    } else {
+                        serverStatus[tab].phase = .failed(problem.localizedDescription)
                     }
                 }
                 // Each release once, though two servers offer it.
@@ -357,7 +386,11 @@ struct MediaSourcePicker: View {
         }
         // Nothing to play: the list says so, and the viewer chooses from here.
         autoPicks = false
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, currentRun == run else { return }
+        // Every place has answered by now; a tab still waiting never heard.
+        for tab in serverStatus.indices where serverStatus[tab].isWaiting {
+            serverStatus[tab].phase = .failed("It stopped before answering. Open the title again to retry.")
+        }
         if sources.isEmpty, let failure { error = failure.localizedDescription }
         pendingServers = 0
         loading = false

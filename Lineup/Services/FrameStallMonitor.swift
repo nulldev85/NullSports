@@ -47,6 +47,10 @@ final class FrameStallMonitor: ObservableObject {
     func start() {
         guard link == nil else { return }
         let link = CADisplayLink(target: Ticker(self), selector: #selector(Ticker.tick(_:)))
+        // A stall is a quarter of a second; twenty looks a second finds one
+        // as surely as sixty, and wakes the main thread a third as often
+        // for the whole time the app is open.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 20, preferred: 20)
         link.add(to: .main, forMode: .common)
         self.link = link
         // A gap that spans the app being in the background is not a stall.

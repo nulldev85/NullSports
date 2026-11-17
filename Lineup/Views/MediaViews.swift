@@ -90,6 +90,7 @@ struct MediaServersView: View {
             Group {
             #if os(tvOS)
             TVMediaServersHome(addingServer: $addingServer, searchingLibrary: $searchingLibrary)
+                .tvBackToTabs()
             #else
             Group {
                 // The built-in rows come from public charts and need no server:
@@ -234,6 +235,24 @@ struct MediaServersView: View {
         for source in jellyfin {
             let title = jellyfin.count == 1 ? "Switch Profile" : "Switch Profile · " + source.name
             servers.append(MobileMenuItem(title, symbol: "person.2") { choosingProfile = source })
+        }
+        // Whose films and shows the Library shows, with more than one Xtream
+        // provider: all of them, or one by the name it was given.
+        let vodProviders = media.providerVODChoices
+        if !vodProviders.isEmpty {
+            let chosen = media.providerVODSelection
+            let choices = [MobileMenuItem("All", symbol: "square.stack.3d.up", id: "vod-all", isSelected: chosen == nil) {
+                Task { await media.selectProviderVOD(nil) }
+            }] + vodProviders.map { provider in
+                MobileMenuItem(provider.name, symbol: "antenna.radiowaves.left.and.right",
+                               id: "vod-" + provider.id.uuidString, isSelected: chosen == provider.id) {
+                    Task { await media.selectProviderVOD(provider.id) }
+                }
+            }
+            let shownName = chosen.flatMap { id in vodProviders.first { $0.id == id }?.name } ?? "All"
+            servers.insert(MobileMenuItem("VOD · " + shownName, symbol: "film.stack",
+                                          id: "vod-provider",
+                                          children: [MobileMenuSection(id: "vod-providers", items: choices)]), at: 0)
         }
         if !media.continueWatching.isEmpty || !media.watchHistory.isEmpty {
             servers.append(MobileMenuItem("Clear Local Tracking", symbol: "trash", isDestructive: true) {
@@ -535,7 +554,7 @@ struct LineupCardAction: View {
                 .font(.inter(.subheadline, .semibold))
                 .frame(maxWidth: .infinity, minHeight: 66)
                 .background(LineupPanelStyle.well, in: Capsule())
-                .lineupFocusLayer(focused, in: Capsule())
+                .lineupFocusLayer(focused, in: Capsule(), lifts: false)
                 .scaleEffect(focused ? LineupStyle.controlLift : 1)
             #else
             // The reference app's way with a labelled control: the icon on
@@ -738,10 +757,12 @@ struct MediaCatalogsScreen: View {
         browseRows.snapshot(in: media, active: tabIsActive && isVisible && scenePhase == .active)
     }
     private var continueWatching: [LocalMediaPlayback] { browseSnapshot.continuing }
+    private var upNext: [LocalMediaPlayback] { browseSnapshot.upNext }
     private var favoriteTitles: [MediaItem] { browseSnapshot.titles }
     private var favoriteEpisodes: [MediaItem] { browseSnapshot.episodes }
     #else
-    private var continueWatching: [LocalMediaPlayback] { Array(media.continueWatching.prefix(20)) }
+    private var continueWatching: [LocalMediaPlayback] { Array(media.inProgress.prefix(20)) }
+    private var upNext: [LocalMediaPlayback] { Array(media.upNext.prefix(20)) }
     private var favoriteTitles: [MediaItem] { media.favoriteMedia.filter { $0.type != "Episode" } }
     private var favoriteEpisodes: [MediaItem] { media.favoriteMedia.filter { $0.type == "Episode" } }
     #endif
@@ -800,7 +821,7 @@ struct MediaCatalogsScreen: View {
                     }
                 }
             } else {
-                if shownShelves.isEmpty && continueWatching.isEmpty
+                if shownShelves.isEmpty && continueWatching.isEmpty && upNext.isEmpty
                     && favoriteTitles.isEmpty && favoriteEpisodes.isEmpty && media.heroCatalog == nil {
                     #if os(tvOS)
                     LineupUnavailableView("Choose Your Shelves", systemImage: "rectangle.stack.badge.plus",
@@ -903,6 +924,8 @@ struct MediaCatalogsScreen: View {
     private enum PhoneRow: Identifiable {
         #if !os(tvOS)
         case collections
+        /// A folder for each IPTV provider's films and shows.
+        case providerVOD
         #endif
         case local(id: String, title: String, items: [MediaItem], opensPages: Bool)
         case catalog(MediaCatalog)
@@ -911,6 +934,7 @@ struct MediaCatalogsScreen: View {
             switch self {
             #if !os(tvOS)
             case .collections: LibraryShelfOrder.collections
+            case .providerVOD: MobileLibraryVODRow.rowID
             #endif
             case .local(let id, _, _, _): id
             case .catalog(let catalog): catalog.id
@@ -923,6 +947,7 @@ struct MediaCatalogsScreen: View {
         var rows: [PhoneRow] = []
         #if !os(tvOS)
         if media.showsCollectionsRow { rows.append(.collections) }
+        if !media.providerVODAccounts.isEmpty { rows.append(.providerVOD) }
         #endif
         // Each list once. They are worked out afresh at every mention, and
         // Continue Watching walks the whole watch history to do it: asked
@@ -934,6 +959,13 @@ struct MediaCatalogsScreen: View {
         if !continuing.isEmpty {
             rows.append(.local(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                items: continuing.map(\.item), opensPages: true))
+        }
+        // The next episode of each show being watched, kept apart from what
+        // has been started.
+        let next = upNext
+        if !next.isEmpty {
+            rows.append(.local(id: LibraryShelfOrder.upNext, title: "Up Next",
+                               items: next.map(\.item), opensPages: true))
         }
         rows += media.builtInShelves.map(PhoneRow.catalog)
         if !titles.isEmpty {
@@ -964,6 +996,8 @@ struct MediaCatalogsScreen: View {
             #if !os(tvOS)
             case .collections:
                 MobileLibraryCollectionsRow()
+            case .providerVOD:
+                MobileLibraryVODRow()
             #endif
             case .local(let id, let title, let items, let opensPages):
                 localShelf(id: id, title: title, items: items, opensPages: opensPages)
@@ -1152,6 +1186,11 @@ struct MediaCatalogsScreen: View {
         if !continueWatching.isEmpty {
             shelves.append(TVLibraryShelf(id: LibraryShelfOrder.continueWatching, title: "Continue Watching",
                                           label: nil, items: continueWatching.map(\.item),
+                                          opensPages: true, catalog: nil))
+        }
+        if !upNext.isEmpty {
+            shelves.append(TVLibraryShelf(id: LibraryShelfOrder.upNext, title: "Up Next",
+                                          label: nil, items: upNext.map(\.item),
                                           opensPages: true, catalog: nil))
         }
         shelves += media.builtInShelves.map { catalog in
@@ -1856,6 +1895,7 @@ struct MediaCatalogsScreen: View {
     static func shelfSymbol(_ id: String) -> String {
         switch id {
         case LibraryShelfOrder.continueWatching: "play.circle"
+        case LibraryShelfOrder.upNext: "forward.end"
         case LibraryShelfOrder.favorites: "heart"
         case LibraryShelfOrder.favoriteEpisodes: "heart.text.square"
         case LibraryTrendingRow.movies.id, LibraryTrendingRow.shows.id: "flame"

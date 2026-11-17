@@ -556,14 +556,15 @@ struct LibraryHeroSettingsView: View {
                                       detail: nil, brand: brand,
                                       choices: media.availableCatalogs(on: server).map(rootChoice)))
         }
-        if let name = media.providerVOD.profile?.name {
-            let categories = media.availableProviderShelves
-            groups.append(ChoiceGroup(id: "provider|films", title: "MOVIES · " + name.uppercased(),
-                                      detail: "Film categories from your IPTV provider",
-                                      choices: categories.films.map(rootChoice)))
-            groups.append(ChoiceGroup(id: "provider|shows", title: "SERIES · " + name.uppercased(),
-                                      detail: "Series categories from your IPTV provider",
-                                      choices: categories.shows.map(rootChoice)))
+        let categories = media.availableProviderShelves
+        for profile in media.providerVOD.shown {
+            let name = profile.name.uppercased()
+            groups.append(ChoiceGroup(id: "provider|films|" + profile.id.uuidString, title: "MOVIES · " + name,
+                                      detail: "Film categories from \(profile.name)",
+                                      choices: categories.films.filter { $0.serverID == profile.id }.map(rootChoice)))
+            groups.append(ChoiceGroup(id: "provider|shows|" + profile.id.uuidString, title: "SERIES · " + name,
+                                      detail: "Series categories from \(profile.name)",
+                                      choices: categories.shows.filter { $0.serverID == profile.id }.map(rootChoice)))
         }
         for section in MDBListCatalogSection.allCases {
             let lists = media.availableMDBListCatalogs.filter { $0.section == section }

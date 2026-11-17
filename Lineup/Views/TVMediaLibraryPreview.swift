@@ -11,6 +11,8 @@ import UIKit
 final class TVLibraryBrowseRows: ObservableObject {
     struct Snapshot {
         var continuing: [LocalMediaPlayback] = []
+        /// The next episode of each show being watched, not yet started.
+        var upNext: [LocalMediaPlayback] = []
         var titles: [MediaItem] = []
         var episodes: [MediaItem] = []
         var hasHistory = false
@@ -33,7 +35,9 @@ final class TVLibraryBrowseRows: ObservableObject {
         observation = token
         value = withObservationTracking {
             let favorites = media.favoriteMedia
-            return Snapshot(continuing: Array(media.continueWatching.prefix(20)),
+            let watching = media.continueWatching
+            return Snapshot(continuing: Array(watching.filter { !MediaLibrary.isUpNextOnly($0) }.prefix(20)),
+                upNext: Array(watching.filter(MediaLibrary.isUpNextOnly).prefix(20)),
                 titles: favorites.filter { $0.type != "Episode" }, episodes: favorites.filter { $0.type == "Episode" },
                 hasHistory: media.hasWatchHistory)
         } onChange: { [weak self] in

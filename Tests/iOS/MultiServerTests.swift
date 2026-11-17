@@ -198,7 +198,36 @@ final class MultiServerTests: XCTestCase {
         var vod = try decoder.decode(MediaPlaybackSource.self, from: Data(#"{"Id":"movie-1","Name":"Mutiny"}"#.utf8))
         vod.serverName = "null"
         vod.directURL = URL(string: "http://tv.example:8080/movie/user/pass/1.mkv")
+        XCTAssertEqual(vod.group, "VOD - null", "A provider's copies are grouped under its own name")
+        vod.serverName = nil
         XCTAssertEqual(vod.group, "VOD")
+
+        // A Plex file plays from its own address too, but it is the server's.
+        var plex = try decoder.decode(MediaPlaybackSource.self, from: Data(#"{"Id":"/library/parts/1","Name":"4K"}"#.utf8))
+        plex.serverName = "Den Plex"
+        plex.directURL = URL(string: "http://plex.example:32400/library/parts/1?X-Plex-Token=t")
+        plex.isServerFile = true
+        XCTAssertFalse(plex.isVOD)
+        XCTAssertEqual(plex.group, "Den Plex")
+    }
+
+    /// The IPTV providers' copies come first, then the media servers', then
+    /// what an add-on server found.
+    func testStreamSectionsListVODThenServersThenAddOns() throws {
+        let decoder = JSONDecoder()
+        var addon = try decoder.decode(MediaPlaybackSource.self, from: Data(#"""
+            {"Id":"a","Name":"4K\nMutiny.2026.2160p.WEB-DL","aiostreams":{"addon":"Torrentio","cached":true}}
+            """#.utf8))
+        addon.serverName = "Nullfin"
+        var server = try decoder.decode(MediaPlaybackSource.self, from: Data(#"{"Id":"s","Name":"Mutiny"}"#.utf8))
+        server.serverName = "Home Jellyfin"
+        var blue = try decoder.decode(MediaPlaybackSource.self, from: Data(#"{"Id":"movie-1","Name":"Mutiny"}"#.utf8))
+        blue.serverName = "Blue"
+        blue.directURL = URL(string: "http://blue.example/movie/u/p/1.mkv")
+        var purple = blue
+        purple.serverName = "Purple"
+        let titles = MediaStreamSection.sections(of: [addon, server, purple, blue]).map(\.title)
+        XCTAssertEqual(titles, ["VOD - Purple", "VOD - Blue", "Home Jellyfin", "Nullfin"])
     }
 
     // StreamNZB writes its score in words; AIOStreams' formatter draws stars

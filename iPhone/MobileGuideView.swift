@@ -710,6 +710,11 @@ struct MobileGuideView: View {
                 if let category = chosenFilter?.categoryID, hiddenCategoryIDs.contains(category) { chosenFilter = nil }
                 resetPosition = UUID()
             }
+            // Something else began playing -- a film from the Library, a game
+            // in Sports -- and stopped this channel: put its player away.
+            .onReceive(NotificationCenter.default.publisher(for: MobilePlaybackController.stoppedForAnother)) { note in
+                if (note.object as AnyObject?) === playback { closePlayer() }
+            }
     }
 
     /// The guide's own presentations, on the guide page itself: under the

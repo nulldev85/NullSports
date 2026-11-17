@@ -138,7 +138,7 @@ private struct IntegrationPosterFocus: ViewModifier {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
         content.padding(8)
             .background(LineupPresentationStyle.card, in: shape)
-            .lineupFocusLayer(focused, in: shape)
+            .lineupFocusLayer(focused, in: shape, lifts: false)
             .scaleEffect(focused ? 1.035 : 1)
             .animation(.easeOut(duration: 0.16), value: focused)
     }

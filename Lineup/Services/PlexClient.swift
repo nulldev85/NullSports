@@ -364,6 +364,7 @@ struct PlexClient: MediaServerClient {
                     container: part.container ?? media.container, size: part.size,
                     bitrate: media.bitrate.map { Int64($0) * 1000 }, remux: nil)
                 source.directURL = playbackURL(itemID: key, mediaSourceID: part.key)
+                source.isServerFile = true
                 return source
             }
         }

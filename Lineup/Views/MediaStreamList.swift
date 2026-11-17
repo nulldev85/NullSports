@@ -28,7 +28,17 @@ struct MediaStreamSection: Identifiable {
             if grouped[source.group] == nil { order.append(source.group) }
             grouped[source.group, default: []].append(source)
         }
-        return (order.filter { $0 == "VOD" } + order.filter { $0 != "VOD" }).map { group in
+        // The IPTV providers' copies first, then the media servers', then
+        // what add-on servers found -- each kept in the order it answered.
+        func rank(_ group: String) -> Int {
+            let members = grouped[group] ?? []
+            if members.contains(where: \.isVOD) { return 0 }
+            return members.contains(where: \.isAddonResult) ? 2 : 1
+        }
+        return order.enumerated().sorted { a, b in
+            let (left, right) = (rank(a.element), rank(b.element))
+            return left == right ? a.offset < b.offset : left < right
+        }.map(\.element).map { group in
             MediaStreamSection(title: group, sources: MediaPlaybackSource.ranked(grouped[group] ?? []))
         }
     }
@@ -357,7 +367,7 @@ struct MediaStreamTab: View {
         .background(active ? LineupStyle.highlight : Color.clear, in: Capsule())
         .overlay(Capsule().strokeBorder(active ? Color.clear : LineupStyle.highlight, lineWidth: 1.5))
         .opacity(quiet && !active ? 0.55 : 1)
-        .lineupFocusLayer(focused && !active, in: Capsule())
+        .lineupFocusLayer(focused && !active, in: Capsule(), lifts: false)
         .scaleEffect(focused ? LineupStyle.controlLift : 1)
         .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
     }
@@ -502,7 +512,7 @@ struct MediaStreamRow: View {
     /// Resolution, large, with the dynamic range under it.
     private var tile: some View {
         VStack(spacing: Style.tileGap) {
-            Text(source.quality ?? (source.directURL != nil ? "VOD" : "SD"))
+            Text(source.quality ?? (source.isVOD ? "VOD" : "SD"))
                 .font(.interDigits(Style.tileSize, .heavy))
                 .lineLimit(1).minimumScaleFactor(0.7)
             if let range = dynamicRange {
@@ -538,7 +548,7 @@ struct MediaStreamRow: View {
             parts.append(audio)
         }
         if !parts.isEmpty { return parts.joined(separator: Style.separator) }
-        if source.directURL != nil { return "Your IPTV provider's copy" }
+        if source.isVOD { return source.group }
         return source.containerLabel.map { $0 + " file" } ?? "Stream"
     }
 
