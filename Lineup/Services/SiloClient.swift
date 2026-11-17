@@ -23,7 +23,12 @@ struct SiloPage<T: Decodable & Sendable>: Decodable, Sendable {
 
 private struct SiloLibrary: Decodable, Sendable { let id: String; let name: String; let type: String }
 private struct SiloCollection: Decodable, Sendable { let id: String; let name: String; let item_count: Int?; let poster_url: String? }
-private struct SiloCuratedCollection: Decodable, Sendable { let id: String; let title: String; let item_count: Int?; let poster_url: String? }
+private struct SiloCuratedCollection: Decodable, Sendable {
+    let id: String; let title: String; let item_count: Int?; let poster_url: String?
+    /// Where an imported collection is kept up to date from: "tmdb", "mdblist".
+    let management_source: String?
+    let collection_type: String?
+}
 private struct SiloLibraryCollections: Decodable, Sendable { let collections: [SiloCuratedCollection] }
 struct SiloServerPlayback: Sendable {
     let item: MediaItem
@@ -73,6 +78,15 @@ private struct SiloTitle: Decodable, Sendable {
     let position_seconds: Double?
     let progress_updated_at: String?
     let cast: [Cast]?
+    /// The technical summary of the title's best file, for its card.
+    let overlay_summary: Overlay?
+    struct Overlay: Decodable, Sendable { let resolution: String?; let audio: String?; let release_type: String? }
+    var badges: ServerLibraryBadges? {
+        guard let overlay_summary else { return nil }
+        let badges = ServerLibraryBadges(top: [overlay_summary.resolution, overlay_summary.audio].compactMap { $0 },
+                                         bottom: overlay_summary.release_type)
+        return badges.isEmpty ? nil : badges
+    }
     struct UserState: Decodable, Sendable { let played: Bool?; let is_favorite: Bool? }
     struct WatchState: Decodable, Sendable { let played: Bool?; let position_seconds: Double?; let unplayed_count: Int? }
     struct Cast: Decodable, Sendable { let name: String?; let character: String? }
@@ -498,5 +512,145 @@ actor SiloTransport {
             if case .http(429, let retry) = error { backoffUntil = Date().addingTimeInterval(max(1, retry ?? 30)) }
             throw error
         }
+    }
+}
+
+// MARK: - The library as Silo's own app shows it
+
+/// A row of a Silo library page.
+private struct SiloSection: Decodable, Sendable {
+    let id: String
+    let title: String
+    let items: [SiloTitle]?
+    let collections: [Card]?
+    let total_count: Int?
+    struct Card: Decodable, Sendable {
+        let id: String
+        let source: String
+        let title: String
+        let poster_url: String?
+        let item_count: Int?
+        let library_id: String?
+    }
+}
+private struct SiloSections: Decodable, Sendable { let sections: [SiloSection] }
+private struct SiloFilters: Decodable, Sendable { let genres: [String]? }
+
+extension SiloClient: ServerLibraryBrowsing {
+    /// A library's own id, from the id Lineup gives it.
+    private static func libraryID(_ library: MediaItem) -> String? {
+        library.id.hasPrefix("silo-library:") ? String(library.id.dropFirst("silo-library:".count)) : nil
+    }
+
+    func serverLibraries(userID: String) async throws -> [MediaItem] {
+        try await views(userID: userID)
+    }
+
+    func serverLibraryHome(userID: String, library: MediaItem) async throws -> ServerLibraryHome {
+        guard let id = Self.libraryID(library) else { return ServerLibraryHome() }
+        let answer: SiloSections = try await transport.get(["library", id, "sections"],
+            query: [.init(name: "poster_width", value: "500")])
+        var home = ServerLibraryHome()
+        for section in answer.sections {
+            let titles = section.items ?? []
+            for title in titles { if let badges = title.badges { home.badges[title.content_id] = badges } }
+            let collections = (section.collections ?? []).map { card in
+                ServerLibraryCollection(item: Self.collectionItem(card, http: http, library: id), detail: nil)
+            }
+            let items = titles.map { $0.media(http: http) }
+            guard !items.isEmpty || !collections.isEmpty else { continue }
+            home.rows.append(ServerLibraryRow(id: section.id, title: section.title, items: items,
+                                              collections: collections, source: .section(section.id),
+                                              total: section.total_count))
+        }
+        return home
+    }
+
+    private static func collectionItem(_ card: SiloSection.Card, http: MediaIntegrationHTTP, library: String) -> MediaItem {
+        let id: String
+        if card.source == "user" {
+            id = "silo-collection:" + card.id
+        } else {
+            let home = card.library_id ?? library
+            id = "silo-curated:" + Data(home.utf8).base64EncodedString() + ":" + Data(card.id.utf8).base64EncodedString()
+        }
+        return MediaItem(id: id, name: card.title, type: "BoxSet", overview: nil, productionYear: nil,
+                         primaryImageAspectRatio: 2 / 3, childCount: card.item_count,
+                         posterURL: http.resolvedURL(card.poster_url)?.absoluteString)
+    }
+
+    func serverLibraryRow(userID: String, library: MediaItem, row: ServerLibraryRow,
+                          cursor: String?) async throws -> ServerLibraryPage {
+        guard case .section(let section) = row.source, let id = Self.libraryID(library) else {
+            return cursor == nil ? ServerLibraryPage(items: row.items, total: row.items.count) : ServerLibraryPage()
+        }
+        return try await page([.init(name: "source", value: "section"), .init(name: "scope", value: "library"),
+                               .init(name: "library_id", value: id), .init(name: "section_id", value: section)],
+                              cursor: cursor)
+    }
+
+    func serverLibraryTitles(userID: String, library: MediaItem, browse: ServerLibraryBrowse,
+                             cursor: String?) async throws -> ServerLibraryPage {
+        guard let id = Self.libraryID(library) else { return ServerLibraryPage() }
+        let field: String = switch browse.sort {
+        case .title: "title"
+        case .added: "added_at"
+        case .released: "release_date"
+        case .rating: "rating"
+        case .random: "random"
+        }
+        let sort = browse.sort == .random ? field : (browse.descending ? "-" : "") + field
+        var query: [URLQueryItem] = [.init(name: "library_id", value: id),
+                                     .init(name: "type", value: browse.kind.itemType?.lowercased() ?? "video"),
+                                     .init(name: "sort", value: sort)]
+        if let genre = browse.genre { query.append(.init(name: "genre", value: genre)) }
+        var found = try await page(query, cursor: cursor)
+        if browse.unwatchedOnly { found.items.removeAll { $0.isPlayed } }
+        return found
+    }
+
+    /// One page of the catalog, with each card's badges and where the next
+    /// page starts.
+    private func page(_ query: [URLQueryItem], cursor: String?) async throws -> ServerLibraryPage {
+        var parameters = query + [.init(name: "limit", value: String(ServerLibraryQuery.pageSize)),
+                                  .init(name: "poster_width", value: "500")]
+        if let cursor { parameters.append(.init(name: "cursor", value: cursor)) }
+        let answer: SiloPage<SiloTitle> = try await transport.get(["catalog"], query: parameters)
+        var page = ServerLibraryPage(items: answer.items.map { $0.media(http: http) }, total: answer.total)
+        for title in answer.items { if let badges = title.badges { page.badges[title.content_id] = badges } }
+        if answer.page?.has_more == true, let next = answer.page?.next_cursor, !next.isEmpty, next != cursor {
+            page.next = next
+        }
+        return page
+    }
+
+    func serverLibraryCollections(userID: String, library: MediaItem) async throws -> [ServerLibraryCollection] {
+        guard let id = Self.libraryID(library) else { return [] }
+        let tab: SiloLibraryCollections = try await transport.get(["library", id, "collections"])
+        return tab.collections.map { collection in
+            let item = MediaItem(id: "silo-curated:" + Data(id.utf8).base64EncodedString() + ":"
+                                     + Data(collection.id.utf8).base64EncodedString(),
+                                 name: collection.title, type: "BoxSet", overview: nil, productionYear: nil,
+                                 primaryImageAspectRatio: 2 / 3, childCount: collection.item_count,
+                                 posterURL: http.resolvedURL(collection.poster_url)?.absoluteString)
+            return ServerLibraryCollection(item: item, detail: Self.origin(of: collection))
+        }
+    }
+
+    /// "Tmdb", "Mdblist": where an imported collection comes from, as
+    /// Silo's own app names it; a smart collection says so.
+    private static func origin(of collection: SiloCuratedCollection) -> String? {
+        if let source = collection.management_source?.trimmingCharacters(in: .whitespaces), !source.isEmpty {
+            return source.prefix(1).uppercased() + source.dropFirst().lowercased()
+        }
+        return collection.collection_type == "smart" ? "Smart" : nil
+    }
+
+    func serverLibraryGenres(userID: String, library: MediaItem) async throws -> [String] {
+        guard let id = Self.libraryID(library) else { return [] }
+        let filters: SiloFilters = try await transport.get(["catalog", "filters"], query: [
+            .init(name: "library_id", value: id), .init(name: "type", value: "video"),
+            .init(name: "skip_technical", value: "true")])
+        return filters.genres ?? []
     }
 }

@@ -706,13 +706,20 @@ struct PlexDirectory: Decodable, Sendable {
 
 struct PlexHub: Decodable, Sendable {
     let type: String?
+    /// The row's name and where the rest of it is: a library home's hubs.
+    let title: String?
+    let key: String?
+    let hubIdentifier: String?
     let metadata: [PlexMetadata]
 
-    enum CodingKeys: String, CodingKey { case type, metadata = "Metadata" }
+    enum CodingKeys: String, CodingKey { case type, title, key, hubIdentifier, metadata = "Metadata" }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         type = values.lenientString(.type)
+        title = values.lenientString(.title)
+        key = values.lenientString(.key)
+        hubIdentifier = values.lenientString(.hubIdentifier)
         metadata = (try? values.decodeIfPresent([Lenient<PlexMetadata>].self, forKey: .metadata))?
             .flatMap { $0.compactMap(\.value) } ?? []
     }
@@ -895,5 +902,113 @@ struct PlexMetadata: Decodable, Sendable {
         media = (try? values.decodeIfPresent([Lenient<PlexMedia>].self, forKey: .media))?
             .flatMap { $0.compactMap(\.value) }
         onDeck = try? values.decodeIfPresent(OnDeck.self, forKey: .onDeck)
+    }
+}
+
+// MARK: - The library as Plex's own app shows it
+
+extension PlexClient: ServerLibraryBrowsing {
+    /// Each film and show library, by the key Plex gives it.
+    func serverLibraries(userID: String) async throws -> [MediaItem] {
+        try await videoSections().map { section in
+            MediaItem(id: Self.sectionPrefix + section.key, name: section.title, type: "CollectionFolder",
+                      overview: section.type, productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        }
+    }
+
+    private static func sectionKey(_ library: MediaItem) -> String? {
+        library.id.hasPrefix(sectionPrefix) ? String(library.id.dropFirst(sectionPrefix.count)) : nil
+    }
+
+    /// A hub's "more" address, which carries a query of its own, as a path
+    /// and its query.
+    private static func split(_ key: String) -> (path: String, query: [URLQueryItem])? {
+        guard key.hasPrefix("/"), let parts = URLComponents(string: key) else { return nil }
+        return (parts.path, parts.queryItems ?? [])
+    }
+
+    /// The rows Plex's own app shows on a library's Recommended page.
+    func serverLibraryHome(userID: String, library: MediaItem) async throws -> ServerLibraryHome {
+        guard let key = Self.sectionKey(library) else { return ServerLibraryHome() }
+        let container = try await get("/hubs/sections/\(key)", query: [
+            URLQueryItem(name: "count", value: String(ServerLibraryQuery.rowSize)),
+            URLQueryItem(name: "includeGuids", value: "1")])
+        var rows: [ServerLibraryRow] = []
+        for (index, hub) in container.hubs.enumerated() {
+            let items = hub.metadata.map(Self.mediaItem)
+            guard !items.isEmpty else { continue }
+            let id = hub.hubIdentifier ?? "hub-\(index)"
+            let source: ServerLibraryRow.Source = hub.key.flatMap(Self.split) != nil ? .section(hub.key ?? "") : .fixed
+            if hub.type == "collection" {
+                rows.append(ServerLibraryRow(id: id, title: hub.title ?? "Collections",
+                                             collections: items.map { ServerLibraryCollection(item: $0) }))
+            } else {
+                rows.append(ServerLibraryRow(id: id, title: hub.title ?? "", items: items, source: source))
+            }
+        }
+        return ServerLibraryHome(rows: rows)
+    }
+
+    func serverLibraryRow(userID: String, library: MediaItem, row: ServerLibraryRow,
+                          cursor: String?) async throws -> ServerLibraryPage {
+        guard case .section(let key) = row.source, let address = Self.split(key) else {
+            return cursor == nil ? ServerLibraryPage(items: row.items, total: row.items.count) : ServerLibraryPage()
+        }
+        return try await page(address.path, query: address.query, cursor: cursor)
+    }
+
+    private func page(_ path: String, query: [URLQueryItem], cursor: String?) async throws -> ServerLibraryPage {
+        let offset = ServerLibraryQuery.offset(cursor)
+        let container = try await get(path, query: query + [
+            URLQueryItem(name: "X-Plex-Container-Start", value: String(offset)),
+            URLQueryItem(name: "X-Plex-Container-Size", value: String(ServerLibraryQuery.pageSize)),
+            URLQueryItem(name: "includeGuids", value: "1")])
+        // A hub's address answers either titles or a hub holding them.
+        let found = container.metadata.isEmpty ? container.hubs.flatMap(\.metadata) : container.metadata
+        let items = found.map(Self.mediaItem)
+        return ServerLibraryPage(items: items,
+                                 next: ServerLibraryQuery.next(after: offset, read: items.count, total: container.totalSize),
+                                 total: container.totalSize)
+    }
+
+    func serverLibraryTitles(userID: String, library: MediaItem, browse: ServerLibraryBrowse,
+                             cursor: String?) async throws -> ServerLibraryPage {
+        guard let key = Self.sectionKey(library) else { return ServerLibraryPage() }
+        let direction = browse.descending ? ":desc" : ""
+        let sort: String = switch browse.sort {
+        case .title: "titleSort" + direction
+        case .added: "addedAt" + direction
+        case .released: "originallyAvailableAt" + direction
+        case .rating: "audienceRating" + direction
+        case .random: "random"
+        }
+        var query = [URLQueryItem(name: "sort", value: sort)]
+        switch browse.kind {
+        case .movies: query.append(URLQueryItem(name: "type", value: "1"))
+        case .shows: query.append(URLQueryItem(name: "type", value: "2"))
+        case .all: break
+        }
+        if browse.unwatchedOnly { query.append(URLQueryItem(name: "unwatched", value: "1")) }
+        if let genre = browse.genre {
+            // Plex narrows by a genre's own key, read from the library's list.
+            let genres = try await get("/library/sections/\(key)/genre")
+            guard let match = genres.directories.first(where: { $0.title == genre }) else { return ServerLibraryPage() }
+            query.append(URLQueryItem(name: "genre", value: match.key))
+        }
+        var found = try await page("/library/sections/\(key)/all", query: query, cursor: cursor)
+        if browse.sort == .random { found.next = nil }
+        return found
+    }
+
+    func serverLibraryCollections(userID: String, library: MediaItem) async throws -> [ServerLibraryCollection] {
+        guard let key = Self.sectionKey(library) else { return [] }
+        return try await get("/library/sections/\(key)/collections").metadata.map {
+            ServerLibraryCollection(item: Self.mediaItem($0))
+        }
+    }
+
+    func serverLibraryGenres(userID: String, library: MediaItem) async throws -> [String] {
+        guard let key = Self.sectionKey(library) else { return [] }
+        return try await get("/library/sections/\(key)/genre").directories.compactMap(\.title)
     }
 }

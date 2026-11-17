@@ -685,3 +685,126 @@ enum JellyfinError: LocalizedError {
         }
     }
 }
+
+// MARK: - The library as Jellyfin's and Emby's own apps show it
+
+extension JellyfinClient: ServerLibraryBrowsing {
+    /// The film and show libraries, in the server's order. Collections,
+    /// music, Live TV and playlists have pages of their own elsewhere.
+    func serverLibraries(userID: String) async throws -> [MediaItem] {
+        struct Library: Decodable {
+            let id: String
+            let name: String
+            let collectionType: String?
+            enum CodingKeys: String, CodingKey { case id = "Id", name = "Name", collectionType = "CollectionType" }
+        }
+        struct Libraries: Decodable {
+            let items: [Library]
+            enum CodingKeys: String, CodingKey { case items = "Items" }
+        }
+        let response: Libraries = try await send(try request(path: "users/\(userID)/views"))
+        let shown: Set<String> = ["movies", "tvshows", "homevideos", "mixed", ""]
+        return response.items.filter { shown.contains($0.collectionType?.lowercased() ?? "") }.map {
+            MediaItem(id: $0.id, name: $0.name, type: "CollectionFolder", overview: nil, productionYear: nil,
+                      primaryImageAspectRatio: nil, childCount: nil)
+        }
+    }
+
+    /// What the server's own home page shows for one library: what is being
+    /// watched, what is next, what is new, the best of it and a few at random.
+    func serverLibraryHome(userID: String, library: MediaItem) async throws -> ServerLibraryHome {
+        let page = String(ServerLibraryQuery.rowSize)
+        let common = [URLQueryItem(name: "ParentId", value: library.id),
+                      URLQueryItem(name: "Fields", value: Self.fields),
+                      URLQueryItem(name: "EnableUserData", value: "true"),
+                      URLQueryItem(name: "ImageTypeLimit", value: "1"),
+                      URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Thumb,Logo"),
+                      URLQueryItem(name: "Limit", value: page)]
+        async let resume: JellyfinItemsResponse? = try? send(try request(
+            path: "users/\(userID)/items/resume",
+            query: common + [URLQueryItem(name: "MediaTypes", value: "Video")]))
+        async let nextUp: JellyfinItemsResponse? = try? send(try request(
+            path: "shows/nextup", query: common + [URLQueryItem(name: "UserId", value: userID)]))
+        let views: [(id: String, title: String, browse: ServerLibraryBrowse)] = [
+            ("recently-added", "Recently Added", ServerLibraryBrowse(sort: .added, descending: true)),
+            ("top-rated", "Top Rated", ServerLibraryBrowse(sort: .rating, descending: true)),
+            ("random", "Random Picks", ServerLibraryBrowse(sort: .random))
+        ]
+        var sorted: [ServerLibraryRow] = []
+        for view in views {
+            guard let found = try? await serverLibraryTitles(userID: userID, library: library,
+                                                             browse: view.browse, cursor: nil),
+                  !found.items.isEmpty else { continue }
+            sorted.append(ServerLibraryRow(id: view.id, title: view.title,
+                                           items: Array(found.items.prefix(ServerLibraryQuery.rowSize)),
+                                           source: .browse(view.browse), total: found.total))
+        }
+        var rows: [ServerLibraryRow] = []
+        if let watching = await resume?.items, !watching.isEmpty {
+            rows.append(ServerLibraryRow(id: "continue-watching", title: "Continue Watching", items: watching))
+        }
+        if let next = await nextUp?.items, !next.isEmpty {
+            rows.append(ServerLibraryRow(id: "next-up", title: "Next Up", items: next))
+        }
+        return ServerLibraryHome(rows: rows + sorted)
+    }
+
+    func serverLibraryTitles(userID: String, library: MediaItem, browse: ServerLibraryBrowse,
+                             cursor: String?) async throws -> ServerLibraryPage {
+        let offset = ServerLibraryQuery.offset(cursor)
+        let sort: String = switch browse.sort {
+        case .title: "SortName"
+        case .added: "DateCreated,SortName"
+        case .released: "PremiereDate,ProductionYear,SortName"
+        case .rating: "CommunityRating,SortName"
+        case .random: "Random"
+        }
+        var query = [URLQueryItem(name: "ParentId", value: library.id),
+                     URLQueryItem(name: "Recursive", value: "true"),
+                     URLQueryItem(name: "IncludeItemTypes", value: browse.kind.itemType ?? "Movie,Series"),
+                     URLQueryItem(name: "Fields", value: Self.fields),
+                     URLQueryItem(name: "EnableUserData", value: "true"),
+                     URLQueryItem(name: "ImageTypeLimit", value: "1"),
+                     URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop,Logo"),
+                     URLQueryItem(name: "SortBy", value: sort),
+                     URLQueryItem(name: "SortOrder", value: browse.descending ? "Descending" : "Ascending"),
+                     URLQueryItem(name: "StartIndex", value: String(offset)),
+                     URLQueryItem(name: "Limit", value: String(ServerLibraryQuery.pageSize)),
+                     URLQueryItem(name: "EnableTotalRecordCount", value: "true")]
+        if let genre = browse.genre { query.append(URLQueryItem(name: "Genres", value: genre)) }
+        if browse.unwatchedOnly { query.append(URLQueryItem(name: "Filters", value: "IsUnplayed")) }
+        let response: JellyfinItemsResponse = try await send(try request(path: "users/\(userID)/items", query: query))
+        // Random has no end: one page of it is the row and the grid.
+        let total = browse.sort == .random ? response.items.count : response.totalRecordCount
+        return ServerLibraryPage(items: response.items,
+                                 next: browse.sort == .random ? nil
+                                     : ServerLibraryQuery.next(after: offset, read: response.items.count, total: total),
+                                 total: total)
+    }
+
+    /// The collections that hold this library's titles. A collection lives
+    /// in the server's own Collections library rather than in a film
+    /// library, so with none filed under this one, the server's own are
+    /// listed, as its own Collections tab lists them.
+    func serverLibraryCollections(userID: String, library: MediaItem) async throws -> [ServerLibraryCollection] {
+        let query = [URLQueryItem(name: "ParentId", value: library.id),
+                     URLQueryItem(name: "Recursive", value: "true"),
+                     URLQueryItem(name: "IncludeItemTypes", value: "BoxSet"),
+                     URLQueryItem(name: "Fields", value: Self.fields),
+                     URLQueryItem(name: "ImageTypeLimit", value: "1"),
+                     URLQueryItem(name: "EnableImageTypes", value: "Primary,Backdrop"),
+                     URLQueryItem(name: "SortBy", value: "SortName"),
+                     URLQueryItem(name: "Limit", value: "500")]
+        let filed: JellyfinItemsResponse? = try? await send(try request(path: "users/\(userID)/items", query: query))
+        var found = filed?.items ?? []
+        if found.isEmpty { found = try await collections(userID: userID, limit: 500, startIndex: 0) }
+        return found.map { ServerLibraryCollection(item: $0, detail: nil) }
+    }
+
+    func serverLibraryGenres(userID: String, library: MediaItem) async throws -> [String] {
+        let response: JellyfinItemsResponse = try await send(try request(path: "genres", query: [
+            URLQueryItem(name: "ParentId", value: library.id), URLQueryItem(name: "UserId", value: userID),
+            URLQueryItem(name: "SortBy", value: "SortName")]))
+        return response.items.map(\.name)
+    }
+}

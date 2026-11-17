@@ -4959,6 +4959,24 @@ final class MediaLibrary {
 
     /// The client for a server, in the software's own terms: Plex its own
     /// way, Jellyfin and Emby through the API they share.
+    // MARK: - Each server's own Library
+
+    /// The servers whose Library can be shown the way their own app shows it,
+    /// in the order they were added.
+    var serverLibraryProfiles: [MediaServerProfile] {
+        // Every kind Lineup connects to has one: Jellyfin, Emby, Plex, Silo.
+        profiles
+    }
+
+    /// One server's own Library, to browse.
+    func serverLibraryBrowser(for profile: MediaServerProfile) -> (any ServerLibraryBrowsing)? {
+        guard profiles.contains(where: { $0.id == profile.id }) else { return nil }
+        return (try? client(for: profile)) as? any ServerLibraryBrowsing
+    }
+
+    /// Which Library the tab shows: Lineup's own, or one server's.
+    nonisolated static let serverLibraryKey = "Lineup.serverLibrary.v1"
+
     private func client(for profile: MediaServerProfile) throws -> any MediaServerClient {
         if let made = clients[profile.id] { return made }
         if let serverClientFactory {

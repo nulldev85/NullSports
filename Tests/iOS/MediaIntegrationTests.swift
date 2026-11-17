@@ -525,6 +525,63 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertTrue(SiloPlaybackSession.explanation(policy).contains("transcoding"))
     }
 
+    /// A Silo library as Silo's own app shows it: its rows with their badges,
+    /// a row of collections, the grid in the chosen order, and collections
+    /// named for where they come from.
+    func testSiloLibraryIsShownTheWayItsOwnAppShowsIt() async throws {
+        let session = session(); defer { session.invalidateAndCancel() }
+        let client = try SiloClient(address: "https://silo-contract.test/base", credential: .init(accessToken: "fixture-key"),
+                                    profileID: "profile:1", deviceID: "test", session: session)
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+            switch url.path {
+            case "/base/api/v2/library/1/sections":
+                return .json(#"{"sections":[{"id":"top_rated","title":"Top Rated Movies","items":[{"content_id":"m1","type":"movie","title":"Beast","year":2017,"overlay_summary":{"resolution":"1080p","audio":"DTS","release_type":"Remux"}}],"total_count":40},{"id":"picks","title":"Collections","items":[],"collections":[{"id":"c9","source":"library","title":"Oscar Winners","poster_url":"","item_count":12,"library_id":"1"}]},{"id":"empty","title":"Nothing","items":[]}]}"#)
+            case "/base/api/v2/catalog":
+                XCTAssertEqual(value("library_id"), "1")
+                XCTAssertEqual(value("sort"), "-added_at")
+                XCTAssertEqual(value("type"), "movie")
+                return .json(#"{"items":[{"content_id":"m2","type":"movie","title":"$"}],"page":{"has_more":true,"next_cursor":"c2"},"total":250}"#)
+            case "/base/api/v2/library/1/collections":
+                return .json(#"{"library_id":"1","collections":[{"id":"t1","title":"Trending Movies This Week","item_count":100,"poster_url":"","management_source":"tmdb","collection_type":"tmdb"}],"groups":[]}"#)
+            default:
+                XCTFail("Unexpected request \(url.path)")
+                return .json("{}", status: 404)
+            }
+        }
+        let library = MediaItem(id: "silo-library:1", name: "Movies", type: "CollectionFolder", overview: nil,
+                                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        let home = try await client.serverLibraryHome(userID: "", library: library)
+        XCTAssertEqual(home.rows.map(\.title), ["Top Rated Movies", "Collections"], "An empty row is left out")
+        XCTAssertEqual(home.rows.first?.items.map(\.name), ["Beast"])
+        XCTAssertEqual(home.badges["m1"], ServerLibraryBadges(top: ["1080P", "DTS"], bottom: "REMUX"))
+        XCTAssertEqual(home.rows.first?.source, .section("top_rated"))
+        let collection = try XCTUnwrap(home.rows.last?.collections.first)
+        XCTAssertTrue(collection.item.id.hasPrefix("silo-curated:"))
+        XCTAssertEqual(collection.item.childCount, 12)
+
+        let page = try await client.serverLibraryTitles(
+            userID: "", library: library,
+            browse: ServerLibraryBrowse(sort: .added, descending: true, kind: .movies), cursor: nil)
+        XCTAssertEqual(page.items.map(\.name), ["$"])
+        XCTAssertEqual(page.next, "c2")
+        XCTAssertEqual(page.total, 250)
+
+        let collections = try await client.serverLibraryCollections(userID: "", library: library)
+        XCTAssertEqual(collections.first?.detail, "Tmdb", "Named for where it comes from, as Silo's app names it")
+    }
+
+    func testServerLibraryPagingStopsAtTheEnd() {
+        XCTAssertEqual(ServerLibraryQuery.next(after: 0, read: 60, total: 130), "60")
+        XCTAssertNil(ServerLibraryQuery.next(after: 120, read: 10, total: 130))
+        XCTAssertNil(ServerLibraryQuery.next(after: 0, read: 12, total: nil), "A short page is the last")
+        XCTAssertEqual(ServerLibraryQuery.next(after: 0, read: 60, total: nil), "60")
+        XCTAssertEqual(ServerLibraryBadges(top: [" 4k ", ""], bottom: " webrip").top, ["4K"])
+        XCTAssertTrue(ServerLibraryBadges(top: [], bottom: "  ").isEmpty)
+    }
+
     /// The stream's address as Silo's own player builds it: under /api/v2,
     /// with the account's token, and a proxy node's address left alone.
     func testSiloStreamAddressIsBuiltAsSilosOwnPlayerBuildsIt() throws {
