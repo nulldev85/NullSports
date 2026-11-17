@@ -525,6 +525,24 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertTrue(SiloPlaybackSession.explanation(policy).contains("transcoding"))
     }
 
+    /// The stream's address as Silo's own player builds it: under /api/v2,
+    /// with the account's token, and a proxy node's address left alone.
+    func testSiloStreamAddressIsBuiltAsSilosOwnPlayerBuildsIt() throws {
+        let base = try XCTUnwrap(URL(string: "https://silo.example.test/base"))
+        func address(_ path: String, token: String? = "a+b") -> String? {
+            SiloPlaybackSession.mediaURL(path, base: base, token: token)?.absoluteString
+        }
+        XCTAssertEqual(address("/stream/s1?st=x%2By"),
+                       "https://silo.example.test/base/api/v2/stream/s1?st=x%2By&token=a%2Bb")
+        XCTAssertEqual(address("/api/v1/stream/s1"), "https://silo.example.test/base/api/v2/stream/s1?token=a%2Bb")
+        XCTAssertEqual(address("/api/v2/playback/transcode/s1/master.m3u8?st=x", token: nil),
+                       "https://silo.example.test/base/api/v2/playback/transcode/s1/master.m3u8?st=x")
+        XCTAssertEqual(address("/base/api/v2/stream/s1?st=x"),
+                       "https://silo.example.test/base/api/v2/stream/s1?st=x&token=a%2Bb")
+        XCTAssertEqual(address("http://node.example.test:8097/stream/remux/opaque"),
+                       "http://node.example.test:8097/stream/remux/opaque", "A proxy is never sent the account's token")
+    }
+
     @MainActor
     func testSiloRemuxRemoteSeekKeepsFullRuntimeAndSequencedServerProgress() async throws {
         let session = session(); defer { session.invalidateAndCancel() }

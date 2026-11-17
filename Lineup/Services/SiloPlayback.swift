@@ -49,6 +49,9 @@ final class SiloPlaybackSession {
     private var pendingSeek: Double?
     private var lastProgressAt = Date.distantPast
     private var progressWriting = false
+    /// The account's access token, added to the media address the way
+    /// Silo's own player adds it: a player cannot send the header.
+    private var mediaToken: String?
 
     func open(client: SiloClient, fileID: String, position: Double) async throws -> SiloPlaybackAsset {
         guard !closed, self.client == nil, position.isFinite, position >= 0 else { throw MediaIntegrationError.invalidResponse }
@@ -73,6 +76,7 @@ final class SiloPlaybackSession {
             "start_position": position, "progress_persistence": "server", "allow_alternate_versions": false,
             "client_capabilities": capabilities, "client_playback_context": context]
         let decision: SiloPlaybackDecision = try await client.transport.get(["playback", "start"], method: "POST", body: body)
+        mediaToken = await client.transport.currentCredential().accessToken
         let opened: SiloPlaybackAsset
         do { opened = try makeAsset(decision) }
         catch {
@@ -136,7 +140,8 @@ final class SiloPlaybackSession {
         }
         guard decision.protocol_version == 3, decision.outcome == "playable", let plan = decision.playback_plan,
               let session = decision.session_id, !session.isEmpty, let client,
-              let url = client.http.resolvedURL(plan.stream.url), plan.stream.headers.isEmpty,
+              let url = Self.mediaURL(plan.stream.url, base: client.http.base, token: mediaToken)
+                  ?? client.http.resolvedURL(plan.stream.url), plan.stream.headers.isEmpty,
               plan.stream.header_refresh == "none", plan.timeline.player_start_seconds.isFinite,
               plan.timeline.player_start_seconds >= 0, plan.timeline.timeline_offset_seconds.isFinite,
               plan.timeline.timeline_offset_seconds >= 0 else {
@@ -151,6 +156,43 @@ final class SiloPlaybackSession {
         let lease = SiloPlaybackLease(sessionID: session, installationID: installationID, profileID: profileID,
             playerStart: plan.timeline.player_start_seconds, timelineOffset: plan.timeline.timeline_offset_seconds)
         return SiloPlaybackAsset(url: url, decision: decision, lease: lease, duration: duration)
+    }
+
+    /// Where the player fetches a plan's stream, built as Silo's own player
+    /// builds it. A path on the server is served under /api/v2 -- a bare
+    /// /stream/ or /playback/transcode/ one, or an /api/v1 one, is moved
+    /// there -- and carries the account's token, which a session started
+    /// with an API key needs on every media request and a player has no
+    /// header to send it in. An absolute address names a proxy node, which
+    /// authorizes from the signed token already in it and is never handed
+    /// the account's. Everything the server put in the address stays as it
+    /// was, byte for byte.
+    nonisolated static func mediaURL(_ path: String?, base: URL, token: String?) -> URL? {
+        guard var path, !path.isEmpty else { return nil }
+        let lowered = path.lowercased()
+        if lowered.hasPrefix("http://") || lowered.hasPrefix("https://") { return URL(string: path) }
+        guard path.hasPrefix("/") else { return nil }
+        // A path that already carries the server's own prefix, behind a
+        // reverse proxy, is taken from after it.
+        var prefix = base.path
+        while prefix.hasSuffix("/") { prefix.removeLast() }
+        if !prefix.isEmpty, path.hasPrefix(prefix + "/") { path.removeFirst(prefix.count) }
+        if let range = path.range(of: #"^(?:/api/v1)?/(?=stream/|playback/transcode/)"#, options: .regularExpression) {
+            path.replaceSubrange(range, with: "/api/v2/")
+        }
+        guard path.range(of: #"^/api/v[12]/"#, options: .regularExpression) != nil else { return nil }
+        var root = base.absoluteString
+        while root.hasSuffix("/") { root.removeLast() }
+        var address = root + path
+        if let token, !token.isEmpty {
+            var allowed = CharacterSet.alphanumerics
+            allowed.insert(charactersIn: "-._~")
+            let encoded = token.addingPercentEncoding(withAllowedCharacters: allowed) ?? token
+            address += (address.contains("?") ? "&" : "?") + "token=" + encoded
+        }
+        guard let url = URL(string: address), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host != nil else { return nil }
+        return url
     }
 
     func sourcePosition(playerTime: Double) -> Double? {
@@ -284,6 +326,7 @@ final class SiloPlaybackSession {
             "quality_preference": "auto", "position_seconds": position, "selected_tracks": selected,
             "client_capabilities": capabilities, "client_playback_context": context]
         let decision: SiloPlaybackDecision = try await client.transport.get(["playback", asset.lease.sessionID, "replan"], method: "POST", body: body)
+        mediaToken = await client.transport.currentCredential().accessToken
         return try makeAsset(decision)
     }
 

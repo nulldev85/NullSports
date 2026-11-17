@@ -2325,17 +2325,19 @@ final class MediaLibrary {
     func beginPlaybackSession(for item: MediaItem, id: UUID, startsOver: Bool = false,
                               nativeSilo: SiloPlaybackSession? = nil, mediaSourceID: String? = nil,
                               playedOn server: UUID? = nil, serverItemID: String? = nil) {
-        guard let owner = serverID(of: item), recordSources.contains(owner) else { return }
-        if nativeSilo == nil {
-            beginServerReport(for: item, id: id, mediaSourceID: mediaSourceID,
-                              playedOn: server.map { ($0, serverItemID ?? item.id) })
-        }
+        // A Silo session is held, so closing the player stops it, whatever
+        // server the title itself is from: one left open keeps a stream slot.
         if let nativeSilo {
             siloPlaybackSessions[id] = nativeSilo
             nativeSilo.retryAllowed = { [weak self, weak nativeSilo] in
                 guard let self, let nativeSilo, let profileID = nativeSilo.sourceProfileID else { return false }
                 return self.siloPlaybackSessions[id] === nativeSilo && self.profiles.contains { $0.id == profileID }
             }
+        }
+        guard let owner = serverID(of: item), recordSources.contains(owner) else { return }
+        if nativeSilo == nil {
+            beginServerReport(for: item, id: id, mediaSourceID: mediaSourceID,
+                              playedOn: server.map { ($0, serverItemID ?? item.id) })
         }
         guard playbackSessions[id] == nil, let profileID = serverID(of: item) else { return }
         playbackSessions[id] = PlaybackSession(profileID: profileID, item: item.servedBy(profileID),
