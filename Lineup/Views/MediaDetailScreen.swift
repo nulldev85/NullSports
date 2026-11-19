@@ -62,6 +62,15 @@ struct MediaDetailScreen: View {
     @State private var similarUnavailable = false
     @State private var similarTitle = ""
     @State private var addingServer = false
+    /// The Library a page was opened from: a server's own, or Lineup's.
+    @Environment(\.mediaStreamScope) private var pageScope
+    /// What Silo adds to a Silo title's page: Watchlist, trailers, who is in
+    /// it and its box set; and from Silo's own Library, Silo's More Like This.
+    @State private var siloExtras: SiloTitleExtras?
+    @State private var siloProfileID: UUID?
+    @State private var siloLikeThis: [MediaItem] = []
+    @State private var inWatchlist = false
+    @State private var siloPerson: MobileSiloPersonRoute?
     #endif
 
     private var subject: MediaItem { media.displayItem(detail ?? item) }
@@ -128,6 +137,7 @@ struct MediaDetailScreen: View {
             guard !Task.isCancelled else { return }
             related = titles
         }
+        .task(id: "silo|" + item.libraryKey) { await loadSiloExtras() }
         .onDisappear {
             similarLookupID = UUID(); similarTask?.cancel(); openingSimilar = nil
         }
@@ -144,6 +154,7 @@ struct MediaDetailScreen: View {
             NavigationStack { SeerrTitleView(id: route.id, kind: route.kind, initialTitle: route.title).environment(media) }
         }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .navigationDestination(item: $siloPerson) { route in MobileSiloPersonScreen(route: route) }
         .lineupSheet(isPresented: $addingServer) {
             MediaServerSetupView().environment(media).preferredColorScheme(.dark)
         }
@@ -202,9 +213,10 @@ struct MediaDetailScreen: View {
                 // waiting below a finished band of artwork is two.
                 .padding(.top, contentRise)
                 if !isCatalogOnly { episodesSection }
+                siloBoxSetSection
                 trailersSection
                 castSection
-                relatedSection
+                if siloLikeThis.isEmpty { relatedSection } else { siloLikeThisSection }
             }
             .padding(.bottom, 44)
         }
@@ -436,6 +448,9 @@ struct MediaDetailScreen: View {
                         Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
                     }
                 }
+                #if !os(tvOS)
+                if siloExtras != nil { watchlistButton }
+                #endif
                 // Nothing to shuffle through on a film.
                 if subject.isSeries {
                     iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
@@ -667,9 +682,20 @@ struct MediaDetailScreen: View {
 
     // MARK: - More about this title
 
+    /// The title's trailers: the server's own, or on a Silo title with none,
+    /// the ones Silo found.
+    private var trailerList: [MediaTrailer] {
+        let own = subject.remoteTrailers ?? []
+        #if os(tvOS)
+        return own
+        #else
+        return own.isEmpty ? (siloExtras?.trailers ?? []) : own
+        #endif
+    }
+
     @ViewBuilder
     private var trailersSection: some View {
-        let trailers = (subject.remoteTrailers ?? []).compactMap { trailer -> (String, URL, URL?)? in
+        let trailers = trailerList.compactMap { trailer -> (String, URL, URL?)? in
             guard let address = trailer.url, let url = URL(string: address),
                   ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
             return (trailer.name ?? "Trailer", url, trailer.thumbnailURL)
@@ -761,6 +787,11 @@ struct MediaDetailScreen: View {
                                 }
                             }
                             .frame(width: castPortraitWidth, alignment: .leading)
+                            #if !os(tvOS)
+                            .contentShape(Rectangle())
+                            .onTapGesture { openSiloPerson(named: person.name) }
+                            .accessibilityAddTraits(siloExtras?.people[person.name] == nil ? [] : .isButton)
+                            #endif
                         }
                     }
                     .padding(.horizontal, horizontalPadding)
@@ -1322,6 +1353,11 @@ struct MediaPlayableCard: View {
     let item: MediaItem
     var shape: MediaArtShape = .poster
     var onFocusChange: ((Bool) -> Void)? = nil
+    #if !os(tvOS)
+    /// What a held touch offers before the usual choices: taking a card off
+    /// a server's own Continue Watching, say.
+    var leadingMenuItems: () -> [MobileMenuItem] = { [] }
+    #endif
     /// Only for a card shown outside the Library tab, which has no tab to
     /// hand the title to.
     @State private var choosingSource = false
@@ -1338,7 +1374,7 @@ struct MediaPlayableCard: View {
         #else
         MediaItemCard(item: item, shape: shape)
             .lineupHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film",
-                            items: { media.cardMenuItems(for: item) }, action: choose)
+                            items: { leadingMenuItems() + media.cardMenuItems(for: item) }, action: choose)
             .lineupFullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
@@ -1420,6 +1456,82 @@ extension MediaLibrary {
                 Task { await self.setFavorite(!favorite, for: episode) }
             }
         ]
+    }
+}
+#endif
+
+#if !os(tvOS)
+// MARK: - Silo on a title's page
+
+extension MediaDetailScreen {
+    /// What Silo adds to the page of a film or show from a Silo server.
+    fileprivate func loadSiloExtras() async {
+        siloExtras = nil; siloLikeThis = []; inWatchlist = false; siloProfileID = nil
+        guard ["Movie", "Series"].contains(item.type), let server = media.siloServer(of: item) else { return }
+        guard let found = try? await server.client.siloTitleExtras(itemID: item.id, isMovie: item.type == "Movie"),
+              !Task.isCancelled else { return }
+        siloProfileID = server.profile.id
+        siloExtras = found
+        inWatchlist = found.inWatchlist
+        // Opened from Silo's own Library: Silo's More Like This, from what
+        // is on the server, in place of the suggestions from TMDB.
+        guard pageScope == server.profile.id,
+              let similar = try? await server.client.siloSimilar(itemID: item.id), !Task.isCancelled else { return }
+        siloLikeThis = similar.map { $0.servedBy(server.profile.id) }
+    }
+
+    fileprivate var watchlistButton: some View {
+        Button {
+            let on = !inWatchlist
+            inWatchlist = on
+            guard let server = media.siloServer(of: item) else { return }
+            Task {
+                do { try await server.client.siloSetWatchlist(itemID: item.id, on: on) }
+                catch { inWatchlist = !on }
+            }
+        } label: {
+            Image(systemName: inWatchlist ? "bookmark.fill" : "bookmark")
+                .font(.system(size: 21, weight: .semibold))
+                .frame(width: buttonHeight, height: buttonHeight)
+        }
+        .buttonStyle(MobileLibraryDetailButtonStyle(selected: inWatchlist))
+        .accessibilityLabel(inWatchlist ? "Remove from Watchlist" : "Add to Watchlist")
+    }
+
+    fileprivate func openSiloPerson(named name: String) {
+        guard let id = siloExtras?.people[name], let profile = siloProfileID else { return }
+        siloPerson = MobileSiloPersonRoute(profileID: profile, personID: id, name: name)
+    }
+
+    /// The films of a film's box set the server has, in order.
+    @ViewBuilder
+    fileprivate var siloBoxSetSection: some View {
+        if let set = siloExtras?.boxSet, let profile = siloProfileID {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    detailSectionTitle(set.title, symbol: "rectangle.stack")
+                    let facts = [set.years, "\(set.items.count) movies"].compactMap { $0 }.joined(separator: " · ")
+                    Text(facts).font(.inter(.caption, .semibold))
+                        .foregroundStyle(LineupPresentationStyle.secondary)
+                        .padding(.horizontal, horizontalPadding)
+                }
+                MobileLibraryShelf(items: set.items.map { $0.servedBy(profile) }, shape: .poster) { title in
+                    guard title.id != item.id else { return }
+                    pushed = title
+                }
+            }
+            .modifier(PhoneDetailPanel())
+        }
+    }
+
+    /// Silo's More Like This, on a page opened from Silo's own Library.
+    @ViewBuilder
+    fileprivate var siloLikeThisSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            detailSectionTitle("More Like This", symbol: "square.stack")
+            MobileLibraryShelf(items: siloLikeThis, shape: .poster) { pushed = $0 }
+        }
+        .modifier(PhoneDetailPanel())
     }
 }
 #endif

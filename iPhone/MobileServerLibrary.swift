@@ -9,9 +9,15 @@ struct MobileServerLibraryScreen: View {
 
     var body: some View {
         if let model = media.serverLibraryModel(for: profile) {
-            MobileServerLibraryContent(model: model)
+            let silo = media.siloPagesModel(for: profile)
+            MobileServerLibraryContent(model: model, silo: silo)
                 .id(profile.id)
-                .task(id: profile.id) { await model.start() }
+                .task(id: profile.id) {
+                    await withTaskGroup(of: Void.self) { group in
+                        group.addTask { await model.start() }
+                        if let silo { group.addTask { await silo.refresh() } }
+                    }
+                }
         } else {
             Text("\(profile.name)'s own Library can't be shown right now.")
                 .font(.inter(16)).foregroundStyle(LineupPanelStyle.quiet)
@@ -24,7 +30,10 @@ struct MobileServerLibraryScreen: View {
 private struct MobileServerLibraryContent: View {
     @Environment(MediaLibrary.self) private var media
     @Bindable var model: ServerLibraryModel
+    /// Silo's Home, For You and Calendar, on a Silo server.
+    let silo: SiloPagesModel?
     @State private var pushed: MediaItem?
+    @State private var seeingSilo: ServerLibraryRow?
     @State private var seeing: ServerLibraryRow?
     @State private var shuffling = false
 
@@ -49,20 +58,47 @@ private struct MobileServerLibraryContent: View {
     /// three posters stretched across it.
     private let columns = MobileServerLibraryGrid.columns
 
+    /// The A–Z bar: on the grid in title order, on a server that can say
+    /// where each letter starts.
+    private var showsLetterBar: Bool {
+        (silo?.place ?? .library) == .library && model.tab == .library && model.titlesPhase == .loaded
+            && model.browse.jumpsByLetter && model.letters.letters.count > 1
+    }
+
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                tabs.padding(.top, 18).padding(.bottom, 22)
-                switch model.tab {
-                case .recommended: recommended
-                case .library: library
-                case .collections: collectionsGrid
+                if let silo, silo.place != .library {
+                    MobileSiloPage(model: silo, open: { pushed = $0 }, seeAll: { seeingSilo = $0 })
+                        .padding(.top, 18)
+                } else {
+                    tabs.padding(.top, 18).padding(.bottom, 22)
+                    switch model.tab {
+                    case .recommended: recommended
+                    case .library: library
+                    case .collections: collectionsGrid
+                    }
                 }
             }
             .padding(.bottom, 120)
         }
         .scrollIndicators(.hidden)
+        .overlay(alignment: .trailing) {
+            if showsLetterBar {
+                MobileLetterBar(letters: model.letters.letters) { letter in
+                    Task {
+                        if let target = await model.jump(to: letter) {
+                            withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(target, anchor: .top) }
+                        }
+                    }
+                }
+                .padding(.trailing, 2)
+                .transition(.opacity)
+            }
+        }
+        }
         .tint(LineupStyle.text)
         .background(LineupStyle.background.ignoresSafeArea())
         // Everything opened from here, and anything opened from that, is
@@ -72,6 +108,11 @@ private struct MobileServerLibraryContent: View {
         }
         .navigationDestination(item: $seeing) { row in
             MobileServerLibraryRowScreen(model: model, row: row).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .navigationDestination(item: $seeingSilo) { row in
+            if let silo {
+                MobileServerLibraryRowScreen(silo: silo, row: row).environment(\.mediaStreamScope, model.profile.id)
+            }
         }
         .navigationDestination(for: MediaItem.self) { item in
             MediaBrowseDestination(item: item).environment(\.mediaStreamScope, model.profile.id)
@@ -83,25 +124,31 @@ private struct MobileServerLibraryContent: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
-            if case .failed(let message) = model.librariesPhase {
+            if case .failed(let message) = model.librariesPhase, (silo?.place ?? .library) == .library {
                 failure(message)
-            } else if model.libraries.count > 1 {
+            } else if model.libraries.count > 1 || silo != nil {
                 Menu {
-                    ForEach(model.libraries, id: \.id) { library in
-                        Button {
-                            model.choose(library)
-                        } label: {
-                            if library.id == model.library?.id {
-                                Label(library.name, systemImage: "checkmark")
-                            } else {
-                                Text(library.name)
+                    if let silo {
+                        // Silo's own app's pages, beside its libraries.
+                        Section {
+                            ForEach([SiloPagesModel.Place.home, .forYou, .calendar]) { place in
+                                Button {
+                                    silo.place = place
+                                } label: {
+                                    Label(place.title, systemImage: silo.place == place ? "checkmark" : place.symbol)
+                                }
                             }
                         }
+                    }
+                    if silo == nil {
+                        libraryChoices
+                    } else {
+                        Section("Libraries") { libraryChoices }
                     }
                 } label: {
                     title(chevron: true)
                 }
-                .accessibilityLabel("Choose a library, \(model.library?.name ?? "")")
+                .accessibilityLabel("Choose a library, \(shownTitle)")
             } else {
                 title(chevron: false)
             }
@@ -114,9 +161,31 @@ private struct MobileServerLibraryContent: View {
         .padding(.horizontal, 16).padding(.top, 8)
     }
 
+    @ViewBuilder
+    private var libraryChoices: some View {
+        ForEach(model.libraries, id: \.id) { library in
+            Button {
+                silo?.place = .library
+                if library.id != model.library?.id { model.choose(library) }
+            } label: {
+                if library.id == model.library?.id, (silo?.place ?? .library) == .library {
+                    Label(library.name, systemImage: "checkmark")
+                } else {
+                    Text(library.name)
+                }
+            }
+        }
+    }
+
+    /// The library on screen, or the Silo page.
+    private var shownTitle: String {
+        if let silo, silo.place != .library { return silo.place.title }
+        return model.library?.name ?? model.profile.name
+    }
+
     private func title(chevron: Bool) -> some View {
         HStack(spacing: 10) {
-            Text(model.library?.name ?? model.profile.name)
+            Text(shownTitle)
                 .font(.inter(32, .heavy)).foregroundStyle(LineupStyle.text)
                 .lineLimit(1).minimumScaleFactor(0.7)
             if chevron {
@@ -221,15 +290,27 @@ private struct MobileServerLibraryContent: View {
         case .loaded where model.titles.isEmpty:
             empty(model.browse.isFiltered ? "Nothing here matches these filters." : "This library is empty.")
         case .loaded:
+            if let letter = model.startLetter {
+                HStack(spacing: 10) {
+                    Text("From \(letter)").font(.inter(15, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                    Spacer(minLength: 8)
+                    Button("Back to the Start") { model.showFromStart() }
+                        .font(.inter(15, .semibold)).foregroundStyle(LineupStyle.text)
+                }
+                .padding(.horizontal, 16).padding(.bottom, 14)
+            }
             LazyVGrid(columns: columns, spacing: 22) {
                 ForEach(model.titles, id: \.libraryKey) { item in
                     titleCell(item)
+                        .id(item.libraryKey)
                         .onAppear {
                             if item.id == model.titles.last?.id { Task { await model.loadMoreTitles() } }
                         }
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.leading, 16)
+            // Clear of the A–Z bar.
+            .padding(.trailing, showsLetterBar ? 30 : 16)
             if model.loadingMore {
                 ProgressView().frame(maxWidth: .infinity).padding(.vertical, 20)
             }
@@ -389,8 +470,10 @@ private struct MobileServerLibraryContent: View {
 /// A Recommended row in full.
 struct MobileServerLibraryRowScreen: View {
     @Environment(MediaLibrary.self) private var media
-    let model: ServerLibraryModel
-    let row: ServerLibraryRow
+    private let title: String
+    private let scope: UUID
+    private let badges: @MainActor (String) -> ServerLibraryBadges?
+    private let load: @MainActor () async throws -> [MediaItem]
     @State private var items: [MediaItem]?
     @State private var failed: String?
     @State private var pushed: MediaItem?
@@ -410,7 +493,7 @@ struct MobileServerLibraryRowScreen: View {
                                 MediaPlayableCard(item: item)
                             }
                         }
-                        .overlay { ServerLibraryBadgesOverlay(badges: model.badges[item.id]) }
+                        .overlay { ServerLibraryBadgesOverlay(badges: badges(item.id)) }
                     }
                 }
                 .padding(16)
@@ -423,17 +506,35 @@ struct MobileServerLibraryRowScreen: View {
         }
         .tint(LineupStyle.text)
         .background(LineupStyle.background.ignoresSafeArea())
-        .navigationTitle(row.title)
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $pushed) { item in
-            MediaBrowseDestination(item: item).environment(\.mediaStreamScope, model.profile.id)
+            MediaBrowseDestination(item: item).environment(\.mediaStreamScope, scope)
         }
-        .environment(\.mediaStreamScope, model.profile.id)
+        .environment(\.mediaStreamScope, scope)
         .task {
             guard items == nil else { return }
-            do { items = try await model.rowTitles(row) }
+            do { items = try await load() }
             catch { failed = error.localizedDescription }
         }
+    }
+}
+
+extension MobileServerLibraryRowScreen {
+    /// A library's Recommended row in full.
+    init(model: ServerLibraryModel, row: ServerLibraryRow) {
+        title = row.title
+        scope = model.profile.id
+        badges = { model.badges[$0] }
+        load = { try await model.rowTitles(row) }
+    }
+
+    /// One of Silo's Home rows in full.
+    init(silo: SiloPagesModel, row: ServerLibraryRow) {
+        title = row.title
+        scope = silo.profile.id
+        badges = { silo.badges[$0] }
+        load = { try await silo.rowTitles(row) }
     }
 }
 
@@ -441,4 +542,54 @@ struct MobileServerLibraryRowScreen: View {
 /// across, as many as the screen holds.
 enum MobileServerLibraryGrid {
     static let columns = [GridItem(.adaptive(minimum: 104, maximum: 168), spacing: 12, alignment: .top)]
+}
+
+/// The A–Z bar down the grid's edge: tap a letter, or run a finger down it,
+/// to go to the titles under it.
+struct MobileLetterBar: View {
+    let letters: [ServerLibraryLetters.Letter]
+    let choose: (ServerLibraryLetters.Letter) -> Void
+    @State private var current: String?
+
+    var body: some View {
+        GeometryReader { box in
+            VStack(spacing: 0) {
+                ForEach(letters) { letter in
+                    Text(letter.letter)
+                        .font(.inter(11, .bold))
+                        .foregroundStyle(current == letter.letter ? LineupStyle.text : LineupPanelStyle.quiet)
+                        .frame(width: 22)
+                        .frame(maxHeight: .infinity)
+                }
+            }
+            .frame(height: box.size.height)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { drag in pick(at: drag.location.y, height: box.size.height) }
+                .onEnded { _ in current = nil })
+        }
+        .frame(width: 22)
+        .frame(maxHeight: min(CGFloat(letters.count) * 17, 460))
+        .padding(.vertical, 6)
+        .background(LineupStyle.surface.opacity(0.92), in: Capsule())
+        .sensoryFeedback(.selection, trigger: current)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Jump to a letter")
+        .accessibilityAdjustableAction { direction in
+            let index = letters.firstIndex { $0.letter == current } ?? -1
+            let next = direction == .increment ? index + 1 : index - 1
+            guard letters.indices.contains(next) else { return }
+            current = letters[next].letter
+            choose(letters[next])
+        }
+    }
+
+    private func pick(at y: CGFloat, height: CGFloat) {
+        guard !letters.isEmpty, height > 0 else { return }
+        let index = min(letters.count - 1, max(0, Int(y / height * CGFloat(letters.count))))
+        let letter = letters[index]
+        guard letter.letter != current else { return }
+        current = letter.letter
+        choose(letter)
+    }
 }

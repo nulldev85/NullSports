@@ -45,7 +45,7 @@ private struct SiloSeason: Decodable, Sendable {
     let poster_url: String?
 }
 
-private struct SiloTitle: Decodable, Sendable {
+struct SiloTitle: Decodable, Sendable {
     let content_id: String
     let type: String?
     let title: String
@@ -538,7 +538,7 @@ private struct SiloFilters: Decodable, Sendable { let genres: [String]? }
 
 extension SiloClient: ServerLibraryBrowsing {
     /// A library's own id, from the id Lineup gives it.
-    private static func libraryID(_ library: MediaItem) -> String? {
+    static func libraryID(_ library: MediaItem) -> String? {
         library.id.hasPrefix("silo-library:") ? String(library.id.dropFirst("silo-library:".count)) : nil
     }
 
@@ -611,7 +611,7 @@ extension SiloClient: ServerLibraryBrowsing {
 
     /// One page of the catalog, with each card's badges and where the next
     /// page starts.
-    private func page(_ query: [URLQueryItem], cursor: String?) async throws -> ServerLibraryPage {
+    func page(_ query: [URLQueryItem], cursor: String?) async throws -> ServerLibraryPage {
         var parameters = query + [.init(name: "limit", value: String(ServerLibraryQuery.pageSize)),
                                   .init(name: "poster_width", value: "500")]
         if let cursor { parameters.append(.init(name: "cursor", value: cursor)) }

@@ -573,6 +573,88 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertEqual(collections.first?.detail, "Tmdb", "Named for where it comes from, as Silo's app names it")
     }
 
+    /// Silo's Home, its letters, a jump, a title's extras and the Calendar,
+    /// asked for as Silo's own app asks.
+    func testSiloPagesAreReadTheWaySilosOwnAppReadsThem() async throws {
+        let session = session(); defer { session.invalidateAndCancel() }
+        let client = try SiloClient(address: "https://silo-contract.test/base", credential: .init(accessToken: "fixture-key"),
+                                    profileID: "profile:1", deviceID: "test", session: session)
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("GET", "/base/api/v2/home/sections"):
+                return .json(#"{"sections":[{"id":"cw","title":"Continue Watching","section_type":"continue_watching","items":[{"content_id":"e1","type":"episode","title":"Pilot","series_id":"s1","progress_updated_at":"2026-11-18T10:00:00.123Z"}]},{"id":"nu","title":"Next Up","section_type":"next_up","items":[{"content_id":"e2","type":"episode","title":"Two","series_id":"s2"}]},{"id":"new","title":"Recently Added","section_type":"recently_added","items":[{"content_id":"m1","type":"movie","title":"Beast"}]}]}"#)
+            case ("PUT", "/base/api/v2/home/dismissals/continue_watching/e1"):
+                let body = try MediaIntegrationProtocol.body(request)
+                XCTAssertEqual(body["progress_updated_at"] as? String, "2026-11-18T10:00:00.123Z",
+                               "Sent back exactly as Silo gave it")
+                return .init(status: 204, json: "")
+            case ("POST", "/base/api/v2/catalog/letters"):
+                let body = try MediaIntegrationProtocol.body(request)
+                XCTAssertEqual(body["library_id"] as? String, "1")
+                XCTAssertEqual(body["order"] as? String, "asc")
+                XCTAssertEqual(body["type"] as? String, "movie")
+                return .json(#"{"letters":[{"letter":"A","position":0,"count":30},{"letter":"M","position":420,"count":12}],"runs":[],"total":432}"#)
+            case ("GET", "/base/api/v2/catalog"):
+                XCTAssertEqual(value("seek"), "420")
+                XCTAssertEqual(value("sort"), "title")
+                return .json(#"{"items":[{"content_id":"m9","type":"movie","title":"Memento"}],"page":{"has_more":true,"next_cursor":"after-m9"}}"#)
+            case ("GET", "/base/api/v2/catalog/items/m1"):
+                return .json(#"{"content_id":"m1","type":"movie","title":"Beast","user_state":{"in_watchlist":true},"videos":[{"name":"Official Trailer","site":"YouTube","site_key":"dQw4w9WgXcQ","type":"Trailer"},{"name":"Elsewhere","site":"Vimeo","site_key":"123","type":"Clip"}],"cast":[{"name":"Jessie Buckley","person_id":"p7","character":"Moll"}],"crew":[]}"#)
+            case ("GET", "/base/api/v2/catalog/items/m1/box-set"):
+                return .json(#"{"box_set":{"id":"10","title":"Beast Box Set","first_year":2017,"last_year":2021,"items":[{"content_id":"m1","type":"movie","title":"Beast"},{"content_id":"m3","type":"movie","title":"Beast 2"}]}}"#)
+            case ("GET", "/base/api/v2/calendar"):
+                XCTAssertEqual(value("start"), "2026-11-16")
+                XCTAssertEqual(value("end"), "2026-11-22")
+                XCTAssertEqual(value("timezone"), "UTC")
+                return .json(#"{"events":[{"date":"2026-11-17","items":[{"content_id":"e5","title":"Severance","type":"episode","season_number":2,"episode_number":5,"episode_title":"Trojan's Horse","series_id":"s5","air_at":"2026-11-17T02:00:00Z","badges":["season_premiere"],"watched":false}]}]}"#)
+            default:
+                XCTFail("Unexpected request \(request.httpMethod ?? "") \(url.path)")
+                return .json("{}", status: 404)
+            }
+        }
+
+        let home = try await client.siloHome()
+        XCTAssertEqual(home.rows.map(\.title), ["Continue Watching", "Next Up", "Recently Added"])
+        XCTAssertEqual(home.dismissals["cw"]?["e1"]?.surface, .continueWatching)
+        XCTAssertEqual(home.dismissals["nu"]?["e2"], SiloDismissal(surface: .nextUp, progressUpdatedAt: nil, seriesID: "s2"))
+        XCTAssertNil(home.dismissals["new"], "Only Continue Watching and Next Up cards can be taken off")
+        try await client.siloDismiss(itemID: "e1", try XCTUnwrap(home.dismissals["cw"]?["e1"]))
+
+        let library = MediaItem(id: "silo-library:1", name: "Movies", type: "CollectionFolder", overview: nil,
+                                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        let browse = ServerLibraryBrowse(sort: .title, descending: false, kind: .movies)
+        let letters = try await client.serverLibraryLetters(library: library, browse: browse)
+        XCTAssertEqual(letters.letters.map(\.letter), ["A", "M"])
+        XCTAssertEqual(letters.total, 432)
+        let jumped = try await client.serverLibraryTitles(library: library, browse: browse, from: 420)
+        XCTAssertEqual(jumped.items.map(\.name), ["Memento"])
+        XCTAssertEqual(jumped.next, "after-m9")
+        var filtered = browse
+        filtered.genre = "Drama"
+        XCTAssertFalse(filtered.jumpsByLetter, "A genre's titles are not what Silo counts letters for")
+
+        let extras = try await client.siloTitleExtras(itemID: "m1", isMovie: true)
+        XCTAssertTrue(extras.inWatchlist)
+        XCTAssertEqual(extras.trailers.map(\.url), ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
+                       "Only YouTube trailers, which open and show a thumbnail")
+        XCTAssertEqual(extras.people["Jessie Buckley"], "p7")
+        XCTAssertEqual(extras.boxSet?.title, "Beast Box Set")
+        XCTAssertEqual(extras.boxSet?.years, "2017–2021")
+        XCTAssertEqual(extras.boxSet?.items.map(\.name), ["Beast", "Beast 2"])
+
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let monday = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 11, day: 16)))
+        let days = try await client.siloCalendar(from: monday, days: 7, timeZone: try XCTUnwrap(TimeZone(identifier: "UTC")))
+        let event = try XCTUnwrap(days.first?.events.first)
+        XCTAssertEqual(event.episodeCode, "S2 · E5")
+        XCTAssertEqual(event.badges, ["Season Premiere"])
+        XCTAssertNotNil(event.airsAt)
+    }
+
     func testServerLibraryPagingStopsAtTheEnd() {
         XCTAssertEqual(ServerLibraryQuery.next(after: 0, read: 60, total: 130), "60")
         XCTAssertNil(ServerLibraryQuery.next(after: 120, read: 10, total: 130))

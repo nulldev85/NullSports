@@ -137,6 +137,35 @@ extension ServerLibraryBrowsing {
     }
 }
 
+/// Where each letter's titles start in a library sorted by title, for the
+/// grid's A–Z bar.
+struct ServerLibraryLetters: Sendable, Equatable {
+    struct Letter: Sendable, Equatable, Identifiable {
+        /// A to Z, or # for titles that start with anything else.
+        let letter: String
+        /// Where its first title is in the whole list, from 0.
+        let position: Int
+        let count: Int
+        var id: String { letter }
+    }
+    var letters: [Letter] = []
+    var total = 0
+}
+
+/// A server that can say where each letter starts in a library sorted by
+/// title, and read the library from any point in it: the A–Z bar.
+protocol ServerLibraryJumping: Sendable {
+    func serverLibraryLetters(library: MediaItem, browse: ServerLibraryBrowse) async throws -> ServerLibraryLetters
+    func serverLibraryTitles(library: MediaItem, browse: ServerLibraryBrowse,
+                             from position: Int) async throws -> ServerLibraryPage
+}
+
+extension ServerLibraryBrowse {
+    /// The A–Z bar goes with the grid in title order, narrowed no further
+    /// than to films or shows: the server counts letters for that list.
+    var jumpsByLetter: Bool { sort == .title && genre == nil && !unwatchedOnly }
+}
+
 enum ServerLibraryQuery {
     /// Titles in a page of the grid.
     static let pageSize = 60

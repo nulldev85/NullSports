@@ -58,6 +58,11 @@ final class ServerLibraryModel {
     private(set) var collectionsPhase: Phase = .idle
 
     private(set) var genres: [String] = []
+    /// Where each letter starts, for the A–Z bar, on a server that can say.
+    private(set) var letters = ServerLibraryLetters()
+    /// Where the grid's first title is in the whole list: 0, or after a jump
+    /// to a letter not yet read, that letter's first title.
+    private(set) var titlesStart = 0
     /// What each title's card says about its file, from every list read.
     private(set) var badges: [String: ServerLibraryBadges] = [:]
 
@@ -220,10 +225,19 @@ final class ServerLibraryModel {
                 if started == generation { genres = found }
             }
         }
+        if let jumper = browser as? any ServerLibraryJumping, browse.jumpsByLetter {
+            Task { [browse] in
+                let found = (try? await jumper.serverLibraryLetters(library: library, browse: browse)) ?? ServerLibraryLetters()
+                if started == generation { letters = found }
+            }
+        } else {
+            letters = ServerLibraryLetters()
+        }
         do {
             let page = try await browser.serverLibraryTitles(userID: userID, library: library, browse: browse, cursor: nil)
             guard started == generation else { return }
             titles = page.items.map(served)
+            titlesStart = 0
             titlesNext = page.next
             titlesTotal = page.total
             badges.merge(page.badges) { _, new in new }
@@ -261,11 +275,46 @@ final class ServerLibraryModel {
         browse = next
         defaults.set(browse.sort.rawValue, forKey: Self.key("sort", profile))
         defaults.set(browse.descending, forKey: Self.key("descending", profile))
+        reloadTitles()
+    }
+
+    /// The grid read again from its first title.
+    private func reloadTitles() {
         generation += 1
-        titles = []; titlesNext = nil; titlesTotal = nil; titlesPhase = .idle
+        titles = []; titlesNext = nil; titlesTotal = nil; titlesPhase = .idle; titlesStart = 0
+        letters = ServerLibraryLetters()
         fresh.remove(.library)
         reading.remove(.library)
         Task { await loadTab(.library) }
+    }
+
+    // MARK: A–Z
+
+    /// Takes the grid to a letter: the title to scroll to, once it is there.
+    /// A letter already read is scrolled to; one further on is read from its
+    /// first title, and the grid then starts there.
+    func jump(to letter: ServerLibraryLetters.Letter) async -> String? {
+        guard let library, titlesPhase == .loaded, let jumper = browser as? any ServerLibraryJumping else { return nil }
+        let index = letter.position - titlesStart
+        if index >= 0, index < titles.count { return titles[index].libraryKey }
+        generation += 1
+        let mine = generation
+        guard let page = try? await jumper.serverLibraryTitles(library: library, browse: browse, from: letter.position),
+              mine == generation, !page.items.isEmpty else { return nil }
+        titles = page.items.map(served)
+        titlesStart = letter.position
+        titlesNext = page.next
+        badges.merge(page.badges) { _, new in new }
+        return titles.first?.libraryKey
+    }
+
+    /// Back to the grid's first title, after a jump.
+    func showFromStart() { reloadTitles() }
+
+    /// The letter the grid starts at, after a jump.
+    var startLetter: String? {
+        guard titlesStart > 0 else { return nil }
+        return letters.letters.last { $0.position <= titlesStart }?.letter
     }
 
     /// Choose a sort; choosing the one in use turns it around.
@@ -366,10 +415,10 @@ final class ServerLibraryModel {
     /// What is showing, kept for next time: the grid's first page only.
     private func save() {
         guard let library else { return }
-        let first = Array(titles.prefix(ServerLibraryQuery.pageSize))
+        let first = titlesStart == 0 ? Array(titles.prefix(ServerLibraryQuery.pageSize)) : []
         let shown = Set(home.rows.flatMap(\.items).map(\.id) + first.map(\.id))
         let page = SavedPage(home: homePhase == .loaded ? home : nil,
-                             titles: titlesPhase == .loaded ? first : nil,
+                             titles: titlesPhase == .loaded && !first.isEmpty ? first : nil,
                              titlesTotal: titlesTotal, browse: browse,
                              collections: collectionsPhase == .loaded ? collections : nil,
                              badges: badges.filter { shown.contains($0.key) })
