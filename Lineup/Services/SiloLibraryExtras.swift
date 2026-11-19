@@ -185,8 +185,10 @@ extension SiloClient: ServerLibraryJumping {
     /// Silo's Home rows for the profile in use, with Continue Watching and
     /// Next Up cards marked as ones that can be taken off.
     func siloHome() async throws -> SiloHome {
-        let answer: SiloHomeSections = try await transport.get(["home", "sections"],
-            query: Self.artwork + [.init(name: "item_limit", value: String(ServerLibraryQuery.rowSize))])
+        // Every row, each as long as Silo makes it: a cap on a row is only
+        // for a server that says it takes one, and Silo's own app asks for
+        // none there either.
+        let answer: SiloHomeSections = try await transport.get(["home", "sections"], query: Self.artwork)
         var home = SiloHome()
         for section in answer.sections {
             let titles = section.items ?? []
@@ -243,6 +245,9 @@ extension SiloClient: ServerLibraryJumping {
             found.rows.append(ServerLibraryRow(id: id.isEmpty ? "row-\(index)" : id + "-\(index)", title: row.title,
                                                items: titles.map { $0.media(http: http) }))
         }
+        // Silo's own app puts its "For You" row first, the rest in Silo's order.
+        let first = found.rows.filter { $0.title.lowercased() == "for you" }
+        found.rows = first + found.rows.filter { $0.title.lowercased() != "for you" }
         return found
     }
 
