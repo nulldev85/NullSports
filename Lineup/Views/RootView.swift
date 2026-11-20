@@ -230,6 +230,8 @@ private final class TVTabsLeft {
 }
 
 struct MainView: View {
+    @Environment(SportsLibrary.self) private var library
+    @Environment(MediaLibrary.self) private var media
     @State private var selectedTab: Int
     @State private var tabBar = TVTabBarState()
     /// The tabs opened so far. Each is kept once opened, as the system's tab
@@ -305,6 +307,16 @@ struct MainView: View {
         }
         .ignoresSafeArea(.container, edges: .bottom)
         .tint(.white)
+        // The Library can report a sync error while Settings is active.
+        // Present above the kept-alive tabs so OK owns remote focus.
+        .alert("Media Server", isPresented: Binding(
+            get: { media.errorMessage != nil },
+            set: { if !$0 { media.errorMessage = nil } }
+        ), presenting: media.errorMessage) { _ in
+            Button("OK") { media.errorMessage = nil }
+        } message: { message in
+            Text(message)
+        }
         // Beside the tabs, where the set's own notices appear, over every
         // tab. A player covers it: they are all full-screen presentations.
         .overlay(alignment: .topTrailing) {
@@ -322,6 +334,7 @@ struct MainView: View {
                 .tvBackToTabs()
         case 1:
             GuideView(isActive: selectedTab == 1)
+                .id(library.activeProfile?.id)
                 .environment(\.tvPlaybackPlace, .guide)
                 .lineupAccentScope(accent)
         case 2:

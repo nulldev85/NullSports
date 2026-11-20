@@ -26,6 +26,7 @@ struct TVGuideChannelSnapshot: Sendable {
 
     static func preview(in streams: [XtreamStream], programs: [String: [CurrentProgram]], now: Date) async throws -> Preview? {
         try Task.checkCancellation()
+        guard !streams.isEmpty, !programs.isEmpty else { return nil }
         let worker = Task.detached(priority: .utility) { () throws -> Preview? in
             for stream in streams {
                 try Task.checkCancellation()

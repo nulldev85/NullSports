@@ -166,6 +166,9 @@ struct MediaSourcePicker: View {
     @State private var loading = true
     @State private var error: String?
     @State private var selectedSource: MediaPlaybackSource?
+    #if os(tvOS)
+    @State private var automaticSource: MediaPlaybackSource?
+    #endif
     @State private var trackingSessionID = UUID()
     @State private var providerFilter: String?
     /// Servers still being asked. What the others found is listed meanwhile.
@@ -181,8 +184,17 @@ struct MediaSourcePicker: View {
         // No NavigationStack: its bar is what drew the oversized title and the
         // Close button. The remote's Menu button is how a viewer leaves a
         // screen on this platform.
-        board
-            .onExitCommand { dismiss() }
+        Group {
+            if let source = automaticSource {
+                playback(for: source, onClose: {
+                    automaticSource = nil
+                    playerClosed()
+                })
+                .id(item.libraryKey)
+            } else {
+                board.onExitCommand { dismiss() }
+            }
+        }
             .task(id: media.metadataRequestKey(for: originalItem)) { await media.resolveMetadata(for: originalItem) }
             .task(id: item.libraryKey) { await loadSources() }
             .task(id: item.libraryKey) {
@@ -308,11 +320,13 @@ struct MediaSourcePicker: View {
         var ownIndex = 0
         // From a server's own Library, that server alone: its copies, and no
         // other server's or IPTV provider's.
-        let scoped = scope.flatMap { id in lookups.first { $0.id == id } }
-        if let scoped { lookups = [scoped] }
+        let scope = self.scope
+        if let scope {
+            lookups = library.profiles.filter { $0.id == scope }.map { .server($0) }
+        }
         // Each IPTV provider asked on its own, ahead of the servers, and listed
         // under its own name.
-        let providers = scoped == nil ? library.streamProviders(for: title) : []
+        let providers = scope == nil ? library.streamProviders(for: title) : []
         lookups.insert(contentsOf: providers.map { StreamLookup.provider(id: $0.id, name: $0.name) }, at: 0)
         if !providers.isEmpty, !title.isProviderTitle, lookups.count > providers.count { ownIndex = providers.count }
         pendingServers = lookups.count
@@ -332,6 +346,12 @@ struct MediaSourcePicker: View {
         }
         var found: [Int: [MediaPlaybackSource]] = [:]
         var failure: Error?
+        if scope != nil && lookups.isEmpty {
+            pendingServers = 0
+            loading = false
+            error = "This media server is no longer connected."
+            return
+        }
         await withTaskGroup(of: (Int, Result<[MediaPlaybackSource], Error>).self) { group in
             for (index, lookup) in lookups.enumerated() {
                 group.addTask {
@@ -362,8 +382,11 @@ struct MediaSourcePicker: View {
                 let tab = serverStatus.firstIndex { $0.id == lookups[index].id }
                 switch answer {
                 case .success(let streams):
-                    found[index] = streams
-                    if let tab { serverStatus[tab].phase = .found(streams.count) }
+                    let playable = scope == nil ? streams : streams.filter {
+                        $0.siloFileID != nil || library.playbackURL(for: title, source: $0) != nil
+                    }
+                    found[index] = playable
+                    if let tab { serverStatus[tab].phase = .found(playable.count) }
                 // The title's own place failing is the error for the screen.
                 // Any server's outcome is said in its tab at the top.
                 case .failure(let problem):
@@ -381,9 +404,15 @@ struct MediaSourcePicker: View {
                     }
                 }
                 // Each release once, though two servers offer it.
-                sources = MediaPlaybackSource.withoutDuplicates(found.keys.sorted().flatMap { found[$0] ?? [] },
-                                                                sameKind: library.sameStreamBackend)
+                let available = found.keys.sorted().flatMap { found[$0] ?? [] }
+                sources = scope == nil
+                    ? MediaPlaybackSource.withoutDuplicates(available, sameKind: library.sameStreamBackend)
+                    : available
                 if !sources.isEmpty { loading = false }
+                #if os(tvOS)
+                // In a server library, Next Episode also offers all versions when there is a choice.
+                guard scope == nil else { continue }
+                #endif
                 if autoPicks, selectedSource == nil,
                    let best = Self.bestSource(found: found, places: lookups.count) {
                     autoPicks = false
@@ -392,14 +421,15 @@ struct MediaSourcePicker: View {
                     // screen is still arriving is dropped.
                     Task { @MainActor in
                         try? await Task.sleep(for: .milliseconds(400))
-                        if selectedSource == nil { selectedSource = best }
+                        guard !Task.isCancelled, currentRun == run, selectedSource == nil else { return }
+                        selectedSource = best
                     }
                 }
             }
         }
         // Nothing to play: the list says so, and the viewer chooses from here.
-        autoPicks = false
         guard !Task.isCancelled, currentRun == run else { return }
+        autoPicks = false
         // Every place has answered by now; a tab still waiting never heard.
         for tab in serverStatus.indices where serverStatus[tab].isWaiting {
             serverStatus[tab].phase = .failed("It stopped before answering. Open the title again to retry.")
@@ -408,14 +438,20 @@ struct MediaSourcePicker: View {
         pendingServers = 0
         loading = false
         #if os(tvOS)
-        // One stream is not a choice: play it. After a moment, so this screen
-        // has finished arriving -- a cover asked for mid-presentation is
-        // dropped rather than shown.
-        if sources.count == 1, error == nil, selectedSource == nil, !playedOnlySource {
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            playedOnlySource = true
-            selectedSource = sources.first
+        if let only = sources.first, sources.count == 1, error == nil,
+           selectedSource == nil, !playedOnlySource {
+            if scope != nil {
+                // Render the player in this cover so a quick server answer
+                // cannot request a second cover during the first transition.
+                playedOnlySource = true
+                automaticSource = only
+            } else {
+                // The combined Library keeps its existing picker presentation.
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled, currentRun == run, selectedSource == nil else { return }
+                playedOnlySource = true
+                selectedSource = only
+            }
         }
         #endif
     }
@@ -491,14 +527,15 @@ struct MediaSourcePicker: View {
     }
     #endif
 
-    private func playback(for source: MediaPlaybackSource) -> some View {
+    private func playback(for source: MediaPlaybackSource, onClose: (() -> Void)? = nil) -> some View {
         SiloPlaybackPreparation(item: item, source: source, startsOver: startsOver) { prepared, native in
-            playback(for: prepared, nativeSilo: native)
+            playback(for: prepared, nativeSilo: native, onClose: onClose)
         }
     }
 
     @ViewBuilder
-    private func playback(for source: MediaPlaybackSource, nativeSilo: SiloPlaybackSession?) -> some View {
+    private func playback(for source: MediaPlaybackSource, nativeSilo: SiloPlaybackSession?,
+                          onClose: (() -> Void)?) -> some View {
         if let url = media.playbackURL(for: item, source: source) {
             // Capture this presentation's identity. A late callback from the
             // previous episode must not write progress for the next one.
@@ -535,7 +572,9 @@ struct MediaSourcePicker: View {
                        trackMemoryShow: item.type == "Episode"
                            ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
                        seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) },
-                       episodes: seasonEpisodes(around: trackedItem))
+                       sourceChapters: source.chapters,
+                       episodes: seasonEpisodes(around: trackedItem),
+                       onClose: onClose)
             .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning,
                                                    nativeSilo: nativeSilo, mediaSourceID: source.sourceID,
                                                    playedOn: source.serverID, serverItemID: source.itemID) }
@@ -545,6 +584,7 @@ struct MediaSourcePicker: View {
             MobilePlayerView(name: item.name, urls: [url], isLive: false, nativeSiloPlayback: nativeSilo,
                              sourceBitrate: source.formattedBitrate,
                              sourceQuality: source.quality,
+                             sourceChapters: source.chapters,
                              synopsis: playerSynopsis,
                              segmentsLookup: ["Episode", "Movie"].contains(item.type) ? {
                                  await media.playbackSegments(for: trackedItem)

@@ -101,6 +101,30 @@ struct PlaybackClockReader<Content: View>: View {
     private var frameReaders = Set<UUID>()
     @Published private(set) var videoHeight = 0
     @Published private(set) var mediaInfo = PlaybackMediaInfo()
+    @Published private(set) var chapters: [PlaybackChapter] = []
+    @Published private(set) var playbackSpeed = 1.0
+    @Published private(set) var subtitlesAtTop = false
+    var canPositionSubtitles: Bool { backend.canPositionSubtitles }
+    func setSubtitlesAtTop(_ top: Bool) {
+        subtitlesAtTop = top
+        backend.setSubtitlesAtTop(top)
+    }
+    @Published private(set) var videoFills = false
+    var canFillVideo: Bool { backend.canFillVideo }
+    var forwardBufferSeconds: Double? { backend.forwardBufferSeconds }
+    var droppedFrames: Int? { backend.droppedFrames }
+    var networkMbps: Double? { backend.networkMbps }
+
+    func setPlaybackSpeed(_ rate: Double) {
+        playbackSpeed = rate
+        backend.setPlaybackSpeed(rate)
+    }
+
+    func setVideoFill(_ fills: Bool) {
+        videoFills = fills
+        backend.setVideoFill(fills)
+    }
+
     private let liveQualityReporter = LivePlaybackQualityReporter()
     @Published private(set) var activeChannelName: String?
     @Published private(set) var failoverNotice: String?
@@ -328,7 +352,9 @@ struct PlaybackClockReader<Content: View>: View {
         restarting = false
         selectConfiguredBackend()
         sourceIsRecording = recording
-        self.urls = Array(urls.reversed())
+        // Live sources arrive in provider preference order, just as on iPhone.
+        // Keep the existing ordering for recordings and library titles.
+        self.urls = isLive && !recording ? urls : Array(urls.reversed())
         // A picture turned down to nothing stays muted whatever it is
         // reopened with: a retry or a change of channel passes on the mute
         // as it stood, which partway through fading out was still off.
@@ -343,7 +369,7 @@ struct PlaybackClockReader<Content: View>: View {
             chosenSubtitle = nil
             // Another title: its own timing, its own show's tracks put back,
             // and no subtitles found for the last one.
-            subtitleDelaySeconds = 0
+            subtitleDelaySeconds = defaults.double(forKey: Self.localSubtitleDelayKey)
             appliedShowAudio = false
             appliedShowSubtitle = false
             discardOnlineSubtitles()
@@ -388,7 +414,8 @@ struct PlaybackClockReader<Content: View>: View {
 
     private func openCurrent() {
         liveQualityReporter.reset()
-        backend.stop()
+        chapters = []
+        if backend.isOpen { backend.stop() }
         mediaInfo = PlaybackMediaInfo()
         ambientGeneration = UUID()
         ambientPictureSize = .zero
@@ -412,6 +439,9 @@ struct PlaybackClockReader<Content: View>: View {
         setMuted(muted)
         backend.volume = targetVolume
         backend.play()
+        backend.setPlaybackSpeed(isLive ? 1 : playbackSpeed)
+        backend.setVideoFill(videoFills)
+        backend.setSubtitlesAtTop(subtitlesAtTop)
         setMuted(muted)
         backend.volume = targetVolume
     }
@@ -556,6 +586,11 @@ struct PlaybackClockReader<Content: View>: View {
         let metadata = backend.playbackMetadata()
         if mediaInfo != metadata.info { mediaInfo = metadata.info }
         let hasVideo = backend.hasVideoOut
+        if !isLive, hasVideo {
+            let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+            let entries = backend.chapters.map { PlaybackChapter(start: $0.start + offset, title: $0.title) }
+            if chapters != entries { chapters = entries }
+        }
         let pictureSize = hasVideo ? metadata.pictureSize : .zero
         if ambientPictureSize != pictureSize { ambientPictureSize = pictureSize }
         guard !isScrubbing else { return }
@@ -587,13 +622,13 @@ struct PlaybackClockReader<Content: View>: View {
         // opened, or once it has had long enough to; before that it is judged
         // by whether a picture comes at all.
         let state = backend.state
-        if state == .error, engineKind == .mpv {
+        if state == .error, engineKind == .mpv, !health.hasShownPicture {
             fallbackFromMPVToVLC("MPV reported a playback error")
             return
         }
-        let failed = state == .error
-            || ((state == .ended || state == .stopped)
-                && (!isLive || health.hasShownPicture || health.age(now: now) >= 8))
+        let pastStartup = health.hasShownPicture || health.age(now: now) >= 8
+        let failed = state == .error || (state == .stopped && pastStartup)
+            || (state == .ended && (!isLive || pastStartup))
         // A film or an episode that stops at its end has finished. The same
         // stop anywhere earlier is a dropped stream, reopened below.
         if !isLive, reopenPosition == nil,
@@ -606,9 +641,9 @@ struct PlaybackClockReader<Content: View>: View {
         // What has been read from the server tells a feed VLC is catching up
         // on from one that has stopped coming.
         let recover = health.observe(now: now, playing: playing, video: hasVideo,
-            time: time.isFinite ? Int32(clamping: Int64(min(max(time * 1000, 0), Double(Int32.max)))) : 0,
+            time: LivePlaybackHealth.milliseconds(time),
             frames: backend.frames,
-            bytes: backend.bytes, failed: failed)
+            bytes: backend.bytes, bufferedAhead: backend.forwardBufferSeconds, failed: failed)
         if health.hasShownPicture, let shown = currentChannelID, reportedPictureChannelID != shown {
             reportedPictureChannelID = shown
             failover?.didShowPicture(shown)
@@ -647,7 +682,7 @@ struct PlaybackClockReader<Content: View>: View {
         case .nothingArriving:
             reason = "Nothing arrived for \(isLive ? 12 : 30) seconds"
         case .neverPlayed:
-            reason = "No picture came within \(isLive && failover != nil ? 15 : 30) seconds"
+            reason = "No picture came after \(Int(health.age(now: now))) seconds"
         case .failed, nil:
             reason = engineTitle + " reported the stream " + Self.describe(state)
         }
@@ -656,6 +691,16 @@ struct PlaybackClockReader<Content: View>: View {
         // other address, turned a moment's drop into a long "Reconnecting".
         let droppedWhilePlaying = isLive && health.stall == .failed && state != .error && health.hasShownPicture
         let neverPlayed = !health.hasShownPicture
+        if isLive, catchUp == nil, !sourceIsRecording, neverPlayed,
+           retries.attempts == 0, urlIndex == 0, urls.count > 1 {
+            // Try the provider's alternate transport before retrying a live
+            // address that has never delivered a picture.
+            urlIndex = 1
+            reconnecting = true
+            log(reason + ". Trying the alternate live transport")
+            openCurrent()
+            return
+        }
         backend.stop()
         // A recorded title goes back to where it was, not to its beginning:
         // reconnecting a film used to start it over.
@@ -795,12 +840,14 @@ struct PlaybackClockReader<Content: View>: View {
         backend.volume = targetVolume
     }
     func toggleMute() { setMuted(!muted) }
+    private var restartURLs: [URL] { isLive && !sourceIsRecording ? urls : Array(urls.reversed()) }
+
     func retry() {
         if let nativeSiloPlayback { nativeSiloPlayback.retry(); return }
         let place = isLive ? nil : (reopenPosition ?? (elapsed > 0 ? elapsed : nil))
         log("Retry chosen")
         // Asked for before the stream opens, so it opens there.
-        start(urls: Array(urls.reversed()), muted: muted, initialPosition: place,
+        start(urls: restartURLs, muted: muted, initialPosition: place,
               channelID: currentChannelID, isLive: isLive, keepTrackChoices: true, recording: sourceIsRecording)
     }
     /// A channel reconnects at its live edge; a film or an episode starts over
@@ -827,7 +874,7 @@ struct PlaybackClockReader<Content: View>: View {
         }
         guard !urls.isEmpty else { return }
         log(isLive ? "Go Live chosen" : "Restart chosen")
-        start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID, isLive: isLive,
+        start(urls: restartURLs, muted: muted, channelID: currentChannelID, isLive: isLive,
               keepTrackChoices: true)
     }
     func togglePlayback() {
@@ -1009,7 +1056,7 @@ struct PlaybackClockReader<Content: View>: View {
         skipTarget = nil
         recordingEndsWithProgramme = endsWithProgramme
         pausedAt = nil
-        // `start` tries the last address first, as it does a channel's two.
+        // Recordings keep the provider path ahead of its script alternative.
         start(urls: Array(addresses.reversed()), muted: muted, channelID: source.stream.id,
               resetFailover: false, isLive: true, keepTrackChoices: true, recording: true)
         catchUp = CatchUpTimeline(programmeStart: programmeStart, programmeEnd: programmeEnd,
@@ -1114,10 +1161,20 @@ struct PlaybackClockReader<Content: View>: View {
         if !isLive { backend.styleSubtitles(subtitleStyle) }
     }
 
+    private static let localSubtitleDelayKey = "Lineup.player.localSubtitleDelay.v1"
+    var remembersSubtitleDelay: Bool { defaults.object(forKey: Self.localSubtitleDelayKey) != nil }
+
+    func toggleRememberedSubtitleDelay() {
+        if remembersSubtitleDelay { defaults.removeObject(forKey: Self.localSubtitleDelayKey) }
+        else { defaults.set(subtitleDelaySeconds, forKey: Self.localSubtitleDelayKey) }
+        objectWillChange.send()
+    }
+
     func setSubtitleDelay(_ seconds: Double) {
         let delay = MobileSubtitlePreferences.delay(seconds)
         guard delay != subtitleDelaySeconds else { return }
         subtitleDelaySeconds = delay
+        if remembersSubtitleDelay { defaults.set(delay, forKey: Self.localSubtitleDelayKey) }
         if !isLive { backend.styleSubtitles(subtitleStyle) }
     }
 
@@ -1329,6 +1386,7 @@ struct PlaybackClockReader<Content: View>: View {
         duration = 0
         elapsed = 0
         resetSubtitles()
+        chapters = []
         if backend.isOpen {
             Self.lastStreamClosed = (uptime(), ObjectIdentifier(self))
         }
@@ -1612,6 +1670,7 @@ struct TVFullScreenItem: Identifiable {
     var startsOver = false
     /// A replay: the recording or nothing, never the channel live instead.
     var recordingOnly = false
+    var providerLibrary: SportsLibrary? = nil
     var id: Int { stream.id }
 }
 

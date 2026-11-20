@@ -233,9 +233,9 @@ struct MobileCatchUpBar: View {
         let caption = caption(position: position, now: now)
         return VStack(spacing: 5) {
             // As far as the broadcast has got, the part that can be played,
-            // in the softer accent; where the picture is, in the accent.
+            // in translucent white, with the playback position in solid white.
             LineupProgressBar(value: place, reach: reached,
-                              height: compact ? 6 : LineupProgressBar.standardHeight)
+                              height: compact ? 6 : LineupProgressBar.standardHeight, tint: .white)
             HStack(spacing: 6) {
                 Text(span.start.formatted(date: .omitted, time: .shortened))
                 Spacer(minLength: 0)

@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 #if os(tvOS)
+import AVFoundation
 import UIKit
 #endif
 
@@ -62,7 +63,26 @@ struct MediaDetailScreen: View {
     @State private var similarUnavailable = false
     @State private var similarTitle = ""
     @State private var addingServer = false
+    @State private var siloPerson: MobileSiloPersonRoute?
+    #else
+    @State private var siloPerson: TVSiloPersonRoute?
+    @State private var siloBoxSet: TVSiloBoxSetRoute?
+    @State private var themePlayer = AVPlayer()
+    @State private var themeTask: Task<Void, Never>?
+    @State private var activeThemeID: String?
+    @State private var choosingTheme = false
+    @State private var themeUnavailable = false
+    @State private var trailerUnavailable = false
     #endif
+    /// The Library a page was opened from: a server's own, or Lineup's.
+    @Environment(\.mediaStreamScope) private var pageScope
+    /// What Silo adds to a Silo title's page: Watchlist, trailers, who is in
+    /// it and its box set; and from Silo's own Library, Silo's More Like This.
+    @State private var siloExtras: SiloTitleExtras?
+    @State private var siloProfileID: UUID?
+    @State private var siloLikeThis: [MediaItem] = []
+    @State private var inWatchlist = false
+    @State private var savingWatchlist = false
 
     private var subject: MediaItem { media.displayItem(detail ?? item) }
     /// A title from the Library's charts that no source has yet.
@@ -95,6 +115,7 @@ struct MediaDetailScreen: View {
         }
         #endif
         .modifier(FullBleedHeader())
+        .task(id: "silo|" + item.libraryKey) { await loadSiloExtras() }
         .task(id: item.libraryKey) { await load() }
         .task(id: "warm-streams|" + (playTarget?.libraryKey ?? "")) {
             // Once what Play starts has settled, so a page still finding its
@@ -144,6 +165,7 @@ struct MediaDetailScreen: View {
             NavigationStack { SeerrTitleView(id: route.id, kind: route.kind, initialTitle: route.title).environment(media) }
         }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .navigationDestination(item: $siloPerson) { route in MobileSiloPersonScreen(route: route) }
         .lineupSheet(isPresented: $addingServer) {
             MediaServerSetupView().environment(media).preferredColorScheme(.dark)
         }
@@ -161,16 +183,38 @@ struct MediaDetailScreen: View {
         .onAppear { tabBar?.pageAppeared(tabBarPageID) }
         .onDisappear { tabBar?.pageDisappeared(tabBarPageID) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .navigationDestination(item: $siloPerson) { TVSiloPersonScreen(route: $0) }
+        .navigationDestination(item: $siloBoxSet) { TVSiloBoxSetScreen(route: $0) }
+        .onDisappear(perform: stopTheme)
+        .onChange(of: chosen) { _, target in if target != nil { stopTheme() } }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notice in
+            if let finished = notice.object as? AVPlayerItem, finished === themePlayer.currentItem { stopTheme() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notice in
+            if let failed = notice.object as? AVPlayerItem, failed === themePlayer.currentItem {
+                stopTheme()
+                themeUnavailable = true
+            }
+        }
+        .tvChoices("Theme Music", symbol: "music.note", isPresented: $choosingTheme) {
+            (siloExtras?.themes ?? []).map { theme in
+                TVChoice(theme.title ?? "Theme Music", id: theme.id) { playTheme(theme) }
+            }
+        }
+        .lineupMessage("Theme Music Unavailable", symbol: "music.note", isPresented: $themeUnavailable,
+                       message: "Lineup couldn't play this theme from Silo.")
+        .lineupMessage("Trailer Unavailable", symbol: "play.rectangle", isPresented: $trailerUnavailable,
+                       message: "Install YouTube on this Apple TV to open this trailer.")
         .onExitCommand { dismiss() }
         .lineupFullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
-            MediaSourcePicker(item: episode, startsOver: startingOver)
+            MediaSourcePicker(item: episode, startsOver: startingOver, scope: pageScope)
         }
         .lineupFullScreenCover(item: $summaryItem) { item in
             TVMediaSummarySheet(item: item).presentationBackground(.clear)
         }
         #else
         // From the start means from the start here too, as on the TV.
-        .lineupFullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver) }
+        .lineupFullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver, scope: pageScope) }
         #endif
     }
 
@@ -202,9 +246,10 @@ struct MediaDetailScreen: View {
                 // waiting below a finished band of artwork is two.
                 .padding(.top, contentRise)
                 if !isCatalogOnly { episodesSection }
+                siloBoxSetSection
                 trailersSection
                 castSection
-                relatedSection
+                if siloLikeThis.isEmpty { relatedSection } else { siloLikeThisSection }
             }
             .padding(.bottom, 44)
         }
@@ -242,7 +287,9 @@ struct MediaDetailScreen: View {
                             .lineupFocusRegion()
                     }
                     episodesSection
+                    tvSiloBoxSetSection
                     trailersSection
+                    castSection
                     relatedSection
                     LibraryMetadataCredit(item: subject).padding(.horizontal, horizontalPadding)
                 }
@@ -255,56 +302,55 @@ struct MediaDetailScreen: View {
     private var tvActions: some View {
         HStack(spacing: 16) {
             TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
-                         action: { startingOver = false; chosen = playTarget },
-                         requestInitialFocus: true) {
-                HStack(spacing: 12) {
-                    LineupIconTile(symbol: "play.fill", size: 32)
-                    Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
-                    if let code = playTarget?.episodeCode {
-                        Text(code).opacity(0.62)
-                    }
-                }
-                .font(.inter(18, .semibold))
-                .padding(.horizontal, 26).frame(height: 54)
-                .modifier(TVMediaActionSurface())
+                         action: { choosePlayback(playTarget) }, requestInitialFocus: true) {
+                tvTitleGlyph(resumeAction, symbol: "play.fill", prominent: true)
             }
+            .accessibilityValue(playTarget?.episodeCode ?? "")
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
 
-            // Resume picks up where the viewer left off; this is the way back
-            // to the opening scene, which otherwise meant scrubbing for it.
-            if playTarget.flatMap({ media.resumePosition(for: $0) }) != nil {
+            if canResume {
                 TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
-                             action: { startingOver = true; chosen = playTarget }) {
-                    tvSecondaryAction("Start Over", symbol: "backward.end.fill")
+                             action: { choosePlayback(playTarget, fromBeginning: true) }) {
+                    tvTitleGlyph("Start Over", symbol: "arrow.counterclockwise")
                 }
             }
 
-            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
-                favorite.toggle()
-                media.setLocalFavorite(favorite, for: subject)
-                Task { await media.setFavorite(favorite, for: subject) }
-            }) {
-                tvSecondaryAction(favorite ? "In Favorites" : "Add to Favorites",
-                                  symbol: favorite ? "heart.fill" : "heart")
+            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: toggleDetailFavorite) {
+                tvTitleGlyph(favoriteAction, symbol: favorite ? "heart.fill" : "heart", selected: favorite)
             }
 
-            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
-                let value = !media.isWatched(subject)
-                Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
-            }) {
-                tvSecondaryAction(watched ? "Watched" : "Mark Watched",
-                                  symbol: watched ? "eye.fill" : "eye")
+            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: toggleDetailWatched) {
+                tvTitleGlyph(watchedAction, symbol: watched ? "checkmark.circle.fill" : "checkmark.circle", selected: watched)
+            }
+            if siloExtras != nil {
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: toggleSiloWatchlist) {
+                    tvTitleGlyph(inWatchlist ? "Remove from Watchlist" : "Add to Watchlist",
+                                 symbol: inWatchlist ? "bookmark.fill" : "bookmark", selected: inWatchlist)
+                }
+            }
+            if let themes = siloExtras?.themes, let first = themes.first {
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
+                    if activeThemeID != nil { stopTheme() }
+                    else if themes.count == 1 { playTheme(first) }
+                    else { choosingTheme = true }
+                }) {
+                    tvTitleGlyph(activeThemeID == nil ? "Theme Music" : "Stop Theme",
+                                 symbol: activeThemeID == nil ? "music.note" : "stop.fill")
+                }
             }
         }
         .lineupFocusRegion()
     }
 
-    private func tvSecondaryAction(_ title: String, symbol: String) -> some View {
-        LineupTileLabel(title: title, symbol: symbol, tileSize: 32)
-            .font(.inter(17, .semibold))
-            .padding(.leading, 10).padding(.trailing, 20).frame(height: 52)
-            .modifier(TVMediaActionSurface())
+    private func tvTitleGlyph(_ label: String, symbol: String, prominent: Bool = false, selected: Bool = false) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 25, weight: .semibold))
+            .symbolRenderingMode(.monochrome)
+            .frame(width: prominent ? 74 : 56, height: 54)
+            .modifier(TVMediaActionSurface(prominent: prominent, selected: selected))
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
     #endif
 
@@ -404,70 +450,65 @@ struct MediaDetailScreen: View {
         return media.seriesPlayTarget(in: subject, fallbackEpisodes: episodes, serverNext: nextUp)
     }
 
+    private var canResume: Bool { playTarget.flatMap { media.resumePosition(for: $0) } != nil }
+    private var resumeAction: String { canResume ? "Resume" : "Play" }
+    private var favoriteAction: String { favorite ? "Remove from Favorites" : "Add to Favorites" }
+    private var watchedAction: String { watched ? "Mark Unwatched" : "Mark Watched" }
+
+    private func choosePlayback(_ item: MediaItem?, fromBeginning: Bool = false) {
+        guard let item else { return }
+        startingOver = fromBeginning
+        chosen = item
+    }
+
+    private func toggleDetailFavorite() {
+        favorite.toggle()
+        media.setLocalFavorite(favorite, for: subject)
+        Task { await media.setFavorite(favorite, for: subject) }
+    }
+
+    private func toggleDetailWatched() {
+        let value = !watched
+        Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
+    }
+
+    #if !os(tvOS)
     private var actions: some View {
         VStack(alignment: detailActionAlignment, spacing: 10) {
-            HStack(spacing: 8) {
-                Button { chosen = playTarget } label: {
-                    playLabel
-                        #if os(tvOS)
-                        .modifier(MediaChromeFocus())
-                        #endif
-                }
-                #if os(tvOS)
-                .lineupFlatButton()
-                #else
-                .buttonStyle(MobileLibraryDetailButtonStyle())
-                #endif
-                .disabled(playTarget == nil)
-                #if os(tvOS)
-                .opacity(playTarget == nil ? 0.45 : 1)
-                #endif
-
-                // Keep the Library useful even when a server cannot write user
-                // state, while still mirroring the choice back when it can.
-                Group {
-                    iconButton("heart", on: favorite) {
-                        favorite.toggle()
-                        media.setLocalFavorite(favorite, for: subject)
-                        Task { await media.setFavorite(favorite, for: subject) }
-                    }
-                    iconButton("eye", on: watched) {
-                        let value = !media.isWatched(subject)
-                        Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
+            HStack(spacing: 6) {
+                Button { choosePlayback(playTarget) } label: { playLabel }
+                    .buttonStyle(MobileLibraryDetailButtonStyle(selected: true))
+                    .disabled(playTarget == nil)
+                if canResume {
+                    iconButton("arrow.counterclockwise", label: "Start Over") {
+                        choosePlayback(playTarget, fromBeginning: true)
                     }
                 }
-                // Nothing to shuffle through on a film.
+                iconButton(favorite ? "heart.fill" : "heart", label: favoriteAction, selected: favorite,
+                           action: toggleDetailFavorite)
+                iconButton(watched ? "checkmark.circle.fill" : "checkmark.circle", label: watchedAction, selected: watched,
+                           action: toggleDetailWatched)
+                if siloExtras != nil { watchlistButton }
                 if subject.isSeries {
-                    iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
+                    iconButton("shuffle", label: "Shuffle Episodes") { choosePlayback(episodes.randomElement() ?? playTarget) }
                         .disabled(episodes.isEmpty)
                 }
             }
             if media.seerr.isConnected {
                 NavigationLink { SeerrLibraryRequestView(item: subject).environment(media) } label: {
-                    #if os(tvOS)
-                    Label("Seerr", systemImage: "tray.and.arrow.down")
-                    #else
                     HStack(spacing: 8) {
                         Image("SeerrLogo").renderingMode(.original).resizable().scaledToFit()
                             .frame(width: 22, height: 22).accessibilityHidden(true)
                         Text("Seerr")
                     }.padding(.horizontal, 14)
-                    #endif
                 }
-                #if os(tvOS)
-                .lineupButtonStyle()
-                #else
                 .buttonStyle(MobileLibraryDetailButtonStyle())
-                #endif
             }
         }
-        #if !os(tvOS)
         .frame(maxWidth: .infinity, alignment: .center)
-        #endif
         .lineupFocusRegion()
     }
 
-    #if !os(tvOS)
     /// A chart title's page: Play stays in its place, greyed, with what it
     /// takes to play it. With a source connected, the title is looked for there.
     private var catalogActions: some View {
@@ -510,56 +551,29 @@ struct MediaDetailScreen: View {
         #endif
     }
 
-    /// iPhone uses a compact transport glyph with a spoken Play/Resume label;
-    /// television retains its existing text and episode-code label.
-    @ViewBuilder
+    #if !os(tvOS)
     private var playLabel: some View {
-        #if !os(tvOS)
         Image(systemName: "play.fill")
-            .font(.system(size: 20, weight: .bold))
-            .foregroundStyle(LineupStyle.highlight)
+            .font(.system(size: 21, weight: .semibold))
+            .symbolRenderingMode(.monochrome)
             .frame(width: buttonHeight, height: buttonHeight)
-            .accessibilityLabel(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
+            .accessibilityLabel(resumeAction)
             .accessibilityValue(playTarget?.episodeCode ?? subject.name)
-        #else
-        let text = HStack(spacing: 10) {
-            LineupIconTile(symbol: "play.fill", size: 26)
-            Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
-                .font(.inter(17, .heavy))
-            if let code = playTarget?.episodeCode {
-                // Quieter than the word beside it, on the same dark surface
-                // both platforms now use.
-                Text(code).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-            }
-        }
-        .font(.inter(17))
-        text.padding(.horizontal, 22).frame(height: buttonHeight)
-        #endif
     }
 
-    @ViewBuilder
-    private func iconButton(_ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
-        #if os(tvOS)
-        // The reference app's tile, in its own colour while on and grey
-        // while off, standing in for the button it is.
-        let label = LineupIconTile(symbol: symbol, size: buttonHeight,
-                                   tint: on ? nil : LineupIconTile.gray)
-            .overlay(RoundedRectangle(cornerRadius: buttonHeight * 0.26, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-            .modifier(MediaChromeFocus())
-        TVSelectable(scale: LineupStyle.controlLift, action: action) { label }
-        #else
+    private func iconButton(_ symbol: String, label: String, selected: Bool = false,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: on && ["heart", "eye"].contains(symbol) ? symbol + ".fill" : symbol)
+            Image(systemName: symbol)
                 .font(.system(size: 21, weight: .semibold))
+                .symbolRenderingMode(.monochrome)
                 .frame(width: buttonHeight, height: buttonHeight)
         }
-        .buttonStyle(MobileLibraryDetailButtonStyle(selected: on))
-        .accessibilityLabel(symbol == "heart" ? (on ? "Remove from Favorites" : "Add to Favorites")
-            : symbol == "eye" ? (on ? "Mark Unwatched" : "Mark Watched") : "Shuffle Episodes")
-        .accessibilityAddTraits(on && symbol != "shuffle" ? [.isSelected] : [])
-        #endif
+        .buttonStyle(MobileLibraryDetailButtonStyle(selected: selected))
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
+    #endif
 
     @ViewBuilder
     private var overview: some View {
@@ -636,7 +650,7 @@ struct MediaDetailScreen: View {
                     LazyHStack(alignment: .top, spacing: 22) {
                         ForEach(episodes) { episode in
                             MediaEpisodeCard(episode: episode,
-                                             onPlay: { startingOver = false; chosen = episode },
+                                             onPlay: { choosePlayback(episode) },
                                              onSummary: { summaryItem = episode })
                             .frame(width: 420, alignment: .topLeading)
                         }
@@ -652,7 +666,7 @@ struct MediaDetailScreen: View {
                             MediaEpisodeCard(episode: episode)
                                 .lineupHoldMenu(episode.name, symbol: "tv",
                                                 items: { media.episodeMenuItems(for: episode) }) {
-                                    chosen = episode
+                                    choosePlayback(episode)
                                 }
                                 .frame(width: 265)
                         }
@@ -667,9 +681,16 @@ struct MediaDetailScreen: View {
 
     // MARK: - More about this title
 
+    /// The title's trailers: the server's own, or on a Silo title with none,
+    /// the ones Silo found.
+    private var trailerList: [MediaTrailer] {
+        let own = subject.remoteTrailers ?? []
+        return own.isEmpty ? (siloExtras?.trailers ?? []) : own
+    }
+
     @ViewBuilder
     private var trailersSection: some View {
-        let trailers = (subject.remoteTrailers ?? []).compactMap { trailer -> (String, URL, URL?)? in
+        let trailers = trailerList.compactMap { trailer -> (String, URL, URL?)? in
             guard let address = trailer.url, let url = URL(string: address),
                   ["https", "http"].contains(url.scheme?.lowercased() ?? "") else { return nil }
             return (trailer.name ?? "Trailer", url, trailer.thumbnailURL)
@@ -681,7 +702,7 @@ struct MediaDetailScreen: View {
                     LazyHStack(spacing: 14) {
                         ForEach(trailers.indices, id: \.self) { index in
                             #if os(tvOS)
-                            TVSelectable(action: { openURL(trailers[index].1) }) {
+                            TVSelectable(action: { openTVTrailer(trailers[index].1) }) {
                                 trailerCard(title: trailers[index].0, thumbnail: trailers[index].2)
                             }
                             #else
@@ -735,7 +756,7 @@ struct MediaDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(cast) { person in
-                            VStack(alignment: .leading, spacing: 6) {
+                            let portrait = VStack(alignment: .leading, spacing: 6) {
                                 ZStack {
                                     #if os(tvOS)
                                     RoundedRectangle(cornerRadius: 12).fill(LineupStyle.surface)
@@ -761,6 +782,17 @@ struct MediaDetailScreen: View {
                                 }
                             }
                             .frame(width: castPortraitWidth, alignment: .leading)
+                            #if os(tvOS)
+                            if siloExtras?.people[person.name] != nil {
+                                TVSelectable(action: { openSiloPerson(named: person.name) }) { portrait }
+                            } else {
+                                portrait
+                            }
+                            #else
+                            portrait.contentShape(Rectangle())
+                                .onTapGesture { openSiloPerson(named: person.name) }
+                                .accessibilityAddTraits(siloExtras?.people[person.name] == nil ? [] : .isButton)
+                            #endif
                         }
                     }
                     .padding(.horizontal, horizontalPadding)
@@ -779,14 +811,19 @@ struct MediaDetailScreen: View {
 
     @ViewBuilder
     private var relatedSection: some View {
-        if !related.isEmpty {
+        #if os(tvOS)
+        let titles = siloLikeThis.isEmpty ? related : siloLikeThis
+        #else
+        let titles = related
+        #endif
+        if !titles.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 // Named for what it holds, because a row of posters under a
                 // bare "Related" does not say whether it is offering films or
                 // series.
                 #if os(tvOS)
-                detailSectionTitle(subject.isSeries ? "Related Shows" : "Related Movies",
-                                   symbol: "square.stack")
+                detailSectionTitle(siloLikeThis.isEmpty ? (subject.isSeries ? "Related Shows" : "Related Movies")
+                                                       : "More Like This", symbol: "square.stack")
                 #else
                 detailSectionTitle(subject.isSeries ? "Similar Shows" : "Similar Movies", symbol: "square.stack")
                 #endif
@@ -798,7 +835,7 @@ struct MediaDetailScreen: View {
                 #else
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: relatedItemSpacing) {
-                        ForEach(related, id: \.libraryKey) { title in
+                        ForEach(titles, id: \.libraryKey) { title in
                             Group {
                                 #if os(tvOS)
                                 TVSelectable(drawsFocusChrome: false, action: { pushed = title }) {
@@ -1120,13 +1157,7 @@ struct MediaDetailScreen: View {
         LineupPanelStyle.inset
         #endif
     }
-    private var buttonHeight: CGFloat {
-        #if os(tvOS)
-        50
-        #else
-        50
-        #endif
-    }
+    private var buttonHeight: CGFloat { 46 }
     private var trailerWidth: CGFloat {
         #if os(tvOS)
         360
@@ -1154,13 +1185,18 @@ struct MediaDetailScreen: View {
 /// Detail actions keep their pill silhouette at all times and communicate
 /// focus with a clean fill, never with a second rectangular frame around the
 /// button's bounds.
-struct TVMediaActionSurface: ViewModifier {
+private struct TVMediaActionSurface: ViewModifier {
     @Environment(\.lineupTVSelectableFocused) private var focused
+    let prominent: Bool
+    let selected: Bool
 
     func body(content: Content) -> some View {
+        let fill = prominent ? Color.white : Color.black.opacity(focused ? 0.78 : 0.55)
+        let glyph = prominent ? Color.black : selected ? LineupStyle.highlight : Color.white
         content
-            .foregroundStyle(LineupStyle.lightPurple)
-            .background(Color.black.opacity(0.58), in: Capsule())
+            .foregroundStyle(glyph)
+            .background(fill, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(focused ? 0.64 : 0.20), lineWidth: 1))
             .lineupFocusLayer(focused, in: Capsule())
             .lineupShadow(.lifted, on: focused)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)
@@ -1322,6 +1358,13 @@ struct MediaPlayableCard: View {
     let item: MediaItem
     var shape: MediaArtShape = .poster
     var onFocusChange: ((Bool) -> Void)? = nil
+    #if os(tvOS)
+    var leadingTVChoices: () -> [TVChoice] = { [] }
+    #else
+    /// What a held touch offers before the usual choices: taking a card off
+    /// a server's own Continue Watching, say.
+    var leadingMenuItems: () -> [MobileMenuItem] = { [] }
+    #endif
     /// Only for a card shown outside the Library tab, which has no tab to
     /// hand the title to.
     @State private var choosingSource = false
@@ -1331,16 +1374,18 @@ struct MediaPlayableCard: View {
         TVSelectable(drawsFocusChrome: false, action: choose, onFocusChange: onFocusChange) {
             MediaItemCard(item: item, shape: shape)
         }
-            .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") { media.tvCardChoices(for: item) }
+            .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") {
+                leadingTVChoices() + media.tvCardChoices(for: item)
+            }
             .lineupFullScreenCover(isPresented: $choosingSource) {
-                MediaSourcePicker(item: item)
+                MediaSourcePicker(item: item, scope: streamScope)
             }
         #else
         MediaItemCard(item: item, shape: shape)
             .lineupHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film",
-                            items: { media.cardMenuItems(for: item) }, action: choose)
+                            items: { leadingMenuItems() + media.cardMenuItems(for: item) }, action: choose)
             .lineupFullScreenCover(isPresented: $choosingSource) {
-                MediaSourcePicker(item: item)
+                MediaSourcePicker(item: item, scope: streamScope)
             }
         #endif
     }
@@ -1423,3 +1468,147 @@ extension MediaLibrary {
     }
 }
 #endif
+
+// MARK: - Silo on a title's page
+
+extension MediaDetailScreen {
+    /// What Silo adds to the page of a film or show from a Silo server.
+    fileprivate func loadSiloExtras() async {
+        siloExtras = nil; siloLikeThis = []; inWatchlist = false; siloProfileID = nil
+        guard ["Movie", "Series"].contains(item.type), let server = media.siloServer(of: item) else { return }
+        guard let found = try? await server.client.siloTitleExtras(itemID: item.id, isMovie: item.type == "Movie"),
+              !Task.isCancelled else { return }
+        siloProfileID = server.profile.id
+        siloExtras = found
+        inWatchlist = found.inWatchlist
+        // Opened from Silo's own Library: Silo's More Like This, from what
+        // is on the server, in place of the suggestions from TMDB.
+        guard pageScope == server.profile.id,
+              let similar = try? await server.client.siloSimilar(itemID: item.id), !Task.isCancelled else { return }
+        siloLikeThis = similar.map { $0.servedBy(server.profile.id) }
+    }
+
+    fileprivate func toggleSiloWatchlist() {
+        guard !savingWatchlist, let server = media.siloServer(of: item) else { return }
+        let on = !inWatchlist
+        inWatchlist = on
+        savingWatchlist = true
+        Task {
+            defer { savingWatchlist = false }
+            do { try await server.client.siloSetWatchlist(itemID: item.id, on: on) }
+            catch { inWatchlist = !on }
+        }
+    }
+
+    fileprivate func openSiloPerson(named name: String) {
+        guard let id = siloExtras?.people[name], let profile = siloProfileID else { return }
+        #if os(tvOS)
+        siloPerson = TVSiloPersonRoute(profileID: profile, personID: id, name: name)
+        #else
+        siloPerson = MobileSiloPersonRoute(profileID: profile, personID: id, name: name)
+        #endif
+    }
+
+    #if !os(tvOS)
+    fileprivate var watchlistButton: some View {
+        Button(action: toggleSiloWatchlist) {
+            Image(systemName: inWatchlist ? "bookmark.fill" : "bookmark")
+                .font(.system(size: 21, weight: .semibold))
+                .frame(width: buttonHeight, height: buttonHeight)
+        }
+        .buttonStyle(MobileLibraryDetailButtonStyle(selected: inWatchlist))
+        .accessibilityLabel(inWatchlist ? "Remove from Watchlist" : "Add to Watchlist")
+    }
+
+    /// The films of a film's box set the server has, in order.
+    @ViewBuilder
+    fileprivate var siloBoxSetSection: some View {
+        if let set = siloExtras?.boxSet, let profile = siloProfileID {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    detailSectionTitle(set.title, symbol: "rectangle.stack")
+                    let facts = [set.years, "\(set.items.count) movies"].compactMap { $0 }.joined(separator: " · ")
+                    Text(facts).font(.inter(.caption, .semibold))
+                        .foregroundStyle(LineupPresentationStyle.secondary)
+                        .padding(.horizontal, horizontalPadding)
+                }
+                MobileLibraryShelf(items: set.items.map { $0.servedBy(profile) }, shape: .poster) { title in
+                    guard title.id != item.id else { return }
+                    pushed = title
+                }
+            }
+            .modifier(PhoneDetailPanel())
+        }
+    }
+
+    /// Silo's More Like This, on a page opened from Silo's own Library.
+    @ViewBuilder
+    fileprivate var siloLikeThisSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            detailSectionTitle("More Like This", symbol: "square.stack")
+            MobileLibraryShelf(items: siloLikeThis, shape: .poster) { pushed = $0 }
+        }
+        .modifier(PhoneDetailPanel())
+    }
+    #else
+    @ViewBuilder
+    fileprivate var tvSiloBoxSetSection: some View {
+        if let set = siloExtras?.boxSet, let profile = siloProfileID {
+            VStack(alignment: .leading, spacing: 14) {
+                detailSectionTitle("Box Set", symbol: "rectangle.stack")
+                TVServerLibraryChip(title: set.title, symbol: "rectangle.stack", detail: set.years, chosen: false) {
+                    siloBoxSet = TVSiloBoxSetRoute(profileID: profile, set: set)
+                }
+                .padding(.horizontal, horizontalPadding)
+            }
+            .lineupFocusRegion()
+        }
+    }
+
+    fileprivate func playTheme(_ theme: SiloThemeTrack) {
+        guard let server = media.siloServer(of: item) else { return }
+        stopTheme()
+        activeThemeID = theme.id
+        let ownerID = siloExtras?.themeOwnerID ?? item.id
+        themeTask = Task {
+            do {
+                let url = try await server.client.siloThemePlaybackURL(itemID: ownerID, themeID: theme.id)
+                guard !Task.isCancelled else { return }
+                let asset = AVURLAsset(url: url)
+                guard try await asset.load(.isPlayable) else { throw MediaIntegrationError.invalidResponse }
+                guard !Task.isCancelled else { return }
+                themePlayer.replaceCurrentItem(with: AVPlayerItem(asset: asset))
+                themePlayer.play()
+            } catch {
+                guard !Task.isCancelled else { return }
+                stopTheme()
+                themeUnavailable = true
+            }
+        }
+    }
+
+    fileprivate func stopTheme() {
+        themeTask?.cancel()
+        themeTask = nil
+        themePlayer.pause()
+        themePlayer.replaceCurrentItem(with: nil)
+        activeThemeID = nil
+    }
+
+    fileprivate func openTVTrailer(_ url: URL) {
+        stopTheme()
+        guard var route = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              ["youtube.com", "www.youtube.com", "m.youtube.com"].contains(route.host?.lowercased() ?? ""),
+              route.path == "/watch", route.queryItems?.contains(where: { $0.name == "v" }) == true else {
+            openURL(url)
+            return
+        }
+        route.host = "www.youtube.com"
+        route.scheme = "youtube"
+        guard let appURL = route.url else { return }
+        openURL(appURL) { accepted in
+            if !accepted { trailerUnavailable = true }
+        }
+    }
+    #endif
+}

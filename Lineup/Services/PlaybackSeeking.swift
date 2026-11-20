@@ -1,7 +1,7 @@
 import Foundation
 
 enum PlaybackSeekPolicy {
-    static let remoteTapSkip = 15.0
+    static let remoteTapSkip = 60.0
 
     static func remoteCommandTarget(from seconds: Double, direction: Double, duration: Double) -> Double {
         let step = direction < 0 ? -remoteTapSkip : remoteTapSkip
@@ -114,4 +114,23 @@ final class PlaybackSeekCoalescer {
     }
 
     deinit { task?.cancel() }
+}
+
+struct PlaybackChapter: Hashable, Sendable {
+    let start: Double
+    let title: String?
+
+    static func ordered(_ entries: [Self], duration: Double? = nil) -> [Self] {
+        var seen = Set<Double>()
+        return entries.filter { entry in
+            entry.start.isFinite && entry.start >= 0 && (duration.map { $0 <= 0 || entry.start < $0 } ?? true)
+        }.sorted { $0.start < $1.start }.filter { seen.insert($0.start).inserted }
+    }
+
+    func label(at index: Int) -> String {
+        guard let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Chapter \(index + 1)"
+        }
+        return title
+    }
 }

@@ -303,24 +303,24 @@ private struct TVSkipSegmentButton: View {
 
     var body: some View {
         let shape = Capsule()
-        HStack(spacing: 14) {
-            LineupIconTile(symbol: "forward.end.fill", size: 38)
-            Text(action.title).font(.inter(24, .bold)).foregroundStyle(LineupStyle.text)
+        Button(action: skip) {
+            HStack(spacing: 14) {
+                LineupIconTile(symbol: "forward.end.fill", size: 38)
+                Text(action.title).font(.inter(24, .bold)).foregroundStyle(LineupStyle.text)
+            }
+            .padding(.leading, 12).padding(.trailing, 30)
+            .frame(height: 66)
+            .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .lineupFocusLayer(focused.wrappedValue, in: shape, lifts: false)
+            // Over the picture, a clear rise rather than a frame.
+            .brightness(focused.wrappedValue ? 0.12 : 0)
+            .scaleEffect(focused.wrappedValue ? 1.08 : 1)
+            .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
+            .contentShape(shape)
         }
-        .padding(.leading, 12).padding(.trailing, 30)
-        .frame(height: 66)
-        .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
-        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .lineupFocusLayer(focused.wrappedValue, in: shape, lifts: false)
-        // Over the picture, a clear rise rather than a frame.
-        .brightness(focused.wrappedValue ? 0.12 : 0)
-        .scaleEffect(focused.wrappedValue ? 1.08 : 1)
-        .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
-        .contentShape(shape)
-        .focusable()
+        .lineupFlatButton()
         .focused(focused)
-        .focusEffectDisabled()
-        .onTapGesture(perform: skip)
         .onExitCommand(perform: decline)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(action.title)
@@ -391,6 +391,7 @@ struct PlayerView: View {
     /// Told when the title played to its end, before the player closes, so
     /// the screen beneath can lead on from it.
     var onReachedEnd: (() -> Void)? = nil
+    private let onClose: (() -> Void)?
     /// A Library title's intro, recap and credits from IntroDB, as the
     /// phone's player has them.
     var segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil
@@ -401,6 +402,15 @@ struct PlayerView: View {
     /// The server's scrubbing thumbnails for the copy playing, where it
     /// has them.
     var seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil
+    private let sourceChapters: [PlaybackChapter]
+    @State private var playbackOptionsOpen = false
+    @AppStorage("Lineup.player.autoPlayNext.v1") private var autoPlayNext = false
+    private var chapters: [PlaybackChapter] {
+        guard !isLive else { return [] }
+        return PlaybackChapter.ordered(sourceChapters.isEmpty ? controller.chapters : sourceChapters,
+                                       duration: controller.duration)
+    }
+
     /// An episode's season, for the Episodes button.
     var episodeList: TVEpisodeList? = nil
     /// The season's episodes, once fetched.
@@ -505,7 +515,8 @@ struct PlayerView: View {
          subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil,
          trackMemoryShow: String? = nil,
          seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil,
-         episodes: TVEpisodeList? = nil,
+         sourceChapters: [PlaybackChapter] = [],
+         episodes: TVEpisodeList? = nil, onClose: (() -> Void)? = nil,
          continuing preview: TVPreviewHandoff? = nil, playbackController: TVPlaybackController? = nil) {
         self.urls = urls
         self.title = title
@@ -523,10 +534,12 @@ struct PlayerView: View {
         self.onChannelChange = onChannelChange
         self.nextEpisode = nextEpisode
         self.onReachedEnd = onReachedEnd
+        self.onClose = onClose
         self.segmentsLookup = segmentsLookup
         self.subtitleIdentityLookup = subtitleIdentityLookup
         self.trackMemoryShow = trackMemoryShow
         self.seekPreviewLookup = seekPreviewLookup
+        self.sourceChapters = sourceChapters
         self.episodeList = episodes
         self.recordingOnly = recordingOnly
         _controller = StateObject(wrappedValue: preview?.controller ?? playbackController ?? TVPlaybackController())
@@ -581,57 +594,46 @@ struct PlayerView: View {
                 .overlay { TVPlaybackStatus(controller: controller) }
                 .padding(.trailing, statsInset)
                 .background(Color.black).ignoresSafeArea()
-            // Hiding the chrome removes every focusable view, and the remote
-            // only reaches a view that holds focus, so this stands in for it
-            // and summons the chrome back on any press.
-            //
-            // It is a sibling of the video rather than a set of modifiers on
-            // their shared container. A modifier that comes and goes gives the
-            // container a new identity, which rebuilds the video surface with
-            // it, and a rebuilt surface loses the drawable VLC is decoding
-            // into: the picture stops while the audio carries on. Siblings
-            // appear and disappear without disturbing the surface, which is
-            // why the chrome itself has always been safe to toggle.
-            //
-            // Nothing consumes a direction while the chrome is up either, so
-            // focus can move between the seek bar and the buttons.
-            //
-            // With the controls away, Up and Down change channel, Left and
-            // Right step back and on through a channel the provider records,
-            // and Select answers an alert when one is up.
-            if !controlsVisible {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .focusable()
-                    .focused($surfaceFocused)
-                    .onMoveCommand(perform: moveWithControlsHidden)
-                    .onTapGesture {
-                        if let alert = visibleAlert { watch(alert.game) } else { revealControls(focus: true) }
-                    }
-                    .padding(.trailing, statsInset)
-            }
-            if controlsVisible && controller.error == nil {
+            // Keep the remote target mounted while the stream changes. The
+            // video surface also stays mounted to preserve its drawable.
+            Color.clear
+                .contentShape(Rectangle())
+                .focusable(!controlsVisible || controller.error != nil)
+                .focused($surfaceFocused)
+                .onMoveCommand(perform: moveWithControlsHidden)
+                .onTapGesture {
+                    if let alert = visibleAlert { watch(alert.game) } else { revealControls(focus: true) }
+                }
+                .padding(.trailing, statsInset)
+            if controlsVisible && controller.error == nil && !playbackOptionsOpen {
                 TVPlayerChrome(title: controller.activeChannelName ?? chosenTitle ?? title,
                     program: channelProgram, synopsis: synopsis, isLive: isLive, controller: controller,
                     focusedControl: $focusedControl, lastChannelName: lastChannel?.name,
                     alert: visibleAlert, onInteraction: keepControlsVisible,
-                    onChooserChange: chooserChanged,
                     onLastChannel: { if let lastChannel { tune(lastChannel) } },
                     onWatchAlert: { if let alert = visibleAlert { watch(alert.game) } },
                     onChooseChannel: chooseChannelAction,
                     statsShown: statsShown,
                     onToggleStats: statsGame == nil ? nil : toggleStats,
-                    onFindSubtitles: findSubtitlesAction,
-                    onSubtitleSettings: isLive ? nil : { subtitleSettingsShown = true },
                     seekPreview: seekPreview.store,
+                    chapters: chapters, onOptions: openPlaybackOptions,
+                    onClose: { close(because: "Close selected") },
                     onShowEpisodes: showsEpisodesButton ? showEpisodes : nil,
                     episodes: episodesShown
                         ? TVEpisodesShown(season: episodeList?.season, episodes: episodeChoices,
                                           loading: !episodesLoaded, choose: chooseEpisode, close: closeEpisodes)
                         : nil,
-                    onUpToNextEpisode: showsNextEpisode ? { nextEpisodeFocused = true } : nil)
+                    onUpToPlaybackOffer: showsNextEpisode || showsSkip ? { focusPicture() } : nil)
                     .padding(.trailing, statsInset)
                     .transition(.opacity)
+            }
+            if playbackOptionsOpen, controller.error == nil {
+                PlaybackOptionsPanel(tabs: PlaybackOptionsTab.allCases.filter { $0 != .chapters || !chapters.isEmpty },
+                                     close: closePlaybackOptions, rows: playbackOptionRows)
+                    .frame(maxWidth: 1250)
+                    .padding(.horizontal, 72).padding(.top, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(.container, edges: .top)
             }
             if statsShown, let statsGame {
                 TVGameStatsPanel(stats: gameStats, autoSync: autoSync, game: statsGame,
@@ -668,6 +670,10 @@ struct PlayerView: View {
                 TVSkipSegmentButton(action: skipAction, focused: $skipFocused,
                                     skip: { skip(skipAction) },
                                     decline: { declineSkip(skipAction) })
+                    .onMoveCommand { direction in
+                        if direction == .down && controlsVisible { focusAfterSkip() }
+                        else if !controlsVisible { moveWithControlsHidden(direction) }
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     // Above the seek bar and buttons while they are up.
                     .padding(.trailing, 80).padding(.bottom, controlsVisible ? 360 : 72)
@@ -703,7 +709,9 @@ struct PlayerView: View {
         // closes the player from there. One press used to end the film even
         // when it was only meant to clear the screen.
         .onExitCommand {
-            if episodesShown {
+            if playbackOptionsOpen {
+                closePlaybackOptions()
+            } else if episodesShown {
                 closeEpisodes()
             } else if controlsVisible && controller.error == nil {
                 hideControls()
@@ -755,7 +763,7 @@ struct PlayerView: View {
             seekPreview.store.cancel()
             finishPlayback()
         }
-        .lineupFullScreenCover(isPresented: $findingSubtitles, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
+        .lineupFullScreenCover(isPresented: $findingSubtitles, onDismiss: { revealControls(focus: true, on: .playbackOptions) }) {
             if let subtitleIdentityLookup {
                 TVOnlineSubtitlesScreen(name: synopsis?.title ?? title, identity: subtitleIdentityLookup) { data, subtitle in
                     try await controller.addOnlineSubtitle(data, title: subtitle.title, language: subtitle.language,
@@ -763,7 +771,7 @@ struct PlayerView: View {
                 }
             }
         }
-        .lineupFullScreenCover(isPresented: $subtitleSettingsShown, onDismiss: { revealControls(focus: true, on: .subtitles) }) {
+        .lineupFullScreenCover(isPresented: $subtitleSettingsShown, onDismiss: { revealControls(focus: true, on: .playbackOptions) }) {
             TVSubtitleSettingsScreen(controller: controller)
         }
         // The server's thumbnails for this copy, as the phone's player asks.
@@ -853,8 +861,8 @@ struct PlayerView: View {
         // Skip takes the remote when it appears over a bare picture, so one
         // press of Select skips; with the controls up it waits above them.
         .onChange(of: showsSkip) { _, shown in
-            if shown, !controlsVisible { skipFocused = true }
-            else if !shown, skipFocused { surfaceFocused = true }
+            if shown, !controlsVisible { focusPicture() }
+            else if !shown, skipFocused { focusAfterSkip() }
         }
         .animation(.easeInOut(duration: 0.3), value: showsSkip)
         .animation(.easeInOut(duration: 0.3), value: postCreditsAhead)
@@ -864,6 +872,7 @@ struct PlayerView: View {
         .onChange(of: controller.finished) { _, finished in
             guard finished else { return }
             onReachedEnd?()
+            if autoPlayNext { nextEpisode?.play() }
             close(because: "Reached the end")
         }
         // Next Episode takes the remote when it appears over the picture, so
@@ -875,8 +884,16 @@ struct PlayerView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: showsNextEpisode)
         .onChange(of: controller.isPlaying) { _, playing in
-            if playing { scheduleAutoHide() }
-            else { hideControlsTask?.cancel(); controlsVisible = true }
+            if playing {
+                scheduleAutoHide()
+            } else {
+                hideControlsTask?.cancel()
+                // Tuning and rebuffering briefly report false. Leave the
+                // picture focused so the next Up or Down still tunes.
+                if !isLive && !skipFocused && !nextEpisodeFocused {
+                    controlsVisible = true
+                }
+            }
         }
         // Moving from one control to the next is using the controls. The
         // countdown used to run from when they appeared, so they went away
@@ -884,16 +901,126 @@ struct PlayerView: View {
         .onChange(of: focusedControl) { _, control in
             if control != nil, controlsVisible { scheduleAutoHide() }
         }
+        .onChange(of: skipFocused) { _, focused in
+            if focused, controlsVisible { scheduleAutoHide() }
+        }
+        .onChange(of: controller.error) { _, error in
+            if error != nil && !statsEntryFocused { surfaceFocused = true }
+        }
         .animation(.easeInOut(duration: 0.22), value: controlsVisible)
+        .animation(.easeInOut(duration: 0.18), value: playbackOptionsOpen)
         .animation(.easeInOut(duration: 0.3), value: statsShown)
         .animation(.easeInOut(duration: 0.22), value: channelBanner?.id)
         .animation(.easeInOut(duration: 0.3), value: visibleAlert?.id)
     }
 
+    private func openPlaybackOptions() {
+        hideControlsTask?.cancel()
+        focusedControl = nil
+        playbackOptionsOpen = true
+    }
+
+    private func closePlaybackOptions() {
+        playbackOptionsOpen = false
+        revealControls(focus: true, on: .playbackOptions)
+    }
+
+    private func playbackOptionRows(_ tab: PlaybackOptionsTab) -> [PlaybackOptionRow] {
+        let media = controller.mediaInfo
+        switch tab {
+        case .info:
+            var rows = [PlaybackOptionRow(title: synopsis?.title ?? channelProgram?.title ?? title,
+                                          detail: synopsis?.subtitle),
+                        .init(title: "Playback engine", detail: controller.engineTitle),
+                        .init(title: "Audio", detail: controller.selectedAudioTitle),
+                        .init(title: "Subtitles", detail: controller.selectedSubtitleTitle)]
+            if let description = synopsis?.detail ?? channelProgram?.detail, !description.isEmpty {
+                rows.insert(.init(title: description), at: 1)
+            }
+            if let index = chapters.lastIndex(where: { $0.start <= controller.elapsed }) {
+                rows.append(.init(title: "Chapter", detail: chapters[index].label(at: index)))
+            }
+            return rows
+        case .stats:
+            let status = controller.reconnecting ? "Reconnecting" : controller.isPlaying ? "Playing" : "Paused"
+            var rows = [PlaybackOptionRow(title: "Playback", detail: status),
+                        .init(title: "Engine", detail: controller.engineTitle),
+                        .init(title: "Quality", detail: controller.qualityLabel)]
+            if !media.badges.isEmpty { rows.append(.init(title: "Formats", detail: media.badges.joined(separator: " · "))) }
+            if let host = urls.first?.host { rows.append(.init(title: "Source", detail: host)) }
+            return rows + PlaybackOptionRow.metrics(buffer: controller.forwardBufferSeconds, dropped: controller.droppedFrames,
+                                   network: controller.networkMbps)
+        case .video:
+            var rows = controller.videoTracks.map { track in
+                PlaybackOptionRow(title: track.title, selected: track.id == controller.selectedVideoTrackID,
+                                  key: "video-\(track.id)", action: { controller.selectVideoTrack(track) })
+            }
+            if rows.isEmpty { rows.append(.init(title: "Source quality", detail: controller.qualityLabel)) }
+            if !isLive {
+                rows += PlaybackOptionRow.speedRows(controller.playbackSpeed, set: controller.setPlaybackSpeed)
+                if controller.canFillVideo {
+                    rows.append(.init(title: "Fit picture", selected: !controller.videoFills,
+                                      action: { controller.setVideoFill(false) }))
+                    rows.append(.init(title: "Fill screen", selected: controller.videoFills,
+                                      action: { controller.setVideoFill(true) }))
+                }
+                if nextEpisode != nil {
+                    rows.append(.init(title: "Auto-play next", detail: autoPlayNext ? "On" : "Off",
+                                      action: { autoPlayNext.toggle() }))
+                }
+            }
+            rows.append(.init(title: isLive ? "Refresh stream" : "Restart playback", action: {
+                controller.goLive()
+                closePlaybackOptions()
+            }))
+            return rows
+        case .audio:
+            var rows = controller.audioTracks.map { track in
+                PlaybackOptionRow(title: track.title, selected: track.id == controller.selectedAudioTrackID,
+                                  key: "audio-\(track.id)", action: { controller.selectAudioTrack(track) })
+            }
+            rows.append(.init(title: controller.isMuted ? "Unmute" : "Mute", action: controller.toggleMute))
+            if let codec = media.audioCodec { rows.append(.init(title: "Codec", detail: codec.uppercased())) }
+            if let channels = media.audioChannels { rows.append(.init(title: "Channels", detail: media.audioLayout ?? String(channels))) }
+            return rows.isEmpty ? [.init(title: "No audio track information")] : rows
+        case .subtitles:
+            var rows = controller.subtitleTracks.map { track in
+                PlaybackOptionRow(title: track.title, selected: track.id == controller.selectedSubtitleID,
+                                  key: track.id, action: { controller.selectSubtitle(track) })
+            }
+            if let findSubtitlesAction {
+                rows.append(.init(title: "Find subtitles online", action: {
+                    closePlaybackOptions()
+                    findSubtitlesAction()
+                }))
+            }
+            if !isLive {
+                rows += PlaybackOptionRow.subtitleTiming(controller.subtitleDelaySeconds, set: controller.setSubtitleDelay)
+                rows.append(.init(title: "Remember delay on this device",
+                                  detail: controller.remembersSubtitleDelay ? "On" : "Off",
+                                  action: controller.toggleRememberedSubtitleDelay))
+                if controller.canPositionSubtitles {
+                    rows.append(.init(title: "Subtitle position", detail: controller.subtitlesAtTop ? "Top" : "Bottom",
+                                      action: { controller.setSubtitlesAtTop(!controller.subtitlesAtTop) }))
+                }
+                rows.append(.init(title: "Subtitle appearance and language", detail: controller.subtitlePreferences.sizeName, action: {
+                    closePlaybackOptions()
+                    subtitleSettingsShown = true
+                }))
+            }
+            return rows
+        case .chapters:
+            return PlaybackOptionRow.chapterRows(chapters, position: controller.elapsed, clock: TVSeekBar.clock) { start in
+                controller.seek(to: start)
+                closePlaybackOptions()
+            }
+        }
+    }
+
     private func revealControls(focus: Bool = false, on control: TVPlayerControl? = nil) {
         controlsVisible = true
         if focus {
-            let destination = control ?? (showsEpisodesButton ? .episodes : .goLive)
+            let destination = control ?? (isLive ? .goLive : .playPause)
             Task { @MainActor in await Task.yield(); focusedControl = destination }
         }
         scheduleAutoHide()
@@ -1105,7 +1232,7 @@ struct PlayerView: View {
     /// while nothing else holds the bottom corner.
     private var showsSkip: Bool {
         guard let skipAction else { return false }
-        return !declinedSkips.contains(skipAction.kind) && controller.error == nil
+        return !declinedSkips.contains(skipAction.kind) && !episodesShown && controller.error == nil
             && !controller.isScrubbing && !showsNextEpisode
     }
 
@@ -1113,12 +1240,20 @@ struct PlayerView: View {
         PlaybackJournal.shared.note(action.title + " to " + PlaybackJournal.clock(action.destination))
         controller.seek(to: action.destination)
         skipAction = nil
-        surfaceFocused = true
+        focusAfterSkip()
     }
 
     private func declineSkip(_ action: TVSkipAction) {
         declinedSkips.insert(action.kind)
-        surfaceFocused = true
+        focusAfterSkip()
+    }
+
+    private func focusAfterSkip() {
+        if controlsVisible {
+            revealControls(focus: true, on: controller.duration > 0 ? .scrubber : nil)
+        } else {
+            focusPicture()
+        }
     }
 
     private func playNext(_ offer: TVNextEpisodeOffer) {
@@ -1168,7 +1303,8 @@ struct PlayerView: View {
             + (isLive ? "" : " at \(PlaybackJournal.clock(controller.elapsed))"))
         reportProgress(force: true)
         finishPlayback()
-        dismiss()
+        if let onClose { onClose() }
+        else { dismiss() }
     }
 
     /// Stops the player, or gives the preview's back to it still playing.
@@ -1223,7 +1359,7 @@ struct PlayerView: View {
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
-        guard controller.isPlaying, !chooserOpen, !controller.isScrubbing else { return }
+        guard controller.isPlaying, !chooserOpen, !playbackOptionsOpen, !controller.isScrubbing else { return }
         // Counted from the last press, not from when the controls appeared.
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(6)) } catch { return }
@@ -1240,17 +1376,13 @@ struct PlayerView: View {
 }
 
 private enum TVPlayerControl: Hashable {
-    case scrubber, goLive, startOver, mute, lastChannel, chooseChannel, stats, alert, subtitles, audio, video, quality
-    case episodes
+    case scrubber, goLive, startOver, mute, lastChannel, chooseChannel, stats, alert
+    case episodes, playbackOptions, close, skipBack, playPause, skipForward
     /// One of the season's episodes in the Episodes row, by its id.
     case episode(String)
 }
 
 private struct TVPlayerChrome: View {
-    @State private var showingQuality = false
-    @State private var showingSubtitles = false
-    @State private var showingAudio = false
-    @State private var showingVideo = false
     let title: String
     let program: CurrentProgram?
     let synopsis: TVPlayerSynopsis?
@@ -1262,7 +1394,6 @@ private struct TVPlayerChrome: View {
     /// An alert about another game, offered as a button while it is up.
     let alert: GameAlert?
     let onInteraction: () -> Void
-    let onChooserChange: (Bool) -> Void
     let onLastChannel: () -> Void
     let onWatchAlert: () -> Void
     /// Another channel for the game on screen, as on iPhone.
@@ -1270,24 +1401,25 @@ private struct TVPlayerChrome: View {
     let statsShown: Bool
     /// The live stats, for a game ESPN keeps an account of.
     let onToggleStats: (() -> Void)?
-    /// Find Subtitles Online and Subtitle Settings, for a Library title.
-    let onFindSubtitles: (() -> Void)?
-    let onSubtitleSettings: (() -> Void)?
     /// The server's scrubbing thumbnails, shown over the seek bar.
     let seekPreview: MobileSeekPreviewStore
+    let chapters: [PlaybackChapter]
+    let onOptions: () -> Void
+    let onClose: () -> Void
     /// The season's other episodes, for an episode with some.
     let onShowEpisodes: (() -> Void)?
     /// The Episodes row, while it is up. The seek bar and the buttons make
     /// way for it, and the time sits over it.
     let episodes: TVEpisodesShown?
-    /// Up from the seek bar, to the Next Episode card over the controls
-    /// while it is up. Nil when there is none.
-    var onUpToNextEpisode: (() -> Void)? = nil
+    /// Up from the seek bar reaches the Skip or Next Episode offer.
+    var onUpToPlaybackOffer: (() -> Void)? = nil
 
-    private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
 
     /// Keep the first visible action consistent with the order in the row.
-    private var firstAction: TVPlayerControl { onShowEpisodes == nil ? .goLive : .episodes }
+    private var firstAction: TVPlayerControl {
+        if !isLive { return .playPause }
+        return onShowEpisodes == nil ? .goLive : .episodes
+    }
 
     /// The channel's timeline, while the provider records it: the programme
     /// on now, or the one a recording is playing.
@@ -1337,6 +1469,7 @@ private struct TVPlayerChrome: View {
             LinearGradient(colors: [.black.opacity(0.72), .black.opacity(0.18), .clear], startPoint: .top, endPoint: .bottom)
                 .frame(height: 286)
                 .overlay(alignment: .topLeading) {
+                    if isLive {
                     VStack(alignment: .leading, spacing: 7) {
                         HStack(spacing: 9) {
                             if isLive && controller.catchUp == nil { PulsingLiveDot(size: 8) }
@@ -1357,6 +1490,7 @@ private struct TVPlayerChrome: View {
                     }
                     .foregroundStyle(LineupStyle.mediaText)
                     .padding(.horizontal, 72).padding(.top, 48)
+                    }
                 }
             Spacer()
             // Lighter than it was: glass shows what is behind it, and over a
@@ -1378,6 +1512,10 @@ private struct TVPlayerChrome: View {
                     // size, its formats -- sat on the bar they describe,
                     // large enough to read from the couch.
                     VStack(alignment: .leading, spacing: 14) {
+                        if !isLive {
+                            Text(nowPlayingTitle).font(.inter(34, .semibold)).lineLimit(1)
+                                .foregroundStyle(LineupStyle.mediaText)
+                        }
                         PlaybackBadgeFlow(spacing: 10) {
                             TVPlaybackEngineBadge(engine: controller.engineKind, large: true)
                             if controller.videoHeight > 0 { PlaybackFormatBadge(text: controller.qualityLabel, large: true) }
@@ -1386,7 +1524,7 @@ private struct TVPlayerChrome: View {
                         if !isLive && controller.duration > 0 {
                             TVSeekBar(controller: controller, clock: controller.clock, preview: seekPreview,
                                       focus: focusedControl, firstAction: firstAction, onInteraction: onInteraction,
-                                      onUp: onUpToNextEpisode)
+                                      chapters: chapters, onUp: onUpToPlaybackOffer)
                         }
                         if showsTimeline {
                             TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
@@ -1394,134 +1532,72 @@ private struct TVPlayerChrome: View {
                         }
                     }
                     HStack(spacing: 14) {
+                        if !isLive {
+                            TVPlayerButton(title: "Back 10 seconds", symbol: "gobackward.10",
+                                           focus: focusedControl, id: .skipBack) {
+                                controller.seek(by: -10); onInteraction()
+                            }
+                            TVPlayerButton(title: controller.isPlaying ? "Pause" : "Play",
+                                           symbol: controller.isPlaying ? "pause.fill" : "play.fill",
+                                           focus: focusedControl, id: .playPause) {
+                                controller.togglePlayback(); onInteraction()
+                            }
+                            TVPlayerButton(title: "Forward 30 seconds", symbol: "goforward.30",
+                                           focus: focusedControl, id: .skipForward) {
+                                controller.seek(by: 30); onInteraction()
+                            }
+                        }
                         if let onShowEpisodes {
                             TVPlayerButton(title: "Episodes", symbol: "rectangle.stack.fill",
                                            focus: focusedControl, id: .episodes) {
                                 onShowEpisodes()
                             }
                         }
-                        TVPlayerButton(title: isLive ? (controller.isAtLiveEdge ? "Live" : "Go Live") : "Restart",
-                            symbol: isLive ? "dot.radiowaves.left.and.right" : "backward.end.fill",
-                            focus: focusedControl, id: .goLive) {
-                                controller.goLive(); onInteraction()
-                            }
-                        if isLive && controller.canStartOver {
-                            TVPlayerButton(title: "Start Over", symbol: "backward.end.fill",
-                                           focus: focusedControl, id: .startOver) {
-                                controller.startOver(); onInteraction()
-                            }
-                        }
-                        TVPlayerButton(title: controller.isMuted ? "Unmute" : "Mute",
-                            symbol: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                            focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
-                        if let lastChannelName {
-                            TVPlayerButton(title: "Last · " + short(lastChannelName), symbol: "arrow.uturn.backward",
-                                           focus: focusedControl, id: .lastChannel) {
-                                onLastChannel(); onInteraction()
-                            }
-                        }
-                        if let onChooseChannel {
-                            TVPlayerButton(title: "Choose Channel", symbol: "list.bullet",
-                                           focus: focusedControl, id: .chooseChannel) {
-                                onChooseChannel(); onInteraction()
-                            }
-                        }
-                        if let onToggleStats {
-                            TVPlayerButton(title: statsShown ? "Hide Stats" : "Stats", symbol: "chart.bar.fill",
-                                           focus: focusedControl, id: .stats) {
-                                onToggleStats(); onInteraction()
-                            }
-                        }
-                        if let alert {
-                            TVPlayerButton(title: "Watch " + TVGameAlertBanner.matchup(alert.game),
-                                           symbol: "sportscourt.fill", focus: focusedControl, id: .alert) {
-                                onWatchAlert(); onInteraction()
-                            }
-                        }
-                        // Every Library title: its own subtitles, any found
-                        // online, and how they look.
-                        if !isLive && (controller.subtitleTracks.count > 1 || onFindSubtitles != nil
-                                       || onSubtitleSettings != nil) {
-                            TVSelectable(scale: 1, drawsFocusChrome: false, action: { showingSubtitles = true }) {
-                                TVPlayerMenuLabel(title: "Subtitles · \(short(controller.selectedSubtitleTitle))",
-                                                  symbol: "captions.bubble.fill",
-                                                  focused: focusedControl.wrappedValue == .subtitles)
-                            }
-                            .focused(focusedControl, equals: .subtitles)
-                            .tvChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles,
-                                       message: controller.trackMemoryShow == nil ? nil
-                                           : "Kept for every episode of this show.") {
-                                var choices = controller.subtitleTracks.map { track in
-                                    TVChoice(track.title, id: "\(track.id)",
-                                             isSelected: track.id == controller.selectedSubtitleID) {
-                                        controller.selectSubtitle(track)
-                                        onInteraction()
-                                    }
+                        if isLive {
+                            TVPlayerButton(title: controller.isAtLiveEdge ? "Live" : "Go Live",
+                                symbol: isLive ? "dot.radiowaves.left.and.right" : "backward.end.fill",
+                                focus: focusedControl, id: .goLive) {
+                                    controller.goLive(); onInteraction()
                                 }
-                                if let onFindSubtitles {
-                                    choices.append(TVChoice("Find Subtitles Online", symbol: "magnifyingglass",
-                                                            id: "find-online", action: onFindSubtitles))
+                            if isLive && controller.canStartOver {
+                                TVPlayerButton(title: "Start Over", symbol: "backward.end.fill",
+                                               focus: focusedControl, id: .startOver) {
+                                    controller.startOver(); onInteraction()
                                 }
-                                if let onSubtitleSettings {
-                                    choices.append(TVChoice("Subtitle Settings", symbol: "textformat.size",
-                                                            id: "settings", action: onSubtitleSettings))
-                                }
-                                return choices
-                            } onCancel: { onInteraction() }
-                        }
-                        // A file with more than one audio stream -- languages,
-                        // commentary, a stereo mix beside the surround one.
-                        if !isLive && controller.audioTracks.count > 1 {
-                            TVSelectable(scale: 1, drawsFocusChrome: false, action: { showingAudio = true }) {
-                                TVPlayerMenuLabel(title: "Audio · \(short(controller.selectedAudioTitle))",
-                                                  symbol: "waveform",
-                                                  focused: focusedControl.wrappedValue == .audio)
                             }
-                            .focused(focusedControl, equals: .audio)
-                            .tvChoices("Audio", symbol: "waveform", isPresented: $showingAudio,
-                                       message: controller.trackMemoryShow == nil ? nil
-                                           : "Kept for every episode of this show.") {
-                                controller.audioTracks.map { track in
-                                    TVChoice(track.title, id: "\(track.id)",
-                                             isSelected: track.id == controller.selectedAudioTrackID) {
-                                        controller.selectAudioTrack(track)
-                                        onInteraction()
-                                    }
+                            TVPlayerButton(title: controller.isMuted ? "Unmute" : "Mute",
+                                symbol: controller.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                                focus: focusedControl, id: .mute) { controller.toggleMute(); onInteraction() }
+                            if let lastChannelName {
+                                TVPlayerButton(title: "Last · " + short(lastChannelName), symbol: "arrow.uturn.backward",
+                                               focus: focusedControl, id: .lastChannel) {
+                                    onLastChannel(); onInteraction()
                                 }
-                            } onCancel: { onInteraction() }
-                        }
-                        // And one with more than one video stream.
-                        if !isLive && controller.videoTracks.count > 1 {
-                            TVSelectable(scale: 1, drawsFocusChrome: false, action: { showingVideo = true }) {
-                                TVPlayerMenuLabel(title: "Video · \(short(controller.selectedVideoTitle))",
-                                                  symbol: "film",
-                                                  focused: focusedControl.wrappedValue == .video)
                             }
-                            .focused(focusedControl, equals: .video)
-                            .tvChoices("Video", symbol: "film", isPresented: $showingVideo) {
-                                controller.videoTracks.map { track in
-                                    TVChoice(track.title, id: "\(track.id)",
-                                             isSelected: track.id == controller.selectedVideoTrackID) {
-                                        controller.selectVideoTrack(track)
-                                        onInteraction()
-                                    }
+                            if let onChooseChannel {
+                                TVPlayerButton(title: "Choose Channel", symbol: "list.bullet",
+                                               focus: focusedControl, id: .chooseChannel) {
+                                    onChooseChannel(); onInteraction()
                                 }
-                            } onCancel: { onInteraction() }
+                            }
+                            if let onToggleStats {
+                                TVPlayerButton(title: statsShown ? "Hide Stats" : "Stats", symbol: "chart.bar.fill",
+                                               focus: focusedControl, id: .stats) {
+                                    onToggleStats(); onInteraction()
+                                }
+                            }
+                            if let alert {
+                                TVPlayerButton(title: "Watch " + TVGameAlertBanner.matchup(alert.game),
+                                               symbol: "sportscourt.fill", focus: focusedControl, id: .alert) {
+                                    onWatchAlert(); onInteraction()
+                                }
+                            }
                         }
-                        // A Menu renders through tvOS's own chrome, so this is a
-                        // plain selectable with a dialog, like every other control.
-                        TVSelectable(scale: 1, drawsFocusChrome: false, action: { showingQuality = true }) {
-                            TVPlayerMenuLabel(title: "Quality · \(controller.qualityLabel)",
-                                              symbol: "gearshape.fill",
-                                              focused: focusedControl.wrappedValue == .quality)
-                        }
-                        .focused(focusedControl, equals: .quality)
-                        .tvChoices("Quality · \(controller.qualityLabel)", symbol: "gearshape", isPresented: $showingQuality) {
-                            [TVChoice(isLive ? "Refresh Stream" : "Restart Playback", symbol: "arrow.clockwise") {
-                                controller.goLive(); onInteraction()
-                            }]
-                        } onCancel: { onInteraction() }
                         Spacer(minLength: 0)
+                        TVPlayerButton(title: "Playback Options", symbol: "slider.horizontal.3",
+                                       focus: focusedControl, id: .playbackOptions, action: onOptions)
+                        TVPlayerButton(title: "Close", symbol: "xmark",
+                                       focus: focusedControl, id: .close, action: onClose)
                     }
                     }
                     }
@@ -1530,17 +1606,13 @@ private struct TVPlayerChrome: View {
                 }
         }
         .ignoresSafeArea()
-        .onChange(of: choosing) { _, open in onChooserChange(open) }
-        // If the controls go while a list is open -- playback failing takes
-        // them away -- the player must not wait on a list that is gone.
-        .onDisappear { if choosing { onChooserChange(false) } }
     }
 }
 
 /// A recorded channel's timeline: the programme from its start to its end,
 /// lit as far as the broadcast has got, with the picture's place on it.
 ///
-/// Left and right step ten seconds back and on -- from live, back goes into
+/// Left and right step one minute back and on -- from live, back goes into
 /// the recording, and on through a recording that reaches the present goes
 /// back to live. Up and down hand focus back to the controls.
 private struct TVCatchUpBar: View {
@@ -1585,12 +1657,11 @@ private struct TVCatchUpBar: View {
         let position = controller.catchUpPosition ?? now
         let reached = fraction(now, in: span)
         let place = controller.catchUp == nil ? reached : fraction(position, in: span)
-        let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
         VStack(spacing: 12) {
             // As far as the broadcast has got, the part that can be played,
-            // in the softer accent; where the picture is, in the accent.
+            // in translucent white, with the playback position in solid white.
             LineupProgressBar(value: place, reach: reached,
-                              height: selected ? 16 : LineupProgressBar.standardHeight)
+                              height: selected ? 10 : 7, tint: .white)
             HStack {
                 Text(span.start.formatted(date: .omitted, time: .shortened))
                 Spacer(minLength: 0)
@@ -1602,17 +1673,15 @@ private struct TVCatchUpBar: View {
             .font(.interDigits(15, .semibold))
             .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
         }
-        .padding(.horizontal, 26).padding(.vertical, 18)
-        .lineupLiquidGlass(panel, fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
-        .lineupFocusLayer(selected, in: panel)
+        .padding(.vertical, 12)
         .contentShape(Rectangle())
         .focusable()
         .focused(focus, equals: .scrubber)
         .focusEffectDisabled()
         .onMoveCommand { direction in
             switch direction {
-            case .left: controller.skip(by: -CatchUpPolicy.skip)
-            case .right: controller.skip(by: CatchUpPolicy.skip)
+            case .left: controller.skip(by: -PlaybackSeekPolicy.remoteTapSkip)
+            case .right: controller.skip(by: PlaybackSeekPolicy.remoteTapSkip)
             case .down, .up: focus.wrappedValue = firstAction
             default: break
             }
@@ -1735,6 +1804,7 @@ private struct TVSeekBar: View {
     let onInteraction: () -> Void
     /// Where Up goes when there is something above the seek bar to go to:
     /// the Next Episode card.
+    var chapters: [PlaybackChapter] = []
     var onUp: (() -> Void)? = nil
     @State private var target: Double?
     @State private var nativeRemoteSeekActive = false
@@ -1751,10 +1821,9 @@ private struct TVSeekBar: View {
 
     var body: some View {
         let selected = focus.wrappedValue == .scrubber
-        let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
         VStack(spacing: 12) {
-            LineupProgressBar(value: progress,
-                              height: selected ? 16 : LineupProgressBar.standardHeight)
+            PlaybackSeekTrack(value: progress, duration: controller.duration, chapters: chapters,
+                              height: selected ? 10 : 7)
                 .overlay(alignment: .topLeading) {
                     if let target {
                         GeometryReader { bar in
@@ -1774,9 +1843,7 @@ private struct TVSeekBar: View {
             .font(.interDigits(15, .semibold))
             .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
         }
-        .padding(.horizontal, 26).padding(.vertical, 18)
-        .lineupLiquidGlass(panel, fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
-        .lineupFocusLayer(selected, in: panel)
+        .padding(.vertical, 12)
         .contentShape(Rectangle())
         .focusable()
         .focused(focus, equals: .scrubber)
@@ -1786,7 +1853,7 @@ private struct TVSeekBar: View {
             fallbackEndTask?.cancel()
             fallbackEndTask = nil
             // onMoveCommand can deliver the click before UIKit recognizes the
-            // same held press. Keep that first 15-second step and let the
+            // same held press. Keep that first one-minute step and let the
             // display-cadence hold continue from it instead of double-skipping.
             if target == nil || fallbackDirection == nil {
                 beginRemoteSeek(direction: direction)
@@ -1841,7 +1908,7 @@ private struct TVSeekBar: View {
         .transaction { if target != nil { $0.animation = nil } }
         .accessibilityLabel("Playback position")
         .accessibilityValue(Self.clock(shown) + " of " + Self.clock(controller.duration))
-        .accessibilityHint("Select to play or pause. Hold left or right to seek.")
+        .accessibilityHint("Select to play or pause. Left or right skips one minute. Hold to scrub.")
     }
 
     private func finishScrubbing() {
@@ -1857,7 +1924,7 @@ private struct TVSeekBar: View {
 
     /// SwiftUI's standard directional command is the reliable click path on
     /// tvOS. It also acts as a repeat fallback if UIKit does not own a held
-    /// press on a particular Siri Remote. Repeats advance in 15-second steps;
+    /// press on a particular Siri Remote. Repeats advance in one-minute steps;
     /// the native gesture, when available, takes over for smooth acceleration.
     private func handleRemoteMove(_ direction: Double) {
         guard !nativeRemoteSeekActive else { return }
@@ -1962,17 +2029,6 @@ private struct TVPlayerButton: View {
         // of it as a second, larger highlight.
         .lineupFlatButton().focused(focus, equals: id).focusEffectDisabled()
         .accessibilityLabel(title)
-    }
-}
-
-private struct TVPlayerMenuLabel: View {
-    let title: String
-    let symbol: String
-    let focused: Bool
-    var body: some View {
-        TVPlayerControlGlyph(symbol: symbol, focused: focused)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(title)
     }
 }
 

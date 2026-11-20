@@ -7,6 +7,20 @@ import XCTest
 
 @MainActor
 final class AudioSessionResponsivenessTests: XCTestCase {
+    func testRetiringAPlayerAfterReservingItsReplacementKeepsHardwareActive() async throws {
+        let probe = AudioSessionProbe()
+        let work = MobileAudioSessionWork(activate: { _ = probe.record("activate") },
+                                          deactivate: { _ = probe.record("deactivate") })
+        let old = NSObject(), next = NSObject()
+        try await work.activate(for: old)
+        try await work.activate(for: next) { work.deactivate(for: old) }
+        XCTAssertEqual(work.holderCount, 1)
+        XCTAssertEqual(probe.events, ["activate", "activate"])
+        work.deactivate(for: next)
+        await work.drain()
+        XCTAssertEqual(probe.events, ["activate", "activate", "deactivate"])
+    }
+
     func testBlockedAudioHardwareYieldsTheUIAndPreservesOrderingAcrossReplacementPlayers() async throws {
         let entered = expectation(description: "Hardware is deliberately blocked")
         let probe = AudioSessionProbe()

@@ -451,11 +451,16 @@ final class MediaLibrary {
     @ObservationIgnored private var clients: [UUID: any MediaServerClient] = [:] {
         // A server's own Library goes with the connection it was read over:
         // a new sign-in or a removed server starts it afresh.
-        didSet { serverLibraryModels = serverLibraryModels.filter { clients[$0.key] != nil } }
+        didSet {
+            serverLibraryModels = serverLibraryModels.filter { clients[$0.key] != nil }
+            siloPagesModels = siloPagesModels.filter { clients[$0.key] != nil }
+        }
     }
     /// Each server's own Library as it was last shown, kept so going back to
     /// it is instant rather than a new load.
     @ObservationIgnored private var serverLibraryModels: [UUID: ServerLibraryModel] = [:]
+    /// Each Silo server's Home, For You and Calendar, kept as its Library is.
+    @ObservationIgnored private var siloPagesModels: [UUID: SiloPagesModel] = [:]
     /// A successful Library is restored before the network is touched on the
     /// next launch. The refresh still runs, but it replaces a useful screen
     /// instead of a spinner.
@@ -4380,12 +4385,19 @@ final class MediaLibrary {
             }
         }
         guard let match = try await counterpartTitle(of: show, on: profile, lookup: &lookup) else { return nil }
+        let silo = source as? SiloClient
         // A show a server has only just built from a search can be missing
         // its episodes for a moment while the server fetches them, so an
         // empty answer is asked again before it is believed.
-        for attempt in 0..<3 {
+        for attempt in 0..<(silo == nil ? 3 : 1) {
             if attempt > 0 { try await Task.sleep(for: .seconds(Double(attempt) * 1.5)) }
-            let episodes = try await source.episodes(userID: profile.userID, seriesID: match.id)
+            let episodes: [MediaItem]
+            if let silo {
+                do { episodes = try await silo.episodes(series: match, seasonNumber: season) }
+                catch MediaIntegrationError.http(404, _) { break }
+            } else {
+                episodes = try await source.episodes(userID: profile.userID, seriesID: match.id)
+            }
             if let found = episodes.first(where: { $0.parentIndexNumber == season && $0.indexNumber == number }) {
                 return found.servedBy(profile.id)
             }
@@ -4960,6 +4972,28 @@ final class MediaLibrary {
 
     /// Which Library the tab shows: Lineup's own, or one server's.
     nonisolated static let serverLibraryKey = "Lineup.serverLibrary.v1"
+
+    /// A Silo server's own client, for what only Silo offers.
+    func siloClient(for profile: MediaServerProfile) -> SiloClient? {
+        guard profiles.contains(where: { $0.id == profile.id }) else { return nil }
+        return (try? client(for: profile)) as? SiloClient
+    }
+
+    /// The Silo server a title is from, when it is from one.
+    func siloServer(of item: MediaItem) -> (profile: MediaServerProfile, client: SiloClient)? {
+        guard let profile = profile(for: item), let client = siloClient(for: profile) else { return nil }
+        return (profile, client)
+    }
+
+    /// A Silo server's Home, For You and Calendar: the one already shown if
+    /// there is one, or a new one. Nil for any other kind of server.
+    func siloPagesModel(for profile: MediaServerProfile) -> SiloPagesModel? {
+        if let kept = siloPagesModels[profile.id], kept.profile == profile { return kept }
+        guard let client = siloClient(for: profile) else { return nil }
+        let made = SiloPagesModel(profile: profile, client: client)
+        siloPagesModels[profile.id] = made
+        return made
+    }
 
     private func client(for profile: MediaServerProfile) throws -> any MediaServerClient {
         if let made = clients[profile.id] { return made }

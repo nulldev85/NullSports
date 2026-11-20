@@ -45,7 +45,7 @@ private struct SiloSeason: Decodable, Sendable {
     let poster_url: String?
 }
 
-private struct SiloTitle: Decodable, Sendable {
+struct SiloTitle: Decodable, Sendable {
     let content_id: String
     let type: String?
     let title: String
@@ -149,12 +149,30 @@ private struct SiloFile: Decodable, Sendable {
     let container: String
     let file_size: Int64
     let bitrate: Int64
-    let duration: Int
+    let chapters: [Chapter]?
+
+    struct Chapter: Decodable, Sendable {
+        let startSeconds: Double?
+        let title: String?
+
+        enum CodingKeys: String, CodingKey { case startSeconds, snakeStart = "start_seconds", title }
+
+        init(from decoder: Decoder) throws {
+            let fields = try? decoder.container(keyedBy: CodingKeys.self)
+            startSeconds = (try? fields?.decode(Double.self, forKey: .snakeStart))
+                ?? (try? fields?.decode(Double.self, forKey: .startSeconds))
+            title = try? fields?.decode(String.self, forKey: .title)
+        }
+    }
+
     var source: MediaPlaybackSource {
         MediaPlaybackSource(sourceID: file_id, name: [resolution, codec_video, codec_audio].filter { !$0.isEmpty }.joined(separator: " · "),
             path: nil, container: container, size: file_size,
             bitrate: bitrate > 0 && bitrate <= Int64.max / 1000 ? bitrate * 1000 : nil,
-            remux: .init(providerInfo: .init(source: "Silo", filename: file_name, description: nil)), siloFileID: file_id)
+            remux: .init(providerInfo: .init(source: "Silo", filename: file_name, description: nil)), siloFileID: file_id,
+            chapters: (chapters ?? []).compactMap { chapter in
+                chapter.startSeconds.map { PlaybackChapter(start: $0, title: chapter.title) }
+            })
     }
 }
 
@@ -310,10 +328,9 @@ struct SiloClient: MediaServerClient {
             }.sorted { ($0.indexNumber ?? 0) < ($1.indexNumber ?? 0) }
         }
         if parent.type == "Season", let seriesID = parent.seriesID, let number = parent.indexNumber {
-            let page: SiloPage<SiloTitle> = try await transport.get(["catalog", "series", seriesID, "seasons", String(number), "episodes"])
             let series = MediaItem(id: seriesID, name: parent.seriesName ?? "", type: "Series", overview: nil,
                 productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
-            return page.items.map { $0.media(http: http, forcedType: "Episode", series: series) }
+            return try await episodes(series: series, seasonNumber: number)
         }
         if ["silo-library:", "silo-collection:", "silo-curated:"].contains(where: { parent.id.hasPrefix($0) }) {
             return try await items(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit)
@@ -355,8 +372,22 @@ struct SiloClient: MediaServerClient {
     }
     func episodes(userID: String, seriesID: String) async throws -> [MediaItem] {
         let series = try await item(userID: userID, itemID: seriesID)
-        let page: SiloPage<SiloTitle> = try await transport.get(["catalog", "items", seriesID, "episodes"])
-        return LocalEpisodeProgressionPolicy.ordered(page.items.map { $0.media(http: http, forcedType: "Episode", series: series) })
+        do {
+            let page: SiloPage<SiloTitle> = try await transport.get(["catalog", "items", seriesID, "episodes"])
+            return LocalEpisodeProgressionPolicy.ordered(page.items.map { $0.media(http: http, forcedType: "Episode", series: series) })
+        } catch MediaIntegrationError.http(404, _) {
+            let seasons = try await items(userID: userID, parent: series, sortBy: "", limit: 0)
+            var result: [MediaItem] = []
+            for number in seasons.compactMap(\.indexNumber) {
+                try Task.checkCancellation()
+                result += try await episodes(series: series, seasonNumber: number)
+            }
+            return LocalEpisodeProgressionPolicy.ordered(result)
+        }
+    }
+    func episodes(series: MediaItem, seasonNumber: Int) async throws -> [MediaItem] {
+        let page: SiloPage<SiloTitle> = try await transport.get(["catalog", "series", series.id, "seasons", String(seasonNumber), "episodes"])
+        return page.items.map { $0.media(http: http, forcedType: "Episode", series: series) }
     }
     func allTitles(userID: String, pageSize: Int, maxPages: Int) async throws -> [MediaItem] {
         try await catalog([.init(name: "type", value: "video"), .init(name: "sort", value: "title")],
@@ -414,13 +445,34 @@ struct SiloClient: MediaServerClient {
         []
     }
     func search(userID: String, query: String, types: [String]) async throws -> [MediaItem] {
-        // Search each supported media kind: no assumption that the optional
-        // video_with_episodes capability is enabled on every Silo version.
+        let requested = Set(types).intersection(["Movie", "Series", "Episode"])
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requested.isEmpty, !term.isEmpty else { return [] }
+
+        if requested.contains("Movie"), requested.contains("Series") {
+            if requested.contains("Episode"), try await transport.supportsCatalogEpisodeSearch() {
+                do {
+                    return try await searchCatalog(term, type: "video_with_episodes", accepted: requested)
+                } catch MediaIntegrationError.http(let status, _) where [400, 404, 422].contains(status) {
+                    // A legacy or partially upgraded server may advertise the newer
+                    // scope before its catalog accepts it.
+                    await transport.disableCatalogEpisodeSearch()
+                }
+            }
+            return try await searchCatalog(term, type: "video", accepted: requested)
+        }
+
         var result: [MediaItem] = []
-        for kind in ["Movie", "Series", "Episode"] where types.contains(kind) {
-            result += try await catalog([.init(name: "q", value: query), .init(name: "type", value: kind.lowercased())], limit: 40)
+        for kind in ["Movie", "Series", "Episode"] where requested.contains(kind) {
+            result += try await searchCatalog(term, type: kind.lowercased(), accepted: [kind])
         }
         return result
+    }
+
+    private func searchCatalog(_ term: String, type: String, accepted: Set<String>) async throws -> [MediaItem] {
+        try await catalog([.init(name: "source", value: "query"), .init(name: "match", value: "all"),
+                           .init(name: "q", value: term), .init(name: "type", value: type)], limit: 80)
+            .filter { accepted.contains($0.type) }
     }
     func imageURL(itemID: String, type: String, maxWidth: Int) -> URL? { nil }
     func artworkURL(for item: MediaItem, type: String, maxWidth: Int) -> URL? {
@@ -428,8 +480,21 @@ struct SiloClient: MediaServerClient {
     }
     func playbackURL(itemID: String, mediaSourceID: String?) -> URL? { nil }
     func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo {
-        let page: SiloPage<SiloFile> = try await transport.get(["catalog", "items", itemID, "versions"])
-        return MediaPlaybackInfo(mediaSources: page.items.map(\.source))
+        struct Versions: Decodable, Sendable { let content_id: String; let versions: [SiloFile]? }
+        do {
+            // This is the read Silo's own clients use before choosing a file.
+            let detail: Versions = try await transport.get(["watch", itemID])
+            guard detail.content_id == itemID, let versions = detail.versions else { throw MediaIntegrationError.invalidResponse }
+            return MediaPlaybackInfo(mediaSources: versions.map(\.source))
+        } catch MediaIntegrationError.http(404, _) {
+            do {
+                let detail: Versions = try await transport.get(["catalog", "items", itemID])
+                guard detail.content_id == itemID else { throw MediaIntegrationError.invalidResponse }
+                if let versions = detail.versions { return MediaPlaybackInfo(mediaSources: versions.map(\.source)) }
+            } catch MediaIntegrationError.http(404, _) {}
+            let page: SiloPage<SiloFile> = try await transport.get(["catalog", "items", itemID, "versions"])
+            return MediaPlaybackInfo(mediaSources: page.items.map(\.source))
+        }
     }
     func addons() async throws -> [NullfinAddon] { [] }
     func addonCatalogs(addonID: String) async throws -> [NullfinCatalog] { [] }
@@ -446,6 +511,7 @@ actor SiloTransport {
     private let persist: (@Sendable (SiloCredential) async -> Void)?
     private var refreshTask: Task<SiloCredential, Error>?
     private var backoffUntil: Date?
+    private var catalogEpisodeSearch: Bool?
     init(http: MediaIntegrationHTTP, credential: SiloCredential, profileID: String?, deviceID: String,
          persist: (@Sendable (SiloCredential) async -> Void)?) {
         self.http = http; self.credential = credential; self.profileID = profileID; self.deviceID = deviceID; self.persist = persist
@@ -495,6 +561,23 @@ actor SiloTransport {
         let data = try await raw(path, method: method, query: query, body: body)
         return try JSONDecoder().decode(T.self, from: data)
     }
+    func supportsCatalogEpisodeSearch() async throws -> Bool {
+        if let catalogEpisodeSearch { return catalogEpisodeSearch }
+        struct Capabilities: Decodable { let video_with_episodes_scope: Bool? }
+        let supported: Bool
+        do {
+            let capability: Capabilities = try await get(["catalog", "search", "capabilities"])
+            supported = capability.video_with_episodes_scope == true
+        } catch MediaIntegrationError.http(let status, _) where [404, 405, 501].contains(status) {
+            supported = false
+        }
+        // A concurrent catalog query may already have rejected the broader scope.
+        catalogEpisodeSearch = catalogEpisodeSearch ?? supported
+        return catalogEpisodeSearch == true
+    }
+
+    func disableCatalogEpisodeSearch() { catalogEpisodeSearch = false }
+
     func mutate(_ path: [String], method: String, body: [String: Any]? = nil) async throws {
         _ = try await raw(path, method: method, body: body)
     }
@@ -538,7 +621,7 @@ private struct SiloFilters: Decodable, Sendable { let genres: [String]? }
 
 extension SiloClient: ServerLibraryBrowsing {
     /// A library's own id, from the id Lineup gives it.
-    private static func libraryID(_ library: MediaItem) -> String? {
+    static func libraryID(_ library: MediaItem) -> String? {
         library.id.hasPrefix("silo-library:") ? String(library.id.dropFirst("silo-library:".count)) : nil
     }
 
@@ -611,7 +694,7 @@ extension SiloClient: ServerLibraryBrowsing {
 
     /// One page of the catalog, with each card's badges and where the next
     /// page starts.
-    private func page(_ query: [URLQueryItem], cursor: String?) async throws -> ServerLibraryPage {
+    func page(_ query: [URLQueryItem], cursor: String?) async throws -> ServerLibraryPage {
         var parameters = query + [.init(name: "limit", value: String(ServerLibraryQuery.pageSize)),
                                   .init(name: "poster_width", value: "500")]
         if let cursor { parameters.append(.init(name: "cursor", value: cursor)) }

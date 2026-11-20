@@ -6,9 +6,9 @@ struct MobileLibrarySeekBar: View {
     let controller: MobilePlaybackController
     let progress: MobilePlaybackProgress
     @ObservedObject var preview: MobileSeekPreviewStore
-    /// Times either side of a thin bar, set straight on the picture, as the
-    /// full-screen player has it; otherwise a panel with the times beneath.
+    /// Full screen puts the bar and its times directly on the picture.
     var inline = false
+    var chapters: [PlaybackChapter] = []
     let onEditingChanged: (Bool) -> Void
     @State private var target: Double?
     @GestureState private var touching = false
@@ -23,14 +23,17 @@ struct MobileLibrarySeekBar: View {
             if let target { preview.request(at: target) }
         }
         .onDisappear { finish(resume: false) }
+        .focusable()
+        .onKeyPress(.leftArrow) { step(-1); return .handled }
+        .onKeyPress(.rightArrow) { step(1); return .handled }
         .accessibilityElement()
         .accessibilityLabel("Playback position")
         .accessibilityValue(MobilePlaybackProgress.timecode(shown))
         .accessibilityAdjustableAction { direction in
             finish()
             switch direction {
-            case .increment: controller.skip(by: controller.isLive ? CatchUpPolicy.skip : 15)
-            case .decrement: controller.skip(by: controller.isLive ? -CatchUpPolicy.skip : -15)
+            case .increment: step(1)
+            case .decrement: step(-1)
             @unknown default: break
             }
             onEditingChanged(false)
@@ -40,10 +43,13 @@ struct MobileLibrarySeekBar: View {
     @ViewBuilder
     private var layout: some View {
         if inline {
-            HStack(spacing: 12) {
-                Text(MobilePlaybackProgress.timecode(shown))
-                track.frame(height: 32)
-                Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
+            VStack(spacing: 0) {
+                track.frame(height: 28)
+                HStack {
+                    Text(MobilePlaybackProgress.timecode(shown))
+                    Spacer()
+                    Text("-" + MobilePlaybackProgress.timecode(max(0, progress.duration - shown)))
+                }
             }
             .font(.inter(.caption, .semibold).monospacedDigit())
             .foregroundStyle(LineupStyle.mediaText.opacity(0.92))
@@ -59,8 +65,7 @@ struct MobileLibrarySeekBar: View {
                 .font(.inter(.caption2, .semibold).monospacedDigit())
                 .foregroundStyle(LineupStyle.mediaText.opacity(0.8))
             }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(.vertical, 6)
         }
     }
 
@@ -68,7 +73,8 @@ struct MobileLibrarySeekBar: View {
         GeometryReader { track in
             let fraction = min(max(shown / max(progress.duration, 1), 0), 1)
             ZStack(alignment: .leading) {
-                LineupProgressBar(value: fraction, height: target == nil ? LineupProgressBar.standardHeight : 12)
+                PlaybackSeekTrack(value: fraction, duration: progress.duration, chapters: chapters,
+                                  height: target == nil ? 5 : 8)
                 if target != nil {
                     Circle().fill(Color.white).frame(width: 14, height: 14)
                         .offset(x: fraction * max(0, track.size.width - 14))
@@ -94,6 +100,12 @@ struct MobileLibrarySeekBar: View {
                 }
             }
         }
+    }
+
+    private func step(_ direction: Double) {
+        finish()
+        controller.skip(by: direction * PlaybackSeekPolicy.remoteTapSkip)
+        onEditingChanged(false)
     }
 
     private func move(x: CGFloat, width: CGFloat) {

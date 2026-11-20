@@ -445,6 +445,10 @@ final class LocalMediaTrackingTests: XCTestCase {
             position: 2_400, duration: 0, fraction: -1))
         XCTAssertFalse(LocalMediaTrackingPolicy.reachedEnd(ended: false, failed: true, hasPlayed: true,
             position: 600, duration: 2_400, fraction: 0.25))
+        XCTAssertFalse(LocalMediaTrackingPolicy.reachedEnd(ended: true, failed: false, hasPlayed: true,
+            position: 600, duration: 2_400, fraction: 0.25), "An early EOF must resume playback instead of marking it watched")
+        XCTAssertTrue(LocalMediaTrackingPolicy.reachedEnd(ended: true, failed: false, hasPlayed: true,
+            position: 2_399, duration: 2_400, fraction: 2_399.0 / 2_400))
         XCTAssertFalse(LocalMediaTrackingPolicy.reachedEnd(ended: true, failed: true, hasPlayed: false,
             position: 0, duration: 2_400, fraction: 0))
         XCTAssertTrue(LocalMediaTrackingPolicy.reachedEnd(ended: false, failed: true, hasPlayed: true,

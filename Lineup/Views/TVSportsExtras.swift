@@ -49,119 +49,183 @@ extension EnvironmentValues {
 
 // MARK: - Channels
 
-/// The channels Lineup has verified carry a game, each with what its guide
-/// says is on and the quality the provider names. The broad picker, Choose
-/// Another Channel, stays separate for feeds whose guide is missing or
-/// named differently. No stream is opened to fill the list.
+struct TVEventChannelsPage: Identifiable {
+    let game: SportsGame
+    let pregame: Bool
+    var id: String { game.id }
+}
+
+/// Pregame and the live Channels action share the same Where to Watch results.
 struct TVEventChannelsScreen: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
-    let game: SportsGame
-    let playingID: Int?
-    let onPick: (XtreamStream) -> Void
-    @State private var channels: [LiveEventChannel] = []
-    @State private var loading = true
-    @State private var waiting = false
-    @State private var reloadTask: Task<Void, Never>?
-    @State private var openedProfileID: UUID?
+    @EnvironmentObject private var reminders: GameReminders
+    let page: TVEventChannelsPage
+    let onPick: (MobileProviderPlaybackSource, SportsGame) -> Void
+    let onSearch: () -> Void
 
-    private var current: SportsGame { library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game }
+    @State private var results = MobileGameChannelResults()
+    @State private var reload = 0
+    @State private var selected: MobileProviderChannel.ID?
+    @State private var pickTask: Task<Void, Never>?
+    @State private var pickFailed = false
+
+    private var current: SportsGame {
+        library.gamesByLeague[page.game.league]?.first { $0.id == page.game.id } ?? page.game
+    }
 
     var body: some View {
+        let inputs = library.tvEventChannelsInputs(for: current)
         HStack(alignment: .top, spacing: 64) {
-            VStack(alignment: .leading, spacing: 0) {
-                LineupIconTile(symbol: "tv", size: 72)
-                Text("Channels").font(.inter(44, .bold)).padding(.top, 26)
-                Text(current.matchupLine).font(.inter(23, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
-                    .lineLimit(3).padding(.top, 8)
-                Text("Every channel here is one Lineup checked against the guide for this game. To search the provider yourself, hold Select on the game and choose Choose Another Channel.")
-                    .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
-                    .fixedSize(horizontal: false, vertical: true).padding(.top, 22)
+            VStack(alignment: .leading, spacing: 20) {
+                if page.pregame {
+                    pregameDetails
+                } else {
+                    LineupIconTile(symbol: "tv", size: 72)
+                    Text(current.matchupLine).font(.inter(36, .bold)).lineLimit(3)
+                }
+                TVServerLibraryChip(title: "Choose Another Channel", symbol: "magnifyingglass",
+                                    chosen: false, action: onSearch)
             }
-            .frame(width: 520, alignment: .leading)
+            .frame(width: 550, alignment: .leading)
+            .lineupFocusRegion()
             list.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .padding(.horizontal, 90).padding(.top, 70)
         .foregroundStyle(LineupPresentationStyle.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LineupPresentationStyle.ground.ignoresSafeArea())
-        .onAppear {
-            openedProfileID = library.activeProfile?.id
-            reload()
+        .task(id: inputs + [AnyHashable(reload)]) {
+            if results.confirmed.isEmpty && results.network.isEmpty { results.finished = false }
+            await MobileGameChannels.find(in: library, game: current) { found in
+                guard !Task.isCancelled, inputs == library.tvEventChannelsInputs(for: current) else { return }
+                results = found
+            }
         }
-        .onChange(of: library.eventChannelsInputs) { reload() }
-        .onDisappear { reloadTask?.cancel() }
+        .onExitCommand { dismiss() }
+        .onDisappear { pickTask?.cancel() }
     }
 
-    @ViewBuilder
-    private var list: some View {
-        if loading || waiting {
-            VStack(spacing: 18) {
-                ProgressView().tint(LineupPresentationStyle.text)
-                Text(waiting ? "Matching event channels…" : "Finding channels…")
-                    .font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if channels.isEmpty {
-            VStack(spacing: 16) {
-                Image(systemName: "tv.slash").font(.system(size: 44)).foregroundStyle(LineupPresentationStyle.secondary)
-                Text("No matching channels").font(.inter(26, .semibold))
-                Text("No channel could be verified for this event. Choose Another Channel, in the game's menu, searches your provider.")
-                    .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
-                    .multilineTextAlignment(.center).frame(maxWidth: 620)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    Text("\(channels.count) \(channels.count == 1 ? "CHANNEL" : "CHANNELS")")
-                        .font(.inter(17, .heavy)).tracking(1).foregroundStyle(LineupPanelStyle.caption)
-                    ForEach(channels) { channel in
-                        TVSelectable(scale: LineupStyle.cardLift, fillRadius: LineupPanelStyle.radius,
-                                     action: { pick(channel) },
-                                     requestInitialFocus: channel.id == channels.first?.id) {
-                            TVEventChannelRow(channel: channel, isPlaying: channel.id == playingID,
-                                              live: current.isLive, fallback: current.matchupLine)
-                        }
-                    }
+    private var pregameDetails: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SportsMark(league: current.isNFLRedZone ? .nfl : current.league,
+                       competition: current.league == .soccer ? current.competition : nil, size: 58)
+                .accessibilityLabel(current.competition?.name ?? current.league.fullName)
+            if !current.isEvent {
+                HStack(alignment: .top, spacing: 14) {
+                    team(current.awayTeam, logo: current.awayLogo, abbreviation: current.awayAbbreviation,
+                         rank: current.awayRank, record: current.awayRecord)
+                    Text(current.sidesWord).font(.inter(22, .semibold))
+                        .foregroundStyle(LineupPresentationStyle.secondary).padding(.top, 34)
+                    team(current.homeTeam, logo: current.homeLogo, abbreviation: current.homeAbbreviation,
+                         rank: current.homeRank, record: current.homeRecord)
                 }
-                .padding(.horizontal, 14).padding(.vertical, 10).padding(.bottom, 70)
+            } else {
+                Text(current.matchupLine).font(.inter(40, .bold)).lineLimit(3)
             }
-            .scrollIndicators(.hidden)
+            Label(current.start.formatted(.dateTime.weekday(.wide).month(.wide).day().hour().minute()),
+                  systemImage: "calendar")
+            let place = [current.venue, current.location].compactMap { $0 }.filter { !$0.isEmpty }
+            if !place.isEmpty { Label(place.joined(separator: ", "), systemImage: "mappin.and.ellipse") }
+            if !current.broadcast.isEmpty { Label(current.broadcast, systemImage: "tv") }
+            if current.isUpcoming {
+                let on = reminders.reminds(current)
+                TVServerLibraryChip(title: on ? "Reminder Set" : "Remind Me",
+                                    symbol: on ? "bell.fill" : "bell", chosen: on) {
+                    reminders.toggleGame(current)
+                }
+            }
+        }
+        .font(.inter(22))
+    }
+
+    private func team(_ name: String, logo: String, abbreviation: String, rank: Int?, record: String?) -> some View {
+        VStack(spacing: 8) {
+            TeamBadge(url: logo, fallback: abbreviation, size: 92)
+            Text(rank.map { $0 <= 25 ? "\($0) \(name)" : name } ?? name)
+                .font(.inter(26, .bold)).multilineTextAlignment(.center).lineLimit(2)
+            if let record, !record.isEmpty {
+                Text(record).font(.inter(18)).foregroundStyle(LineupPresentationStyle.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var list: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                Text("Where to Watch").font(.inter(42, .bold)).accessibilityAddTraits(.isHeader)
+                if !results.confirmed.isEmpty {
+                    Text("Confirmed Channels").font(.inter(22, .bold))
+                    rows(results.confirmed, confirmed: true)
+                }
+                if !results.network.isEmpty {
+                    Text("On \(current.broadcast)").font(.inter(22, .bold)).padding(.top, 10)
+                    Text("Your guide hasn't listed this game on these feeds yet.")
+                        .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
+                    rows(results.network, confirmed: false)
+                }
+                if !results.finished {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(results.confirmed.isEmpty && results.network.isEmpty
+                             ? "Looking through your playlists…" : "Checking your other playlists…")
+                            .font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
+                    }
+                } else if results.confirmed.isEmpty && results.network.isEmpty {
+                    Text("No matching channels").font(.inter(26, .semibold))
+                    Text(current.isLive ? "Search your provider with Choose Another Channel."
+                                        : "Channels usually show up closer to the start.")
+                        .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
+                }
+                ForEach(results.issues) { issue in
+                    Label(issue.message, systemImage: "exclamationmark.triangle")
+                        .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
+                }
+                if pickFailed {
+                    Text("This feed is unavailable. Try another channel.")
+                        .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10).padding(.bottom, 70)
+        }
+        .scrollIndicators(.hidden)
+        .lineupFocusRegion()
+    }
+
+    private func rows(_ entries: [MobileProviderChannel], confirmed: Bool) -> some View {
+        ForEach(entries) { entry in
+            TVSelectable(scale: LineupStyle.cardLift, fillRadius: LineupPanelStyle.radius,
+                         action: { pick(entry, confirmed: confirmed) }) {
+                TVEventChannelRow(channel: entry.channel, provider: entry.profile.name,
+                                  opening: selected == entry.id, live: current.isLive,
+                                  fallback: confirmed ? current.matchupLine : "On \(current.broadcast)")
+            }
         }
     }
 
-    /// A row can outlive its guide evidence: checked again on Select, before
-    /// anything is played or remembered.
-    private func pick(_ entry: LiveEventChannel) {
-        guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
-        guard current.isLive || current.isUpcoming,
-              let stream = library.stream(withID: entry.id),
-              stream.name == entry.stream.name, stream.epgChannelID == entry.stream.epgChannelID,
-              library.isEventChannel(stream, verifiedFor: current) else { reload(); return }
-        onPick(stream)
-    }
-
-    private func reload() {
-        reloadTask?.cancel()
-        reloadTask = Task { @MainActor in
-            await Task.yield()
+    private func pick(_ entry: MobileProviderChannel, confirmed: Bool) {
+        guard selected == nil else { return }
+        selected = entry.id
+        pickFailed = false
+        pickTask = Task { @MainActor in
+            let source = await library.prepareEventChannel(entry, for: current, confirmed: confirmed)
             guard !Task.isCancelled else { return }
-            guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
-            let event = current
-            waiting = !library.eventChannelsReady(for: event) && library.channelsAreSyncing
-            loading = true
-            let result = await library.eventChannels(for: event)
-            guard !Task.isCancelled else { return }
-            channels = result
-            loading = false
+            selected = nil
+            if let source {
+                onPick(source, current)
+            } else {
+                pickFailed = true
+                reload += 1
+            }
         }
     }
 }
 
 private struct TVEventChannelRow: View {
     let channel: LiveEventChannel
-    let isPlaying: Bool
+    let provider: String
+    let opening: Bool
     let live: Bool
     let fallback: String
 
@@ -173,6 +237,7 @@ private struct TVEventChannelRow: View {
                 Text(channel.program?.title ?? fallback).font(.inter(18))
                     .foregroundStyle(LineupPresentationStyle.secondary).lineLimit(2)
                 HStack(spacing: 12) {
+                    Text(provider).foregroundStyle(LineupPresentationStyle.secondary).lineLimit(1)
                     if live {
                         HStack(spacing: 6) {
                             Circle().fill(LineupStyle.liveStatus).frame(width: 8, height: 8)
@@ -187,14 +252,17 @@ private struct TVEventChannelRow: View {
                 .font(.inter(17, .semibold))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Image(systemName: isPlaying ? "speaker.wave.2.fill" : "play.fill")
-                .font(.system(size: 22, weight: .bold)).foregroundStyle(LineupStyle.onHighlight)
-                .frame(width: 58, height: 58).background(LineupStyle.highlight, in: Circle())
+            Group {
+                if opening { ProgressView() }
+                else { Image(systemName: "play.fill").font(.system(size: 22, weight: .bold)) }
+            }
+            .foregroundStyle(LineupStyle.onHighlight)
+            .frame(width: 58, height: 58).background(LineupStyle.highlight, in: Circle())
         }
         .padding(22).frame(maxWidth: .infinity, alignment: .leading)
         .background(LineupPresentationStyle.card, in: LineupPanelStyle.shape)
         .accessibilityElement(children: .combine)
-        .accessibilityHint(isPlaying ? "Playing now" : "Play this event on this channel")
+        .accessibilityHint("Play this event on this channel")
     }
 }
 

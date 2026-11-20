@@ -16,11 +16,14 @@ final class MobileAudioSessionWork {
         deactivateHardware = deactivate
     }
 
-    func activate(for holder: AnyObject) async throws {
+    func activate(for holder: AnyObject, replacingPlayback: () -> Void = {}) async throws {
         let owner = ObjectIdentifier(holder), request = UUID()
         // Reserve before yielding, so Stop can release a pending activation.
         // A failed older request must not remove a newer lease for this owner.
         holders[owner] = request
+        // A new player reserves audio before retiring the previous player.
+        // Otherwise that player's stop queues a hardware deactivation first.
+        replacingPlayback()
         let activate = activateHardware
         do {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in

@@ -350,7 +350,7 @@ struct TVGameCard: View, Equatable {
         .contentShape(shape)
         .animation(.easeOut(duration: 0.12), value: focused)
         .accessibilityElement(children: .combine)
-        .accessibilityHint(game.isUpcoming ? "Hold for a reminder" : "Watch, or hold for more")
+        .accessibilityHint(game.isUpcoming ? "Open pregame details, or hold for more" : "Watch, or hold for more")
     }
 
     @ViewBuilder private var matchup: some View {

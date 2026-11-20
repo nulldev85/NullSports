@@ -464,6 +464,73 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertTrue(MediaIntegrationProtocol.requests.allSatisfy { $0.httpMethod == "GET" })
     }
 
+    @MainActor
+    func testCombinedLibraryFindsSiloMoviesAndShowsOnAnOlderServer() async throws {
+        let suite = "SiloSearch.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let profile = MediaServerProfile(name: "Silo", serverURL: "https://silo-contract.test/proxy",
+            username: "viewer", userID: "account:1", software: .silo, siloProfileID: "profile:1")
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let client = try SiloClient(address: profile.serverURL, credential: .init(accessToken: "fixture-key"),
+            profileID: profile.siloProfileID, deviceID: "fixture-device", session: network)
+        let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""),
+                                   trackingKey: { nil }, serverClientFactory: { _ in client })
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Profile-Id"), "profile:1")
+            if url.path == "/proxy/api/v2/catalog/search/capabilities" { return .json("{}", status: 404) }
+            XCTAssertEqual(url.path, "/proxy/api/v2/catalog")
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertTrue(query.contains(.init(name: "source", value: "query")))
+            XCTAssertTrue(query.contains(.init(name: "match", value: "all")))
+            XCTAssertTrue(query.contains(.init(name: "q", value: "Film & Show")))
+            XCTAssertTrue(query.contains(.init(name: "type", value: "video")))
+            return .json(#"{"items":[{"content_id":"movie:1","type":"movie","title":"Film"},{"content_id":"series:1","type":"series","title":"Show"}]}"#)
+        }
+
+        let groups = try await library.search("  Film & Show  ")
+        XCTAssertEqual(groups.map(\.serverID), [profile.id])
+        XCTAssertEqual(groups.first?.items.map(\.id), ["movie:1", "series:1"])
+        XCTAssertEqual(groups.first?.items.map(\.type), ["Movie", "Series"])
+        XCTAssertTrue(groups.first?.items.allSatisfy { $0.serverID == profile.id } == true)
+        _ = try await library.search("Film & Show")
+        XCTAssertEqual(MediaIntegrationProtocol.requests.filter { $0.url?.lastPathComponent == "capabilities" }.count, 1)
+    }
+
+    func testSiloSearchUsesAdvertisedEpisodeScopeAndFallsBackIfTheCatalogRejectsIt() async throws {
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let client = try SiloClient(address: "https://silo-contract.test", credential: .init(accessToken: "fixture-key"),
+            profileID: "profile:1", deviceID: "fixture-device", session: network)
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/api/v2/catalog/search/capabilities" {
+                return .json(#"{"video_with_episodes_scope":true}"#)
+            }
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            switch query.first(where: { $0.name == "type" })?.value {
+            case "video_with_episodes":
+                if query.contains(.init(name: "q", value: "Downgraded")) { return .json("{}", status: 404) }
+                return .json(#"{"items":[{"content_id":"episode:1","type":"episode","title":"Episode"}]}"#)
+            case "video":
+                return .json(#"{"items":[{"content_id":"movie:1","type":"movie","title":"Film"}]}"#)
+            default:
+                XCTFail("Unexpected Silo search scope")
+                return .json("{}", status: 404)
+            }
+        }
+
+        let native = try await client.search(userID: "account:1", query: "Episode", types: MediaServerQuery.searchTypes)
+        XCTAssertEqual(native.map(\.type), ["Episode"])
+        let older = try await client.search(userID: "account:1", query: "Downgraded", types: MediaServerQuery.searchTypes)
+        XCTAssertEqual(older.map(\.type), ["Movie"])
+        let cached = try await client.search(userID: "account:1", query: "Episode", types: MediaServerQuery.searchTypes)
+        XCTAssertEqual(cached.map(\.type), ["Movie"])
+    }
+
     func testSiloSetupAcceptsServerAndAPIAddressesWithTheirProxyPrefix() async throws {
         let network = session()
         defer { network.invalidateAndCancel() }
@@ -494,8 +561,8 @@ final class MediaIntegrationTests: XCTestCase {
             if request.url!.path.hasSuffix("/profiles") { return .json(#"{"items":[{"id":"household:2","name":"Viewer","has_pin":true,"is_primary":false}]}"#) }
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Profile-Id"), "household:2")
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Profile-Token"), "fixture-proof")
-            XCTAssertTrue(request.url!.path.hasSuffix("/versions"))
-            return .json(#"{"items":[{"file_id":"9007199254740999","file_name":"Owned movie.mkv","resolution":"1080p","codec_video":"h264","codec_audio":"aac","container":"mkv","file_size":1024,"bitrate":8000,"duration":7200}]}"#)
+            XCTAssertEqual(request.url?.path, "/base/api/v2/watch/movie:1")
+            return .json(#"{"content_id":"movie:1","versions":[{"file_id":"9007199254740999","file_name":"Owned movie.mkv","resolution":"1080p","codec_video":"h264","codec_audio":"aac","container":"mkv","file_size":1024,"bitrate":8000,"duration_seconds":7200}]}"#)
         }
         let profiles = try await client.profiles()
         let profile = try XCTUnwrap(profiles.first)
@@ -507,6 +574,61 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertFalse(MediaIntegrationProtocol.requests.contains { $0.url!.path.contains("playback/start") })
         let credential = await client.credential()
         XCTAssertEqual(credential.profileToken, "fixture-proof")
+    }
+
+    @MainActor
+    func testLineupResultsUseSiloWatchFilesForMatchingMoviesAndEpisodes() async throws {
+        let suite = "SiloResults.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let profile = MediaServerProfile(name: "Silo", serverURL: "https://silo-contract.test",
+            username: "viewer", userID: "account:1", software: .silo, siloProfileID: "profile:1")
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let client = try SiloClient(address: profile.serverURL, credential: .init(accessToken: "fixture-key"),
+            profileID: profile.siloProfileID, deviceID: "fixture-device", session: network)
+        let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""),
+                                   trackingKey: { nil }, serverClientFactory: { _ in client })
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            switch url.path {
+            case "/api/v2/system/info":
+                return .json(#"{"server_version":"2.0.0","api_major":2}"#)
+            case "/api/v2/catalog":
+                let term = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value
+                if term == "Test Film" { return .json(#"{"items":[{"content_id":"film1","type":"movie","title":"Test Film","year":2026}]}"#) }
+                XCTAssertEqual(term, "Test Series")
+                return .json(#"{"items":[{"content_id":"show1","type":"series","title":"Test Series"}]}"#)
+            case "/api/v2/catalog/items/film1":
+                return .json(#"{"content_id":"film1","type":"movie","title":"Test Film","year":2026}"#)
+            case "/api/v2/catalog/items/show1":
+                return .json(#"{"content_id":"show1","type":"series","title":"Test Series"}"#)
+            case "/api/v2/catalog/series/show1/seasons/2/episodes":
+                return .json(#"{"items":[{"content_id":"episode1","title":"Test Episode","season_number":2,"episode_number":4}]}"#)
+            case "/api/v2/watch/film1", "/api/v2/watch/episode1":
+                let id = url.lastPathComponent
+                return .json(#"{"content_id":"\#(id)","versions":[{"file_id":"42","resolution":"1080p","codec_video":"h264","codec_audio":"aac","container":"mkv","file_size":1024,"bitrate":8000,"duration_seconds":3600,"chapters":[{"start_seconds":60,"title":"Chapter Two"}]}]}"#)
+            default:
+                XCTFail("Unexpected request to \(url.path)")
+                return .json("{}", status: 404)
+            }
+        }
+        let anotherSource = UUID()
+        let film = MediaItem(id: "other-film", name: "Test Film", type: "Movie", overview: nil,
+                             productionYear: 2026, primaryImageAspectRatio: nil, childCount: nil, serverID: anotherSource)
+        let episode = MediaItem(id: "other-episode", name: "Test Episode", type: "Episode", overview: nil,
+                                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                                indexNumber: 4, parentIndexNumber: 2, seriesName: "Test Series", serverID: anotherSource)
+        for (title, expectedID) in [(film, "film1"), (episode, "episode1")] {
+            let sources = try await library.playbackSources(for: title, on: profile)
+            let source = try XCTUnwrap(sources.first)
+            XCTAssertEqual(sources.count, 1)
+            XCTAssertEqual(source.serverID, profile.id)
+            XCTAssertEqual(source.itemID, expectedID)
+            XCTAssertEqual(source.siloFileID, "42")
+            XCTAssertEqual(source.chapters.first?.start, 60)
+        }
     }
 
     /// Silo says why it won't play a file; the viewer is told that, not a
@@ -571,6 +693,97 @@ final class MediaIntegrationTests: XCTestCase {
 
         let collections = try await client.serverLibraryCollections(userID: "", library: library)
         XCTAssertEqual(collections.first?.detail, "Tmdb", "Named for where it comes from, as Silo's app names it")
+    }
+
+    /// Silo's Home, its letters, a jump, a title's extras and the Calendar,
+    /// asked for as Silo's own app asks.
+    func testSiloPagesAreReadTheWaySilosOwnAppReadsThem() async throws {
+        let session = session(); defer { session.invalidateAndCancel() }
+        let client = try SiloClient(address: "https://silo-contract.test/base", credential: .init(accessToken: "fixture-key"),
+                                    profileID: "profile:1", deviceID: "test", session: session)
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            func value(_ name: String) -> String? { query.first { $0.name == name }?.value }
+            switch (request.httpMethod ?? "GET", url.path) {
+            case ("GET", "/base/api/v2/home/sections"):
+                return .json(#"{"sections":[{"id":"cw","title":"Continue Watching","section_type":"continue_watching","items":[{"content_id":"e1","type":"episode","title":"Pilot","series_id":"s1","progress_updated_at":"2026-11-18T10:00:00.123Z"}]},{"id":"nu","title":"Next Up","section_type":"next_up","items":[{"content_id":"e2","type":"episode","title":"Two","series_id":"s2"}]},{"id":"new","title":"Recently Added","section_type":"recently_added","items":[{"content_id":"m1","type":"movie","title":"Beast"}]}]}"#)
+            case ("PUT", "/base/api/v2/home/dismissals/continue_watching/e1"):
+                let body = try MediaIntegrationProtocol.body(request)
+                XCTAssertEqual(body["progress_updated_at"] as? String, "2026-11-18T10:00:00.123Z",
+                               "Sent back exactly as Silo gave it")
+                return .init(status: 204, json: "")
+            case ("POST", "/base/api/v2/catalog/letters"):
+                let body = try MediaIntegrationProtocol.body(request)
+                XCTAssertEqual(body["library_id"] as? String, "1")
+                XCTAssertEqual(body["order"] as? String, "asc")
+                XCTAssertEqual(body["type"] as? String, "movie")
+                return .json(#"{"letters":[{"letter":"A","position":0,"count":30},{"letter":"M","position":420,"count":12}],"runs":[],"total":432}"#)
+            case ("GET", "/base/api/v2/catalog"):
+                XCTAssertEqual(value("seek"), "420")
+                XCTAssertEqual(value("sort"), "title")
+                return .json(#"{"items":[{"content_id":"m9","type":"movie","title":"Memento"}],"page":{"has_more":true,"next_cursor":"after-m9"}}"#)
+            case ("GET", "/base/api/v2/catalog/items/m1"):
+                return .json(#"{"content_id":"m1","type":"movie","title":"Beast","user_state":{"in_watchlist":true},"themes":{"owner_id":"theme-owner","items":[{"id":"theme1","title":null}]},"videos":[{"name":"Official Trailer","site":"YouTube","site_key":"dQw4w9WgXcQ","type":"Trailer"},{"name":"Elsewhere","site":"Vimeo","site_key":"123","type":"Clip"}],"cast":[{"name":"Jessie Buckley","person_id":"p7","character":"Moll"}],"crew":[]}"#)
+            case ("POST", "/base/api/v2/catalog/items/theme-owner/themes/theme1/playback"):
+                let body = try MediaIntegrationProtocol.body(request)
+                let formats = try XCTUnwrap(body["accepted_formats"] as? [[String: String]])
+                XCTAssertTrue(formats.contains(["container": "mp4", "audio_codec": "aac"]))
+                return .json(#"{"url":"/api/v2/catalog/items/theme-owner/themes/theme1/audio?token=fixture"}"#)
+            case ("GET", "/base/api/v2/catalog/items/m1/box-set"):
+                return .json(#"{"box_set":{"id":"10","title":"Beast Box Set","first_year":2017,"last_year":2021,"items":[{"content_id":"m1","type":"movie","title":"Beast"},{"content_id":"m3","type":"movie","title":"Beast 2"}]}}"#)
+            case ("GET", "/base/api/v2/calendar"):
+                XCTAssertEqual(value("start"), "2026-11-16")
+                XCTAssertEqual(value("end"), "2026-11-22")
+                XCTAssertEqual(value("timezone"), "America/Los_Angeles")
+                return .json(#"{"events":[{"date":"2026-11-17","items":[{"content_id":"e5","title":"Severance","type":"episode","season_number":2,"episode_number":5,"episode_title":"Trojan's Horse","series_id":"s5","air_at":"2026-11-17T02:00:00Z","badges":["season_premiere"],"watched":false}]}]}"#)
+            default:
+                XCTFail("Unexpected request \(request.httpMethod ?? "") \(url.path)")
+                return .json("{}", status: 404)
+            }
+        }
+
+        let home = try await client.siloHome()
+        XCTAssertEqual(home.rows.map(\.title), ["Continue Watching", "Next Up", "Recently Added"])
+        XCTAssertEqual(home.dismissals["cw"]?["e1"]?.surface, .continueWatching)
+        XCTAssertEqual(home.dismissals["nu"]?["e2"], SiloDismissal(surface: .nextUp, progressUpdatedAt: nil, seriesID: "s2"))
+        XCTAssertNil(home.dismissals["new"], "Only Continue Watching and Next Up cards can be taken off")
+        try await client.siloDismiss(itemID: "e1", try XCTUnwrap(home.dismissals["cw"]?["e1"]))
+
+        let library = MediaItem(id: "silo-library:1", name: "Movies", type: "CollectionFolder", overview: nil,
+                                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
+        let browse = ServerLibraryBrowse(sort: .title, descending: false, kind: .movies)
+        let letters = try await client.serverLibraryLetters(library: library, browse: browse)
+        XCTAssertEqual(letters.letters.map(\.letter), ["A", "M"])
+        XCTAssertEqual(letters.total, 432)
+        let jumped = try await client.serverLibraryTitles(library: library, browse: browse, from: 420)
+        XCTAssertEqual(jumped.items.map(\.name), ["Memento"])
+        XCTAssertEqual(jumped.next, "after-m9")
+        var filtered = browse
+        filtered.genre = "Drama"
+        XCTAssertFalse(filtered.jumpsByLetter, "A genre's titles are not what Silo counts letters for")
+
+        let extras = try await client.siloTitleExtras(itemID: "m1", isMovie: true)
+        XCTAssertTrue(extras.inWatchlist)
+        let theme = try XCTUnwrap(extras.themes.first)
+        XCTAssertNil(theme.title)
+        let themeURL = try await client.siloThemePlaybackURL(itemID: try XCTUnwrap(extras.themeOwnerID), themeID: theme.id)
+        XCTAssertEqual(themeURL.absoluteString, "https://silo-contract.test/base/api/v2/catalog/items/theme-owner/themes/theme1/audio?token=fixture")
+        XCTAssertEqual(extras.trailers.map(\.url), ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
+                       "Only YouTube trailers, which open and show a thumbnail")
+        XCTAssertEqual(extras.people["Jessie Buckley"], "p7")
+        XCTAssertEqual(extras.boxSet?.title, "Beast Box Set")
+        XCTAssertEqual(extras.boxSet?.years, "2017–2021")
+        XCTAssertEqual(extras.boxSet?.items.map(\.name), ["Beast", "Beast 2"])
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let monday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: 16)))
+        let days = try await client.siloCalendar(from: monday, days: 7, timeZone: calendar.timeZone)
+        let event = try XCTUnwrap(days.first?.events.first)
+        XCTAssertEqual(event.episodeCode, "S2 · E5")
+        XCTAssertEqual(event.badges, ["Season Premiere"])
+        XCTAssertNotNil(event.airsAt)
     }
 
     func testServerLibraryPagingStopsAtTheEnd() {

@@ -20,7 +20,11 @@ enum MobileGameChannels {
     @MainActor
     static func find(in library: SportsLibrary, game: SportsGame,
                      update: (MobileGameChannelResults) -> Void) async {
+        #if os(iOS)
         let root = library.providerRoot
+        #else
+        let root = library
+        #endif
         let profiles = root.enabledProfiles
         let board = root.eventChannelTournamentBoard
         let order = Dictionary(uniqueKeysWithValues: profiles.enumerated().map { ($1.id, $0) })
@@ -38,30 +42,47 @@ enum MobileGameChannels {
             update(results)
         }
         let active = root.activeProfile.flatMap { profile in order[profile.id] == nil ? nil : profile }
-        if let active {
-            let matched = await root.eventChannels(for: game)
-            guard !Task.isCancelled else { return }
-            let streams = root.streams, categories = root.categories, programs = root.programsByChannel
-            let taken = Set(matched.map(\.id))
-            let fallback = await Task.detached(priority: .userInitiated) {
-                NetworkChannelFallback.channels(for: game, streams: streams, categories: categories,
-                                                programs: programs, excluding: taken)
-            }.value
-            guard !Task.isCancelled else { return }
-            results.confirmed += matched.map { MobileProviderChannel(profile: active, channel: $0) }
-            results.network += fallback.map { MobileProviderChannel(profile: active, channel: $0) }
+        #if os(tvOS)
+        let prepared = root.preparedEventChannels(for: game) ?? []
+        #else
+        let prepared: [LiveEventChannel]
+        if active != nil { prepared = await root.eventChannels(for: game) }
+        else { prepared = [] }
+        #endif
+        guard !Task.isCancelled else { return }
+        if let active, !prepared.isEmpty {
+            results.confirmed = prepared.map { MobileProviderChannel(profile: active, channel: $0) }
             publish()
         }
+        let snapshot = MobileProviderSnapshot(categories: root.categories, streams: root.streams,
+            programs: root.programsByChannel, fetchedAt: Date())
         let others = profiles.filter { $0.id != active?.id }.map { ($0, KeychainStore.password(profileID: $0.id)) }
         await withTaskGroup(of: (UUID, [LiveEventChannel], [LiveEventChannel], String?).self) { group in
+            if let active {
+                group.addTask {
+                    #if os(tvOS)
+                    // Where to Watch needs the full guide, independently of the
+                    // automatic shortlist used for quick playback.
+                    let full = snapshot.matching(game, board: board)
+                    let found = Set(full.map(\.id))
+                    let matched = full + prepared.filter { !found.contains($0.id) }
+                    #else
+                    let matched = prepared
+                    #endif
+                    let fallback = NetworkChannelFallback.channels(for: game, streams: snapshot.streams,
+                        categories: snapshot.categories, programs: snapshot.programs, excluding: Set(matched.map(\.id)))
+                    return (active.id, matched, fallback, nil)
+                }
+            }
             for (profile, secret) in others {
                 group.addTask { await channels(in: profile, secret: secret, game: game, board: board) }
             }
             for await (id, matched, fallback, issue) in group {
                 guard !Task.isCancelled else { group.cancelAll(); return }
-                guard let profile = root.profiles.first(where: { $0.id == id }),
+                guard let profile = root.enabledProfiles.first(where: { $0.id == id }),
                       let original = profiles.first(where: { $0.id == id }),
                       SportsLibrary.sameProviderConnection(profile, original) else { continue }
+                if id == active?.id { results.confirmed.removeAll { $0.profile.id == id } }
                 results.confirmed += matched.map { MobileProviderChannel(profile: profile, channel: $0) }
                 results.network += fallback.map { MobileProviderChannel(profile: profile, channel: $0) }
                 if let issue { results.issues.append(.init(id: profile.id, message: "\(profile.name): \(issue)")) }
@@ -93,6 +114,7 @@ enum MobileGameChannels {
     }
 }
 
+#if os(iOS)
 /// A game's channels as Where to Watch lists them, on the page a game still
 /// to come opens and in Channels on a live one: those a guide confirms from
 /// every playlist, then each playlist's feeds of the game's network.
@@ -168,3 +190,4 @@ struct MobileWhereToWatch: View {
         .padding(.horizontal, 16)
     }
 }
+#endif

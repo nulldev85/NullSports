@@ -216,6 +216,28 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(controller.failoverNotice?.contains("Switched to VLC") == true)
     }
 
+    func testAnEstablishedMPVStreamRetriesAtItsPositionBeforeSwitchingEngine() throws {
+        let fixture = try Fixture(.mpv)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+        fixture.mpv.time = 600
+        controller.checkPlayback()
+        fixture.now += 3
+        fixture.mpv.time = 603
+        controller.checkPlayback()
+        fixture.mpv.state = .error
+        controller.checkPlayback()
+        XCTAssertTrue(controller.reconnecting)
+        XCTAssertEqual(controller.engineKind, .mpv)
+        fixture.now += 2
+        controller.checkPlayback()
+        XCTAssertEqual(fixture.mpv.loads.last?.startPosition, 601)
+        XCTAssertEqual(fixture.mpv.loads.count, 2)
+        XCTAssertTrue(fixture.vlc.loads.isEmpty)
+    }
+
     func testResumeSeekPauseMuteAndCompletionUseTheSameControllerForBothEngines() throws {
         for kind in TVPlaybackEngine.allCases {
             let fixture = try Fixture(kind)
@@ -377,6 +399,25 @@ final class PlaybackEngineTests: XCTestCase {
         }
     }
 
+    func testLivePlaybackKeepsProviderOrderAndTriesTheOtherTransportAfterStartupFailure() throws {
+        let fixture = try Fixture(.vlc)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        let hls = try XCTUnwrap(URL(string: "https://example.invalid/live/42.m3u8"))
+        let transport = try XCTUnwrap(URL(string: "https://example.invalid/live/42.ts"))
+        controller.start(urls: [hls, transport], channelID: 42)
+        XCTAssertEqual(fixture.vlc.loads.map(\.url), [hls])
+
+        fixture.vlc.state = .error
+        fixture.now += 3
+        controller.checkPlayback()
+        XCTAssertEqual(fixture.vlc.loads.map(\.url), [hls, transport])
+
+        controller.retry()
+        XCTAssertEqual(fixture.vlc.loads.last?.url, hls)
+    }
+
     func testSiloRetryOwnsReconnectionWhileThePreviousInputHasFailed() async throws {
         let fixture = try Fixture(.aether)
         defer { fixture.clean() }
@@ -412,6 +453,34 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(fixture.aether.loads.count, 1, "Failed planning cannot silently revive an expired lease")
         XCTAssertEqual(TVSiloRetryProtocol.startCount, 2)
         await silo.stop()
+    }
+
+    func testVODLetsDecoderFinishOpeningBeforeRecoveringFromStoppedState() throws {
+        let fixture = try Fixture(.vlc)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+
+        fixture.vlc.state = .stopped
+        fixture.now += 3
+        controller.checkPlayback()
+        XCTAssertFalse(controller.reconnecting)
+        XCTAssertEqual(fixture.vlc.loads.count, 1)
+
+        fixture.vlc.state = .playing
+        fixture.vlc.time = 10
+        fixture.now += 1
+        controller.checkPlayback()
+        fixture.vlc.time = 11
+        fixture.now += 1
+        controller.checkPlayback()
+
+        fixture.vlc.state = .stopped
+        fixture.now += 1
+        controller.checkPlayback()
+        XCTAssertTrue(controller.reconnecting, "A stop after real playback should still recover promptly")
+        XCTAssertFalse(controller.finished)
     }
 
     func testReconnectRetainsVODPositionAndNeverMarksADroppedStreamFinished() throws {
@@ -552,6 +621,7 @@ final class PlaybackEngineTests: XCTestCase {
 @MainActor
 private final class MockTVBackend: TVPlaybackBackend {
     struct Load {
+        let url: URL
         let startPosition: TimeInterval?
         let isLive: Bool
         let expectedDuration: TimeInterval?
@@ -589,7 +659,7 @@ private final class MockTVBackend: TVPlaybackBackend {
     init(_ kind: TVPlaybackEngine) { self.kind = kind }
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
         mediaInfo = PlaybackMediaInfo()
-        loads.append(.init(startPosition: startPosition, isLive: isLive, expectedDuration: expectedDuration,
+        loads.append(.init(url: url, startPosition: startPosition, isLive: isLive, expectedDuration: expectedDuration,
                            primary: primary, matchContent: matchContent))
         isOpen = true
         time = startPosition ?? 0
