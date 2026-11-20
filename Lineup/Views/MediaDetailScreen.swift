@@ -302,51 +302,31 @@ struct MediaDetailScreen: View {
     private var tvActions: some View {
         HStack(spacing: 16) {
             TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
-                         action: { startingOver = false; chosen = playTarget },
-                         requestInitialFocus: true) {
-                HStack(spacing: 12) {
-                    LineupIconTile(symbol: "play.fill", size: 32)
-                    Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
-                    if let code = playTarget?.episodeCode {
-                        Text(code).opacity(0.62)
-                    }
-                }
-                .font(.inter(18, .semibold))
-                .padding(.horizontal, 26).frame(height: 54)
-                .modifier(TVMediaActionSurface())
+                         action: { choosePlayback(playTarget) }, requestInitialFocus: true) {
+                tvTitleGlyph(resumeAction, symbol: "play.fill", prominent: true)
             }
+            .accessibilityValue(playTarget?.episodeCode ?? "")
             .disabled(playTarget == nil)
             .opacity(playTarget == nil ? 0.45 : 1)
 
-            // Resume picks up where the viewer left off; this is the way back
-            // to the opening scene, which otherwise meant scrubbing for it.
-            if playTarget.flatMap({ media.resumePosition(for: $0) }) != nil {
+            if canResume {
                 TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false,
-                             action: { startingOver = true; chosen = playTarget }) {
-                    tvSecondaryAction("Start Over", symbol: "backward.end.fill")
+                             action: { choosePlayback(playTarget, fromBeginning: true) }) {
+                    tvTitleGlyph("Start Over", symbol: "arrow.counterclockwise")
                 }
             }
 
-            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
-                favorite.toggle()
-                media.setLocalFavorite(favorite, for: subject)
-                Task { await media.setFavorite(favorite, for: subject) }
-            }) {
-                tvSecondaryAction(favorite ? "In Favorites" : "Add to Favorites",
-                                  symbol: favorite ? "heart.fill" : "heart")
+            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: toggleDetailFavorite) {
+                tvTitleGlyph(favoriteAction, symbol: favorite ? "heart.fill" : "heart", selected: favorite)
             }
 
-            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
-                let value = !media.isWatched(subject)
-                Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
-            }) {
-                tvSecondaryAction(watched ? "Watched" : "Mark Watched",
-                                  symbol: watched ? "eye.fill" : "eye")
+            TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: toggleDetailWatched) {
+                tvTitleGlyph(watchedAction, symbol: watched ? "checkmark.circle.fill" : "checkmark.circle", selected: watched)
             }
             if siloExtras != nil {
                 TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: toggleSiloWatchlist) {
-                    tvSecondaryAction(inWatchlist ? "In Watchlist" : "Add to Watchlist",
-                                      symbol: inWatchlist ? "bookmark.fill" : "bookmark")
+                    tvTitleGlyph(inWatchlist ? "Remove from Watchlist" : "Add to Watchlist",
+                                 symbol: inWatchlist ? "bookmark.fill" : "bookmark", selected: inWatchlist)
                 }
             }
             if let themes = siloExtras?.themes, let first = themes.first {
@@ -355,19 +335,22 @@ struct MediaDetailScreen: View {
                     else if themes.count == 1 { playTheme(first) }
                     else { choosingTheme = true }
                 }) {
-                    tvSecondaryAction(activeThemeID == nil ? "Theme Music" : "Stop Theme",
-                                      symbol: activeThemeID == nil ? "music.note" : "stop.fill")
+                    tvTitleGlyph(activeThemeID == nil ? "Theme Music" : "Stop Theme",
+                                 symbol: activeThemeID == nil ? "music.note" : "stop.fill")
                 }
             }
         }
         .lineupFocusRegion()
     }
 
-    private func tvSecondaryAction(_ title: String, symbol: String) -> some View {
-        LineupTileLabel(title: title, symbol: symbol, tileSize: 32)
-            .font(.inter(17, .semibold))
-            .padding(.leading, 10).padding(.trailing, 20).frame(height: 52)
-            .modifier(TVMediaActionSurface())
+    private func tvTitleGlyph(_ label: String, symbol: String, prominent: Bool = false, selected: Bool = false) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 25, weight: .semibold))
+            .symbolRenderingMode(.monochrome)
+            .frame(width: prominent ? 74 : 56, height: 54)
+            .modifier(TVMediaActionSurface(prominent: prominent, selected: selected))
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
     #endif
 
@@ -467,73 +450,65 @@ struct MediaDetailScreen: View {
         return media.seriesPlayTarget(in: subject, fallbackEpisodes: episodes, serverNext: nextUp)
     }
 
+    private var canResume: Bool { playTarget.flatMap { media.resumePosition(for: $0) } != nil }
+    private var resumeAction: String { canResume ? "Resume" : "Play" }
+    private var favoriteAction: String { favorite ? "Remove from Favorites" : "Add to Favorites" }
+    private var watchedAction: String { watched ? "Mark Unwatched" : "Mark Watched" }
+
+    private func choosePlayback(_ item: MediaItem?, fromBeginning: Bool = false) {
+        guard let item else { return }
+        startingOver = fromBeginning
+        chosen = item
+    }
+
+    private func toggleDetailFavorite() {
+        favorite.toggle()
+        media.setLocalFavorite(favorite, for: subject)
+        Task { await media.setFavorite(favorite, for: subject) }
+    }
+
+    private func toggleDetailWatched() {
+        let value = !watched
+        Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
+    }
+
+    #if !os(tvOS)
     private var actions: some View {
         VStack(alignment: detailActionAlignment, spacing: 10) {
-            HStack(spacing: 8) {
-                Button { chosen = playTarget } label: {
-                    playLabel
-                        #if os(tvOS)
-                        .modifier(MediaChromeFocus())
-                        #endif
-                }
-                #if os(tvOS)
-                .lineupFlatButton()
-                #else
-                .buttonStyle(MobileLibraryDetailButtonStyle())
-                #endif
-                .disabled(playTarget == nil)
-                #if os(tvOS)
-                .opacity(playTarget == nil ? 0.45 : 1)
-                #endif
-
-                // Keep the Library useful even when a server cannot write user
-                // state, while still mirroring the choice back when it can.
-                Group {
-                    iconButton("heart", on: favorite) {
-                        favorite.toggle()
-                        media.setLocalFavorite(favorite, for: subject)
-                        Task { await media.setFavorite(favorite, for: subject) }
-                    }
-                    iconButton("eye", on: watched) {
-                        let value = !media.isWatched(subject)
-                        Task { await media.setEpisodePlayedAndAdvance(value, for: subject) }
+            HStack(spacing: 6) {
+                Button { choosePlayback(playTarget) } label: { playLabel }
+                    .buttonStyle(MobileLibraryDetailButtonStyle(selected: true))
+                    .disabled(playTarget == nil)
+                if canResume {
+                    iconButton("arrow.counterclockwise", label: "Start Over") {
+                        choosePlayback(playTarget, fromBeginning: true)
                     }
                 }
-                #if !os(tvOS)
+                iconButton(favorite ? "heart.fill" : "heart", label: favoriteAction, selected: favorite,
+                           action: toggleDetailFavorite)
+                iconButton(watched ? "checkmark.circle.fill" : "checkmark.circle", label: watchedAction, selected: watched,
+                           action: toggleDetailWatched)
                 if siloExtras != nil { watchlistButton }
-                #endif
-                // Nothing to shuffle through on a film.
                 if subject.isSeries {
-                    iconButton("shuffle", on: true) { chosen = episodes.randomElement() ?? playTarget }
+                    iconButton("shuffle", label: "Shuffle Episodes") { choosePlayback(episodes.randomElement() ?? playTarget) }
                         .disabled(episodes.isEmpty)
                 }
             }
             if media.seerr.isConnected {
                 NavigationLink { SeerrLibraryRequestView(item: subject).environment(media) } label: {
-                    #if os(tvOS)
-                    Label("Seerr", systemImage: "tray.and.arrow.down")
-                    #else
                     HStack(spacing: 8) {
                         Image("SeerrLogo").renderingMode(.original).resizable().scaledToFit()
                             .frame(width: 22, height: 22).accessibilityHidden(true)
                         Text("Seerr")
                     }.padding(.horizontal, 14)
-                    #endif
                 }
-                #if os(tvOS)
-                .lineupButtonStyle()
-                #else
                 .buttonStyle(MobileLibraryDetailButtonStyle())
-                #endif
             }
         }
-        #if !os(tvOS)
         .frame(maxWidth: .infinity, alignment: .center)
-        #endif
         .lineupFocusRegion()
     }
 
-    #if !os(tvOS)
     /// A chart title's page: Play stays in its place, greyed, with what it
     /// takes to play it. With a source connected, the title is looked for there.
     private var catalogActions: some View {
@@ -576,56 +551,29 @@ struct MediaDetailScreen: View {
         #endif
     }
 
-    /// iPhone uses a compact transport glyph with a spoken Play/Resume label;
-    /// television retains its existing text and episode-code label.
-    @ViewBuilder
+    #if !os(tvOS)
     private var playLabel: some View {
-        #if !os(tvOS)
         Image(systemName: "play.fill")
-            .font(.system(size: 20, weight: .bold))
-            .foregroundStyle(LineupStyle.highlight)
+            .font(.system(size: 21, weight: .semibold))
+            .symbolRenderingMode(.monochrome)
             .frame(width: buttonHeight, height: buttonHeight)
-            .accessibilityLabel(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
+            .accessibilityLabel(resumeAction)
             .accessibilityValue(playTarget?.episodeCode ?? subject.name)
-        #else
-        let text = HStack(spacing: 10) {
-            LineupIconTile(symbol: "play.fill", size: 26)
-            Text(playTarget.flatMap { media.resumePosition(for: $0) } == nil ? "Play" : "Resume")
-                .font(.inter(17, .heavy))
-            if let code = playTarget?.episodeCode {
-                // Quieter than the word beside it, on the same dark surface
-                // both platforms now use.
-                Text(code).foregroundStyle(LineupStyle.lightPurple.opacity(0.55))
-            }
-        }
-        .font(.inter(17))
-        text.padding(.horizontal, 22).frame(height: buttonHeight)
-        #endif
     }
 
-    @ViewBuilder
-    private func iconButton(_ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
-        #if os(tvOS)
-        // The reference app's tile, in its own colour while on and grey
-        // while off, standing in for the button it is.
-        let label = LineupIconTile(symbol: symbol, size: buttonHeight,
-                                   tint: on ? nil : LineupIconTile.gray)
-            .overlay(RoundedRectangle(cornerRadius: buttonHeight * 0.26, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-            .modifier(MediaChromeFocus())
-        TVSelectable(scale: LineupStyle.controlLift, action: action) { label }
-        #else
+    private func iconButton(_ symbol: String, label: String, selected: Bool = false,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: on && ["heart", "eye"].contains(symbol) ? symbol + ".fill" : symbol)
+            Image(systemName: symbol)
                 .font(.system(size: 21, weight: .semibold))
+                .symbolRenderingMode(.monochrome)
                 .frame(width: buttonHeight, height: buttonHeight)
         }
-        .buttonStyle(MobileLibraryDetailButtonStyle(selected: on))
-        .accessibilityLabel(symbol == "heart" ? (on ? "Remove from Favorites" : "Add to Favorites")
-            : symbol == "eye" ? (on ? "Mark Unwatched" : "Mark Watched") : "Shuffle Episodes")
-        .accessibilityAddTraits(on && symbol != "shuffle" ? [.isSelected] : [])
-        #endif
+        .buttonStyle(MobileLibraryDetailButtonStyle(selected: selected))
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
+    #endif
 
     @ViewBuilder
     private var overview: some View {
@@ -702,7 +650,7 @@ struct MediaDetailScreen: View {
                     LazyHStack(alignment: .top, spacing: 22) {
                         ForEach(episodes) { episode in
                             MediaEpisodeCard(episode: episode,
-                                             onPlay: { startingOver = false; chosen = episode },
+                                             onPlay: { choosePlayback(episode) },
                                              onSummary: { summaryItem = episode })
                             .frame(width: 420, alignment: .topLeading)
                         }
@@ -718,7 +666,7 @@ struct MediaDetailScreen: View {
                             MediaEpisodeCard(episode: episode)
                                 .lineupHoldMenu(episode.name, symbol: "tv",
                                                 items: { media.episodeMenuItems(for: episode) }) {
-                                    chosen = episode
+                                    choosePlayback(episode)
                                 }
                                 .frame(width: 265)
                         }
@@ -1209,13 +1157,7 @@ struct MediaDetailScreen: View {
         LineupPanelStyle.inset
         #endif
     }
-    private var buttonHeight: CGFloat {
-        #if os(tvOS)
-        50
-        #else
-        50
-        #endif
-    }
+    private var buttonHeight: CGFloat { 46 }
     private var trailerWidth: CGFloat {
         #if os(tvOS)
         360
@@ -1243,13 +1185,18 @@ struct MediaDetailScreen: View {
 /// Detail actions keep their pill silhouette at all times and communicate
 /// focus with a clean fill, never with a second rectangular frame around the
 /// button's bounds.
-struct TVMediaActionSurface: ViewModifier {
+private struct TVMediaActionSurface: ViewModifier {
     @Environment(\.lineupTVSelectableFocused) private var focused
+    let prominent: Bool
+    let selected: Bool
 
     func body(content: Content) -> some View {
+        let fill = prominent ? Color.white : Color.black.opacity(focused ? 0.78 : 0.55)
+        let glyph = prominent ? Color.black : selected ? LineupStyle.highlight : Color.white
         content
-            .foregroundStyle(LineupStyle.lightPurple)
-            .background(Color.black.opacity(0.58), in: Capsule())
+            .foregroundStyle(glyph)
+            .background(fill, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(focused ? 0.64 : 0.20), lineWidth: 1))
             .lineupFocusLayer(focused, in: Capsule())
             .lineupShadow(.lifted, on: focused)
             .animation(.spring(response: 0.22, dampingFraction: 0.8), value: focused)

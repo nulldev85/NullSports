@@ -631,8 +631,9 @@ struct PlayerView: View {
                 PlaybackOptionsPanel(tabs: PlaybackOptionsTab.allCases.filter { $0 != .chapters || !chapters.isEmpty },
                                      close: closePlaybackOptions, rows: playbackOptionRows)
                     .frame(maxWidth: 1250)
-                    .padding(.horizontal, 72).padding(.top, 46)
+                    .padding(.horizontal, 72).padding(.top, 12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .ignoresSafeArea(.container, edges: .top)
             }
             if statsShown, let statsGame {
                 TVGameStatsPanel(stats: gameStats, autoSync: autoSync, game: statsGame,
@@ -1656,12 +1657,11 @@ private struct TVCatchUpBar: View {
         let position = controller.catchUpPosition ?? now
         let reached = fraction(now, in: span)
         let place = controller.catchUp == nil ? reached : fraction(position, in: span)
-        let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
         VStack(spacing: 12) {
             // As far as the broadcast has got, the part that can be played,
             // in the softer accent; where the picture is, in the accent.
             LineupProgressBar(value: place, reach: reached,
-                              height: selected ? 16 : LineupProgressBar.standardHeight)
+                              height: selected ? 10 : 7)
             HStack {
                 Text(span.start.formatted(date: .omitted, time: .shortened))
                 Spacer(minLength: 0)
@@ -1673,9 +1673,7 @@ private struct TVCatchUpBar: View {
             .font(.interDigits(15, .semibold))
             .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
         }
-        .padding(.horizontal, 26).padding(.vertical, 18)
-        .lineupLiquidGlass(panel, fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
-        .lineupFocusLayer(selected, in: panel)
+        .padding(.vertical, 12)
         .contentShape(Rectangle())
         .focusable()
         .focused(focus, equals: .scrubber)
@@ -1823,7 +1821,6 @@ private struct TVSeekBar: View {
 
     var body: some View {
         let selected = focus.wrappedValue == .scrubber
-        let panel = RoundedRectangle(cornerRadius: 26, style: .continuous)
         VStack(spacing: 12) {
             PlaybackSeekTrack(value: progress, duration: controller.duration, chapters: chapters,
                               height: selected ? 10 : 7)
@@ -1846,9 +1843,7 @@ private struct TVSeekBar: View {
             .font(.interDigits(15, .semibold))
             .foregroundStyle(LineupStyle.lightPurple.opacity(selected ? 1 : 0.68))
         }
-        .padding(.horizontal, 26).padding(.vertical, 18)
-        .lineupLiquidGlass(panel, fallback: LineupStyle.surface.opacity(0.88), border: LineupStyle.line)
-        .lineupFocusLayer(selected, in: panel)
+        .padding(.vertical, 12)
         .contentShape(Rectangle())
         .focusable()
         .focused(focus, equals: .scrubber)
