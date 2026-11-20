@@ -86,6 +86,8 @@ targets:
       # These sources have no iPhone UI dependencies.
       - iPhone/MobileDataRefreshProgress.swift
       - iPhone/MobileSportsMatching.swift
+      - iPhone/MobileProviderChannels.swift
+      - iPhone/MobileGameChannels.swift
     dependencies:
       - package: VLCKitSPM
       # The Home Screen's Top Shelf: trending films and shows.
