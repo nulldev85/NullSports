@@ -122,6 +122,7 @@ actor MobileProviderCatalog {
     }
 }
 
+#if os(iOS)
 struct MobileProviderChannelSection: Identifiable {
     let height: Int
     let channels: [MobileProviderChannel]
@@ -132,3 +133,4 @@ struct MobileProviderChannelSection: Identifiable {
         return groups.keys.sorted(by: >).map { Self(height: $0, channels: groups[$0] ?? []) }
     }
 }
+#endif
