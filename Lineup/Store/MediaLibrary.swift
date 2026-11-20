@@ -4385,12 +4385,19 @@ final class MediaLibrary {
             }
         }
         guard let match = try await counterpartTitle(of: show, on: profile, lookup: &lookup) else { return nil }
+        let silo = source as? SiloClient
         // A show a server has only just built from a search can be missing
         // its episodes for a moment while the server fetches them, so an
         // empty answer is asked again before it is believed.
-        for attempt in 0..<3 {
+        for attempt in 0..<(silo == nil ? 3 : 1) {
             if attempt > 0 { try await Task.sleep(for: .seconds(Double(attempt) * 1.5)) }
-            let episodes = try await source.episodes(userID: profile.userID, seriesID: match.id)
+            let episodes: [MediaItem]
+            if let silo {
+                do { episodes = try await silo.episodes(series: match, seasonNumber: season) }
+                catch MediaIntegrationError.http(404, _) { break }
+            } else {
+                episodes = try await source.episodes(userID: profile.userID, seriesID: match.id)
+            }
             if let found = episodes.first(where: { $0.parentIndexNumber == season && $0.indexNumber == number }) {
                 return found.servedBy(profile.id)
             }
