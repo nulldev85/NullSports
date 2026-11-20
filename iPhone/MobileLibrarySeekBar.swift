@@ -43,8 +43,8 @@ struct MobileLibrarySeekBar: View {
     @ViewBuilder
     private var layout: some View {
         if inline {
-            VStack(spacing: 0) {
-                track.frame(height: 28)
+            VStack(spacing: -6) {
+                track.frame(height: 44)
                 HStack {
                     Text(MobilePlaybackProgress.timecode(shown))
                     Spacer()
