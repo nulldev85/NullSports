@@ -199,12 +199,18 @@ struct PlaybackClockReader<Content: View>: View {
     private var urls: [URL] = []
     private var urlIndex = 0
     private var muted = false
-    private var pausedByUser = false
+    @Published private(set) var pausedByUser = false
+    /// Immediate Play/Pause control state reflecting the viewer's toggle on the
+    /// same frame, without waiting for the decoder's next poll tick.
+    var showsPauseControl: Bool {
+        isPlaying || (!pausedByUser && !reconnecting && error == nil && retryAt == nil && !urls.isEmpty)
+    }
     private(set) var isScrubbing = false
     private var resumeAfterScrubbing = false
     private var scrubDestination: Double?
     private let scrubSeeks = PlaybackSeekCoalescer()
     private var seekLanding = PlaybackSeekLanding()
+    private var pendingSeekTarget: (target: Double, deadline: TimeInterval)?
     private var requestedInitialPosition: TimeInterval?
     private var appliedInitialPosition = false
     /// A channel, or a film or an episode. A channel that stops is
@@ -420,6 +426,7 @@ struct PlaybackClockReader<Content: View>: View {
         ambientGeneration = UUID()
         ambientPictureSize = .zero
         videoHeight = 0
+        pendingSeekTarget = nil
         resetSubtitles()
         sawPicture = false
         loggedCondition = nil
@@ -473,6 +480,7 @@ struct PlaybackClockReader<Content: View>: View {
         if let native = nativeSiloPlayback, let asset = native.asset {
             guard let time = native.sourcePosition(playerTime: time) else { return }
             if let length = asset.duration, duration != length { duration = length }
+            if !asset.requiresServerSeek, !seekLanding.accepts(time, now: uptime()) { return }
             elapsed = time
             appliedInitialPosition = true
             return
@@ -525,6 +533,7 @@ struct PlaybackClockReader<Content: View>: View {
         guard !isLive, duration.isFinite, duration > 0, !isScrubbing else { return }
         isScrubbing = true
         scrubDestination = elapsed
+        pendingSeekTarget = nil
         scrubSeeks.cancel()
         resumeAfterScrubbing = !pausedByUser
         if resumeAfterScrubbing { togglePlayback() }
@@ -535,7 +544,8 @@ struct PlaybackClockReader<Content: View>: View {
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
         scrubDestination = target
         guard nativeSiloPlayback?.asset?.requiresServerSeek != true else { return }
-        scrubSeeks.preview(target) { [weak self] in self?.backend.seek(to: $0) }
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+        scrubSeeks.preview(max(0, target - offset)) { [weak self] in self?.backend.seek(to: $0) }
     }
 
     func endScrubbing(at seconds: Double) {
@@ -556,6 +566,7 @@ struct PlaybackClockReader<Content: View>: View {
     func seek(to seconds: Double) {
         guard duration > 0, seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
+        pendingSeekTarget = nil
         if let native = nativeSiloPlayback, native.asset?.requiresServerSeek == true {
             scrubSeeks.cancel()
             native.seek(to: target)
@@ -565,8 +576,35 @@ struct PlaybackClockReader<Content: View>: View {
         appliedInitialPosition = true
         reopenPosition = nil
         seekLanding.expect(target, now: uptime())
-        scrubSeeks.commit(target) { [weak self] in self?.backend.seek(to: $0) }
+        scrubSeeks.commit(target) { [weak self] in self?.performBackendSeek(to: $0) }
         elapsed = target
+    }
+
+    private func performBackendSeek(to target: Double) {
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+        let playerTarget = max(0, target - offset)
+        if backend.isSeekable {
+            backend.seek(to: playerTarget)
+        } else if !isLive {
+            pendingSeekTarget = (target, uptime() + 5)
+            log("Queued seek to \(PlaybackJournal.clock(target)) while \(engineTitle) prepares")
+        }
+    }
+
+    private func flushPendingSeekIfReady() {
+        guard let pending = pendingSeekTarget else { return }
+        let now = uptime()
+        guard now < pending.deadline else {
+            pendingSeekTarget = nil
+            return
+        }
+        guard backend.isSeekable else { return }
+        pendingSeekTarget = nil
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+        let playerTarget = max(0, pending.target - offset)
+        seekLanding.expect(pending.target, now: now)
+        backend.seek(to: playerTarget)
+        log("Dispatched queued seek to \(PlaybackJournal.clock(pending.target))")
     }
 
     /// Steps by `seconds` and clamps inside the item through the active engine.
@@ -595,6 +633,7 @@ struct PlaybackClockReader<Content: View>: View {
         if ambientPictureSize != pictureSize { ambientPictureSize = pictureSize }
         guard !isScrubbing else { return }
         holdAudioLevel()
+        flushPendingSeekIfReady()
         let time = backend.time, playing = backend.isPlaying
         updateProgress(time: time, playing: playing)
         if seekLanding.isWaiting(now: uptime()) { health = freshHealth(); return }
@@ -902,7 +941,7 @@ struct PlaybackClockReader<Content: View>: View {
             health = freshHealth()
             if retryAt == nil { backend.play() }
         }
-        isPlaying = backend.isPlaying
+        isPlaying = !pausedByUser && backend.isPlaying
         holdScreenAwake()
     }
 
@@ -1361,6 +1400,7 @@ struct PlaybackClockReader<Content: View>: View {
         isScrubbing = false
         resumeAfterScrubbing = false
         scrubDestination = nil
+        pendingSeekTarget = nil
         scrubSeeks.cancel()
         seekLanding.reset()
         monitor?.cancel()

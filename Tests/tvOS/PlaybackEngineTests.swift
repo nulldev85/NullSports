@@ -590,6 +590,37 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertEqual(controller.secondsBehindLive, 0)
     }
 
+    func testQueuedSeekDispatchesWhenBackendBecomesSeekableAndPauseControlUpdatesImmediately() throws {
+        let fixture = try Fixture(.aether)
+        defer { fixture.clean() }
+        let backend = fixture.aether
+        backend.duration = 2_400
+        backend.isSeekable = false
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url], isLive: false)
+        controller.checkPlayback()
+        XCTAssertTrue(controller.showsPauseControl)
+
+        // Pressing Skip Intro while the decoder is still becoming seekable must
+        // queue the seek and dispatch it as soon as the backend reports seekable.
+        controller.seek(to: 115)
+        XCTAssertTrue(backend.seeks.isEmpty)
+        XCTAssertEqual(controller.elapsed, 115)
+
+        backend.isSeekable = true
+        fixture.now += 0.5
+        controller.checkPlayback()
+        XCTAssertEqual(backend.seeks, [115])
+
+        // Toggling pause/play reflects intent immediately for responsive UI chrome.
+        controller.togglePlayback()
+        XCTAssertFalse(controller.showsPauseControl)
+        XCTAssertFalse(controller.isPlaying)
+        controller.togglePlayback()
+        XCTAssertTrue(controller.showsPauseControl)
+    }
+
     @MainActor private final class Fixture {
         static let url = URL(string: "https://example.invalid/movie.mkv")!
         let suite = "PlaybackEngineTests.\(UUID())"
