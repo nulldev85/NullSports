@@ -15,16 +15,16 @@ struct LivePlaybackHealth {
         case neverPlayed
     }
 
-    private var started: TimeInterval
+    private let started: TimeInterval
     private var lastProgress: TimeInterval
-    /// When the last bytes came in from the server.
+    /// When media last arrived or was presented.
     private var lastData: TimeInterval
     private var healthySince: TimeInterval?
     private var lastTime: Int32?
     private var lastFrames: Int?
     private var lastBytes: Int?
+    private var lastBuffer: Double?
     private var hadVideo = false
-    private var missingVideoSince: TimeInterval?
     /// How long a picture may stand still with nothing arriving before the
     /// stream counts as lost. Twelve seconds for a channel, where the remedy
     /// is to reconnect; a film on a slow link can buffer longer than that and
@@ -63,44 +63,61 @@ struct LivePlaybackHealth {
     /// How long since the stream was opened.
     func age(now: TimeInterval) -> TimeInterval { now - started }
 
-    /// `bytes` is how much the player has read from the server, when it can
-    /// say. The count can wrap, so any change at all is data arriving.
+    /// Byte counters can wrap. Engines without a counter can report how much
+    /// playable data they are adding to their forward buffer.
     mutating func observe(now: TimeInterval, playing: Bool, video: Bool,
-                          time: Int32, frames: Int?, bytes: Int? = nil, failed: Bool) -> Bool {
+                          time: Int32, frames: Int?, bytes: Int? = nil, bufferedAhead: Double? = nil,
+                          failed: Bool) -> Bool {
         if failed && now - started >= 2 {
             stall = .failed
             return true
         }
         let frameProgress = frames.map { $0 > 0 && $0 != lastFrames } ?? false
         let usesFrames = (frames ?? 0) > 0 || (lastFrames ?? 0) > 0
-        let progress = usesFrames ? frameProgress : (time >= 0 && lastTime != nil && time != lastTime)
-        if let bytes, bytes > 0, let lastBytes, bytes != lastBytes { lastData = now }
+        let clockProgress = playing && time >= 0 && lastTime != nil && time != lastTime
+        let progress = usesFrames ? frameProgress : clockProgress
+        if let bytes, bytes != 0 {
+            if bytes != lastBytes { lastData = now }
+            lastBytes = bytes
+        }
+        if let bufferedAhead, bufferedAhead.isFinite, bufferedAhead >= 0 {
+            let baseline = lastBuffer ?? 0
+            if bufferedAhead > baseline + 0.05 {
+                lastData = now
+                lastBuffer = bufferedAhead
+            } else if bufferedAhead < baseline {
+                lastBuffer = bufferedAhead
+            }
+        }
         lastTime = time
         lastFrames = frames
-        lastBytes = bytes
-        if playing && video && progress {
+        if video && progress {
             hadVideo = true
             lastProgress = now
             lastData = now
-            missingVideoSince = nil
             if healthySince == nil { healthySince = now }
-        } else {
-            if now - lastProgress > 3 { healthySince = nil }
-            if !video && hadVideo && missingVideoSince == nil { missingVideoSince = now }
+        } else if now - lastProgress > 3 {
+            healthySince = nil
         }
         // Still arriving, the picture is given longer to come back.
         let arriving = now - lastData < stallLimit
         let limit = arriving ? frozenLimit : stallLimit
         let lost: Bool
-        if let missingVideoSince, now - missingVideoSince >= limit {
-            lost = true
-        } else if hadVideo {
+        if hadVideo {
             lost = now - lastProgress >= limit
         } else {
-            lost = now - started >= max(neverPlayedLimit, stallLimit)
+            let openingLimit = max(neverPlayedLimit, stallLimit)
+            // Give a source making progress time to produce a frame, with a
+            // hard ceiling in case it sends data that can never be rendered.
+            lost = now - started >= openingLimit + (arriving ? 15 : 0)
         }
         if lost { stall = !hadVideo ? .neverPlayed : arriving ? .frozenWhileArriving : .nothingArriving }
         return lost
+    }
+
+    static func milliseconds(_ seconds: TimeInterval) -> Int32 {
+        guard seconds.isFinite, seconds >= 0 else { return -1 }
+        return Int32(min(seconds * 1_000, Double(Int32.max)))
     }
 
     /// Long enough playing well that the retries are earned back.
