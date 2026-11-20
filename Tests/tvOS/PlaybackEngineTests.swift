@@ -433,6 +433,34 @@ final class PlaybackEngineTests: XCTestCase {
         await silo.stop()
     }
 
+    func testVODLetsDecoderFinishOpeningBeforeRecoveringFromStoppedState() throws {
+        let fixture = try Fixture(.vlc)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+
+        fixture.vlc.state = .stopped
+        fixture.now += 3
+        controller.checkPlayback()
+        XCTAssertFalse(controller.reconnecting)
+        XCTAssertEqual(fixture.vlc.loads.count, 1)
+
+        fixture.vlc.state = .playing
+        fixture.vlc.time = 10
+        fixture.now += 1
+        controller.checkPlayback()
+        fixture.vlc.time = 11
+        fixture.now += 1
+        controller.checkPlayback()
+
+        fixture.vlc.state = .stopped
+        fixture.now += 1
+        controller.checkPlayback()
+        XCTAssertTrue(controller.reconnecting, "A stop after real playback should still recover promptly")
+        XCTAssertFalse(controller.finished)
+    }
+
     func testReconnectRetainsVODPositionAndNeverMarksADroppedStreamFinished() throws {
         for kind in TVPlaybackEngine.allCases {
             let fixture = try Fixture(kind)
