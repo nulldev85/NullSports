@@ -198,7 +198,7 @@ struct MediaDetailScreen: View {
         }
         .tvChoices("Theme Music", symbol: "music.note", isPresented: $choosingTheme) {
             (siloExtras?.themes ?? []).map { theme in
-                TVChoice(theme.title, id: theme.id) { playTheme(theme) }
+                TVChoice(theme.title ?? "Theme Music", id: theme.id) { playTheme(theme) }
             }
         }
         .lineupMessage("Theme Music Unavailable", symbol: "music.note", isPresented: $themeUnavailable,
@@ -1622,9 +1622,10 @@ extension MediaDetailScreen {
         guard let server = media.siloServer(of: item) else { return }
         stopTheme()
         activeThemeID = theme.id
+        let ownerID = siloExtras?.themeOwnerID ?? item.id
         themeTask = Task {
             do {
-                let url = try await server.client.siloThemePlaybackURL(itemID: item.id, themeID: theme.id)
+                let url = try await server.client.siloThemePlaybackURL(itemID: ownerID, themeID: theme.id)
                 guard !Task.isCancelled else { return }
                 let asset = AVURLAsset(url: url)
                 guard try await asset.load(.isPlayable) else { throw MediaIntegrationError.invalidResponse }

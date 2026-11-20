@@ -214,7 +214,7 @@ private struct TVSiloCalendar: View {
     }
 
     private var activeDay: String {
-        selectedDay ?? Self.dateKey(Date())
+        selectedDay ?? Self.dateKey(model.isThisWeek ? Date() : model.week)
     }
 
     var body: some View {
