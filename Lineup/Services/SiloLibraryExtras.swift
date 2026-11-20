@@ -63,11 +63,17 @@ struct SiloBoxSet: Sendable, Equatable {
     let items: [MediaItem]
 }
 
+struct SiloThemeTrack: Decodable, Sendable, Equatable, Identifiable {
+    let id: String
+    let title: String
+}
+
 /// What a title's page adds from Silo: whether it is on the Watchlist, its
 /// trailers, who is in it, and its box set.
 struct SiloTitleExtras: Sendable, Equatable {
     var inWatchlist = false
     var trailers: [MediaTrailer] = []
+    var themes: [SiloThemeTrack] = []
     /// Silo's own ids for the people in it, by name, for their pages.
     var people: [String: String] = [:]
     var boxSet: SiloBoxSet?
@@ -149,7 +155,9 @@ private struct SiloTitleDetail: Decodable, Sendable {
     struct State: Decodable, Sendable { let in_watchlist: Bool? }
     struct Video: Decodable, Sendable { let name: String?; let site: String?; let site_key: String?; let type: String? }
     struct Credit: Decodable, Sendable { let name: String?; let person_id: String? }
+    struct ThemeSet: Decodable, Sendable { let items: [SiloThemeTrack] }
     let user_state: State?
+    let themes: ThemeSet?
     let videos: [Video]?
     let cast: [Credit]?
     let crew: [Credit]?
@@ -338,7 +346,8 @@ extension SiloClient: ServerLibraryJumping {
     /// What Silo adds to a title's page. A box set is looked for on films.
     func siloTitleExtras(itemID: String, isMovie: Bool) async throws -> SiloTitleExtras {
         let detail: SiloTitleDetail = try await transport.get(["catalog", "items", itemID])
-        var extras = SiloTitleExtras(inWatchlist: detail.user_state?.in_watchlist ?? false)
+        var extras = SiloTitleExtras(inWatchlist: detail.user_state?.in_watchlist ?? false,
+                                     themes: detail.themes?.items ?? [])
         var seen: Set<String> = []
         extras.trailers = (detail.videos ?? []).compactMap { video in
             guard video.site?.lowercased() == "youtube", let key = video.site_key,
@@ -355,6 +364,17 @@ extension SiloClient: ServerLibraryJumping {
             extras.boxSet = try? await siloBoxSet(itemID: itemID)
         }
         return extras
+    }
+
+    func siloThemePlaybackURL(itemID: String, themeID: String) async throws -> URL {
+        struct Grant: Decodable { let url: String }
+        let acceptedFormats = ["mp3", "m4a", "mp4", "aac", "wav"].map {
+            ["container": $0, "audio_codec": ""]
+        }
+        let grant: Grant = try await transport.get(["catalog", "items", itemID, "themes", themeID, "playback"],
+                                                   method: "POST", body: ["accepted_formats": acceptedFormats])
+        guard let url = http.resolvedURL(grant.url) else { throw MediaIntegrationError.invalidResponse }
+        return url
     }
 
     private func siloBoxSet(itemID: String) async throws -> SiloBoxSet? {
@@ -380,12 +400,29 @@ extension SiloClient: ServerLibraryJumping {
     /// Someone in a title, and what else of theirs is on the server.
     func siloPerson(id: String) async throws -> SiloPerson {
         async let person: SiloPersonAnswer = transport.get(["catalog", "people", id])
-        async let titles = page([.init(name: "source", value: "person"), .init(name: "person_id", value: id),
-                                 .init(name: "type", value: "video")], cursor: nil)
+        async let titles = siloPersonTitles(id: id)
         let (found, credits) = try await (person, titles)
         return SiloPerson(id: found.id, name: found.name, bio: found.bio, born: found.birth_date,
                           died: found.death_date, birthplace: found.birthplace,
                           photoURL: http.resolvedURL(found.photo_url),
-                          titles: credits.items.filter { $0.type == "Movie" || $0.type == "Series" })
+                          titles: credits)
+    }
+
+    private func siloPersonTitles(id: String) async throws -> [MediaItem] {
+        let query: [URLQueryItem] = [.init(name: "source", value: "person"), .init(name: "person_id", value: id),
+                                    .init(name: "type", value: "video")]
+        var titles: [MediaItem] = []
+        var seenTitles: Set<String> = []
+        var seenCursors: Set<String> = []
+        var cursor: String?
+        repeat {
+            try Task.checkCancellation()
+            let result = try await page(query, cursor: cursor)
+            titles += result.items.filter {
+                ($0.type == "Movie" || $0.type == "Series") && seenTitles.insert($0.id).inserted
+            }
+            cursor = result.next
+        } while cursor.map({ seenCursors.insert($0).inserted }) == true
+        return titles
     }
 }
