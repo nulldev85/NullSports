@@ -195,7 +195,7 @@ private extension SiloPagesModel {
         let title = dismissal.surface == .nextUp ? "Remove from Next Up" : "Remove from Continue Watching"
         return [TVChoice(title, symbol: "rectangle.stack.badge.minus", isDestructive: true) {
             Task {
-                await remove(item, from: row)
+                await self.remove(item, from: row)
                 onRemove()
             }
         }]
