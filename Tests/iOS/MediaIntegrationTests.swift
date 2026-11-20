@@ -645,9 +645,9 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertEqual(extras.boxSet?.years, "2017–2021")
         XCTAssertEqual(extras.boxSet?.items.map(\.name), ["Beast", "Beast 2"])
 
-        var utc = Calendar(identifier: .gregorian)
-        utc.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
-        let monday = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 11, day: 16)))
+        var "America/Los_Angeles" = Calendar(identifier: .gregorian)
+        "America/Los_Angeles".timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let monday = try XCTUnwrap("America/Los_Angeles".date(from: DateComponents(year: 2026, month: 11, day: 16)))
         let days = try await client.siloCalendar(from: monday, days: 7, timeZone: try XCTUnwrap(TimeZone(identifier: "UTC")))
         let event = try XCTUnwrap(days.first?.events.first)
         XCTAssertEqual(event.episodeCode, "S2 · E5")
