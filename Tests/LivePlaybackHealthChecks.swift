@@ -4,10 +4,10 @@ import Foundation
 enum LivePlaybackHealthChecks {
     static func main() {
         var health = LivePlaybackHealth(now: 0)
-        func sample(_ second: Int, frames: Int, time: Int32? = nil, bytes: Int? = nil, playing: Bool = true,
+        func sample(_ second: Int, frames: Int, time: Int32? = nil, bytes: Int? = nil, buffer: Double? = nil, playing: Bool = true,
                     video: Bool = true, failed: Bool = false) -> Bool {
             health.observe(now: Double(second), playing: playing, video: video,
-                time: time ?? Int32(second * 1000), frames: frames, bytes: bytes, failed: failed)
+                time: time ?? Int32(second * 1000), frames: frames, bytes: bytes, bufferedAhead: buffer, failed: failed)
         }
         for second in 1...120 { precondition(!sample(second, frames: second * 30)) }
         precondition(health.isStable(now: 120), "Stable playback replenishes recovery budget")
@@ -23,6 +23,21 @@ enum LivePlaybackHealthChecks {
         health = LivePlaybackHealth(now: 0, neverPlayedLimit: 15)
         precondition(!sample(14, frames: 0, time: -1, playing: false, video: false))
         precondition(sample(15, frames: 0, time: -1, playing: false, video: false), "A game's dead channel is left sooner")
+        health = LivePlaybackHealth(now: 0, neverPlayedLimit: 15)
+        for second in 1..<30 {
+            precondition(!sample(second, frames: 0, bytes: second * 10_000, playing: false, video: false),
+                         "Opening media still arriving must not be interrupted at the ordinary timeout")
+        }
+        precondition(sample(30, frames: 0, bytes: 300_000, playing: false, video: false),
+                     "A transfer that never produces a picture still has a deadline")
+        health = LivePlaybackHealth(now: 0)
+        for second in 1...35 {
+            precondition(!sample(second, frames: 0, buffer: Double(second) / 100, playing: false, video: false),
+                         "A buffer can fill slowly even when the engine does not report a byte counter")
+        }
+        precondition(!sample(36, frames: 1, time: 0, buffer: 0.35, playing: false),
+                     "A displayed frame is evidence even when the engine still reports buffering")
+        precondition(health.hasShownPicture)
         health = LivePlaybackHealth(now: 0)
         precondition(!sample(1, frames: 30))
         precondition(!sample(2, frames: 30, video: false))
@@ -57,6 +72,20 @@ enum LivePlaybackHealthChecks {
         for second in 11...21 { precondition(!sample(second, frames: 300, bytes: 1_000_000)) }
         precondition(sample(22, frames: 300, bytes: 1_000_000), "A feed that stops arriving recovers in twelve seconds")
         precondition(health.stall == .nothingArriving)
+        health = LivePlaybackHealth(now: 0)
+        precondition(!sample(1, frames: 1, bytes: Int(Int32.max)))
+        precondition(!sample(13, frames: 1, bytes: Int(Int32.min)), "Wrapping the byte counter still shows incoming data")
+        precondition(!sample(14, frames: 1))
+        precondition(sample(25, frames: 1, bytes: Int(Int32.min)), "A missing sample does not restart the grace period")
+        health = LivePlaybackHealth(now: 0)
+        precondition(!sample(1, frames: 1))
+        for second in 2...14 {
+            precondition(!sample(second, frames: 1, buffer: Double(second) / 10, playing: false),
+                         "An engine with no byte counter can continue buffering through a stall")
+        }
+        precondition(!sample(15, frames: 2, buffer: 1.4))
+        precondition(LivePlaybackHealth.milliseconds(.nan) == -1)
+        precondition(LivePlaybackHealth.milliseconds(Double.greatestFiniteMagnitude) == Int32.max)
         // The retries are earned back after half a minute of good playback.
         health = LivePlaybackHealth(now: 0)
         for second in 1...29 { _ = sample(second, frames: second * 30) }
