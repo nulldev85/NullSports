@@ -1804,6 +1804,14 @@ final class SportsLibrary {
             listings: evidencePrograms(for: stream, game: game), category: category, now: Date()) != nil
     }
 
+    /// Recheck the saved shortlist while a full guide search is getting started.
+    func preparedEventChannels(for game: SportsGame) -> [LiveEventChannel]? {
+        guard let prepared = preparedMatch(for: game) else { return nil }
+        return Self.matchingEventChannels(for: game,
+            candidates: prepared.alternatives.compactMap { stream(withID: $0.id) },
+            programs: prepared.programs, categories: categories, board: eventChannelTournamentBoard, now: Date())
+    }
+
     /// The event's actual matching channels, not broad league/search suggestions.
     /// Build off the main actor; a provider or guide change retires the result.
     func eventChannels(for game: SportsGame, deadline: TimeInterval? = nil,
@@ -1826,13 +1834,7 @@ final class SportsLibrary {
             return result
         }
         #endif
-        if !recheckPrepared, let prepared = preparedMatch(for: current) {
-            // Only recheck the few prepared alternatives, never the full list.
-            return Self.matchingEventChannels(for: current,
-                candidates: prepared.alternatives.compactMap { stream(withID: $0.id) },
-                programs: prepared.programs, categories: categories,
-                board: Self.tournamentBoard(gamesByLeague.values.flatMap { $0 }), now: Date())
-        }
+        if !recheckPrepared, let prepared = preparedEventChannels(for: current) { return prepared }
         let profile = activeProfile?.id, generation = indexGeneration
         let identity = Self.matchIdentity(current)
         let cacheKey = ([profile?.uuidString ?? "", generation.uuidString, current.id] + identity).joined(separator: "|")
@@ -4095,11 +4097,11 @@ final class SportsLibrary {
         #endif
     }
 
-    #if os(iOS)
     var eventChannelTournamentBoard: [[String]] {
         Self.tournamentBoard(SportsLeague.allCases.flatMap { gamesByLeague[$0] ?? [] })
     }
 
+    #if os(iOS)
     /// Each enabled account owns a separate store. Resolving a feed never
     /// switches the preferred account or retires another provider's playback.
     func providerContext(id: UUID, catalog: MobileProviderCatalog = .shared) async -> SportsLibrary? {
@@ -4549,9 +4551,73 @@ final class SportsLibrary {
         if recentStreamOrder != recent { recentStreamOrder = recent }
     }
 
+    #endif
+
     nonisolated static func sameProviderConnection(_ lhs: XtreamProfile, _ rhs: XtreamProfile) -> Bool {
         lhs.id == rhs.id && lhs.serverURL == rhs.serverURL && lhs.username == rhs.username
             && lhs.connectionKind == rhs.connectionKind
+    }
+
+    #if os(tvOS)
+    /// Retire explicit channel discovery only when its evidence changes.
+    /// Score updates and the automatic match queue don't invalidate a guide scan.
+    func tvEventChannelsInputs(for game: SportsGame) -> [AnyHashable] {
+        let accounts = enabledProfiles.map { [$0.id.uuidString, $0.name, $0.serverURL, $0.username, $0.connectionKind ?? ""] }
+        return [activeProfile?.id, accounts, streamsRevision, categoriesRevision, guideRevision,
+                Self.matchIdentity(game), game.isLive, game.isUpcoming]
+    }
+
+    /// Resolve and recheck the selected guide entry in its own provider.
+    /// Choosing another account's channel leaves the Guide's account alone.
+    func prepareEventChannel(_ choice: MobileProviderChannel, for game: SportsGame,
+                             confirmed: Bool) async -> MobileProviderPlaybackSource? {
+        guard let profile = enabledProfiles.first(where: { Self.sameProviderConnection($0, choice.profile) }),
+              let secret = credentials.password(profile.id) else { return nil }
+        let openedProfileID = activeProfile?.id
+        let alternate: MobileProviderSnapshot?
+        if profile.id == openedProfileID {
+            alternate = nil
+        } else {
+            guard let snapshot = try? await MobileProviderCatalog.shared.snapshot(for: profile, secret: secret) else { return nil }
+            alternate = snapshot
+        }
+        let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+        let candidate: XtreamStream?
+        if let alternate {
+            candidate = alternate.streams.first { $0.id == choice.channel.id }
+        } else {
+            candidate = stream(withID: choice.channel.id)
+        }
+        guard !Task.isCancelled, activeProfile?.id == openedProfileID, current.isLive || current.isUpcoming,
+              credentials.password(profile.id) == secret,
+              enabledProfiles.contains(where: { Self.sameProviderConnection($0, profile) }),
+              let stream = candidate, stream == choice.channel.stream else { return nil }
+        let listings = alternate?.programs ?? programsByChannel
+        let groups = alternate?.categories ?? categories
+        if confirmed {
+            let category = groups.first { $0.id == (stream.categoryID ?? "") }?.matchingName ?? ""
+            let directMatch = Self.eventChannelScore(stream, game: current, preparedGame: Self.prepared(current),
+                listings: listings[stream.epgChannelID ?? ""] ?? [], category: category, now: Date()) != nil
+            guard directMatch || (alternate == nil && isEventChannel(stream, verifiedFor: current)) else { return nil }
+        } else {
+            guard !NetworkChannelFallback.channels(for: current, streams: [stream], categories: groups,
+                programs: listings).isEmpty else { return nil }
+        }
+
+        if let alternate {
+            let source = SportsLibrary(profileDefaults: profileDefaults, credentials: credentials, providerID: profile.id,
+                persistsActiveSelection: false, automaticRefreshes: false, providerSession: providerSession,
+                scheduleCacheLocation: scheduleCacheLocation)
+            source.streams = alternate.streams
+            source.categories = groups
+            source.programsByChannel = listings
+            source.gamesByLeague = gamesByLeague
+            source.followedTeams = followedTeams
+            guard !source.playbackURLs(for: stream).isEmpty else { return nil }
+            return MobileProviderPlaybackSource(library: source, stream: stream)
+        }
+        guard !playbackURLs(for: stream).isEmpty else { return nil }
+        return MobileProviderPlaybackSource(library: self, stream: stream)
     }
     #endif
 
