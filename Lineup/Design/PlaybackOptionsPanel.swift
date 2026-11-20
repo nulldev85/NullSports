@@ -127,16 +127,15 @@ struct PlaybackOptionsPanel: View {
                     .lineupFlatButton()
                     .accessibilityAddTraits(row.selected ? [.isSelected] : [])
                     #if os(tvOS)
-                    .focused($focus, equals: .row(row.id))
-
+                    let focusedControl = control.focused($focus, equals: .row(row.id))
                     if row.id == firstActions.first {
-                        control.onMoveCommand { direction in
+                        focusedControl.onMoveCommand { direction in
                             // A full-width row is geometrically closer to the trailing tabs.
                             if direction == .up { focus = .tab(tab) }
                             if direction == .down, let next = firstActions.dropFirst().first { focus = .row(next) }
                         }
                     } else {
-                        control
+                        focusedControl
                     }
                     #else
                     control
