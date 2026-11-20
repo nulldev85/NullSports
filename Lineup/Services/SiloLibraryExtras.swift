@@ -65,7 +65,7 @@ struct SiloBoxSet: Sendable, Equatable {
 
 struct SiloThemeTrack: Decodable, Sendable, Equatable, Identifiable {
     let id: String
-    let title: String
+    let title: String?
 }
 
 /// What a title's page adds from Silo: whether it is on the Watchlist, its
@@ -74,6 +74,7 @@ struct SiloTitleExtras: Sendable, Equatable {
     var inWatchlist = false
     var trailers: [MediaTrailer] = []
     var themes: [SiloThemeTrack] = []
+    var themeOwnerID: String?
     /// Silo's own ids for the people in it, by name, for their pages.
     var people: [String: String] = [:]
     var boxSet: SiloBoxSet?
@@ -155,7 +156,10 @@ private struct SiloTitleDetail: Decodable, Sendable {
     struct State: Decodable, Sendable { let in_watchlist: Bool? }
     struct Video: Decodable, Sendable { let name: String?; let site: String?; let site_key: String?; let type: String? }
     struct Credit: Decodable, Sendable { let name: String?; let person_id: String? }
-    struct ThemeSet: Decodable, Sendable { let items: [SiloThemeTrack] }
+    struct ThemeSet: Decodable, Sendable {
+        let owner_id: String?
+        let items: [SiloThemeTrack]
+    }
     let user_state: State?
     let themes: ThemeSet?
     let videos: [Video]?
@@ -347,7 +351,8 @@ extension SiloClient: ServerLibraryJumping {
     func siloTitleExtras(itemID: String, isMovie: Bool) async throws -> SiloTitleExtras {
         let detail: SiloTitleDetail = try await transport.get(["catalog", "items", itemID])
         var extras = SiloTitleExtras(inWatchlist: detail.user_state?.in_watchlist ?? false,
-                                     themes: detail.themes?.items ?? [])
+                                     themes: detail.themes?.items ?? [],
+                                     themeOwnerID: detail.themes?.owner_id)
         var seen: Set<String> = []
         extras.trailers = (detail.videos ?? []).compactMap { video in
             guard video.site?.lowercased() == "youtube", let key = video.site_key,
@@ -368,9 +373,10 @@ extension SiloClient: ServerLibraryJumping {
 
     func siloThemePlaybackURL(itemID: String, themeID: String) async throws -> URL {
         struct Grant: Decodable { let url: String }
-        let acceptedFormats = ["mp3", "m4a", "mp4", "aac", "wav"].map {
-            ["container": $0, "audio_codec": ""]
-        }
+        let formats = [("mp3", "mp3"), ("mp4", "aac"), ("mp4", "alac"),
+                       ("m4a", "aac"), ("m4a", "alac"), ("aac", "aac"),
+                       ("flac", "flac"), ("wav", "pcm")]
+        let acceptedFormats = formats.map { ["container": $0.0, "audio_codec": $0.1] }
         let grant: Grant = try await transport.get(["catalog", "items", itemID, "themes", themeID, "playback"],
                                                    method: "POST", body: ["accepted_formats": acceptedFormats])
         guard let url = http.resolvedURL(grant.url) else { throw MediaIntegrationError.invalidResponse }
