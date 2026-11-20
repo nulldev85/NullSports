@@ -464,6 +464,73 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertTrue(MediaIntegrationProtocol.requests.allSatisfy { $0.httpMethod == "GET" })
     }
 
+    @MainActor
+    func testCombinedLibraryFindsSiloMoviesAndShowsOnAnOlderServer() async throws {
+        let suite = "SiloSearch.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let profile = MediaServerProfile(name: "Silo", serverURL: "https://silo-contract.test/proxy",
+            username: "viewer", userID: "account:1", software: .silo, siloProfileID: "profile:1")
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let client = try SiloClient(address: profile.serverURL, credential: .init(accessToken: "fixture-key"),
+            profileID: profile.siloProfileID, deviceID: "fixture-device", session: network)
+        let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""),
+                                   trackingKey: { nil }, serverClientFactory: { _ in client })
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Profile-Id"), "profile:1")
+            if url.path == "/proxy/api/v2/catalog/search/capabilities" { return .json("{}", status: 404) }
+            XCTAssertEqual(url.path, "/proxy/api/v2/catalog")
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            XCTAssertTrue(query.contains(.init(name: "source", value: "query")))
+            XCTAssertTrue(query.contains(.init(name: "match", value: "all")))
+            XCTAssertTrue(query.contains(.init(name: "q", value: "Film & Show")))
+            XCTAssertTrue(query.contains(.init(name: "type", value: "video")))
+            return .json(#"{"items":[{"content_id":"movie:1","type":"movie","title":"Film"},{"content_id":"series:1","type":"series","title":"Show"}]}"#)
+        }
+
+        let groups = try await library.search("  Film & Show  ")
+        XCTAssertEqual(groups.map(\.serverID), [profile.id])
+        XCTAssertEqual(groups.first?.items.map(\.id), ["movie:1", "series:1"])
+        XCTAssertEqual(groups.first?.items.map(\.type), ["Movie", "Series"])
+        XCTAssertTrue(groups.first?.items.allSatisfy { $0.serverID == profile.id } == true)
+        _ = try await library.search("Film & Show")
+        XCTAssertEqual(MediaIntegrationProtocol.requests.filter { $0.url?.lastPathComponent == "capabilities" }.count, 1)
+    }
+
+    func testSiloSearchUsesAdvertisedEpisodeScopeAndFallsBackIfTheCatalogRejectsIt() async throws {
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let client = try SiloClient(address: "https://silo-contract.test", credential: .init(accessToken: "fixture-key"),
+            profileID: "profile:1", deviceID: "fixture-device", session: network)
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            if url.path == "/api/v2/catalog/search/capabilities" {
+                return .json(#"{"video_with_episodes_scope":true}"#)
+            }
+            let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            switch query.first(where: { $0.name == "type" })?.value {
+            case "video_with_episodes":
+                if query.contains(.init(name: "q", value: "Downgraded")) { return .json("{}", status: 404) }
+                return .json(#"{"items":[{"content_id":"episode:1","type":"episode","title":"Episode"}]}"#)
+            case "video":
+                return .json(#"{"items":[{"content_id":"movie:1","type":"movie","title":"Film"}]}"#)
+            default:
+                XCTFail("Unexpected Silo search scope")
+                return .json("{}", status: 404)
+            }
+        }
+
+        let native = try await client.search(userID: "account:1", query: "Episode", types: MediaServerQuery.searchTypes)
+        XCTAssertEqual(native.map(\.type), ["Episode"])
+        let older = try await client.search(userID: "account:1", query: "Downgraded", types: MediaServerQuery.searchTypes)
+        XCTAssertEqual(older.map(\.type), ["Movie"])
+        let cached = try await client.search(userID: "account:1", query: "Episode", types: MediaServerQuery.searchTypes)
+        XCTAssertEqual(cached.map(\.type), ["Movie"])
+    }
+
     func testSiloSetupAcceptsServerAndAPIAddressesWithTheirProxyPrefix() async throws {
         let network = session()
         defer { network.invalidateAndCancel() }
