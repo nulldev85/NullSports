@@ -900,14 +900,15 @@ struct LocalMediaFavorite: Codable, Hashable, Sendable, Identifiable {
 }
 
 enum LocalMediaTrackingPolicy {
-    /// VLC can reach a real EOF without ever learning the container's length.
-    /// A stopped or failed stream elsewhere is a retry, not a watched title.
+    /// A transport can end early after a disconnect. When the player knows
+    /// the duration, check the last real position before completing the title.
     static func reachedEnd(ended: Bool, failed: Bool, hasPlayed: Bool,
                            position: TimeInterval, duration: TimeInterval, fraction: Double) -> Bool {
         guard hasPlayed, position.isFinite, position >= 5 else { return false }
-        if ended { return true }
-        guard failed, duration.isFinite, duration > 0 else { return false }
-        return position >= duration - 15 || (fraction.isFinite && fraction >= 0.99)
+        guard ended || failed else { return false }
+        guard duration.isFinite, duration > 0 else { return ended }
+        let tolerance = min(15, max(1, duration * 0.02))
+        return position >= duration - tolerance || (fraction.isFinite && fraction >= 0.99)
     }
 
     static func isComplete(position: TimeInterval, duration: TimeInterval) -> Bool {
