@@ -35,7 +35,7 @@ struct LiveView: View {
     @State private var scopingChannel: TVPickedChannel?
     /// From a game's hold menu: the channels verified to carry it, a side's
     /// page, the game from its start, and My Teams' recorded games.
-    @State private var eventChannelsGame: SportsGame?
+    @State private var eventChannelsPage: TVEventChannelsPage?
     @State private var manualAfterChannels: SportsGame?
     @State private var liveChannelLookup: Task<Void, Never>?
     @State private var teamPage: MobileTeamPageTarget?
@@ -85,28 +85,31 @@ struct LiveView: View {
         .environment(\.liveGameActions, gameActions)
         .background(LineupStyle.background.ignoresSafeArea())
             .lineupFullScreenCover(item: $fullScreen) { item in
+                let source = item.providerLibrary ?? library
                 PlayerView(
-                    urls: library.playbackURLs(for: item.stream),
+                    urls: source.playbackURLs(for: item.stream),
                     title: item.stream.name,
-                    program: library.guidePrograms(for: item.stream).normalizedEPG().first { $0.isLive },
+                    program: source.guidePrograms(for: item.stream).normalizedEPG().first { $0.isLive },
                     game: item.game,
                     channelID: item.stream.id,
                     channel: item.stream,
                     // Up and Down go through the viewer's favourites; a
                     // replay is the game alone.
-                    lineup: item.recordingOnly ? [] : library.guideStreams(categoryID: nil, favoritesOnly: true, query: ""),
+                    lineup: item.recordingOnly ? [] : source.guideStreams(categoryID: nil, favoritesOnly: true, query: ""),
                     recording: item.recording,
                     recordingOnly: item.recordingOnly,
                     continuing: item.preview
                 )
+                .environment(source)
             }
-            .lineupFullScreenCover(item: $eventChannelsGame, onDismiss: finishWhereToWatch) { game in
-                TVEventChannelsScreen(game: game, playingID: nil, onPick: { stream in
-                    pickedChannel = TVPickedChannel(game: game, stream: stream, startsMultiview: false)
-                    eventChannelsGame = nil
+            .lineupFullScreenCover(item: $eventChannelsPage, onDismiss: finishWhereToWatch) { page in
+                TVEventChannelsScreen(page: page, onPick: { source, game in
+                    pickedChannel = TVPickedChannel(game: game, stream: source.stream, startsMultiview: false,
+                        providerLibrary: source.library)
+                    eventChannelsPage = nil
                 }, onSearch: {
-                    manualAfterChannels = game
-                    eventChannelsGame = nil
+                    manualAfterChannels = page.game
+                    eventChannelsPage = nil
                 })
             }
             .lineupFullScreenCover(item: $teamPage) { TVTeamPage(target: $0) }
@@ -202,7 +205,7 @@ struct LiveView: View {
                 pickedChannel = nil
                 manualAfterChannels = nil
                 manualChannelGame = nil
-                eventChannelsGame = nil
+                eventChannelsPage = nil
                 multiviewPrimary = nil
                 multiviewPrimaryGame = nil
             }
@@ -218,20 +221,24 @@ struct LiveView: View {
             }
     }
 
-    /// Select on a game plays it full screen, as tapping one does on the
-    /// phone, once its channel is settled.
     private func select(_ game: SportsGame) {
-        if game.isUpcoming, multiviewPrimary == nil {
-            showWhereToWatch(for: game)
-        } else {
-            open(game, startsMultiview: false)
+        if game.isUpcoming {
+            showChannelsPage(for: game, pregame: true)
+            return
         }
+        open(game, startsMultiview: false)
     }
 
     private func showWhereToWatch(for game: SportsGame) {
+        showChannelsPage(for: game, pregame: false)
+    }
+
+    private func showChannelsPage(for game: SportsGame, pregame: Bool) {
         liveChannelLookup?.cancel()
         liveChannelLookup = nil
-        eventChannelsGame = game
+        pendingLiveSelection = nil
+        opensPendingSelectionAfterDismiss = false
+        eventChannelsPage = TVEventChannelsPage(game: game, pregame: pregame)
     }
 
     private func finishWhereToWatch() {
@@ -342,9 +349,15 @@ struct LiveView: View {
     private func applyPickedChannel() {
         guard let picked = pickedChannel else { return }
         pickedChannel = nil
-        library.saveGameSelection(picked.stream, for: picked.game)
-        start(picked.game, on: picked.stream, startsMultiview: picked.startsMultiview, manuallySelected: true)
-        scopingChannel = library.asksScope(for: picked)
+        let source = picked.providerLibrary ?? library
+        source.saveGameSelection(picked.stream, for: picked.game)
+        if source === library {
+            start(picked.game, on: picked.stream, startsMultiview: picked.startsMultiview, manuallySelected: true)
+        } else {
+            TVPreviewHandoff.stopPreviews()
+            fullScreen = TVFullScreenItem(stream: picked.stream, game: picked.game, providerLibrary: source)
+        }
+        scopingChannel = source.asksScope(for: picked)
     }
 
     /// Drives a dialog from an optional: SwiftUI clears the optional on
@@ -436,6 +449,7 @@ struct TVPickedChannel: Identifiable {
     let game: SportsGame
     let stream: XtreamStream
     let startsMultiview: Bool
+    var providerLibrary: SportsLibrary? = nil
     var id: String { game.id + "." + String(stream.id) }
 }
 
@@ -453,9 +467,10 @@ private struct TVChannelScopePrompt: ViewModifier {
                               "\($0.stream.name) is on now. Lineup can remember it for either team's games."
                           }) {
             guard let choice = picked else { return [] }
-            let sides = library.preferenceSides(for: choice.game).map { side in
+            let source = choice.providerLibrary ?? library
+            let sides = source.preferenceSides(for: choice.game).map { side in
                 TVChoice("Always for the \(side.role) (\(side.team))", symbol: "star", id: "side-\(side.id)") {
-                    library.savePreference(choice.stream, for: side.key, teamName: side.team)
+                    source.savePreference(choice.stream, for: side.key, teamName: side.team)
                     picked = nil
                 }
             }

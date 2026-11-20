@@ -1626,6 +1626,7 @@ struct TVFullScreenItem: Identifiable {
     var startsOver = false
     /// A replay: the recording or nothing, never the channel live instead.
     var recordingOnly = false
+    var providerLibrary: SportsLibrary? = nil
     var id: Int { stream.id }
 }
 
