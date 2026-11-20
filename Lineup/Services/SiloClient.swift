@@ -433,13 +433,34 @@ struct SiloClient: MediaServerClient {
         []
     }
     func search(userID: String, query: String, types: [String]) async throws -> [MediaItem] {
-        // Search each supported media kind: no assumption that the optional
-        // video_with_episodes capability is enabled on every Silo version.
+        let requested = Set(types).intersection(["Movie", "Series", "Episode"])
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !requested.isEmpty, !term.isEmpty else { return [] }
+
+        if requested.contains("Movie"), requested.contains("Series") {
+            if requested.contains("Episode"), try await transport.supportsCatalogEpisodeSearch() {
+                do {
+                    return try await searchCatalog(term, type: "video_with_episodes", accepted: requested)
+                } catch MediaIntegrationError.http(let status, _) where [400, 404, 422].contains(status) {
+                    // A legacy or partially upgraded server may advertise the newer
+                    // scope before its catalog accepts it.
+                    await transport.disableCatalogEpisodeSearch()
+                }
+            }
+            return try await searchCatalog(term, type: "video", accepted: requested)
+        }
+
         var result: [MediaItem] = []
-        for kind in ["Movie", "Series", "Episode"] where types.contains(kind) {
-            result += try await catalog([.init(name: "q", value: query), .init(name: "type", value: kind.lowercased())], limit: 40)
+        for kind in ["Movie", "Series", "Episode"] where requested.contains(kind) {
+            result += try await searchCatalog(term, type: kind.lowercased(), accepted: [kind])
         }
         return result
+    }
+
+    private func searchCatalog(_ term: String, type: String, accepted: Set<String>) async throws -> [MediaItem] {
+        try await catalog([.init(name: "source", value: "query"), .init(name: "match", value: "all"),
+                           .init(name: "q", value: term), .init(name: "type", value: type)], limit: 80)
+            .filter { accepted.contains($0.type) }
     }
     func imageURL(itemID: String, type: String, maxWidth: Int) -> URL? { nil }
     func artworkURL(for item: MediaItem, type: String, maxWidth: Int) -> URL? {
@@ -465,6 +486,7 @@ actor SiloTransport {
     private let persist: (@Sendable (SiloCredential) async -> Void)?
     private var refreshTask: Task<SiloCredential, Error>?
     private var backoffUntil: Date?
+    private var catalogEpisodeSearch: Bool?
     init(http: MediaIntegrationHTTP, credential: SiloCredential, profileID: String?, deviceID: String,
          persist: (@Sendable (SiloCredential) async -> Void)?) {
         self.http = http; self.credential = credential; self.profileID = profileID; self.deviceID = deviceID; self.persist = persist
@@ -514,6 +536,23 @@ actor SiloTransport {
         let data = try await raw(path, method: method, query: query, body: body)
         return try JSONDecoder().decode(T.self, from: data)
     }
+    func supportsCatalogEpisodeSearch() async throws -> Bool {
+        if let catalogEpisodeSearch { return catalogEpisodeSearch }
+        struct Capabilities: Decodable { let video_with_episodes_scope: Bool? }
+        let supported: Bool
+        do {
+            let capability: Capabilities = try await get(["catalog", "search", "capabilities"])
+            supported = capability.video_with_episodes_scope == true
+        } catch MediaIntegrationError.http(let status, _) where [404, 405, 501].contains(status) {
+            supported = false
+        }
+        // A concurrent catalog query may already have rejected the broader scope.
+        catalogEpisodeSearch = catalogEpisodeSearch ?? supported
+        return catalogEpisodeSearch == true
+    }
+
+    func disableCatalogEpisodeSearch() { catalogEpisodeSearch = false }
+
     func mutate(_ path: [String], method: String, body: [String: Any]? = nil) async throws {
         _ = try await raw(path, method: method, body: body)
     }
