@@ -216,6 +216,28 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(controller.failoverNotice?.contains("Switched to VLC") == true)
     }
 
+    func testAnEstablishedMPVStreamRetriesAtItsPositionBeforeSwitchingEngine() throws {
+        let fixture = try Fixture(.mpv)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        controller.start(urls: [Fixture.url], isLive: false, expectedDuration: 3_600)
+        fixture.mpv.time = 600
+        controller.checkPlayback()
+        fixture.now += 3
+        fixture.mpv.time = 603
+        controller.checkPlayback()
+        fixture.mpv.state = .error
+        controller.checkPlayback()
+        XCTAssertTrue(controller.reconnecting)
+        XCTAssertEqual(controller.engineKind, .mpv)
+        fixture.now += 2
+        controller.checkPlayback()
+        XCTAssertEqual(fixture.mpv.loads.last?.startPosition, 601)
+        XCTAssertEqual(fixture.mpv.loads.count, 2)
+        XCTAssertTrue(fixture.vlc.loads.isEmpty)
+    }
+
     func testResumeSeekPauseMuteAndCompletionUseTheSameControllerForBothEngines() throws {
         for kind in TVPlaybackEngine.allCases {
             let fixture = try Fixture(kind)
