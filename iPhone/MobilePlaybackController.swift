@@ -66,6 +66,33 @@ final class MobilePlaybackController: ObservableObject {
     @Published private(set) var videoWidth: Int?
     @Published private(set) var videoHeight: Int?
     @Published private(set) var mediaInfo = PlaybackMediaInfo()
+    @Published private(set) var chapters: [PlaybackChapter] = []
+    @Published private(set) var playbackSpeed = 1.0
+    @Published private(set) var subtitlesAtTop = false
+    func setSubtitlesAtTop(_ top: Bool) {
+        subtitlesAtTop = top
+        aetherSession?.setSubtitlesAtTop(top)
+        mpvSession?.setSubtitlesAtTop(top)
+    }
+    @Published private(set) var videoFills = false
+    var forwardBufferSeconds: Double? { engine == .aether ? aetherSession?.forwardBufferSeconds : mpvSession?.forwardBufferSeconds }
+    var droppedFrames: Int? { engine == .aether ? aetherSession?.droppedFrames : nil }
+    var networkMbps: Double? { engine == .aether ? aetherSession?.networkMbps : nil }
+    var videoTracks: [MPVPlaybackTrack] { engine == .mpv ? mpvSession?.videoTracks ?? [] : [] }
+    var selectedVideoID: Int? { engine == .mpv ? mpvSession?.selectedVideoIndex : nil }
+
+    func selectVideoTrack(_ id: Int) { mpvSession?.selectVideo(index: id) }
+    func setPlaybackSpeed(_ rate: Double) {
+        playbackSpeed = rate
+        aetherSession?.setPlaybackSpeed(rate)
+        mpvSession?.setPlaybackSpeed(rate)
+    }
+    func setVideoFill(_ fills: Bool) {
+        videoFills = fills
+        aetherSession?.setVideoFill(fills)
+        mpvSession?.setVideoFill(fills)
+    }
+
     private let liveQualityReporter = LivePlaybackQualityReporter()
     /// Which engine is currently rendering. Views use it only to decide whether
     /// a Picture in Picture button can do anything.
@@ -869,6 +896,7 @@ final class MobilePlaybackController: ObservableObject {
         videoWidth = nil
         videoHeight = nil
         mediaInfo = PlaybackMediaInfo()
+        chapters = []
         guard !candidates.isEmpty else {
             loading = false
             UIApplication.shared.isIdleTimerDisabled = false
@@ -924,6 +952,9 @@ final class MobilePlaybackController: ObservableObject {
                          primary: isPrimaryOutput, matchContent: false,
                          preferredSubtitleLanguages: preferredSubtitleLanguages,
                          preferredAudioLanguages: preferredAudioLanguages)
+            session.setPlaybackSpeed(isLive ? 1 : playbackSpeed)
+            session.setVideoFill(videoFills)
+            session.setSubtitlesAtTop(subtitlesAtTop)
             if pausedByUser { session.pause() }
             applySubtitleAppearance()
             closeStartGate()
@@ -957,6 +988,9 @@ final class MobilePlaybackController: ObservableObject {
                          isLive: isLive && !sourceIsRecording,
                          preferredSubtitleLanguage: preferredSubtitleLanguages.first,
                          preferredAudioLanguage: preferredAudioLanguages.first)
+            session.setPlaybackSpeed(isLive ? 1 : playbackSpeed)
+            session.setVideoFill(videoFills)
+            session.setSubtitlesAtTop(subtitlesAtTop)
             if pausedByUser { session.pause() }
             applySubtitleAppearance()
             UIApplication.shared.isIdleTimerDisabled = true
@@ -1329,10 +1363,20 @@ final class MobilePlaybackController: ObservableObject {
         applySubtitleAppearance()
     }
 
+    private static let localSubtitleDelayKey = "Lineup.player.localSubtitleDelay.v1"
+    var remembersSubtitleDelay: Bool { defaults.object(forKey: Self.localSubtitleDelayKey) != nil }
+
+    func toggleRememberedSubtitleDelay() {
+        if remembersSubtitleDelay { defaults.removeObject(forKey: Self.localSubtitleDelayKey) }
+        else { defaults.set(subtitleDelaySeconds, forKey: Self.localSubtitleDelayKey) }
+        objectWillChange.send()
+    }
+
     func setSubtitleDelay(_ seconds: Double) {
         let delay = MobileSubtitlePreferences.delay(seconds)
         guard delay != subtitleDelaySeconds else { return }
         subtitleDelaySeconds = delay
+        if remembersSubtitleDelay { defaults.set(delay, forKey: Self.localSubtitleDelayKey) }
         applySubtitleAppearance()
     }
 
@@ -1414,7 +1458,7 @@ final class MobilePlaybackController: ObservableObject {
     private func resetSubtitles() {
         subtitleSessionID = UUID()
         explicitSubtitleChoice = false
-        subtitleDelaySeconds = 0
+        subtitleDelaySeconds = defaults.double(forKey: Self.localSubtitleDelayKey)
         for file in onlineSubtitleFiles { try? FileManager.default.removeItem(at: file) }
         onlineSubtitleFiles.removeAll()
         subtitleTracks = [.off]
@@ -1520,6 +1564,15 @@ final class MobilePlaybackController: ObservableObject {
                 audioLayout: mpvSession?.audioLayout)
         }
         if mediaInfo != next { mediaInfo = next }
+        if !isLive {
+            let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+            let entries: [PlaybackChapter]
+            switch engine {
+            case .aether: entries = (aetherSession?.chapters ?? []).map { .init(start: $0.start + offset, title: $0.title) }
+            case .mpv: entries = (mpvSession?.chapters ?? []).map { .init(start: $0.start + offset, title: $0.title) }
+            }
+            if chapters != entries { chapters = entries }
+        }
         liveQualityReporter.observe(url: currentURL, width: videoWidth ?? 0, height: videoHeight ?? 0,
             frameRate: next.frameRate, live: isLive && !sourceIsRecording, playing: isPlaying,
             picture: startGateOpen && !loading)

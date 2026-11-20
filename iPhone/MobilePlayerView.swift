@@ -26,6 +26,14 @@ struct MobilePlayerView: View {
     /// The quality the server parsed from the release name. Only a fallback:
     /// a name can say 4K about a 1080p file, so the decoded picture wins.
     var sourceQuality: String? = nil
+    var sourceChapters: [PlaybackChapter] = []
+    @State private var playbackOptionsOpen = false
+    @AppStorage("Lineup.player.autoPlayNext.v1") private var autoPlayNext = false
+    private var chapters: [PlaybackChapter] {
+        guard !isLive else { return [] }
+        return PlaybackChapter.ordered(sourceChapters.isEmpty ? controller.chapters : sourceChapters,
+                                       duration: controller.progress?.duration)
+    }
     /// What is playing, shown beside the controls while they are up.
     var synopsis: MobilePlayerSynopsis? = nil
     /// Supplied by Library episode/movie playback, never live/preview video.
@@ -53,13 +61,9 @@ struct MobilePlayerView: View {
     @State private var nextEpisodeDeclined = false
     @State private var isScrubbing = false
     @State private var lastReportedPosition: TimeInterval = 0
-    @State private var showingSubtitles = false
-    @State private var showingAudio = false
     @State private var showingOnlineSubtitles = false
     @State private var showingSubtitleSettings = false
     @State private var onlineSubtitleSession = UUID()
-    /// The synopsis, opened from the toolbar's Info button.
-    @State private var showingInfo = false
 
     var body: some View {
         ZStack {
@@ -141,30 +145,14 @@ struct MobilePlayerView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 10)
                 .transition(.opacity)
-                // A ZStack-centered sibling, so it lands dead-center on screen
-                // -- the same spot every other player in the app puts its
-                // play/pause control.
-                if !controller.loading && controller.error == nil {
-                    LineupGlassGroup(spacing: 28) {
-                        HStack(spacing: 28) {
-                            if showsTransport {
-                                control("gobackward.15", label: "Back 15 seconds", size: 56) {
-                                    showControls()
-                                    controller.skip(by: -15)
-                                }
-                            }
-                            control(controller.isPlaying ? "pause.fill" : "play.fill",
-                                    label: controller.isPlaying ? "Pause" : "Play", size: 76) { controller.toggle() }
-                            if showsTransport {
-                                control("goforward.15", label: "Forward 15 seconds", size: 56) {
-                                    showControls()
-                                    controller.skip(by: 15)
-                                }
-                            }
-                        }
-                    }
-                    .transition(.opacity)
-                }
+            }
+        }
+        .overlay(alignment: .top) {
+            if playbackOptionsOpen && !MobileScreenLock.shared.isLocked {
+                PlaybackOptionsPanel(tabs: PlaybackOptionsTab.allCases.filter { $0 != .chapters || !chapters.isEmpty },
+                                     close: closePlaybackOptions, rows: playbackOptionRows)
+                    .frame(maxWidth: 650)
+                    .padding(.horizontal, 16).padding(.top, 12)
             }
         }
         // Next Episode, in the bottom-right corner while the controls are
@@ -205,45 +193,10 @@ struct MobilePlayerView: View {
         // screenshot does not capture, so it only showed up on the device.
         .background(Color.black.ignoresSafeArea())
         .foregroundStyle(LineupStyle.mediaText)
-        .modifier(MobileDismissGesture(enabled: !isScrubbing,
+        .modifier(MobileDismissGesture(enabled: !isScrubbing && !playbackOptionsOpen,
                                        onBeginExit: { controller.freezePictureForExit() }) { dismiss() })
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .lineupChoices("Audio", symbol: "waveform", isPresented: $showingAudio, message: trackMemoryMessage) {
-            controller.audioTracks.map { track in
-                MobileMenuItem(track.title, id: track.id, isSelected: track.id == controller.selectedAudioID) {
-                    controller.selectAudioTrack(track)
-                    showControls()
-                }
-            }
-        } onCancel: { showControls() }
-        .lineupChoices("Subtitles", symbol: "captions.bubble", isPresented: $showingSubtitles,
-                       message: trackMemoryMessage) {
-            var items = controller.subtitleTracks.map { track in
-                MobileMenuItem(track.title, id: "\(track.id)",
-                               isSelected: track.id == controller.selectedSubtitleID) {
-                    controller.selectSubtitle(track)
-                    showControls()
-                }
-            }
-            if offersOnlineSubtitles {
-                let title = controller.canAttachOnlineSubtitles ? "Find Subtitles Online"
-                    : "Use AetherEngine or MPVKit for Online Subtitles"
-                items.append(MobileMenuItem(title,
-                    symbol: "magnifyingglass", id: "online-subtitles",
-                    isEnabled: controller.canAttachOnlineSubtitles,
-                    namesEngine: !controller.canAttachOnlineSubtitles) {
-                    onlineSubtitleSession = controller.subtitleSessionID
-                    showingOnlineSubtitles = true
-                })
-            }
-            if !isLive && subtitleIdentityLookup != nil {
-                items.append(MobileMenuItem("Subtitle Settings", symbol: "textformat.size", id: "subtitle-settings") {
-                    showingSubtitleSettings = true
-                })
-            }
-            return items
-        } onCancel: { showControls() }
         .lineupSheet(isPresented: $showingOnlineSubtitles, onDismiss: { showControls() }) {
             if let subtitleIdentityLookup {
                 MobileOnlineSubtitlesSheet(name: name, identity: subtitleIdentityLookup,
@@ -284,6 +237,7 @@ struct MobilePlayerView: View {
             guard finished else { return }
             reportProgress(force: true)
             onReachedEnd?()
+            if autoPlayNext { nextEpisode?.play() }
             exit()
         }
         // Backgrounding is no longer a stop. MobileBackgroundPolicy decides
@@ -310,11 +264,6 @@ struct MobilePlayerView: View {
 
     private var offersOnlineSubtitles: Bool {
         !isLive && !controller.loading && subtitleIdentityLookup != nil && MobileOpenSubtitles.configured
-    }
-
-    /// Said where a choice will outlast the episode.
-    private var trackMemoryMessage: String? {
-        controller.remembersShowTracks ? "Kept for every episode of this show." : nil
     }
 
     private var skipAction: (title: String, destination: Double)? {
@@ -393,7 +342,7 @@ struct MobilePlayerView: View {
 
     private func scheduleAutoHide() {
         hideControlsTask?.cancel()
-        guard controller.isPlaying, !isScrubbing else { return }
+        guard controller.isPlaying, !isScrubbing, !playbackOptionsOpen else { return }
         hideControlsTask = Task {
             do { try await Task.sleep(for: .seconds(4)) } catch { return }
             guard !Task.isCancelled else { return }
@@ -440,7 +389,6 @@ struct MobilePlayerView: View {
     private var topBar: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                control("xmark", label: "Close player") { exit() }
                 Spacer(minLength: 8)
                 LineupGlassGroup(spacing: 10) {
                     HStack(spacing: 10) {
@@ -484,24 +432,44 @@ struct MobilePlayerView: View {
             } else if showsPostCreditsNotice {
                 HStack { Spacer(); postCreditsNotice }
             }
-            if showingInfo, let overview = synopsis?.overview, !overview.isEmpty {
-                infoPanel(overview)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-            HStack(alignment: .bottom, spacing: 12) {
-                titleBlock
-                Spacer(minLength: 8)
-                toolbar
-            }
+            titleBlock
             if showsTransport, let progress = controller.progress {
                 MobileLibrarySeekBar(controller: controller, progress: progress, preview: seekPreview,
-                                     inline: true) { editing in
+                                     inline: true, chapters: chapters) { editing in
                     isScrubbing = editing
                     if editing { hideControlsTask?.cancel() } else { scheduleAutoHide() }
                 }
             }
+            HStack(spacing: 4) {
+                if showsTransport {
+                    toolButton("gobackward.10", label: "Back 10 seconds") {
+                        controller.skip(by: -10)
+                        showControls()
+                    }
+                }
+                toolButton(controller.isPlaying ? "pause.fill" : "play.fill",
+                           label: controller.isPlaying ? "Pause" : "Play") {
+                    controller.toggle()
+                    showControls()
+                }
+                if showsTransport {
+                    toolButton("goforward.30", label: "Forward 30 seconds") {
+                        controller.skip(by: 30)
+                        showControls()
+                    }
+                }
+                if offersNext, let offer = nextEpisode {
+                    toolButton("forward.end.fill", label: "Next episode") { playNext(offer) }
+                }
+                Spacer()
+                toolButton("slider.horizontal.3", label: "Playback Options") {
+                    hideControlsTask?.cancel()
+                    playbackOptionsOpen.toggle()
+                    if !playbackOptionsOpen { showControls() }
+                }
+                toolButton("xmark", label: "Close", action: exit)
+            }
         }
-        .animation(.easeInOut(duration: 0.2), value: showingInfo)
     }
 
     /// What is playing, set straight on the picture: its name, and the line
@@ -523,51 +491,98 @@ struct MobilePlayerView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private var hasOverview: Bool { !(synopsis?.overview ?? "").isEmpty }
-
-    private var offersSubtitles: Bool {
-        !isLive && (controller.subtitleTracks.count > 1 || offersOnlineSubtitles || subtitleIdentityLookup != nil)
-    }
-
-    private var offersAudio: Bool { !isLive && controller.audioTracks.count > 1 }
-
     private var offersNext: Bool {
         nextEpisode != nil && !isLive && controller.error == nil && !controller.loading
     }
 
-    /// One sheet of glass holding everything about what is playing rather
-    /// than the playing of it: its synopsis, its subtitles, its sound and
-    /// the episode after it.
-    @ViewBuilder
-    private var toolbar: some View {
-        if hasOverview || offersSubtitles || offersAudio || offersNext {
-            HStack(spacing: 2) {
-                if hasOverview {
-                    toolButton(showingInfo ? "info.circle.fill" : "info.circle", label: "Info") {
-                        showingInfo.toggle()
-                        showControls()
-                    }
-                }
-                if offersSubtitles {
-                    toolButton(controller.selectedSubtitleID == PlaybackSubtitleTrack.off.id
-                               ? "captions.bubble" : "captions.bubble.fill",
-                               label: "Subtitles, \(controller.selectedSubtitleTitle)") {
-                        showControls()
-                        showingSubtitles = true
-                    }
-                }
-                if offersAudio {
-                    toolButton("waveform", label: "Audio, \(controller.selectedAudioTitle)") {
-                        showControls()
-                        showingAudio = true
-                    }
-                }
-                if offersNext, let offer = nextEpisode {
-                    toolButton("forward.end.fill", label: "Next episode") { playNext(offer) }
-                }
+    private func closePlaybackOptions() {
+        playbackOptionsOpen = false
+        showControls()
+    }
+
+    private func playbackOptionRows(_ tab: PlaybackOptionsTab) -> [PlaybackOptionRow] {
+        let media = controller.mediaInfo
+        switch tab {
+        case .info:
+            var rows = [PlaybackOptionRow(title: synopsis?.heading ?? name, detail: synopsis?.detail),
+                        .init(title: "Playback engine", detail: controller.engineTitle),
+                        .init(title: "Audio", detail: controller.selectedAudioTitle),
+                        .init(title: "Subtitles", detail: controller.selectedSubtitleTitle)]
+            if let overview = synopsis?.overview, !overview.isEmpty { rows.insert(.init(title: overview), at: 1) }
+            if let position = controller.progress?.position,
+               let index = chapters.lastIndex(where: { $0.start <= position }) {
+                rows.append(.init(title: "Chapter", detail: chapters[index].label(at: index)))
             }
-            .padding(.horizontal, 6)
-            .lineupPlayerControlGlass(Capsule())
+            return rows
+        case .stats:
+            let status = controller.loading ? "Loading" : controller.isPlaying ? "Playing" : "Paused"
+            var rows = [PlaybackOptionRow(title: "Playback", detail: status),
+                        .init(title: "Engine", detail: controller.engineTitle)]
+            if let sourceBitrate { rows.append(.init(title: "Source bitrate", detail: sourceBitrate)) }
+            if let host = urls.first?.host { rows.append(.init(title: "Source", detail: host)) }
+            if let width = controller.videoWidth, let height = controller.videoHeight {
+                rows.append(.init(title: "Resolution", detail: "\(width) × \(height)"))
+            }
+            if !media.badges.isEmpty { rows.append(.init(title: "Formats", detail: media.badges.joined(separator: " · "))) }
+            return rows + PlaybackOptionRow.metrics(buffer: controller.forwardBufferSeconds, dropped: controller.droppedFrames,
+                                                    network: controller.networkMbps)
+        case .video:
+            var rows = controller.videoTracks.map { track in
+                PlaybackOptionRow(title: track.title, selected: track.id == controller.selectedVideoID,
+                                  key: "video-\(track.id)", action: { controller.selectVideoTrack(track.id) })
+            }
+            if rows.isEmpty, let height = controller.videoHeight {
+                rows.append(.init(title: "Source quality", detail: "\(height)p"))
+            }
+            if !isLive { rows += PlaybackOptionRow.speedRows(controller.playbackSpeed, set: controller.setPlaybackSpeed) }
+            rows.append(.init(title: "Fit picture", selected: !controller.videoFills,
+                              action: { controller.setVideoFill(false) }))
+            rows.append(.init(title: "Fill screen", selected: controller.videoFills,
+                              action: { controller.setVideoFill(true) }))
+            if !isLive && nextEpisode != nil {
+                rows.append(.init(title: "Auto-play next", detail: autoPlayNext ? "On" : "Off",
+                                  action: { autoPlayNext.toggle() }))
+            }
+            return rows
+        case .audio:
+            var rows = controller.audioTracks.map { track in
+                PlaybackOptionRow(title: track.title, selected: track.id == controller.selectedAudioID,
+                                  key: track.id, action: { controller.selectAudioTrack(track) })
+            }
+            if let codec = media.audioCodec { rows.append(.init(title: "Codec", detail: codec.uppercased())) }
+            if let channels = media.audioChannels { rows.append(.init(title: "Channels", detail: media.audioLayout ?? String(channels))) }
+            return rows.isEmpty ? [.init(title: "No audio track information")] : rows
+        case .subtitles:
+            var rows = controller.subtitleTracks.map { track in
+                PlaybackOptionRow(title: track.title, selected: track.id == controller.selectedSubtitleID,
+                                  key: track.id, action: { controller.selectSubtitle(track) })
+            }
+            if offersOnlineSubtitles && controller.canAttachOnlineSubtitles {
+                rows.append(.init(title: "Find subtitles online", action: {
+                    closePlaybackOptions()
+                    onlineSubtitleSession = controller.subtitleSessionID
+                    showingOnlineSubtitles = true
+                }))
+            }
+            if !isLive {
+                rows += PlaybackOptionRow.subtitleTiming(controller.subtitleDelaySeconds, set: controller.setSubtitleDelay)
+                rows.append(.init(title: "Remember delay on this device",
+                                  detail: controller.remembersSubtitleDelay ? "On" : "Off",
+                                  action: controller.toggleRememberedSubtitleDelay))
+                rows.append(.init(title: "Subtitle position", detail: controller.subtitlesAtTop ? "Top" : "Bottom",
+                                  action: { controller.setSubtitlesAtTop(!controller.subtitlesAtTop) }))
+                rows.append(.init(title: "Subtitle appearance and language", detail: controller.subtitlePreferences.sizeName, action: {
+                    closePlaybackOptions()
+                    showingSubtitleSettings = true
+                }))
+            }
+            return rows
+        case .chapters:
+            return PlaybackOptionRow.chapterRows(chapters, position: controller.progress?.position ?? 0,
+                                                  clock: MobilePlaybackProgress.timecode) { start in
+                controller.seek(to: start)
+                closePlaybackOptions()
+            }
         }
     }
 
@@ -582,16 +597,6 @@ struct MobilePlayerView: View {
         .accessibilityLabel(label)
     }
 
-    private func infoPanel(_ overview: String) -> some View {
-        Text(overview)
-            .font(.inter(.subheadline))
-            .foregroundStyle(LineupStyle.mediaText.opacity(0.9))
-            .lineLimit(verticalSizeClass == .compact ? 3 : 6)
-            .multilineTextAlignment(.leading)
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .frame(maxWidth: 520, alignment: .leading)
-            .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
 
     private func qualityBadge(_ text: String) -> some View {
         Text(text).font(.inter(.caption2, .semibold)).lineLimit(1)
