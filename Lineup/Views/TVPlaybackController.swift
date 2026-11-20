@@ -622,7 +622,7 @@ struct PlaybackClockReader<Content: View>: View {
         // opened, or once it has had long enough to; before that it is judged
         // by whether a picture comes at all.
         let state = backend.state
-        if state == .error, engineKind == .mpv {
+        if state == .error, engineKind == .mpv, !health.hasShownPicture {
             fallbackFromMPVToVLC("MPV reported a playback error")
             return
         }
@@ -641,9 +641,9 @@ struct PlaybackClockReader<Content: View>: View {
         // What has been read from the server tells a feed VLC is catching up
         // on from one that has stopped coming.
         let recover = health.observe(now: now, playing: playing, video: hasVideo,
-            time: time.isFinite ? Int32(clamping: Int64(min(max(time * 1000, 0), Double(Int32.max)))) : 0,
+            time: LivePlaybackHealth.milliseconds(time),
             frames: backend.frames,
-            bytes: backend.bytes, failed: failed)
+            bytes: backend.bytes, bufferedAhead: backend.forwardBufferSeconds, failed: failed)
         if health.hasShownPicture, let shown = currentChannelID, reportedPictureChannelID != shown {
             reportedPictureChannelID = shown
             failover?.didShowPicture(shown)
@@ -682,7 +682,7 @@ struct PlaybackClockReader<Content: View>: View {
         case .nothingArriving:
             reason = "Nothing arrived for \(isLive ? 12 : 30) seconds"
         case .neverPlayed:
-            reason = "No picture came within \(isLive && failover != nil ? 15 : 30) seconds"
+            reason = "No picture came after \(Int(health.age(now: now))) seconds"
         case .failed, nil:
             reason = engineTitle + " reported the stream " + Self.describe(state)
         }
