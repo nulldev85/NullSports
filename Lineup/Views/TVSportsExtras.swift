@@ -49,34 +49,37 @@ extension EnvironmentValues {
 
 // MARK: - Channels
 
-/// The channels Lineup has verified carry a game, each with what its guide
-/// says is on and the quality the provider names. The broad picker, Choose
-/// Another Channel, stays separate for feeds whose guide is missing or
-/// named differently. No stream is opened to fill the list.
+/// Where to Watch for an upcoming game and for Channels on a live game.
+/// Guide-confirmed feeds and broadcast-network options are shown separately.
 struct TVEventChannelsScreen: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(\.dismiss) private var dismiss
     let game: SportsGame
     let playingID: Int?
     let onPick: (XtreamStream) -> Void
+    let onSearch: () -> Void
     @State private var channels: [LiveEventChannel] = []
+    @State private var networkChannels: [LiveEventChannel] = []
     @State private var loading = true
     @State private var waiting = false
-    @State private var reloadTask: Task<Void, Never>?
     @State private var openedProfileID: UUID?
+    @State private var reload = 0
 
     private var current: SportsGame { library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game }
 
     var body: some View {
         HStack(alignment: .top, spacing: 64) {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 18) {
                 LineupIconTile(symbol: "tv", size: 72)
-                Text("Channels").font(.inter(44, .bold)).padding(.top, 26)
+                Text("Where to Watch").font(.inter(44, .bold)).padding(.top, 8)
                 Text(current.matchupLine).font(.inter(23, .semibold)).foregroundStyle(LineupPresentationStyle.secondary)
-                    .lineLimit(3).padding(.top, 8)
-                Text("Every channel here is one Lineup checked against the guide for this game. To search the provider yourself, hold Select on the game and choose Choose Another Channel.")
-                    .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
-                    .fixedSize(horizontal: false, vertical: true).padding(.top, 22)
+                    .lineLimit(3)
+                if !current.isLive {
+                    Text(current.start.formatted(date: .abbreviated, time: .shortened))
+                        .font(.inter(20)).foregroundStyle(LineupPresentationStyle.secondary)
+                }
+                TVServerLibraryChip(title: "Choose Another Channel", symbol: "magnifyingglass",
+                                    chosen: false, action: onSearch)
             }
             .frame(width: 520, alignment: .leading)
             list.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -85,77 +88,97 @@ struct TVEventChannelsScreen: View {
         .foregroundStyle(LineupPresentationStyle.text)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LineupPresentationStyle.ground.ignoresSafeArea())
-        .onAppear {
-            openedProfileID = library.activeProfile?.id
-            reload()
+        .task(id: library.eventChannelsInputs + [AnyHashable(reload)]) {
+            if openedProfileID == nil { openedProfileID = library.activeProfile?.id }
+            await load()
         }
-        .onChange(of: library.eventChannelsInputs) { reload() }
-        .onDisappear { reloadTask?.cancel() }
+        .onExitCommand { dismiss() }
     }
 
-    @ViewBuilder
     private var list: some View {
-        if loading || waiting {
-            VStack(spacing: 18) {
-                ProgressView().tint(LineupPresentationStyle.text)
-                Text(waiting ? "Matching event channels…" : "Finding channels…")
-                    .font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if channels.isEmpty {
-            VStack(spacing: 16) {
-                Image(systemName: "tv.slash").font(.system(size: 44)).foregroundStyle(LineupPresentationStyle.secondary)
-                Text("No matching channels").font(.inter(26, .semibold))
-                Text("No channel could be verified for this event. Choose Another Channel, in the game's menu, searches your provider.")
-                    .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
-                    .multilineTextAlignment(.center).frame(maxWidth: 620)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    Text("\(channels.count) \(channels.count == 1 ? "CHANNEL" : "CHANNELS")")
-                        .font(.inter(17, .heavy)).tracking(1).foregroundStyle(LineupPanelStyle.caption)
-                    ForEach(channels) { channel in
-                        TVSelectable(scale: LineupStyle.cardLift, fillRadius: LineupPanelStyle.radius,
-                                     action: { pick(channel) },
-                                     requestInitialFocus: channel.id == channels.first?.id) {
-                            TVEventChannelRow(channel: channel, isPlaying: channel.id == playingID,
-                                              live: current.isLive, fallback: current.matchupLine)
-                        }
-                    }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                if !channels.isEmpty {
+                    Text("Confirmed Channels").font(.inter(22, .bold))
+                    rows(channels, confirmed: true)
                 }
-                .padding(.horizontal, 14).padding(.vertical, 10).padding(.bottom, 70)
+                if !networkChannels.isEmpty {
+                    Text("On \(current.broadcast)").font(.inter(22, .bold)).padding(.top, 10)
+                    Text("Your guide hasn't confirmed this game on these feeds yet.")
+                        .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
+                    rows(networkChannels, confirmed: false)
+                }
+                if loading || waiting {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(waiting ? "Matching event channels…" : "Finding channels…")
+                            .font(.inter(21)).foregroundStyle(LineupPresentationStyle.secondary)
+                    }
+                } else if channels.isEmpty && networkChannels.isEmpty {
+                    Text("No matching channels").font(.inter(26, .semibold))
+                    Text(current.isLive ? "Search your provider with Choose Another Channel."
+                                        : "Channels usually show up closer to the start.")
+                        .font(.inter(19)).foregroundStyle(LineupPresentationStyle.secondary)
+                }
             }
-            .scrollIndicators(.hidden)
+            .padding(.horizontal, 14).padding(.vertical, 10).padding(.bottom, 70)
+        }
+        .scrollIndicators(.hidden)
+        .lineupFocusRegion()
+    }
+
+    private func rows(_ entries: [LiveEventChannel], confirmed: Bool) -> some View {
+        ForEach(entries) { channel in
+            TVSelectable(scale: LineupStyle.cardLift, fillRadius: LineupPanelStyle.radius,
+                         action: { pick(channel, confirmed: confirmed) }) {
+                TVEventChannelRow(channel: channel, isPlaying: channel.id == playingID, live: current.isLive,
+                                  fallback: confirmed ? current.matchupLine : "On \(current.broadcast)")
+            }
         }
     }
 
-    /// A row can outlive its guide evidence: checked again on Select, before
-    /// anything is played or remembered.
-    private func pick(_ entry: LiveEventChannel) {
+    private func pick(_ entry: LiveEventChannel, confirmed: Bool) {
         guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
         guard current.isLive || current.isUpcoming,
               let stream = library.stream(withID: entry.id),
-              stream.name == entry.stream.name, stream.epgChannelID == entry.stream.epgChannelID,
-              library.isEventChannel(stream, verifiedFor: current) else { reload(); return }
+              stream.name == entry.stream.name, stream.epgChannelID == entry.stream.epgChannelID else {
+            reload += 1
+            return
+        }
+        if confirmed {
+            guard library.isEventChannel(stream, verifiedFor: current) else { reload += 1; return }
+        } else {
+            // A manual network pick uses the same policy as the list, with
+            // the guide and time rechecked at the moment of selection.
+            let candidates = NetworkChannelFallback.channels(for: current, streams: [stream],
+                categories: library.categories, programs: library.programsByChannel)
+            guard !candidates.isEmpty else { reload += 1; return }
+        }
         onPick(stream)
     }
 
-    private func reload() {
-        reloadTask?.cancel()
-        reloadTask = Task { @MainActor in
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
-            let event = current
-            waiting = !library.eventChannelsReady(for: event) && library.channelsAreSyncing
-            loading = true
-            let result = await library.eventChannels(for: event)
-            guard !Task.isCancelled else { return }
-            channels = result
-            loading = false
+    private func load() async {
+        guard library.activeProfile?.id == openedProfileID else { dismiss(); return }
+        let inputs = library.eventChannelsInputs
+        let event = current
+        waiting = !library.eventChannelsReady(for: event) && library.channelsAreSyncing
+        loading = true
+        var confirmed = await library.eventChannels(for: event)
+        if confirmed.isEmpty, !waiting, !Task.isCancelled {
+            confirmed = await library.eventChannels(for: event, recheckPrepared: true)
         }
+        guard !Task.isCancelled, library.eventChannelsInputs == inputs else { return }
+        let streams = library.streams, categories = library.categories, programs = library.programsByChannel
+        let taken = Set(confirmed.map(\.id))
+        let worker = Task.detached(priority: .userInitiated) {
+            NetworkChannelFallback.channels(for: event, streams: streams, categories: categories,
+                                            programs: programs, excluding: taken)
+        }
+        let network = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+        guard !Task.isCancelled, library.eventChannelsInputs == inputs else { return }
+        channels = confirmed
+        networkChannels = network
+        loading = false
     }
 }
 

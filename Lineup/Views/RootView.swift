@@ -230,6 +230,7 @@ private final class TVTabsLeft {
 }
 
 struct MainView: View {
+    @Environment(SportsLibrary.self) private var library
     @Environment(MediaLibrary.self) private var media
     @State private var selectedTab: Int
     @State private var tabBar = TVTabBarState()
@@ -333,6 +334,7 @@ struct MainView: View {
                 .tvBackToTabs()
         case 1:
             GuideView(isActive: selectedTab == 1)
+                .id(library.activeProfile?.id)
                 .environment(\.tvPlaybackPlace, .guide)
                 .lineupAccentScope(accent)
         case 2:

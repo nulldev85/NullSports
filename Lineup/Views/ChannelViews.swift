@@ -36,6 +36,8 @@ struct LiveView: View {
     /// From a game's hold menu: the channels verified to carry it, a side's
     /// page, the game from its start, and My Teams' recorded games.
     @State private var eventChannelsGame: SportsGame?
+    @State private var manualAfterChannels: SportsGame?
+    @State private var liveChannelLookup: Task<Void, Never>?
     @State private var teamPage: MobileTeamPageTarget?
     @State private var catchUpStream: XtreamStream?
     @State private var catchUpChoice: TVCatchUpChoice?
@@ -98,11 +100,14 @@ struct LiveView: View {
                     continuing: item.preview
                 )
             }
-            .lineupFullScreenCover(item: $eventChannelsGame, onDismiss: applyPickedChannel) { game in
-                TVEventChannelsScreen(game: game, playingID: nil) { stream in
+            .lineupFullScreenCover(item: $eventChannelsGame, onDismiss: finishWhereToWatch) { game in
+                TVEventChannelsScreen(game: game, playingID: nil, onPick: { stream in
                     pickedChannel = TVPickedChannel(game: game, stream: stream, startsMultiview: false)
                     eventChannelsGame = nil
-                }
+                }, onSearch: {
+                    manualAfterChannels = game
+                    eventChannelsGame = nil
+                })
             }
             .lineupFullScreenCover(item: $teamPage) { TVTeamPage(target: $0) }
             .lineupFullScreenCover(item: $catchUpStream) { stream in
@@ -180,25 +185,62 @@ struct LiveView: View {
             }
             .onChange(of: isActive) { _, active in
                 if !active {
+                    liveChannelLookup?.cancel()
+                    liveChannelLookup = nil
                     pendingLiveSelection = nil
                     opensPendingSelectionAfterDismiss = false
                     showsChannelSyncMessage = false
                 }
             }
             .onChange(of: library.eventChannelsInputs) { retryPendingLiveSelection() }
+            .onChange(of: library.activeProfile?.id) { _, _ in
+                liveChannelLookup?.cancel()
+                liveChannelLookup = nil
+                pendingLiveSelection = nil
+                opensPendingSelectionAfterDismiss = false
+                showsChannelSyncMessage = false
+                pickedChannel = nil
+                manualAfterChannels = nil
+                manualChannelGame = nil
+                eventChannelsGame = nil
+                multiviewPrimary = nil
+                multiviewPrimaryGame = nil
+            }
             // A sport turned off while it was the one shown: back to all.
             .onChange(of: hiddenLeaguesRaw) { _, raw in
                 if let league = selectedLeague, SportsVisibility.hidden(raw).contains(league) {
                     selectedLeague = nil
                 }
             }
-            .onDisappear { catchUpLookup?.cancel() }
+            .onDisappear {
+                catchUpLookup?.cancel()
+                liveChannelLookup?.cancel()
+            }
     }
 
     /// Select on a game plays it full screen, as tapping one does on the
     /// phone, once its channel is settled.
     private func select(_ game: SportsGame) {
-        open(game, startsMultiview: false)
+        if game.isUpcoming, multiviewPrimary == nil {
+            showWhereToWatch(for: game)
+        } else {
+            open(game, startsMultiview: false)
+        }
+    }
+
+    private func showWhereToWatch(for game: SportsGame) {
+        liveChannelLookup?.cancel()
+        liveChannelLookup = nil
+        eventChannelsGame = game
+    }
+
+    private func finishWhereToWatch() {
+        if let game = manualAfterChannels {
+            manualAfterChannels = nil
+            chooseChannel(for: game)
+        } else {
+            applyPickedChannel()
+        }
     }
 
     /// One game, one decision, made as the iPhone makes it: a channel chosen
@@ -206,6 +248,8 @@ struct LiveView: View {
     /// carrying the game, then Lineup's own match -- and the picker when none
     /// of those answers. `TeamChannelPreferences.resolve` decides.
     private func open(_ game: SportsGame, startsMultiview: Bool) {
+        liveChannelLookup?.cancel()
+        liveChannelLookup = nil
         pendingLiveSelection = nil
         opensPendingSelectionAfterDismiss = false
         switch library.preferredChannel(for: game) {
@@ -221,6 +265,25 @@ struct LiveView: View {
             }
         case let .chooseFeed(home, away):
             feedChoice = TVFeedChoice(game: game, home: home, away: away, startsMultiview: startsMultiview)
+        case .pick where game.isLive:
+            let profileID = library.activeProfile?.id
+            liveChannelLookup = Task { @MainActor in
+                // The prepared result can precede the provider adding the
+                // event. Recheck the guide, but never autoplay a network guess.
+                let deadline = ProcessInfo.processInfo.systemUptime + LiveQualityVerifier.startupBudget
+                let channels = await library.eventChannels(for: game, deadline: deadline, recheckPrepared: true)
+                guard !Task.isCancelled, isActive, library.activeProfile?.id == profileID else { return }
+                liveChannelLookup = nil
+                let current = library.gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
+                guard current.isLive else { return }
+                if let stream = channels.lazy.filter({ !$0.sharedCoverage }).map(\.stream)
+                    .first(where: { library.isEventChannel($0, verifiedFor: current) && !library.playbackURLs(for: $0).isEmpty }) {
+                    TVPreviewHandoff.stopPreviews()
+                    start(current, on: stream, startsMultiview: startsMultiview)
+                } else {
+                    chooseChannel(for: current, startsMultiview: startsMultiview)
+                }
+            }
         case .pick:
             chooseChannel(for: game, startsMultiview: startsMultiview)
         }
@@ -268,6 +331,8 @@ struct LiveView: View {
     }
 
     private func chooseChannel(for game: SportsGame, startsMultiview: Bool = false) {
+        liveChannelLookup?.cancel()
+        liveChannelLookup = nil
         manualSelectionStartsMultiview = startsMultiview
         manualChannelGame = game
     }
@@ -306,7 +371,7 @@ struct LiveView: View {
     }
 
     private var gameActions: LiveGameActions {
-        LiveGameActions(channels: { eventChannelsGame = $0 }, catchUp: findCatchUp,
+        LiveGameActions(channels: showWhereToWatch, catchUp: findCatchUp,
                         teamPage: { teamPage = $0 }, replays: { showingReplays = true })
     }
 

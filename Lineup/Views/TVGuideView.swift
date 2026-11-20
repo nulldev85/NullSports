@@ -140,7 +140,9 @@ struct GuideView: View {
               installedChannels.revision == request.revision, installedChannels.query == request.query else { return [] }
         return channelSnapshot.streams
     }
-    private var loadingChannels: Bool { channelRequest.active && installedChannels != channelRequest }
+    private var loadingChannels: Bool {
+        channelRequest.active && (installedChannels != channelRequest || library.isInitialProviderSync)
+    }
     private func channelPosition(_ id: Int?) -> Int? {
         guard let id, !filtered.isEmpty else { return nil }
         return channelSnapshot.positions[id]
@@ -403,6 +405,19 @@ struct GuideView: View {
                 }
                 .task(id: channelRequest) { await loadChannels() }
                 .onChange(of: guideViewModeValue) { _, value in restoreGuideFocus(for: value) }
+                .onChange(of: library.guideRevision) { _, _ in
+                    guard channelRequest.active, guideViewMode == .tvGuide, !sidebarVisible,
+                          let current = gridFocus, let row = channelPosition(current.streamID),
+                          filtered.indices.contains(row) else { return }
+                    let stream = filtered[row]
+                    let programs = visibleGuidePrograms(for: stream)
+                    let hasCurrentCell = current.programStart.map { start in
+                        programs.contains { $0.start == start }
+                    } ?? programs.isEmpty
+                    if !hasCurrentCell {
+                        gridFocus = firstRowFocus(stream)
+                    }
+                }
                 // The one place the remote's position is read from the focus
                 // engine. The cells take it from the model, each on its own.
                 .onChange(of: gridFocus) { _, place in

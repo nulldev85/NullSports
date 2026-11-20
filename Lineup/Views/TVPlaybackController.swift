@@ -328,7 +328,9 @@ struct PlaybackClockReader<Content: View>: View {
         restarting = false
         selectConfiguredBackend()
         sourceIsRecording = recording
-        self.urls = Array(urls.reversed())
+        // Live sources arrive in provider preference order, just as on iPhone.
+        // Keep the existing ordering for recordings and library titles.
+        self.urls = isLive && !recording ? urls : Array(urls.reversed())
         // A picture turned down to nothing stays muted whatever it is
         // reopened with: a retry or a change of channel passes on the mute
         // as it stood, which partway through fading out was still off.
@@ -656,6 +658,16 @@ struct PlaybackClockReader<Content: View>: View {
         // other address, turned a moment's drop into a long "Reconnecting".
         let droppedWhilePlaying = isLive && health.stall == .failed && state != .error && health.hasShownPicture
         let neverPlayed = !health.hasShownPicture
+        if isLive, catchUp == nil, !sourceIsRecording, neverPlayed,
+           retries.attempts == 0, urlIndex == 0, urls.count > 1 {
+            // Try the provider's alternate transport before retrying a live
+            // address that has never delivered a picture.
+            urlIndex = 1
+            reconnecting = true
+            log(reason + ". Trying the alternate live transport")
+            openCurrent()
+            return
+        }
         backend.stop()
         // A recorded title goes back to where it was, not to its beginning:
         // reconnecting a film used to start it over.
@@ -795,12 +807,14 @@ struct PlaybackClockReader<Content: View>: View {
         backend.volume = targetVolume
     }
     func toggleMute() { setMuted(!muted) }
+    private var restartURLs: [URL] { isLive && !sourceIsRecording ? urls : Array(urls.reversed()) }
+
     func retry() {
         if let nativeSiloPlayback { nativeSiloPlayback.retry(); return }
         let place = isLive ? nil : (reopenPosition ?? (elapsed > 0 ? elapsed : nil))
         log("Retry chosen")
         // Asked for before the stream opens, so it opens there.
-        start(urls: Array(urls.reversed()), muted: muted, initialPosition: place,
+        start(urls: restartURLs, muted: muted, initialPosition: place,
               channelID: currentChannelID, isLive: isLive, keepTrackChoices: true, recording: sourceIsRecording)
     }
     /// A channel reconnects at its live edge; a film or an episode starts over
@@ -827,7 +841,7 @@ struct PlaybackClockReader<Content: View>: View {
         }
         guard !urls.isEmpty else { return }
         log(isLive ? "Go Live chosen" : "Restart chosen")
-        start(urls: Array(urls.reversed()), muted: muted, channelID: currentChannelID, isLive: isLive,
+        start(urls: restartURLs, muted: muted, channelID: currentChannelID, isLive: isLive,
               keepTrackChoices: true)
     }
     func togglePlayback() {
@@ -1009,7 +1023,7 @@ struct PlaybackClockReader<Content: View>: View {
         skipTarget = nil
         recordingEndsWithProgramme = endsWithProgramme
         pausedAt = nil
-        // `start` tries the last address first, as it does a channel's two.
+        // Recordings keep the provider path ahead of its script alternative.
         start(urls: Array(addresses.reversed()), muted: muted, channelID: source.stream.id,
               resetFailover: false, isLive: true, keepTrackChoices: true, recording: true)
         catchUp = CatchUpTimeline(programmeStart: programmeStart, programmeEnd: programmeEnd,
