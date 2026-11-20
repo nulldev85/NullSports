@@ -65,8 +65,7 @@ struct MobileLibrarySeekBar: View {
                 .font(.inter(.caption2, .semibold).monospacedDigit())
                 .foregroundStyle(LineupStyle.mediaText.opacity(0.8))
             }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .lineupPlayerPanelGlass(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .padding(.vertical, 6)
         }
     }
 
