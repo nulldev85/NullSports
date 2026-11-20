@@ -1421,6 +1421,7 @@ struct MediaPlaybackSource: Decodable, Identifiable, Hashable, Sendable {
     var playSessionID: String? = nil
     /// Native Silo chooses this exact version before returning a signed plan.
     var siloFileID: String? = nil
+    var chapters: [PlaybackChapter] = []
     var siloLease: SiloPlaybackLease? = nil
     /// Unlike the first standard Id, this names one exact AIOStreams version.
     var selectionID: String { aiostreams?.id ?? sourceID }
