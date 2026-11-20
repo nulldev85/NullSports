@@ -1659,9 +1659,9 @@ private struct TVCatchUpBar: View {
         let place = controller.catchUp == nil ? reached : fraction(position, in: span)
         VStack(spacing: 12) {
             // As far as the broadcast has got, the part that can be played,
-            // in the softer accent; where the picture is, in the accent.
+            // in translucent white, with the playback position in solid white.
             LineupProgressBar(value: place, reach: reached,
-                              height: selected ? 10 : 7)
+                              height: selected ? 10 : 7, tint: .white)
             HStack {
                 Text(span.start.formatted(date: .omitted, time: .shortened))
                 Spacer(minLength: 0)
