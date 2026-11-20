@@ -150,11 +150,30 @@ private struct SiloFile: Decodable, Sendable {
     let file_size: Int64
     let bitrate: Int64
     let duration: Int
+    let chapters: [Chapter]?
+
+    struct Chapter: Decodable, Sendable {
+        let startSeconds: Double?
+        let title: String?
+
+        enum CodingKeys: String, CodingKey { case startSeconds, snakeStart = "start_seconds", title }
+
+        init(from decoder: Decoder) throws {
+            let fields = try? decoder.container(keyedBy: CodingKeys.self)
+            startSeconds = (try? fields?.decode(Double.self, forKey: .snakeStart))
+                ?? (try? fields?.decode(Double.self, forKey: .startSeconds))
+            title = try? fields?.decode(String.self, forKey: .title)
+        }
+    }
+
     var source: MediaPlaybackSource {
         MediaPlaybackSource(sourceID: file_id, name: [resolution, codec_video, codec_audio].filter { !$0.isEmpty }.joined(separator: " · "),
             path: nil, container: container, size: file_size,
             bitrate: bitrate > 0 && bitrate <= Int64.max / 1000 ? bitrate * 1000 : nil,
-            remux: .init(providerInfo: .init(source: "Silo", filename: file_name, description: nil)), siloFileID: file_id)
+            remux: .init(providerInfo: .init(source: "Silo", filename: file_name, description: nil)), siloFileID: file_id,
+            chapters: (chapters ?? []).compactMap { chapter in
+                chapter.startSeconds.map { PlaybackChapter(start: $0, title: chapter.title) }
+            })
     }
 }
 

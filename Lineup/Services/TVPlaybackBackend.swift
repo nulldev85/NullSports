@@ -60,6 +60,15 @@ protocol TVPlaybackBackend: AnyObject {
     func selectSubtitle(index: Int?)
     func selectAudio(index: Int)
     func selectVideo(index: Int)
+    var chapters: [PlaybackChapter] { get }
+    var forwardBufferSeconds: Double? { get }
+    var droppedFrames: Int? { get }
+    var networkMbps: Double? { get }
+    var canFillVideo: Bool { get }
+    func setPlaybackSpeed(_ rate: Double)
+    func setVideoFill(_ fills: Bool)
+    var canPositionSubtitles: Bool { get }
+    func setSubtitlesAtTop(_ top: Bool)
     /// The picture on screen now, for Auto Sync to read the scoreboard in.
     /// Nil when there is none to give yet.
     func captureFrame() async -> CapturedVideoFrame?
@@ -78,6 +87,16 @@ protocol TVPlaybackBackend: AnyObject {
 }
 
 extension TVPlaybackBackend {
+    var chapters: [PlaybackChapter] { [] }
+    var forwardBufferSeconds: Double? { nil }
+    var droppedFrames: Int? { nil }
+    var networkMbps: Double? { nil }
+    var canFillVideo: Bool { false }
+    func setPlaybackSpeed(_ rate: Double) {}
+    func setVideoFill(_ fills: Bool) {}
+    var canPositionSubtitles: Bool { false }
+    func setSubtitlesAtTop(_ top: Bool) {}
+
     func playbackMetadata() -> (info: PlaybackMediaInfo, pictureSize: CGSize) { (mediaInfo, .zero) }
     func captureAmbientFrame() async -> CapturedVideoFrame? { await captureFrame() }
 }
@@ -95,6 +114,32 @@ func makeTVPlaybackBackend(_ kind: TVPlaybackEngine) -> any TVPlaybackBackend {
 final class TVVLCBackend: TVPlaybackBackend {
     let kind = TVPlaybackEngine.vlc
     private let player = VLCMediaPlayer()
+    private var chapterCache: (count: Int32, entries: [PlaybackChapter])?
+
+    var chapters: [PlaybackChapter] {
+        guard player.hasVideoOut else { return [] }
+        let count = player.numberOfChapters(forTitle: -1)
+        if let chapterCache, chapterCache.count == count { return chapterCache.entries }
+        guard count > 0 else { return [] }
+        let descriptions = player.chapterDescriptions(ofTitle: -1) as? [[String: Any]] ?? []
+        let entries: [PlaybackChapter] = descriptions.compactMap { description in
+            guard let time = description[VLCChapterDescriptionTimeOffset] as? NSNumber else { return nil }
+            return PlaybackChapter(start: time.doubleValue / 1_000, title: description[VLCChapterDescriptionName] as? String)
+        }
+        if !entries.isEmpty { chapterCache = (count, entries) }
+        return entries
+    }
+    func setPlaybackSpeed(_ rate: Double) { player.rate = Float(rate) }
+    var canFillVideo: Bool { true }
+    func setVideoFill(_ fills: Bool) {
+        if fills {
+            var ratio = Array("16:9".utf8CString)
+            ratio.withUnsafeMutableBufferPointer { player.videoCropGeometry = $0.baseAddress }
+        } else {
+            player.videoCropGeometry = nil
+        }
+    }
+
     private struct MetadataSnapshot {
         let capturedAt: TimeInterval
         let audioTrack: Int32
@@ -189,6 +234,7 @@ final class TVVLCBackend: TVPlaybackBackend {
 
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
         cachedMetadata = nil
+        chapterCache = nil
         if player.media != nil { player.stop() }
         let media = VLCMedia(url: url)
         media.addOption(":network-caching=5000")
@@ -384,6 +430,17 @@ final class TVAetherBackend: TVPlaybackBackend {
     func selectSubtitle(index: Int?) { session?.selectSubtitle(index: index) }
     func selectAudio(index: Int) { session?.selectAudio(index: index) }
     func selectVideo(index: Int) {}
+    var chapters: [PlaybackChapter] {
+        (session?.chapters ?? []).map { PlaybackChapter(start: $0.start, title: $0.title) }
+    }
+    var forwardBufferSeconds: Double? { session?.forwardBufferSeconds }
+    var droppedFrames: Int? { session?.droppedFrames }
+    var networkMbps: Double? { session?.networkMbps }
+    var canFillVideo: Bool { true }
+    func setPlaybackSpeed(_ rate: Double) { session?.setPlaybackSpeed(rate) }
+    func setVideoFill(_ fills: Bool) { session?.setVideoFill(fills) }
+    var canPositionSubtitles: Bool { true }
+    func setSubtitlesAtTop(_ top: Bool) { session?.setSubtitlesAtTop(top) }
 
     private var frameOutput: AVPlayerItemVideoOutput?
     private weak var frameOutputItem: AVPlayerItem?
@@ -503,6 +560,15 @@ final class TVMPVBackend: TVPlaybackBackend {
     func selectSubtitle(index: Int?) { session?.selectSubtitle(index: index) }
     func selectAudio(index: Int) { session?.selectAudio(index: index) }
     func selectVideo(index: Int) { session?.selectVideo(index: index) }
+    var chapters: [PlaybackChapter] {
+        (session?.chapters ?? []).map { PlaybackChapter(start: $0.start, title: $0.title) }
+    }
+    var forwardBufferSeconds: Double? { session?.forwardBufferSeconds }
+    var canFillVideo: Bool { true }
+    func setPlaybackSpeed(_ rate: Double) { session?.setPlaybackSpeed(rate) }
+    func setVideoFill(_ fills: Bool) { session?.setVideoFill(fills) }
+    var canPositionSubtitles: Bool { true }
+    func setSubtitlesAtTop(_ top: Bool) { session?.setSubtitlesAtTop(top) }
     func setOpeningLanguages(_ languages: PlaybackLanguages) { self.languages = languages }
     func styleSubtitles(_ style: PlaybackSubtitleStyle) {
         subtitleStyle = style
