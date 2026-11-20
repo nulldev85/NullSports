@@ -608,7 +608,7 @@ final class MediaIntegrationTests: XCTestCase {
             case ("GET", "/base/api/v2/calendar"):
                 XCTAssertEqual(value("start"), "2026-11-16")
                 XCTAssertEqual(value("end"), "2026-11-22")
-                XCTAssertEqual(value("timezone"), "UTC")
+                XCTAssertEqual(value("timezone"), "America/Los_Angeles")
                 return .json(#"{"events":[{"date":"2026-11-17","items":[{"content_id":"e5","title":"Severance","type":"episode","season_number":2,"episode_number":5,"episode_title":"Trojan's Horse","series_id":"s5","air_at":"2026-11-17T02:00:00Z","badges":["season_premiere"],"watched":false}]}]}"#)
             default:
                 XCTFail("Unexpected request \(request.httpMethod ?? "") \(url.path)")
@@ -645,10 +645,10 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertEqual(extras.boxSet?.years, "2017–2021")
         XCTAssertEqual(extras.boxSet?.items.map(\.name), ["Beast", "Beast 2"])
 
-        var "America/Los_Angeles" = Calendar(identifier: .gregorian)
-        "America/Los_Angeles".timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
-        let monday = try XCTUnwrap("America/Los_Angeles".date(from: DateComponents(year: 2026, month: 11, day: 16)))
-        let days = try await client.siloCalendar(from: monday, days: 7, timeZone: try XCTUnwrap(TimeZone(identifier: "UTC")))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Los_Angeles"))
+        let monday = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: 16)))
+        let days = try await client.siloCalendar(from: monday, days: 7, timeZone: calendar.timeZone)
         let event = try XCTUnwrap(days.first?.events.first)
         XCTAssertEqual(event.episodeCode, "S2 · E5")
         XCTAssertEqual(event.badges, ["Season Premiere"])
