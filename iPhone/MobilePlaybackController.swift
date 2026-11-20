@@ -16,7 +16,9 @@ import ImageIO
 enum MobileAudioSession {
     @MainActor static let shared = MobileAudioSessionWork(activate: {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .moviePlayback)
+        if session.category != .playback || session.mode != .moviePlayback {
+            try session.setCategory(.playback, mode: .moviePlayback)
+        }
         try session.setActive(true)
     }, deactivate: {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -406,6 +408,12 @@ final class MobilePlaybackController: ObservableObject {
     /// publish and the player shows live chrome instead of a scrubber.
     private func sampleProgress() {
         guard !isScrubbing else { return }
+        let terminal: Bool
+        switch engine {
+        case .aether: terminal = aetherSession?.phase == .ended || aetherSession?.phase == .failed
+        case .mpv: terminal = mpvSession?.phase == .ended || mpvSession?.phase == .failed
+        }
+        let hadPosition = (progress?.position ?? 0) > 0
         if let native = nativeSiloPlayback, let asset = native.asset {
             restoreSiloSidecarsIfNeeded()
             let raw: Double?
@@ -414,11 +422,13 @@ final class MobilePlaybackController: ObservableObject {
             case .mpv: raw = mpvSession?.position
             }
             guard let raw, let sourcePosition = native.sourcePosition(playerTime: raw), let duration = asset.duration else { return }
+            if terminal, raw == 0, hadPosition { return }
             if !appliedInitialPosition, asset.lease.playerStart > 0 {
                 guard activeEngineIsPlaying, raw > 0 else { return }
             }
             appliedInitialPosition = true
-            progress = MobilePlaybackProgress(position: sourcePosition, duration: duration)
+            let sampled = MobilePlaybackProgress(position: sourcePosition, duration: duration)
+            if progress != sampled { progress = sampled }
             return
         }
         let sampled: MobilePlaybackProgress?
@@ -453,7 +463,8 @@ final class MobilePlaybackController: ObservableObject {
             return
         }
         if let sampled, !seekLanding.accepts(sampled.position, now: ProcessInfo.processInfo.systemUptime) { return }
-        progress = sampled
+        if terminal, hadPosition, (sampled?.position ?? 0) == 0 { return }
+        if progress != sampled { progress = sampled }
         if !appliedInitialPosition, let requestedInitialPosition, let progress,
            requestedInitialPosition >= 10, requestedInitialPosition < progress.duration - 30 {
             guard activeEngineIsPlaying, progress.position > 0 else { return }
@@ -773,8 +784,7 @@ final class MobilePlaybackController: ObservableObject {
         }
         // Also ends any recording: whatever opens next is live unless the
         // recording itself is what is being opened, which says so afterwards.
-        stop()
-        stopEveryoneElse()
+        stopPlayback(releasingAudio: urls.isEmpty)
         presentation = MobilePlaybackPresentation()
         preference = MobilePlaybackPreference.selected(in: defaults)
         failedEngines.removeAll()
@@ -820,7 +830,7 @@ final class MobilePlaybackController: ObservableObject {
             guard let self, !Task.isCancelled, self.audioStartID == request else { return }
             do {
                 try await StartupTrace.shared.measure("activate audio") {
-                    try await self.audioSession.activate(for: self)
+                    try await self.audioSession.activate(for: self) { self.stopEveryoneElse() }
                 }
             } catch {
                 guard !Task.isCancelled, self.audioStartID == request else { return }
@@ -851,6 +861,16 @@ final class MobilePlaybackController: ObservableObject {
                 guard let self else { return }
                 // Paused and backgrounded sessions still report diagnostics.
                 if self.diag.isEnabled { self.diag.update(snapshot: self.diagnosticsSnapshot) }
+                // Silo is replacing the old signed URL. Its old decoder can
+                // report a failure or EOF while the server prepares the new one.
+                if self.nativeSiloPlayback?.isReplanning == true { continue }
+                if let retryAt = self.retryAt {
+                    if !self.suspended, !self.pausedByUser, ProcessInfo.processInfo.systemUptime >= retryAt {
+                        self.retryAt = nil
+                        self.openNext()
+                    }
+                    continue
+                }
                 self.refreshMediaInfo()
                 self.notePresentedVideo()
                 if self.isScrubbing { continue }
@@ -862,14 +882,6 @@ final class MobilePlaybackController: ObservableObject {
                 self.followRecordingIntoNextProgramme()
                 if self.engine == .aether { self.checkAetherPlayback() }
                 else if self.engine == .mpv { self.checkMPVPlayback() }
-                guard !self.suspended, !self.pausedByUser else { continue }
-                if let retryAt = self.retryAt {
-                    if ProcessInfo.processInfo.systemUptime >= retryAt {
-                        self.retryAt = nil
-                        self.openNext()
-                    }
-                    continue
-                }
             }
         }
     }
@@ -882,8 +894,8 @@ final class MobilePlaybackController: ObservableObject {
         if !siloCaptions.isEmpty { siloSidecarRestore?.cancel(); siloSidecarRestore = nil }
         liveQualityReporter.reset()
         resetStartGate()
-        aetherSession?.stop()
-        mpvSession?.stop()
+        if aetherSession?.isOpen == true { aetherSession?.stop() }
+        if mpvSession?.isOpen == true { mpvSession?.stop() }
         videoView?.removeEngineSurface()
         pictureInPicturePossible = false
         resetSubtitles()
@@ -1010,7 +1022,8 @@ final class MobilePlaybackController: ObservableObject {
         let possible = session.pictureInPicturePossible
         if pictureInPicturePossible != possible { pictureInPicturePossible = possible }
         refreshIsPlaying()
-        loading = !session.hasPicture || session.phase == .loading || session.phase == .buffering || !startGateOpen
+        let buffering = !session.hasPicture || session.phase == .loading || session.phase == .buffering || !startGateOpen
+        if loading != buffering { loading = buffering }
         let size = session.videoSize
         if size.width > 0, size.height > 0 {
             let width = Int(size.width), height = Int(size.height)
@@ -1039,21 +1052,19 @@ final class MobilePlaybackController: ObservableObject {
         // mistake a deliberately detached foreground picture for a lost feed.
         guard !pausedByUser, !suspended, error == nil else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        if session.phase == .ended, !isLive,
-           LocalMediaTrackingPolicy.reachedEnd(ended: true, failed: false, hasPlayed: session.hasPicture,
-               position: session.position, duration: session.duration,
-               fraction: session.duration > 0 ? session.position / session.duration : 0) {
+        if session.phase == .ended, reachedTitleEnd(position: session.position, duration: session.duration,
+                                                   hasPicture: session.hasPicture) {
             finish()
             return
         }
-        if session.phase == .failed {
+        if session.phase == .failed, !health.hasShownPicture {
             advanceAfterEngineFailure()
             return
         }
         guard !inBackground || pictureInPictureActive else { return }
         let recover = health.observe(now: now, playing: session.isPlaying, video: session.hasPicture,
-            time: Int32(clamping: Int64(min(session.position * 1000, Double(Int32.max)))),
-            frames: nil, bytes: session.bytesReceived, failed: session.phase == .failed || session.phase == .ended)
+            time: LivePlaybackHealth.milliseconds(session.position), frames: nil, bytes: session.bytesReceived,
+            bufferedAhead: session.forwardBufferSeconds, failed: session.phase == .failed || session.phase == .ended)
         if health.isStable(now: now) { retries.reset() }
         if recover {
             if !health.hasShownPicture { advanceAfterEngineFailure() }
@@ -1064,10 +1075,13 @@ final class MobilePlaybackController: ObservableObject {
     private func checkMPVPlayback() {
         guard engine == .mpv, let session = mpvSession, retryAt == nil, error == nil else { return }
         refreshIsPlaying()
-        loading = session.phase == .loading || session.phase == .buffering || !startGateOpen
-        if session.videoSize.width > 0, session.videoSize.height > 0 {
-            videoWidth = Int(session.videoSize.width)
-            videoHeight = Int(session.videoSize.height)
+        let buffering = session.phase == .loading || session.phase == .buffering || !startGateOpen
+        if loading != buffering { loading = buffering }
+        let size = session.videoSize
+        if size.width > 0, size.height > 0 {
+            let width = Int(size.width), height = Int(size.height)
+            if videoWidth != width { videoWidth = width }
+            if videoHeight != height { videoHeight = height }
         }
         let tracks: [PlaybackSubtitleTrack] = [.off] + session.subtitleTracks.map {
             .init(id: "mpv-\($0.id)", title: $0.title, engineIndex: $0.id)
@@ -1086,10 +1100,8 @@ final class MobilePlaybackController: ObservableObject {
         }
         if session.hasVideoOut && session.isPlaying { confirmWorkingChannel() }
         guard !pausedByUser, !suspended, error == nil else { return }
-        if session.phase == .ended, !isLive,
-           LocalMediaTrackingPolicy.reachedEnd(ended: true, failed: false, hasPlayed: session.hasVideoOut,
-               position: session.position, duration: session.duration,
-               fraction: session.duration > 0 ? session.position / session.duration : 0) {
+        if session.phase == .ended, reachedTitleEnd(position: session.position, duration: session.duration,
+                                                   hasPicture: session.hasVideoOut) {
             finish()
             return
         }
@@ -1100,13 +1112,21 @@ final class MobilePlaybackController: ObservableObject {
         guard !inBackground else { return }
         let now = ProcessInfo.processInfo.systemUptime
         let recover = health.observe(now: now, playing: session.isPlaying, video: session.hasVideoOut,
-            time: Int32(clamping: Int64(min(session.position * 1000, Double(Int32.max)))),
-            frames: nil, bytes: nil, failed: session.phase == .failed || session.phase == .ended)
+            time: LivePlaybackHealth.milliseconds(session.position), frames: nil,
+            bufferedAhead: session.forwardBufferSeconds, failed: session.phase == .failed || session.phase == .ended)
         if health.isStable(now: now) { retries.reset() }
         if recover {
             if !health.hasShownPicture { advanceAfterEngineFailure() }
             else { scheduleRecovery(now: now) }
         }
+    }
+
+    private func reachedTitleEnd(position: TimeInterval, duration: TimeInterval, hasPicture: Bool) -> Bool {
+        guard !isLive, reopenPosition == nil else { return false }
+        let position = progress?.position ?? position
+        let duration = progress?.duration ?? duration
+        return LocalMediaTrackingPolicy.reachedEnd(ended: true, failed: false, hasPlayed: health.hasShownPicture || hasPicture,
+            position: position, duration: duration, fraction: duration > 0 ? position / duration : 0)
     }
 
     private func advanceAfterEngineFailure() {
@@ -1116,6 +1136,13 @@ final class MobilePlaybackController: ObservableObject {
         }
         failedEngines[url, default: []].insert(engine)
         if let next = MobileEngineSelection.engine(for: url, preference: preference, failed: failedEngines[url] ?? []) {
+            if isLive, !sourceIsRecording, !candidates.isEmpty {
+                // One endpoint can be broken across both engines. Check the
+                // provider's other transport before starting another decoder.
+                candidates.append(url)
+                openNext()
+                return
+            }
             show(notice: next == .mpv ? "Trying MPVKit for this source." : "Trying AetherEngine for this source.")
             if !isLive, reopenPosition == nil, let position = progress?.position, position > 0 { reopenPosition = position }
             candidates.insert(url, at: 0)
@@ -1211,6 +1238,7 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     private func scheduleRecovery(now: TimeInterval) {
+        if let stall = health.stall { diag.record("Recovering \(engine.title): \(stall)") }
         presentation.beganRecovery()
         let neverPlayed = !health.hasShownPicture
         aetherSession?.stop()
@@ -1979,6 +2007,10 @@ final class MobilePlaybackController: ObservableObject {
     // MARK: - Teardown
 
     func stop() {
+        stopPlayback(releasingAudio: true)
+    }
+
+    private func stopPlayback(releasingAudio: Bool) {
         audioStartID = UUID()
         audioStart?.cancel()
         audioStart = nil
@@ -2018,7 +2050,7 @@ final class MobilePlaybackController: ObservableObject {
         liveHeldSeconds = 0
         recordingElapsed = 0
         UIApplication.shared.isIdleTimerDisabled = false
-        audioSession.deactivate(for: self)
+        if releasingAudio { audioSession.deactivate(for: self) }
     }
 
     func shutdown() {
