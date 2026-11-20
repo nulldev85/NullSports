@@ -95,6 +95,14 @@ func makeTVPlaybackBackend(_ kind: TVPlaybackEngine) -> any TVPlaybackBackend {
 final class TVVLCBackend: TVPlaybackBackend {
     let kind = TVPlaybackEngine.vlc
     private let player = VLCMediaPlayer()
+    private struct MetadataSnapshot {
+        let capturedAt: TimeInterval
+        let audioTrack: Int32
+        let videoTrack: Int32
+        let videoSize: CGSize
+        let value: (info: PlaybackMediaInfo, pictureSize: CGSize)
+    }
+    private var cachedMetadata: MetadataSnapshot?
     let surface = UIView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
 
     init() {
@@ -120,9 +128,28 @@ final class TVVLCBackend: TVPlaybackBackend {
     var isPlaying: Bool { player.isPlaying }
     var hasVideoOut: Bool { player.hasVideoOut }
     var videoSize: CGSize { player.videoSize }
-    var mediaInfo: PlaybackMediaInfo { VLCPlaybackMediaInfo.read(player) }
+    var mediaInfo: PlaybackMediaInfo { playbackMetadata().info }
     func playbackMetadata() -> (info: PlaybackMediaInfo, pictureSize: CGSize) {
-        VLCPlaybackMediaInfo.snapshot(player)
+        guard player.hasVideoOut else {
+            cachedMetadata = nil
+            return (PlaybackMediaInfo(), .zero)
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        let audio = player.currentAudioTrackIndex
+        let video = player.currentVideoTrackIndex
+        let size = player.videoSize
+        if let cachedMetadata, now - cachedMetadata.capturedAt < 2,
+           cachedMetadata.audioTrack == audio, cachedMetadata.videoTrack == video,
+           cachedMetadata.videoSize == size {
+            return cachedMetadata.value
+        }
+        // VLCKit builds Objective-C dictionaries for all tracks on this call.
+        // Keep quality changes and track switches immediate without rebuilding
+        // those dictionaries on every progress and health check.
+        let value = VLCPlaybackMediaInfo.snapshot(player)
+        cachedMetadata = MetadataSnapshot(capturedAt: now, audioTrack: audio, videoTrack: video,
+                                          videoSize: size, value: value)
+        return value
     }
     var duration: TimeInterval { Double(player.media?.length.intValue ?? 0) / 1000 }
     var time: TimeInterval { Double(player.time.intValue) / 1000 }
@@ -161,7 +188,8 @@ final class TVVLCBackend: TVPlaybackBackend {
     private var subtitleStyle = PlaybackSubtitleStyle()
 
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
-        player.stop()
+        cachedMetadata = nil
+        if player.media != nil { player.stop() }
         let media = VLCMedia(url: url)
         media.addOption(":network-caching=5000")
         if isLive {
@@ -202,7 +230,11 @@ final class TVVLCBackend: TVPlaybackBackend {
     }
     func play() { player.play() }
     func pause() { player.pause() }
-    func stop() { player.stop(); player.media = nil }
+    func stop() {
+        cachedMetadata = nil
+        player.stop()
+        player.media = nil
+    }
     func seek(to seconds: TimeInterval) {
         guard duration > 0 else { return }
         player.position = Float(min(max(seconds / duration, 0), 1))
