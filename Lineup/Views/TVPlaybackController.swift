@@ -101,6 +101,30 @@ struct PlaybackClockReader<Content: View>: View {
     private var frameReaders = Set<UUID>()
     @Published private(set) var videoHeight = 0
     @Published private(set) var mediaInfo = PlaybackMediaInfo()
+    @Published private(set) var chapters: [PlaybackChapter] = []
+    @Published private(set) var playbackSpeed = 1.0
+    @Published private(set) var subtitlesAtTop = false
+    var canPositionSubtitles: Bool { backend.canPositionSubtitles }
+    func setSubtitlesAtTop(_ top: Bool) {
+        subtitlesAtTop = top
+        backend.setSubtitlesAtTop(top)
+    }
+    @Published private(set) var videoFills = false
+    var canFillVideo: Bool { backend.canFillVideo }
+    var forwardBufferSeconds: Double? { backend.forwardBufferSeconds }
+    var droppedFrames: Int? { backend.droppedFrames }
+    var networkMbps: Double? { backend.networkMbps }
+
+    func setPlaybackSpeed(_ rate: Double) {
+        playbackSpeed = rate
+        backend.setPlaybackSpeed(rate)
+    }
+
+    func setVideoFill(_ fills: Bool) {
+        videoFills = fills
+        backend.setVideoFill(fills)
+    }
+
     private let liveQualityReporter = LivePlaybackQualityReporter()
     @Published private(set) var activeChannelName: String?
     @Published private(set) var failoverNotice: String?
@@ -345,7 +369,7 @@ struct PlaybackClockReader<Content: View>: View {
             chosenSubtitle = nil
             // Another title: its own timing, its own show's tracks put back,
             // and no subtitles found for the last one.
-            subtitleDelaySeconds = 0
+            subtitleDelaySeconds = defaults.double(forKey: Self.localSubtitleDelayKey)
             appliedShowAudio = false
             appliedShowSubtitle = false
             discardOnlineSubtitles()
@@ -390,6 +414,7 @@ struct PlaybackClockReader<Content: View>: View {
 
     private func openCurrent() {
         liveQualityReporter.reset()
+        chapters = []
         if backend.isOpen { backend.stop() }
         mediaInfo = PlaybackMediaInfo()
         ambientGeneration = UUID()
@@ -414,6 +439,9 @@ struct PlaybackClockReader<Content: View>: View {
         setMuted(muted)
         backend.volume = targetVolume
         backend.play()
+        backend.setPlaybackSpeed(isLive ? 1 : playbackSpeed)
+        backend.setVideoFill(videoFills)
+        backend.setSubtitlesAtTop(subtitlesAtTop)
         setMuted(muted)
         backend.volume = targetVolume
     }
@@ -558,6 +586,11 @@ struct PlaybackClockReader<Content: View>: View {
         let metadata = backend.playbackMetadata()
         if mediaInfo != metadata.info { mediaInfo = metadata.info }
         let hasVideo = backend.hasVideoOut
+        if !isLive, hasVideo {
+            let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+            let entries = backend.chapters.map { PlaybackChapter(start: $0.start + offset, title: $0.title) }
+            if chapters != entries { chapters = entries }
+        }
         let pictureSize = hasVideo ? metadata.pictureSize : .zero
         if ambientPictureSize != pictureSize { ambientPictureSize = pictureSize }
         guard !isScrubbing else { return }
@@ -1128,10 +1161,20 @@ struct PlaybackClockReader<Content: View>: View {
         if !isLive { backend.styleSubtitles(subtitleStyle) }
     }
 
+    private static let localSubtitleDelayKey = "Lineup.player.localSubtitleDelay.v1"
+    var remembersSubtitleDelay: Bool { defaults.object(forKey: Self.localSubtitleDelayKey) != nil }
+
+    func toggleRememberedSubtitleDelay() {
+        if remembersSubtitleDelay { defaults.removeObject(forKey: Self.localSubtitleDelayKey) }
+        else { defaults.set(subtitleDelaySeconds, forKey: Self.localSubtitleDelayKey) }
+        objectWillChange.send()
+    }
+
     func setSubtitleDelay(_ seconds: Double) {
         let delay = MobileSubtitlePreferences.delay(seconds)
         guard delay != subtitleDelaySeconds else { return }
         subtitleDelaySeconds = delay
+        if remembersSubtitleDelay { defaults.set(delay, forKey: Self.localSubtitleDelayKey) }
         if !isLive { backend.styleSubtitles(subtitleStyle) }
     }
 
@@ -1343,6 +1386,7 @@ struct PlaybackClockReader<Content: View>: View {
         duration = 0
         elapsed = 0
         resetSubtitles()
+        chapters = []
         if backend.isOpen {
             Self.lastStreamClosed = (uptime(), ObjectIdentifier(self))
         }

@@ -572,6 +572,7 @@ struct MediaSourcePicker: View {
                        trackMemoryShow: item.type == "Episode"
                            ? MobileTrackMemory.showKey(seriesName: item.seriesName) : nil,
                        seekPreviewLookup: { await media.seekPreview(for: trackedItem, source: source) },
+                       sourceChapters: source.chapters,
                        episodes: seasonEpisodes(around: trackedItem),
                        onClose: onClose)
             .onAppear { media.beginPlaybackSession(for: trackedItem, id: sessionID, startsOver: fromBeginning,
@@ -583,6 +584,7 @@ struct MediaSourcePicker: View {
             MobilePlayerView(name: item.name, urls: [url], isLive: false, nativeSiloPlayback: nativeSilo,
                              sourceBitrate: source.formattedBitrate,
                              sourceQuality: source.quality,
+                             sourceChapters: source.chapters,
                              synopsis: playerSynopsis,
                              segmentsLookup: ["Episode", "Movie"].contains(item.type) ? {
                                  await media.playbackSegments(for: trackedItem)
