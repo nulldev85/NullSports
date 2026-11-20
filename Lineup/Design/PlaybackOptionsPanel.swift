@@ -20,6 +20,12 @@ struct PlaybackOptionsPanel: View {
     let close: () -> Void
     let rows: (PlaybackOptionsTab) -> [PlaybackOptionRow]
     @State private var tab: PlaybackOptionsTab = .info
+    #if os(tvOS)
+    private enum FocusTarget: Hashable {
+        case tab(PlaybackOptionsTab), row(String), close
+    }
+    @FocusState private var focus: FocusTarget?
+    #endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -31,15 +37,22 @@ struct PlaybackOptionsPanel: View {
                     .padding(6)
                 }
                 .scrollIndicators(.hidden)
-                button(action: close) {
+                Button(action: close) {
                     Image(systemName: "xmark").font(.system(size: 16, weight: .semibold))
                         .frame(width: 44, height: 44)
+                    #if os(tvOS)
+                        .lineupFocusLayer(focus == .close, in: RoundedRectangle(cornerRadius: 10))
+                    #endif
                 }
+                .lineupFlatButton()
+                #if os(tvOS)
+                .focused($focus, equals: .close)
+                #endif
                 .accessibilityLabel("Close playback options")
             }
             .lineupFocusRegion()
             .padding(.horizontal, 8)
-            Rectangle().fill(LineupStyle.highlight.opacity(0.65)).frame(height: 2)
+            Rectangle().fill(.white.opacity(0.65)).frame(height: 2)
             ScrollView {
                 if tab == .stats || tab == .info || tab == .chapters {
                     TimelineView(.periodic(from: .now, by: 1)) { _ in optionRows }
@@ -55,8 +68,18 @@ struct PlaybackOptionsPanel: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
         .background(Color.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 20))
         .environment(\.colorScheme, .dark)
+        #if os(tvOS)
+        .onAppear { focus = .tab(tab) }
+        .onChange(of: focus) { _, target in
+            if case .tab(let item)? = target { tab = item }
+        }
+        #endif
         .onChange(of: tabs) { _, available in
-            if !available.contains(tab) { tab = .info }
+            guard !available.contains(tab) else { return }
+            tab = .info
+            #if os(tvOS)
+            focus = .tab(.info)
+            #endif
         }
     }
 
@@ -69,23 +92,55 @@ struct PlaybackOptionsPanel: View {
     }
 
     private func tabButton(_ item: PlaybackOptionsTab) -> some View {
-        button(initialFocus: item == .info, onFocus: { tab = item }, action: { tab = item }) {
+        Button { tab = item } label: {
             VStack(spacing: 5) {
                 Text(item.rawValue)
                     .font(.inter(.callout, tab == item ? .bold : .medium))
-                Capsule().fill(tab == item ? LineupStyle.highlight : .clear).frame(height: 3)
+                Capsule().fill(tab == item ? Color.white : .clear).frame(height: 3)
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
+            #if os(tvOS)
+            .lineupFocusLayer(focus == .tab(item), in: RoundedRectangle(cornerRadius: 10))
+            #endif
         }
+        .lineupFlatButton()
+        #if os(tvOS)
+        .focused($focus, equals: .tab(item))
+        #endif
         .accessibilityAddTraits(tab == item ? [.isSelected] : [])
     }
 
     private var optionRows: some View {
-        LazyVStack(alignment: .leading, spacing: 3) {
-            ForEach(rows(tab)) { row in
+        let entries = rows(tab)
+        #if os(tvOS)
+        let firstActions = Array(entries.lazy.filter { $0.action != nil }.prefix(2).map(\.id))
+        #endif
+        return LazyVStack(alignment: .leading, spacing: 3) {
+            ForEach(entries) { row in
                 if let action = row.action {
-                    button(action: action) { rowLabel(row) }
-                        .accessibilityAddTraits(row.selected ? [.isSelected] : [])
+                    let control = Button(action: action) {
+                        rowLabel(row)
+                        #if os(tvOS)
+                            .lineupFocusLayer(focus == .row(row.id), in: RoundedRectangle(cornerRadius: 10))
+                        #endif
+                    }
+                    .lineupFlatButton()
+                    .accessibilityAddTraits(row.selected ? [.isSelected] : [])
+                    #if os(tvOS)
+                    .focused($focus, equals: .row(row.id))
+
+                    if row.id == firstActions.first {
+                        control.onMoveCommand { direction in
+                            // A full-width row is geometrically closer to the trailing tabs.
+                            if direction == .up { focus = .tab(tab) }
+                            if direction == .down, let next = firstActions.dropFirst().first { focus = .row(next) }
+                        }
+                    } else {
+                        control
+                    }
+                    #else
+                    control
+                    #endif
                 } else {
                     rowLabel(row)
                 }
@@ -112,20 +167,6 @@ struct PlaybackOptionsPanel: View {
         .padding(.horizontal, 12).padding(.vertical, 9)
         .contentShape(Rectangle())
     }
-
-    private func button<Label: View>(initialFocus: Bool = false, onFocus: (() -> Void)? = nil,
-                                     action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
-        #if os(tvOS)
-        TVSelectable(scale: 1.02, fillRadius: 10, drawsFocusChrome: false,
-                     action: action, onFocusChange: { focused in
-                         if focused { onFocus?() }
-                     }, requestInitialFocus: initialFocus) {
-            PlaybackOptionFocusLabel { label() }
-        }
-        #else
-        Button(action: action, label: label).buttonStyle(.plain)
-        #endif
-    }
 }
 
 /// Chapter ticks do not take focus from the seek gesture or the remote.
@@ -137,7 +178,7 @@ struct PlaybackSeekTrack: View {
     var height: CGFloat
 
     var body: some View {
-        LineupProgressBar(value: value, reach: reach, height: height, track: .white.opacity(0.30))
+        LineupProgressBar(value: value, reach: reach, height: height, track: .white.opacity(0.30), tint: .white)
             .overlay {
                 if duration.isFinite, duration > 0, !chapters.isEmpty {
                     Canvas { context, size in
@@ -190,14 +231,3 @@ extension PlaybackOptionRow {
         return rows
     }
 }
-
-#if os(tvOS)
-private struct PlaybackOptionFocusLabel<Label: View>: View {
-    @Environment(\.lineupTVSelectableFocused) private var focused
-    @ViewBuilder var label: Label
-
-    var body: some View {
-        label.lineupFocusLayer(focused, in: RoundedRectangle(cornerRadius: 10), lifts: false)
-    }
-}
-#endif

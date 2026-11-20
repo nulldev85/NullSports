@@ -304,6 +304,7 @@ struct LineupProgressBar: View {
     var height: CGFloat = Self.standardHeight
     /// A touch brighter over artwork, which is lighter than a panel.
     var track: Color = Self.track
+    var tint: Color = LineupStyle.highlight
 
     #if os(tvOS)
     static let standardHeight: CGFloat = 12
@@ -319,10 +320,10 @@ struct LineupProgressBar: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(track)
                 if let reach {
-                    Capsule().fill(LineupStyle.highlight.opacity(0.38))
+                    Capsule().fill(tint.opacity(0.38))
                         .frame(width: fill(reach, of: width))
                 }
-                Capsule().fill(LineupStyle.highlight)
+                Capsule().fill(tint)
                     .frame(width: fill(value, of: width))
             }
         }
