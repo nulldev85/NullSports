@@ -69,7 +69,7 @@ struct PlaybackOptionsPanel: View {
     }
 
     private func tabButton(_ item: PlaybackOptionsTab) -> some View {
-        button(initialFocus: item == .info, action: { tab = item }) {
+        button(initialFocus: item == .info, onFocus: { tab = item }, action: { tab = item }) {
             VStack(spacing: 5) {
                 Text(item.rawValue)
                     .font(.inter(.callout, tab == item ? .bold : .medium))
@@ -113,10 +113,13 @@ struct PlaybackOptionsPanel: View {
         .contentShape(Rectangle())
     }
 
-    private func button<Label: View>(initialFocus: Bool = false, action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
+    private func button<Label: View>(initialFocus: Bool = false, onFocus: (() -> Void)? = nil,
+                                     action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
         #if os(tvOS)
         TVSelectable(scale: 1.02, fillRadius: 10, drawsFocusChrome: false,
-                     action: action, requestInitialFocus: initialFocus) {
+                     action: action, onFocusChange: { focused in
+                         if focused { onFocus?() }
+                     }, requestInitialFocus: initialFocus) {
             PlaybackOptionFocusLabel { label() }
         }
         #else
