@@ -149,7 +149,6 @@ private struct SiloFile: Decodable, Sendable {
     let container: String
     let file_size: Int64
     let bitrate: Int64
-    let duration: Int
     let chapters: [Chapter]?
 
     struct Chapter: Decodable, Sendable {
@@ -329,10 +328,9 @@ struct SiloClient: MediaServerClient {
             }.sorted { ($0.indexNumber ?? 0) < ($1.indexNumber ?? 0) }
         }
         if parent.type == "Season", let seriesID = parent.seriesID, let number = parent.indexNumber {
-            let page: SiloPage<SiloTitle> = try await transport.get(["catalog", "series", seriesID, "seasons", String(number), "episodes"])
             let series = MediaItem(id: seriesID, name: parent.seriesName ?? "", type: "Series", overview: nil,
                 productionYear: nil, primaryImageAspectRatio: nil, childCount: nil)
-            return page.items.map { $0.media(http: http, forcedType: "Episode", series: series) }
+            return try await episodes(series: series, seasonNumber: number)
         }
         if ["silo-library:", "silo-collection:", "silo-curated:"].contains(where: { parent.id.hasPrefix($0) }) {
             return try await items(userID: userID, parentID: parent.id, sortBy: sortBy, limit: limit)
@@ -374,8 +372,22 @@ struct SiloClient: MediaServerClient {
     }
     func episodes(userID: String, seriesID: String) async throws -> [MediaItem] {
         let series = try await item(userID: userID, itemID: seriesID)
-        let page: SiloPage<SiloTitle> = try await transport.get(["catalog", "items", seriesID, "episodes"])
-        return LocalEpisodeProgressionPolicy.ordered(page.items.map { $0.media(http: http, forcedType: "Episode", series: series) })
+        do {
+            let page: SiloPage<SiloTitle> = try await transport.get(["catalog", "items", seriesID, "episodes"])
+            return LocalEpisodeProgressionPolicy.ordered(page.items.map { $0.media(http: http, forcedType: "Episode", series: series) })
+        } catch MediaIntegrationError.http(404, _) {
+            let seasons = try await items(userID: userID, parent: series, sortBy: "", limit: 0)
+            var result: [MediaItem] = []
+            for number in seasons.compactMap(\.indexNumber) {
+                try Task.checkCancellation()
+                result += try await episodes(series: series, seasonNumber: number)
+            }
+            return LocalEpisodeProgressionPolicy.ordered(result)
+        }
+    }
+    func episodes(series: MediaItem, seasonNumber: Int) async throws -> [MediaItem] {
+        let page: SiloPage<SiloTitle> = try await transport.get(["catalog", "series", series.id, "seasons", String(seasonNumber), "episodes"])
+        return page.items.map { $0.media(http: http, forcedType: "Episode", series: series) }
     }
     func allTitles(userID: String, pageSize: Int, maxPages: Int) async throws -> [MediaItem] {
         try await catalog([.init(name: "type", value: "video"), .init(name: "sort", value: "title")],
@@ -468,8 +480,21 @@ struct SiloClient: MediaServerClient {
     }
     func playbackURL(itemID: String, mediaSourceID: String?) -> URL? { nil }
     func playbackInfo(itemID: String) async throws -> MediaPlaybackInfo {
-        let page: SiloPage<SiloFile> = try await transport.get(["catalog", "items", itemID, "versions"])
-        return MediaPlaybackInfo(mediaSources: page.items.map(\.source))
+        struct Versions: Decodable, Sendable { let content_id: String; let versions: [SiloFile]? }
+        do {
+            // This is the read Silo's own clients use before choosing a file.
+            let detail: Versions = try await transport.get(["watch", itemID])
+            guard detail.content_id == itemID, let versions = detail.versions else { throw MediaIntegrationError.invalidResponse }
+            return MediaPlaybackInfo(mediaSources: versions.map(\.source))
+        } catch MediaIntegrationError.http(404, _) {
+            do {
+                let detail: Versions = try await transport.get(["catalog", "items", itemID])
+                guard detail.content_id == itemID else { throw MediaIntegrationError.invalidResponse }
+                if let versions = detail.versions { return MediaPlaybackInfo(mediaSources: versions.map(\.source)) }
+            } catch MediaIntegrationError.http(404, _) {}
+            let page: SiloPage<SiloFile> = try await transport.get(["catalog", "items", itemID, "versions"])
+            return MediaPlaybackInfo(mediaSources: page.items.map(\.source))
+        }
     }
     func addons() async throws -> [NullfinAddon] { [] }
     func addonCatalogs(addonID: String) async throws -> [NullfinCatalog] { [] }
