@@ -32,6 +32,7 @@ public final class AetherPlaybackSession {
     private var generation = UUID()
     private var loading = false
     private var wantsToPlay = false
+    private var playbackSpeed = 1.0
     private var failure: String?
     private var level: Float = 1
     private var muted = false
@@ -51,6 +52,23 @@ public final class AetherPlaybackSession {
     }
     public var surface: UIView { canvas }
     public var isNativeVideo: Bool { engine.nativePlayerLayer != nil }
+    public var chapters: [(start: Double, title: String?)] {
+        guard isOpen, !liveSource else { return [] }
+        return engine.mediaChapters.map { ($0.startSeconds, $0.name) }
+    }
+    public var forwardBufferSeconds: Double? { engine.liveTelemetry?.forwardBufferSeconds }
+    public var droppedFrames: Int? { engine.liveTelemetry?.droppedFrameCount }
+    public var networkMbps: Double? { engine.liveTelemetry?.networkThroughputMbps }
+
+    public func setPlaybackSpeed(_ rate: Double) {
+        playbackSpeed = rate
+        if isOpen, !loading { engine.setRate(Float(rate)) }
+    }
+    public func setVideoFill(_ fills: Bool) { engine.videoGravity = fills ? .resizeAspectFill : .resizeAspect }
+    public func setSubtitlesAtTop(_ top: Bool) {
+        canvas.subtitlesAtTop = top
+        canvas.setNeedsLayout()
+    }
     public var mediaInfo: PlaybackMediaInfo {
         guard isOpen, !loading, hasPicture else { return PlaybackMediaInfo() }
         let range: String?
@@ -277,6 +295,7 @@ public final class AetherPlaybackSession {
                 self.sourceSeekableAtLoad = self.engine.isSourceSeekable
                 self.applyVolume()
                 if self.wantsToPlay { self.engine.play() } else { self.engine.pause() }
+                self.engine.setRate(Float(self.playbackSpeed))
                 #if os(iOS)
                 self.pip.refresh()
                 #endif
@@ -398,6 +417,7 @@ private final class AetherPlaybackCanvas: UIView {
     let picture = AetherPlayerView(frame: .zero)
     private var cues: [SubtitleCue] = []
     private var videoSize: CGSize = .zero
+    var subtitlesAtTop = false
     var subtitleScale: CGFloat = 1
     var subtitleBackground = false
 
@@ -484,6 +504,7 @@ private final class AetherPlaybackCanvas: UIView {
         let video = videoSize.width > 0 && videoSize.height > 0
             ? AVMakeRect(aspectRatio: videoSize, insideRect: bounds) : bounds
         var bottom = video.maxY - 42
+        var top = video.minY + 42
         for (cue, view) in zip(cues.reversed(), subviews.dropFirst().reversed()) {
             if let label = view as? UILabel {
                 let text = NSMutableAttributedString(attributedString:
@@ -504,17 +525,20 @@ private final class AetherPlaybackCanvas: UIView {
                     width: image.position.width * canvasFrame.width, height: image.position.height * canvasFrame.height)
             } else {
                 let size = view.sizeThatFits(CGSize(width: video.width * 0.9, height: video.height))
-                let alignment = cue.placement?.alignment ?? 2
+                let alignment = cue.placement?.alignment ?? (subtitlesAtTop ? 8 : 2)
                 let column = (alignment - 1) % 3
                 let row = (alignment - 1) / 3
                 let anchor = cue.placement?.position.map {
                     CGPoint(x: video.minX + $0.x * video.width, y: video.minY + $0.y * video.height)
                 } ?? CGPoint(x: column == 0 ? video.minX + 42 : column == 2 ? video.maxX - 42 : video.midX,
-                             y: row == 2 ? video.minY + 42 : row == 1 ? video.midY : bottom)
+                             y: row == 2 ? (cue.placement == nil ? top : video.minY + 42) : row == 1 ? video.midY : bottom)
                 let x = anchor.x - (column == 0 ? 0 : column == 2 ? size.width : size.width / 2)
                 let y = anchor.y - (row == 2 ? 0 : row == 1 ? size.height / 2 : size.height)
                 view.frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
-                if cue.placement == nil { bottom = y - 8 }
+                if cue.placement == nil {
+                    if subtitlesAtTop { top = y + size.height + 8 }
+                    else { bottom = y - 8 }
+                }
             }
         }
     }
