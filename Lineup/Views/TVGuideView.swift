@@ -14,8 +14,7 @@ enum GuidePalette {
     static var line: Color { LineupStyle.line }
     static var text: Color { LineupStyle.text }
     static var secondary: Color { LineupStyle.secondary }
-    /// The channel's artwork supplies the row background. Programme cells
-    /// reveal that same colour, with only elapsed progress filled over it.
+    /// The channel artwork tints the grid underneath the programme cards.
     static var rowText: Color { LineupStyle.text.opacity(0.72) }
     static var channelText: Color { LineupStyle.secondary.opacity(0.82) }
 }
@@ -1270,8 +1269,7 @@ struct GuideSidebarHeading: View {
     }
 }
 
-/// A sidebar row. The chosen one is white with a bar at its edge; the one the
-/// remote is on wears the focus layer, so the two can never be confused.
+/// A leading bar marks the chosen category. A bright outline follows the remote.
 struct GuideSidebarButton: View {
     let title: String
     let symbol: String
@@ -1295,15 +1293,25 @@ struct GuideSidebarButton: View {
         .foregroundStyle(selected || isFocused ? GuidePalette.text : GuidePalette.secondary)
         .padding(.horizontal, 14).padding(.vertical, 10)
         .frame(minHeight: 50)
-        .background(selected ? GuidePalette.surface : Color.clear, in: shape)
+        .background {
+            if isFocused {
+                shape.fill(Color.white.opacity(0.24))
+            } else if selected {
+                shape.fill(GuidePalette.surface)
+            }
+        }
+        .overlay {
+            if isFocused {
+                shape.strokeBorder(Color.white.opacity(0.95), lineWidth: 2)
+            }
+        }
         .overlay(alignment: .leading) {
             if selected {
                 Capsule().fill(GuidePalette.text).frame(width: 3, height: 22)
             }
         }
-        .lineupFocusLayer(isFocused, in: shape)
-        .contentShape(Rectangle()).focusable().focused(focus, equals: focusID).focusEffectDisabled().tvSelectAction(action)
-        .animation(.easeOut(duration: 0.16), value: isFocused)
+        .contentShape(shape).focusable().focused(focus, equals: focusID).focusEffectDisabled().tvSelectAction(action)
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
 
@@ -2048,8 +2056,8 @@ private func guideProgramWidth(_ program: CurrentProgram, anchor: Date, layout: 
     return max(1, durationWidth - 6)
 }
 
-/// A programme block on its channel's own colour. Elapsed time keeps its
-/// translucent fill; remote focus adds an edge without washing out the tint.
+/// A programme block spans its full scheduled time. Elapsed time adds a wash
+/// over the card so the rest of the programme still reads as part of the grid.
 ///
 /// Every cell on screen is asked again each time the remote moves, since
 /// each has to say whether it is the one in focus. What it shows is a view
@@ -2160,6 +2168,7 @@ private struct GuideProgramFace: View, Equatable {
         .frame(height: layout.rowHeight - 8, alignment: .topLeading)
         .background {
             ZStack(alignment: .leading) {
+                shape.fill(Color.white.opacity(program == nil ? 0.04 : 0.085))
                 if let program, isOnNow {
                     GeometryReader { geometry in
                         let played = GuideProgress.playedWidth(
@@ -2170,7 +2179,7 @@ private struct GuideProgramFace: View, Equatable {
                         // A low-contrast wash, not a second progress bar; its
                         // edge still ends where the timeline says now is.
                         Rectangle()
-                            .fill(GuidePalette.rowText.opacity(0.13))
+                            .fill(GuidePalette.rowText.opacity(0.10))
                             .frame(width: CGFloat(played), height: geometry.size.height)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     }

@@ -95,9 +95,11 @@ struct TVServerLibraryScreen: View {
 
     var body: some View {
         if let model = media.serverLibraryModel(for: profile) {
-            TVServerLibraryContent(model: model)
+            let silo = media.siloPagesModel(for: profile)
+            TVServerLibraryContent(model: model, silo: silo)
                 .id(profile.id)
-                .task(id: profile.id) { await model.start() }
+                .task { await model.start() }
+                .task { await silo?.refresh() }
         } else {
             VStack(spacing: 0) {
                 TVServerLibrarySwitcher()
@@ -112,6 +114,10 @@ struct TVServerLibraryScreen: View {
 private struct TVServerLibraryContent: View {
     @Environment(MediaLibrary.self) private var media
     @Bindable var model: ServerLibraryModel
+    let silo: SiloPagesModel?
+    @State private var seeingSilo: ServerLibraryRow?
+    @State private var jumpTarget: String?
+    @FocusState private var gridFocus: String?
     @State private var pushed: MediaItem?
     @State private var seeing: ServerLibraryRow?
     @State private var choosingLibrary = false
@@ -125,17 +131,30 @@ private struct TVServerLibraryContent: View {
     private let columns = [GridItem(.adaptive(minimum: 240, maximum: 290), spacing: 40, alignment: .top)]
 
     var body: some View {
-        ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 34) {
-                TVServerLibrarySwitcher()
-                pages
-                switch model.tab {
-                case .recommended: recommended
-                case .library: library
-                case .collections: collections
+        ScrollViewReader { scroll in
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 34) {
+                    TVServerLibrarySwitcher()
+                    if let silo { siloPlaces(silo) }
+                    if let silo, silo.place != .library {
+                        TVSiloPage(model: silo, open: { pushed = $0 }, seeAll: { seeingSilo = $0 })
+                    } else {
+                        pages
+                        switch model.tab {
+                        case .recommended: recommended
+                        case .library: library
+                        case .collections: collections
+                        }
+                    }
+                }
+                .padding(.top, 10).padding(.bottom, 80)
+            }
+            .safeAreaInset(edge: .trailing, spacing: 0) {
+                if (silo?.place ?? .library) == .library, model.tab == .library,
+                   model.titlesPhase == .loaded, model.browse.jumpsByLetter, !model.letters.letters.isEmpty {
+                    letters(scroll: scroll)
                 }
             }
-            .padding(.top, 10).padding(.bottom, 80)
         }
         .scrollClipDisabled()
         .tint(LineupStyle.text)
@@ -143,6 +162,9 @@ private struct TVServerLibraryContent: View {
         // played from this server alone.
         .navigationDestination(item: $pushed) { item in
             MediaBrowseDestination(item: item).environment(\.mediaStreamScope, model.profile.id)
+        }
+        .navigationDestination(item: $seeingSilo) { row in
+            if let silo { TVSiloHomeRowScreen(model: silo, row: row) }
         }
         .navigationDestination(item: $seeing) { row in
             TVServerLibraryRowScreen(model: model, row: row).environment(\.mediaStreamScope, model.profile.id)
@@ -170,6 +192,44 @@ private struct TVServerLibraryContent: View {
         .tvChoices("Filter", symbol: "line.3.horizontal.decrease", isPresented: $choosingFilter) {
             filterChoices
         }
+    }
+
+    private func siloPlaces(_ silo: SiloPagesModel) -> some View {
+        HStack(spacing: 18) {
+            ForEach(SiloPagesModel.Place.allCases) { place in
+                TVServerLibraryChip(title: place.title, symbol: place.symbol, brand: brand,
+                                    chosen: silo.place == place) { silo.place = place }
+            }
+        }
+        .padding(.horizontal, 80)
+        .lineupFocusRegion()
+    }
+
+    private func letters(scroll: ScrollViewProxy) -> some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.fixed(54)), GridItem(.fixed(54))], spacing: 8) {
+                ForEach(model.letters.letters) { letter in
+                    Button {
+                        Task {
+                            guard let target = await model.jump(to: letter) else { return }
+                            jumpTarget = target
+                            scroll.scrollTo(target, anchor: .top)
+                            await Task.yield()
+                            gridFocus = target
+                        }
+                    } label: {
+                        Text(letter.letter)
+                            .font(.inter(21, .bold))
+                            .frame(width: 54, height: 42)
+                    }
+                    .accessibilityLabel("Jump to " + letter.letter)
+                }
+            }
+            .padding(.vertical, 20)
+        }
+        .frame(width: 155)
+        .scrollIndicators(.hidden)
+        .lineupFocusRegion()
     }
 
     // MARK: Library and page
@@ -254,8 +314,16 @@ private struct TVServerLibraryContent: View {
         case .loaded:
             LazyVGrid(columns: columns, spacing: 50) {
                 ForEach(model.titles, id: \.libraryKey) { item in
-                    titleCell(item)
+                    titleCell(item, grid: true)
+                        .id(item.libraryKey)
                         .onAppear {
+                            if item.libraryKey == jumpTarget {
+                                Task { @MainActor in
+                                    await Task.yield()
+                                    guard jumpTarget == item.libraryKey else { return }
+                                    gridFocus = item.libraryKey
+                                }
+                            }
                             if item.id == model.titles.last?.id { Task { await model.loadMoreTitles() } }
                         }
                 }
@@ -272,6 +340,12 @@ private struct TVServerLibraryContent: View {
             TVServerLibraryChip(title: model.browse.sort.label, symbol: "arrow.up.arrow.down",
                                 detail: model.browse.sort.direction(descending: model.browse.descending),
                                 chosen: false) { choosingSort = true }
+            if model.startLetter != nil {
+                TVServerLibraryChip(title: "Back to Start", symbol: "arrow.up.to.line", chosen: false) {
+                    jumpTarget = nil
+                    model.showFromStart()
+                }
+            }
             TVServerLibraryChip(title: model.browse.genre ?? "Filter", symbol: "line.3.horizontal.decrease",
                                 brand: brand, chosen: model.browse.isFiltered) { choosingFilter = true }
             TVServerLibraryChip(title: "Shuffle", symbol: "shuffle", chosen: false) {
@@ -331,14 +405,19 @@ private struct TVServerLibraryContent: View {
     // MARK: Cells
 
     @ViewBuilder
-    private func titleCell(_ item: MediaItem) -> some View {
+    private func titleCell(_ item: MediaItem, grid: Bool = false) -> some View {
         Group {
             if item.opensPage {
-                TVSelectable(drawsFocusChrome: false, action: { pushed = item }) {
-                    MediaItemCard(item: item)
-                        .overlay { ServerLibraryBadgesOverlay(badges: model.badges[item.id]) }
+                if grid {
+                    TVSelectable(drawsFocusChrome: false, action: { pushed = item }) {
+                        MediaItemCard(item: item)
+                            .overlay { ServerLibraryBadgesOverlay(badges: model.badges[item.id]) }
+                    }
+                    .focused($gridFocus, equals: item.libraryKey)
+                    .tvHoldMenu(item.name, symbol: "film") { media.tvCardChoices(for: item) }
+                } else {
+                    TVSiloLibraryCard(item: item, badges: model.badges[item.id], open: { pushed = $0 })
                 }
-                .tvHoldMenu(item.name, symbol: "film") { media.tvCardChoices(for: item) }
             } else {
                 MediaPlayableCard(item: item)
                     .overlay { ServerLibraryBadgesOverlay(badges: model.badges[item.id]) }

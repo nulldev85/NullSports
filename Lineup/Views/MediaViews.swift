@@ -197,10 +197,6 @@ struct MediaServersView: View {
             }
             .onChange(of: media.profiles.map(\.id)) { _, _ in media.loadShelvesIfNeeded() }
             #if os(tvOS)
-            .tvChoices("Media Server", symbol: "exclamationmark.triangle",
-                       isPresented: Binding(get: { media.errorMessage != nil },
-                                            set: { if !$0 { media.errorMessage = nil } }),
-                       message: media.errorMessage ?? "Unknown error", cancelTitle: "OK") { [] }
             .tvChoices("Clear local tracking?", symbol: "trash", isPresented: $clearingHistory,
                        message: "This removes Continue Watching and local watched status from this Apple TV.") {
                 [TVChoice("Clear Local Tracking", isDestructive: true) { media.clearLocalPlayback() }]

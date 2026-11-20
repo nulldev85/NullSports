@@ -1,6 +1,7 @@
 import SwiftUI
 import Observation
 #if os(tvOS)
+import AVFoundation
 import UIKit
 #endif
 
@@ -62,6 +63,17 @@ struct MediaDetailScreen: View {
     @State private var similarUnavailable = false
     @State private var similarTitle = ""
     @State private var addingServer = false
+    @State private var siloPerson: MobileSiloPersonRoute?
+    #else
+    @State private var siloPerson: TVSiloPersonRoute?
+    @State private var siloBoxSet: TVSiloBoxSetRoute?
+    @State private var themePlayer = AVPlayer()
+    @State private var themeTask: Task<Void, Never>?
+    @State private var activeThemeID: String?
+    @State private var choosingTheme = false
+    @State private var themeUnavailable = false
+    @State private var trailerUnavailable = false
+    #endif
     /// The Library a page was opened from: a server's own, or Lineup's.
     @Environment(\.mediaStreamScope) private var pageScope
     /// What Silo adds to a Silo title's page: Watchlist, trailers, who is in
@@ -70,8 +82,7 @@ struct MediaDetailScreen: View {
     @State private var siloProfileID: UUID?
     @State private var siloLikeThis: [MediaItem] = []
     @State private var inWatchlist = false
-    @State private var siloPerson: MobileSiloPersonRoute?
-    #endif
+    @State private var savingWatchlist = false
 
     private var subject: MediaItem { media.displayItem(detail ?? item) }
     /// A title from the Library's charts that no source has yet.
@@ -104,6 +115,7 @@ struct MediaDetailScreen: View {
         }
         #endif
         .modifier(FullBleedHeader())
+        .task(id: "silo|" + item.libraryKey) { await loadSiloExtras() }
         .task(id: item.libraryKey) { await load() }
         .task(id: "warm-streams|" + (playTarget?.libraryKey ?? "")) {
             // Once what Play starts has settled, so a page still finding its
@@ -137,7 +149,6 @@ struct MediaDetailScreen: View {
             guard !Task.isCancelled else { return }
             related = titles
         }
-        .task(id: "silo|" + item.libraryKey) { await loadSiloExtras() }
         .onDisappear {
             similarLookupID = UUID(); similarTask?.cancel(); openingSimilar = nil
         }
@@ -172,6 +183,28 @@ struct MediaDetailScreen: View {
         .onAppear { tabBar?.pageAppeared(tabBarPageID) }
         .onDisappear { tabBar?.pageDisappeared(tabBarPageID) }
         .navigationDestination(item: $pushed) { item in MediaBrowseDestination(item: item) }
+        .navigationDestination(item: $siloPerson) { TVSiloPersonScreen(route: $0) }
+        .navigationDestination(item: $siloBoxSet) { TVSiloBoxSetScreen(route: $0) }
+        .onDisappear(perform: stopTheme)
+        .onChange(of: chosen) { _, target in if target != nil { stopTheme() } }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notice in
+            if let finished = notice.object as? AVPlayerItem, finished === themePlayer.currentItem { stopTheme() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime)) { notice in
+            if let failed = notice.object as? AVPlayerItem, failed === themePlayer.currentItem {
+                stopTheme()
+                themeUnavailable = true
+            }
+        }
+        .tvChoices("Theme Music", symbol: "music.note", isPresented: $choosingTheme) {
+            (siloExtras?.themes ?? []).map { theme in
+                TVChoice(theme.title, id: theme.id) { playTheme(theme) }
+            }
+        }
+        .lineupMessage("Theme Music Unavailable", symbol: "music.note", isPresented: $themeUnavailable,
+                       message: "Lineup couldn't play this theme from Silo.")
+        .lineupMessage("Trailer Unavailable", symbol: "play.rectangle", isPresented: $trailerUnavailable,
+                       message: "Install YouTube on this Apple TV to open this trailer.")
         .onExitCommand { dismiss() }
         .lineupFullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
             MediaSourcePicker(item: episode, startsOver: startingOver)
@@ -254,7 +287,9 @@ struct MediaDetailScreen: View {
                             .lineupFocusRegion()
                     }
                     episodesSection
+                    tvSiloBoxSetSection
                     trailersSection
+                    castSection
                     relatedSection
                     LibraryMetadataCredit(item: subject).padding(.horizontal, horizontalPadding)
                 }
@@ -307,6 +342,22 @@ struct MediaDetailScreen: View {
             }) {
                 tvSecondaryAction(watched ? "Watched" : "Mark Watched",
                                   symbol: watched ? "eye.fill" : "eye")
+            }
+            if siloExtras != nil {
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: toggleSiloWatchlist) {
+                    tvSecondaryAction(inWatchlist ? "In Watchlist" : "Add to Watchlist",
+                                      symbol: inWatchlist ? "bookmark.fill" : "bookmark")
+                }
+            }
+            if let themes = siloExtras?.themes, let first = themes.first {
+                TVSelectable(scale: LineupStyle.controlLift, drawsFocusChrome: false, action: {
+                    if activeThemeID != nil { stopTheme() }
+                    else if themes.count == 1 { playTheme(first) }
+                    else { choosingTheme = true }
+                }) {
+                    tvSecondaryAction(activeThemeID == nil ? "Theme Music" : "Stop Theme",
+                                      symbol: activeThemeID == nil ? "music.note" : "stop.fill")
+                }
             }
         }
         .lineupFocusRegion()
@@ -686,11 +737,7 @@ struct MediaDetailScreen: View {
     /// the ones Silo found.
     private var trailerList: [MediaTrailer] {
         let own = subject.remoteTrailers ?? []
-        #if os(tvOS)
-        return own
-        #else
         return own.isEmpty ? (siloExtras?.trailers ?? []) : own
-        #endif
     }
 
     @ViewBuilder
@@ -707,7 +754,7 @@ struct MediaDetailScreen: View {
                     LazyHStack(spacing: 14) {
                         ForEach(trailers.indices, id: \.self) { index in
                             #if os(tvOS)
-                            TVSelectable(action: { openURL(trailers[index].1) }) {
+                            TVSelectable(action: { openTVTrailer(trailers[index].1) }) {
                                 trailerCard(title: trailers[index].0, thumbnail: trailers[index].2)
                             }
                             #else
@@ -761,7 +808,7 @@ struct MediaDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(cast) { person in
-                            VStack(alignment: .leading, spacing: 6) {
+                            let portrait = VStack(alignment: .leading, spacing: 6) {
                                 ZStack {
                                     #if os(tvOS)
                                     RoundedRectangle(cornerRadius: 12).fill(LineupStyle.surface)
@@ -787,10 +834,16 @@ struct MediaDetailScreen: View {
                                 }
                             }
                             .frame(width: castPortraitWidth, alignment: .leading)
-                            #if !os(tvOS)
-                            .contentShape(Rectangle())
-                            .onTapGesture { openSiloPerson(named: person.name) }
-                            .accessibilityAddTraits(siloExtras?.people[person.name] == nil ? [] : .isButton)
+                            #if os(tvOS)
+                            if siloExtras?.people[person.name] != nil {
+                                TVSelectable(action: { openSiloPerson(named: person.name) }) { portrait }
+                            } else {
+                                portrait
+                            }
+                            #else
+                            portrait.contentShape(Rectangle())
+                                .onTapGesture { openSiloPerson(named: person.name) }
+                                .accessibilityAddTraits(siloExtras?.people[person.name] == nil ? [] : .isButton)
                             #endif
                         }
                     }
@@ -810,14 +863,19 @@ struct MediaDetailScreen: View {
 
     @ViewBuilder
     private var relatedSection: some View {
-        if !related.isEmpty {
+        #if os(tvOS)
+        let titles = siloLikeThis.isEmpty ? related : siloLikeThis
+        #else
+        let titles = related
+        #endif
+        if !titles.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 // Named for what it holds, because a row of posters under a
                 // bare "Related" does not say whether it is offering films or
                 // series.
                 #if os(tvOS)
-                detailSectionTitle(subject.isSeries ? "Related Shows" : "Related Movies",
-                                   symbol: "square.stack")
+                detailSectionTitle(siloLikeThis.isEmpty ? (subject.isSeries ? "Related Shows" : "Related Movies")
+                                                       : "More Like This", symbol: "square.stack")
                 #else
                 detailSectionTitle(subject.isSeries ? "Similar Shows" : "Similar Movies", symbol: "square.stack")
                 #endif
@@ -829,7 +887,7 @@ struct MediaDetailScreen: View {
                 #else
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: relatedItemSpacing) {
-                        ForEach(related, id: \.libraryKey) { title in
+                        ForEach(titles, id: \.libraryKey) { title in
                             Group {
                                 #if os(tvOS)
                                 TVSelectable(drawsFocusChrome: false, action: { pushed = title }) {
@@ -1353,7 +1411,9 @@ struct MediaPlayableCard: View {
     let item: MediaItem
     var shape: MediaArtShape = .poster
     var onFocusChange: ((Bool) -> Void)? = nil
-    #if !os(tvOS)
+    #if os(tvOS)
+    var leadingTVChoices: () -> [TVChoice] = { [] }
+    #else
     /// What a held touch offers before the usual choices: taking a card off
     /// a server's own Continue Watching, say.
     var leadingMenuItems: () -> [MobileMenuItem] = { [] }
@@ -1367,7 +1427,9 @@ struct MediaPlayableCard: View {
         TVSelectable(drawsFocusChrome: false, action: choose, onFocusChange: onFocusChange) {
             MediaItemCard(item: item, shape: shape)
         }
-            .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") { media.tvCardChoices(for: item) }
+            .tvHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film") {
+                leadingTVChoices() + media.tvCardChoices(for: item)
+            }
             .lineupFullScreenCover(isPresented: $choosingSource) {
                 MediaSourcePicker(item: item)
             }
@@ -1460,7 +1522,6 @@ extension MediaLibrary {
 }
 #endif
 
-#if !os(tvOS)
 // MARK: - Silo on a title's page
 
 extension MediaDetailScreen {
@@ -1480,27 +1541,36 @@ extension MediaDetailScreen {
         siloLikeThis = similar.map { $0.servedBy(server.profile.id) }
     }
 
+    fileprivate func toggleSiloWatchlist() {
+        guard !savingWatchlist, let server = media.siloServer(of: item) else { return }
+        let on = !inWatchlist
+        inWatchlist = on
+        savingWatchlist = true
+        Task {
+            defer { savingWatchlist = false }
+            do { try await server.client.siloSetWatchlist(itemID: item.id, on: on) }
+            catch { inWatchlist = !on }
+        }
+    }
+
+    fileprivate func openSiloPerson(named name: String) {
+        guard let id = siloExtras?.people[name], let profile = siloProfileID else { return }
+        #if os(tvOS)
+        siloPerson = TVSiloPersonRoute(profileID: profile, personID: id, name: name)
+        #else
+        siloPerson = MobileSiloPersonRoute(profileID: profile, personID: id, name: name)
+        #endif
+    }
+
+    #if !os(tvOS)
     fileprivate var watchlistButton: some View {
-        Button {
-            let on = !inWatchlist
-            inWatchlist = on
-            guard let server = media.siloServer(of: item) else { return }
-            Task {
-                do { try await server.client.siloSetWatchlist(itemID: item.id, on: on) }
-                catch { inWatchlist = !on }
-            }
-        } label: {
+        Button(action: toggleSiloWatchlist) {
             Image(systemName: inWatchlist ? "bookmark.fill" : "bookmark")
                 .font(.system(size: 21, weight: .semibold))
                 .frame(width: buttonHeight, height: buttonHeight)
         }
         .buttonStyle(MobileLibraryDetailButtonStyle(selected: inWatchlist))
         .accessibilityLabel(inWatchlist ? "Remove from Watchlist" : "Add to Watchlist")
-    }
-
-    fileprivate func openSiloPerson(named name: String) {
-        guard let id = siloExtras?.people[name], let profile = siloProfileID else { return }
-        siloPerson = MobileSiloPersonRoute(profileID: profile, personID: id, name: name)
     }
 
     /// The films of a film's box set the server has, in order.
@@ -1533,5 +1603,64 @@ extension MediaDetailScreen {
         }
         .modifier(PhoneDetailPanel())
     }
+    #else
+    @ViewBuilder
+    fileprivate var tvSiloBoxSetSection: some View {
+        if let set = siloExtras?.boxSet, let profile = siloProfileID {
+            VStack(alignment: .leading, spacing: 14) {
+                detailSectionTitle("Box Set", symbol: "rectangle.stack")
+                TVServerLibraryChip(title: set.title, symbol: "rectangle.stack", detail: set.years, chosen: false) {
+                    siloBoxSet = TVSiloBoxSetRoute(profileID: profile, set: set)
+                }
+                .padding(.horizontal, horizontalPadding)
+            }
+            .lineupFocusRegion()
+        }
+    }
+
+    fileprivate func playTheme(_ theme: SiloThemeTrack) {
+        guard let server = media.siloServer(of: item) else { return }
+        stopTheme()
+        activeThemeID = theme.id
+        themeTask = Task {
+            do {
+                let url = try await server.client.siloThemePlaybackURL(itemID: item.id, themeID: theme.id)
+                guard !Task.isCancelled else { return }
+                let asset = AVURLAsset(url: url)
+                guard try await asset.load(.isPlayable) else { throw MediaIntegrationError.invalidResponse }
+                guard !Task.isCancelled else { return }
+                themePlayer.replaceCurrentItem(with: AVPlayerItem(asset: asset))
+                themePlayer.play()
+            } catch {
+                guard !Task.isCancelled else { return }
+                stopTheme()
+                themeUnavailable = true
+            }
+        }
+    }
+
+    fileprivate func stopTheme() {
+        themeTask?.cancel()
+        themeTask = nil
+        themePlayer.pause()
+        themePlayer.replaceCurrentItem(with: nil)
+        activeThemeID = nil
+    }
+
+    fileprivate func openTVTrailer(_ url: URL) {
+        stopTheme()
+        guard var route = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              ["youtube.com", "www.youtube.com", "m.youtube.com"].contains(route.host?.lowercased() ?? ""),
+              route.path == "/watch", route.queryItems?.contains(where: { $0.name == "v" }) == true else {
+            openURL(url)
+            return
+        }
+        route.host = "www.youtube.com"
+        route.scheme = "youtube"
+        guard let appURL = route.url else { return }
+        openURL(appURL) { accepted in
+            if !accepted { trailerUnavailable = true }
+        }
+    }
+    #endif
 }
-#endif

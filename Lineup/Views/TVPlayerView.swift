@@ -303,24 +303,24 @@ private struct TVSkipSegmentButton: View {
 
     var body: some View {
         let shape = Capsule()
-        HStack(spacing: 14) {
-            LineupIconTile(symbol: "forward.end.fill", size: 38)
-            Text(action.title).font(.inter(24, .bold)).foregroundStyle(LineupStyle.text)
+        Button(action: skip) {
+            HStack(spacing: 14) {
+                LineupIconTile(symbol: "forward.end.fill", size: 38)
+                Text(action.title).font(.inter(24, .bold)).foregroundStyle(LineupStyle.text)
+            }
+            .padding(.leading, 12).padding(.trailing, 30)
+            .frame(height: 66)
+            .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
+            .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .lineupFocusLayer(focused.wrappedValue, in: shape, lifts: false)
+            // Over the picture, a clear rise rather than a frame.
+            .brightness(focused.wrappedValue ? 0.12 : 0)
+            .scaleEffect(focused.wrappedValue ? 1.08 : 1)
+            .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
+            .contentShape(shape)
         }
-        .padding(.leading, 12).padding(.trailing, 30)
-        .frame(height: 66)
-        .background(LineupPanelStyle.fill.opacity(0.96), in: shape)
-        .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-        .lineupFocusLayer(focused.wrappedValue, in: shape, lifts: false)
-        // Over the picture, a clear rise rather than a frame.
-        .brightness(focused.wrappedValue ? 0.12 : 0)
-        .scaleEffect(focused.wrappedValue ? 1.08 : 1)
-        .animation(.easeOut(duration: 0.18), value: focused.wrappedValue)
-        .contentShape(shape)
-        .focusable()
+        .lineupFlatButton()
         .focused(focused)
-        .focusEffectDisabled()
-        .onTapGesture(perform: skip)
         .onExitCommand(perform: decline)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(action.title)
@@ -581,35 +581,17 @@ struct PlayerView: View {
                 .overlay { TVPlaybackStatus(controller: controller) }
                 .padding(.trailing, statsInset)
                 .background(Color.black).ignoresSafeArea()
-            // Hiding the chrome removes every focusable view, and the remote
-            // only reaches a view that holds focus, so this stands in for it
-            // and summons the chrome back on any press.
-            //
-            // It is a sibling of the video rather than a set of modifiers on
-            // their shared container. A modifier that comes and goes gives the
-            // container a new identity, which rebuilds the video surface with
-            // it, and a rebuilt surface loses the drawable VLC is decoding
-            // into: the picture stops while the audio carries on. Siblings
-            // appear and disappear without disturbing the surface, which is
-            // why the chrome itself has always been safe to toggle.
-            //
-            // Nothing consumes a direction while the chrome is up either, so
-            // focus can move between the seek bar and the buttons.
-            //
-            // With the controls away, Up and Down change channel, Left and
-            // Right step back and on through a channel the provider records,
-            // and Select answers an alert when one is up.
-            if !controlsVisible {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .focusable()
-                    .focused($surfaceFocused)
-                    .onMoveCommand(perform: moveWithControlsHidden)
-                    .onTapGesture {
-                        if let alert = visibleAlert { watch(alert.game) } else { revealControls(focus: true) }
-                    }
-                    .padding(.trailing, statsInset)
-            }
+            // Keep the remote target mounted while the stream changes. The
+            // video surface also stays mounted to preserve its drawable.
+            Color.clear
+                .contentShape(Rectangle())
+                .focusable(!controlsVisible || controller.error != nil)
+                .focused($surfaceFocused)
+                .onMoveCommand(perform: moveWithControlsHidden)
+                .onTapGesture {
+                    if let alert = visibleAlert { watch(alert.game) } else { revealControls(focus: true) }
+                }
+                .padding(.trailing, statsInset)
             if controlsVisible && controller.error == nil {
                 TVPlayerChrome(title: controller.activeChannelName ?? chosenTitle ?? title,
                     program: channelProgram, synopsis: synopsis, isLive: isLive, controller: controller,
@@ -629,7 +611,7 @@ struct PlayerView: View {
                         ? TVEpisodesShown(season: episodeList?.season, episodes: episodeChoices,
                                           loading: !episodesLoaded, choose: chooseEpisode, close: closeEpisodes)
                         : nil,
-                    onUpToNextEpisode: showsNextEpisode ? { nextEpisodeFocused = true } : nil)
+                    onUpToPlaybackOffer: showsNextEpisode || showsSkip ? { focusPicture() } : nil)
                     .padding(.trailing, statsInset)
                     .transition(.opacity)
             }
@@ -668,6 +650,10 @@ struct PlayerView: View {
                 TVSkipSegmentButton(action: skipAction, focused: $skipFocused,
                                     skip: { skip(skipAction) },
                                     decline: { declineSkip(skipAction) })
+                    .onMoveCommand { direction in
+                        if direction == .down && controlsVisible { focusAfterSkip() }
+                        else if !controlsVisible { moveWithControlsHidden(direction) }
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     // Above the seek bar and buttons while they are up.
                     .padding(.trailing, 80).padding(.bottom, controlsVisible ? 360 : 72)
@@ -853,8 +839,8 @@ struct PlayerView: View {
         // Skip takes the remote when it appears over a bare picture, so one
         // press of Select skips; with the controls up it waits above them.
         .onChange(of: showsSkip) { _, shown in
-            if shown, !controlsVisible { skipFocused = true }
-            else if !shown, skipFocused { surfaceFocused = true }
+            if shown, !controlsVisible { focusPicture() }
+            else if !shown, skipFocused { focusAfterSkip() }
         }
         .animation(.easeInOut(duration: 0.3), value: showsSkip)
         .animation(.easeInOut(duration: 0.3), value: postCreditsAhead)
@@ -875,14 +861,28 @@ struct PlayerView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: showsNextEpisode)
         .onChange(of: controller.isPlaying) { _, playing in
-            if playing { scheduleAutoHide() }
-            else { hideControlsTask?.cancel(); controlsVisible = true }
+            if playing {
+                scheduleAutoHide()
+            } else {
+                hideControlsTask?.cancel()
+                // Tuning and rebuffering briefly report false. Leave the
+                // picture focused so the next Up or Down still tunes.
+                if !isLive && !skipFocused && !nextEpisodeFocused {
+                    controlsVisible = true
+                }
+            }
         }
         // Moving from one control to the next is using the controls. The
         // countdown used to run from when they appeared, so they went away
         // under a viewer still looking through them.
         .onChange(of: focusedControl) { _, control in
             if control != nil, controlsVisible { scheduleAutoHide() }
+        }
+        .onChange(of: skipFocused) { _, focused in
+            if focused, controlsVisible { scheduleAutoHide() }
+        }
+        .onChange(of: controller.error) { _, error in
+            if error != nil && !statsEntryFocused { surfaceFocused = true }
         }
         .animation(.easeInOut(duration: 0.22), value: controlsVisible)
         .animation(.easeInOut(duration: 0.3), value: statsShown)
@@ -1105,7 +1105,7 @@ struct PlayerView: View {
     /// while nothing else holds the bottom corner.
     private var showsSkip: Bool {
         guard let skipAction else { return false }
-        return !declinedSkips.contains(skipAction.kind) && controller.error == nil
+        return !declinedSkips.contains(skipAction.kind) && !episodesShown && controller.error == nil
             && !controller.isScrubbing && !showsNextEpisode
     }
 
@@ -1113,12 +1113,20 @@ struct PlayerView: View {
         PlaybackJournal.shared.note(action.title + " to " + PlaybackJournal.clock(action.destination))
         controller.seek(to: action.destination)
         skipAction = nil
-        surfaceFocused = true
+        focusAfterSkip()
     }
 
     private func declineSkip(_ action: TVSkipAction) {
         declinedSkips.insert(action.kind)
-        surfaceFocused = true
+        focusAfterSkip()
+    }
+
+    private func focusAfterSkip() {
+        if controlsVisible {
+            revealControls(focus: true, on: controller.duration > 0 ? .scrubber : nil)
+        } else {
+            focusPicture()
+        }
     }
 
     private func playNext(_ offer: TVNextEpisodeOffer) {
@@ -1280,9 +1288,8 @@ private struct TVPlayerChrome: View {
     /// The Episodes row, while it is up. The seek bar and the buttons make
     /// way for it, and the time sits over it.
     let episodes: TVEpisodesShown?
-    /// Up from the seek bar, to the Next Episode card over the controls
-    /// while it is up. Nil when there is none.
-    var onUpToNextEpisode: (() -> Void)? = nil
+    /// Up from the seek bar reaches the Skip or Next Episode offer.
+    var onUpToPlaybackOffer: (() -> Void)? = nil
 
     private var choosing: Bool { showingQuality || showingSubtitles || showingAudio || showingVideo }
 
@@ -1386,7 +1393,7 @@ private struct TVPlayerChrome: View {
                         if !isLive && controller.duration > 0 {
                             TVSeekBar(controller: controller, clock: controller.clock, preview: seekPreview,
                                       focus: focusedControl, firstAction: firstAction, onInteraction: onInteraction,
-                                      onUp: onUpToNextEpisode)
+                                      onUp: onUpToPlaybackOffer)
                         }
                         if showsTimeline {
                             TVCatchUpBar(controller: controller, clock: controller.clock, focus: focusedControl,
