@@ -1169,6 +1169,7 @@ final class SportsLibrary {
             ? refreshGuide(client: client, profileID: profile.id, rebuildsIndex: !refreshChannels) : nil
         guard refreshChannels else {
             await guideTask?.value
+            guard providerGeneration == requestGeneration else { return }
             if !sportsIndexReady { await rebuildProfessionalStreams() }
             else { await rebuildGameStreamCache() }
             return
@@ -1270,6 +1271,7 @@ final class SportsLibrary {
             guard providerGeneration == requestGeneration, activeProfile?.id == profile.id else { return }
             if !channelsValidatedThisSession { channelsValidatedThisSession = true }
             await promoteCachedMatchesIfSafe()
+            guard providerGeneration == requestGeneration else { return }
             if isLoading { isLoading = false }
             saveCache(profileID: profile.id)
         } catch {
@@ -1384,6 +1386,7 @@ final class SportsLibrary {
     }
 
     private func saveCache(profileID: UUID) {
+        guard activeProfile?.id == profileID else { return }
         #if os(iOS)
         if combinedRoot != nil { return }
         #endif
@@ -1803,7 +1806,8 @@ final class SportsLibrary {
 
     /// The event's actual matching channels, not broad league/search suggestions.
     /// Build off the main actor; a provider or guide change retires the result.
-    func eventChannels(for game: SportsGame, deadline: TimeInterval? = nil) async -> [LiveEventChannel] {
+    func eventChannels(for game: SportsGame, deadline: TimeInterval? = nil,
+                       recheckPrepared: Bool = false) async -> [LiveEventChannel] {
         guard eventChannelsReady(for: game) else { return [] }
         let current = gamesByLeague[game.league]?.first { $0.id == game.id } ?? game
         guard current.isLive || current.isUpcoming else { return [] }
@@ -1822,7 +1826,7 @@ final class SportsLibrary {
             return result
         }
         #endif
-        if let prepared = preparedMatch(for: current) {
+        if !recheckPrepared, let prepared = preparedMatch(for: current) {
             // Only recheck the few prepared alternatives, never the full list.
             return Self.matchingEventChannels(for: current,
                 candidates: prepared.alternatives.compactMap { stream(withID: $0.id) },
@@ -1834,7 +1838,7 @@ final class SportsLibrary {
         let cacheKey = ([profile?.uuidString ?? "", generation.uuidString, current.id] + identity).joined(separator: "|")
         let now = Date()
         eventChannelCache = eventChannelCache.filter { $0.value.expires > now }
-        if let cached = eventChannelCache[cacheKey] { return cached.channels }
+        if !recheckPrepared, let cached = eventChannelCache[cacheKey] { return cached.channels }
         var candidates = game.league.isCollege ? streams : streams(for: game.league)
         #if os(iOS)
         if combinedRoot != nil {
@@ -3076,6 +3080,8 @@ final class SportsLibrary {
         eventsNeedingPreparation.formUnion(publication.rejected.filter { currentIdentities[$0] != nil })
         persistPreparedMatches()
         await promoteCachedMatchesIfSafe()
+        guard DailyCachePolicy.shouldApplyRebuild(resultGeneration: generation, currentGeneration: matchGeneration,
+            resultProfileID: profileID, currentProfileID: activeProfile?.id) else { return }
         // Save changed matching results without rewriting the full guide on
         // every score/clock update. Writes remain serialized and atomic.
         if let profileID, force || result.2 || identityChanged || matchIdentities(now: now) != lastSavedMatchIdentities
@@ -4044,7 +4050,11 @@ final class SportsLibrary {
         guard !isSwitchingProfile, profiles.contains(where: { $0.id == profile.id }),
               activeProfile?.id != profile.id else { return }
         isSwitchingProfile = true
+        #if !os(tvOS)
         guard await waitForProviderWork() else { isSwitchingProfile = false; return }
+        #endif
+        // On Apple TV, reset cancels old provider work and retires its
+        // generation. A slow XMLTV download cannot hold the new selection.
         persistFavorites()
         resetProviderState()
         activeProfile = profiles.first { $0.id == profile.id } ?? profile
@@ -4673,6 +4683,12 @@ final class SportsLibrary {
         isLoading = false
         guideUpdatedAt = nil
         libraryUpdatedAt = nil
+        categoriesDigest = nil
+        streamsDigest = nil
+        guideDigest = nil
+        savedChannelsDigest = nil
+        savedGuideDigest = nil
+        legacyCacheNeedsRetiring = false
         tomorrowScheduleUpdatedAt = nil
     }
 
