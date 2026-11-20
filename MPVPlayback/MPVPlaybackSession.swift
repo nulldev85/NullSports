@@ -417,9 +417,9 @@ private final class MPVPlaybackCore: @unchecked Sendable {
            terminalPhase != .ended || reportedPosition > 0 {
             lastKnownPosition = reportedPosition
         }
-        snapshot.position = terminalPhase == .ended
-            ? max(lastKnownPosition, lastKnownDuration)
-            : reportedPosition ?? lastKnownPosition
+        // EOF can also mean that the connection closed early. Keep the
+        // last reported position so the host can resume an interrupted file.
+        snapshot.position = lastKnownPosition
         snapshot.seekable = bool(context, "seekable")
         snapshot.chapters = isOpen ? loadedChapters : []
         snapshot.forwardBufferSeconds = number(context, "demuxer-cache-duration")
