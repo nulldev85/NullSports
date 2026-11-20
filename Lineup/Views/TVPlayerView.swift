@@ -391,6 +391,7 @@ struct PlayerView: View {
     /// Told when the title played to its end, before the player closes, so
     /// the screen beneath can lead on from it.
     var onReachedEnd: (() -> Void)? = nil
+    private let onClose: (() -> Void)?
     /// A Library title's intro, recap and credits from IntroDB, as the
     /// phone's player has them.
     var segmentsLookup: (() async -> MobilePlaybackSegments?)? = nil
@@ -505,7 +506,7 @@ struct PlayerView: View {
          subtitleIdentityLookup: (() async -> MobileSubtitleIdentity?)? = nil,
          trackMemoryShow: String? = nil,
          seekPreviewLookup: (() async -> MobileSeekPreviewSource?)? = nil,
-         episodes: TVEpisodeList? = nil,
+         episodes: TVEpisodeList? = nil, onClose: (() -> Void)? = nil,
          continuing preview: TVPreviewHandoff? = nil, playbackController: TVPlaybackController? = nil) {
         self.urls = urls
         self.title = title
@@ -523,6 +524,7 @@ struct PlayerView: View {
         self.onChannelChange = onChannelChange
         self.nextEpisode = nextEpisode
         self.onReachedEnd = onReachedEnd
+        self.onClose = onClose
         self.segmentsLookup = segmentsLookup
         self.subtitleIdentityLookup = subtitleIdentityLookup
         self.trackMemoryShow = trackMemoryShow
@@ -1176,7 +1178,8 @@ struct PlayerView: View {
             + (isLive ? "" : " at \(PlaybackJournal.clock(controller.elapsed))"))
         reportProgress(force: true)
         finishPlayback()
-        dismiss()
+        if let onClose { onClose() }
+        else { dismiss() }
     }
 
     /// Stops the player, or gives the preview's back to it still playing.

@@ -390,7 +390,7 @@ struct PlaybackClockReader<Content: View>: View {
 
     private func openCurrent() {
         liveQualityReporter.reset()
-        backend.stop()
+        if backend.isOpen { backend.stop() }
         mediaInfo = PlaybackMediaInfo()
         ambientGeneration = UUID()
         ambientPictureSize = .zero
@@ -593,9 +593,9 @@ struct PlaybackClockReader<Content: View>: View {
             fallbackFromMPVToVLC("MPV reported a playback error")
             return
         }
-        let failed = state == .error
-            || ((state == .ended || state == .stopped)
-                && (!isLive || health.hasShownPicture || health.age(now: now) >= 8))
+        let pastStartup = health.hasShownPicture || health.age(now: now) >= 8
+        let failed = state == .error || (state == .stopped && pastStartup)
+            || (state == .ended && (!isLive || pastStartup))
         // A film or an episode that stops at its end has finished. The same
         // stop anywhere earlier is a dropped stream, reopened below.
         if !isLive, reopenPosition == nil,

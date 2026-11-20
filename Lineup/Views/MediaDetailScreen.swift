@@ -207,14 +207,14 @@ struct MediaDetailScreen: View {
                        message: "Install YouTube on this Apple TV to open this trailer.")
         .onExitCommand { dismiss() }
         .lineupFullScreenCover(item: $chosen, onDismiss: refreshAfterPlayback) { episode in
-            MediaSourcePicker(item: episode, startsOver: startingOver)
+            MediaSourcePicker(item: episode, startsOver: startingOver, scope: pageScope)
         }
         .lineupFullScreenCover(item: $summaryItem) { item in
             TVMediaSummarySheet(item: item).presentationBackground(.clear)
         }
         #else
         // From the start means from the start here too, as on the TV.
-        .lineupFullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver) }
+        .lineupFullScreenCover(item: $chosen) { episode in MediaSourcePicker(item: episode, startsOver: startingOver, scope: pageScope) }
         #endif
     }
 
@@ -1431,14 +1431,14 @@ struct MediaPlayableCard: View {
                 leadingTVChoices() + media.tvCardChoices(for: item)
             }
             .lineupFullScreenCover(isPresented: $choosingSource) {
-                MediaSourcePicker(item: item)
+                MediaSourcePicker(item: item, scope: streamScope)
             }
         #else
         MediaItemCard(item: item, shape: shape)
             .lineupHoldMenu(item.name, symbol: item.type == "Episode" ? "tv" : "film",
                             items: { leadingMenuItems() + media.cardMenuItems(for: item) }, action: choose)
             .lineupFullScreenCover(isPresented: $choosingSource) {
-                MediaSourcePicker(item: item)
+                MediaSourcePicker(item: item, scope: streamScope)
             }
         #endif
     }
