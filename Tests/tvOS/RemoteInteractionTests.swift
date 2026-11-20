@@ -3,6 +3,18 @@ import XCTest
 
 @MainActor
 final class RemoteInteractionTests: XCTestCase {
+    func testChapterTimelineKeepsRealStartsAndDropsDuplicateOrOutOfRangeEntries() {
+        let entries: [PlaybackChapter] = [
+            .init(start: 120, title: "End"), .init(start: 30, title: "Arrival"),
+            .init(start: 0, title: nil), .init(start: -1, title: nil),
+            .init(start: .infinity, title: nil), .init(start: 30, title: "Duplicate")
+        ]
+        let chapters = PlaybackChapter.ordered(entries, duration: 120)
+        XCTAssertEqual(chapters.map(\.start), [0, 30])
+        XCTAssertEqual(chapters.first?.label(at: 0), "Chapter 1")
+        XCTAssertEqual(chapters.last?.label(at: 1), "Arrival")
+    }
+
     func testFirstHoldHasItsTitleAndActionsInTheSamePresentation() throws {
         var performed: [String] = []
         let first = try XCTUnwrap(TVHoldMenuPresentation(title: "ESPN", symbol: "tv", message: "Live", items: [
@@ -52,9 +64,9 @@ final class RemoteInteractionTests: XCTestCase {
     }
 
     func testDirectionalRemoteStepsAreFifteenSecondsAndClampAtDuration() {
-        XCTAssertEqual(PlaybackSeekPolicy.remoteTapSkip, 15)
-        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 120, direction: -1, duration: 300), 105)
-        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 120, direction: 1, duration: 300), 135)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteTapSkip, 60)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 120, direction: -1, duration: 300), 60)
+        XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 120, direction: 1, duration: 300), 180)
         XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 5, direction: -1, duration: 300), 0)
         XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 295, direction: 1, duration: 300), 299)
     }
