@@ -10,6 +10,11 @@ public struct MPVPlaybackTrack: Equatable, Sendable {
     public let title: String
 }
 
+public struct MPVPlaybackChapter: Sendable {
+    public let start: Double
+    public let title: String?
+}
+
 private struct MPVPlaybackSnapshot: @unchecked Sendable {
     var phase: MPVPlaybackPhase = .idle
     var error: String?
@@ -34,6 +39,8 @@ private struct MPVPlaybackSnapshot: @unchecked Sendable {
     var selectedSubtitleIndex: Int?
     var selectedAudioIndex: Int?
     var selectedVideoIndex: Int?
+    var chapters: [MPVPlaybackChapter] = []
+    var forwardBufferSeconds: Double?
 }
 
 /// A small Lineup-owned libmpv adapter. MPVKit's Metal renderer is experimental;
@@ -74,6 +81,8 @@ public final class MPVPlaybackSession {
     public private(set) var selectedSubtitleIndex: Int?
     public private(set) var selectedAudioIndex: Int?
     public private(set) var selectedVideoIndex: Int?
+    public private(set) var chapters: [MPVPlaybackChapter] = []
+    public private(set) var forwardBufferSeconds: Double?
 
     private let core: MPVPlaybackCore
     private var snapshot = MPVPlaybackSnapshot()
@@ -97,6 +106,8 @@ public final class MPVPlaybackSession {
                      preferredSubtitleLanguage: String? = nil,
                      preferredAudioLanguage: String? = nil) {
         phase = .loading
+        chapters = []
+        forwardBufferSeconds = nil
         errorMessage = nil
         isOpen = true
         position = max(0, startPosition ?? 0)
@@ -106,6 +117,10 @@ public final class MPVPlaybackSession {
                   preferredSubtitleLanguage: preferredSubtitleLanguage,
                   preferredAudioLanguage: preferredAudioLanguage)
     }
+
+    public func setPlaybackSpeed(_ rate: Double) { core.setNumber("speed", rate) }
+    public func setVideoFill(_ fills: Bool) { core.setNumber("panscan", fills ? 1 : 0) }
+    public func setSubtitlesAtTop(_ top: Bool) { core.setNumber("sub-pos", top ? 5 : 100) }
 
     public func play() { core.setFlag("pause", false) }
     public func pause() { core.setFlag("pause", true) }
@@ -169,6 +184,8 @@ public final class MPVPlaybackSession {
         selectedSubtitleIndex = value.selectedSubtitleIndex
         selectedAudioIndex = value.selectedAudioIndex
         selectedVideoIndex = value.selectedVideoIndex
+        chapters = value.chapters
+        forwardBufferSeconds = value.forwardBufferSeconds
     }
 }
 
@@ -347,15 +364,24 @@ private final class MPVPlaybackCore: @unchecked Sendable {
         }
     }
 
+    private var loadedChapters: [MPVPlaybackChapter] = []
+
     private func poll() {
         guard let context else { return }
         while let event = mpv_wait_event(context, 0), event.pointee.event_id != MPV_EVENT_NONE {
             switch event.pointee.event_id {
             case MPV_EVENT_START_FILE:
+                loadedChapters = []
                 isOpen = true
                 terminalPhase = nil
                 failureMessage = nil
             case MPV_EVENT_FILE_LOADED:
+                let count = min(max(integer(context, "chapter-list/count") ?? 0, 0), 2048)
+                loadedChapters = (0..<count).compactMap { index in
+                    let path = "chapter-list/\(index)"
+                    guard let start = number(context, path + "/time") else { return nil }
+                    return MPVPlaybackChapter(start: start, title: text(context, path + "/title"))
+                }
                 isOpen = true
                 terminalPhase = nil
                 failureMessage = nil
@@ -395,6 +421,8 @@ private final class MPVPlaybackCore: @unchecked Sendable {
             ? max(lastKnownPosition, lastKnownDuration)
             : reportedPosition ?? lastKnownPosition
         snapshot.seekable = bool(context, "seekable")
+        snapshot.chapters = isOpen ? loadedChapters : []
+        snapshot.forwardBufferSeconds = number(context, "demuxer-cache-duration")
         let width = number(context, "video-params/w") ?? 0
         let height = number(context, "video-params/h") ?? 0
         snapshot.size = CGSize(width: max(0, width), height: max(0, height))
