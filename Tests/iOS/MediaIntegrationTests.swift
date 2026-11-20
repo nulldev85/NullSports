@@ -602,7 +602,12 @@ final class MediaIntegrationTests: XCTestCase {
                 XCTAssertEqual(value("sort"), "title")
                 return .json(#"{"items":[{"content_id":"m9","type":"movie","title":"Memento"}],"page":{"has_more":true,"next_cursor":"after-m9"}}"#)
             case ("GET", "/base/api/v2/catalog/items/m1"):
-                return .json(#"{"content_id":"m1","type":"movie","title":"Beast","user_state":{"in_watchlist":true},"videos":[{"name":"Official Trailer","site":"YouTube","site_key":"dQw4w9WgXcQ","type":"Trailer"},{"name":"Elsewhere","site":"Vimeo","site_key":"123","type":"Clip"}],"cast":[{"name":"Jessie Buckley","person_id":"p7","character":"Moll"}],"crew":[]}"#)
+                return .json(#"{"content_id":"m1","type":"movie","title":"Beast","user_state":{"in_watchlist":true},"themes":{"owner_id":"theme-owner","items":[{"id":"theme1","title":null}]},"videos":[{"name":"Official Trailer","site":"YouTube","site_key":"dQw4w9WgXcQ","type":"Trailer"},{"name":"Elsewhere","site":"Vimeo","site_key":"123","type":"Clip"}],"cast":[{"name":"Jessie Buckley","person_id":"p7","character":"Moll"}],"crew":[]}"#)
+            case ("POST", "/base/api/v2/catalog/items/theme-owner/themes/theme1/playback"):
+                let body = try MediaIntegrationProtocol.body(request)
+                let formats = try XCTUnwrap(body["accepted_formats"] as? [[String: String]])
+                XCTAssertTrue(formats.contains(["container": "mp4", "audio_codec": "aac"]))
+                return .json(#"{"url":"/api/v2/catalog/items/theme-owner/themes/theme1/audio?token=fixture"}"#)
             case ("GET", "/base/api/v2/catalog/items/m1/box-set"):
                 return .json(#"{"box_set":{"id":"10","title":"Beast Box Set","first_year":2017,"last_year":2021,"items":[{"content_id":"m1","type":"movie","title":"Beast"},{"content_id":"m3","type":"movie","title":"Beast 2"}]}}"#)
             case ("GET", "/base/api/v2/calendar"):
@@ -638,6 +643,10 @@ final class MediaIntegrationTests: XCTestCase {
 
         let extras = try await client.siloTitleExtras(itemID: "m1", isMovie: true)
         XCTAssertTrue(extras.inWatchlist)
+        let theme = try XCTUnwrap(extras.themes.first)
+        XCTAssertNil(theme.title)
+        let themeURL = try await client.siloThemePlaybackURL(itemID: try XCTUnwrap(extras.themeOwnerID), themeID: theme.id)
+        XCTAssertEqual(themeURL.absoluteString, "https://silo-contract.test/base/api/v2/catalog/items/theme-owner/themes/theme1/audio?token=fixture")
         XCTAssertEqual(extras.trailers.map(\.url), ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
                        "Only YouTube trailers, which open and show a thumbnail")
         XCTAssertEqual(extras.people["Jessie Buckley"], "p7")
