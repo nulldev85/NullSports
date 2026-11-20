@@ -561,8 +561,8 @@ final class MediaIntegrationTests: XCTestCase {
             if request.url!.path.hasSuffix("/profiles") { return .json(#"{"items":[{"id":"household:2","name":"Viewer","has_pin":true,"is_primary":false}]}"#) }
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Profile-Id"), "household:2")
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Profile-Token"), "fixture-proof")
-            XCTAssertTrue(request.url!.path.hasSuffix("/versions"))
-            return .json(#"{"items":[{"file_id":"9007199254740999","file_name":"Owned movie.mkv","resolution":"1080p","codec_video":"h264","codec_audio":"aac","container":"mkv","file_size":1024,"bitrate":8000,"duration":7200}]}"#)
+            XCTAssertEqual(request.url?.path, "/base/api/v2/watch/movie:1")
+            return .json(#"{"content_id":"movie:1","versions":[{"file_id":"9007199254740999","file_name":"Owned movie.mkv","resolution":"1080p","codec_video":"h264","codec_audio":"aac","container":"mkv","file_size":1024,"bitrate":8000,"duration_seconds":7200}]}"#)
         }
         let profiles = try await client.profiles()
         let profile = try XCTUnwrap(profiles.first)
@@ -574,6 +574,61 @@ final class MediaIntegrationTests: XCTestCase {
         XCTAssertFalse(MediaIntegrationProtocol.requests.contains { $0.url!.path.contains("playback/start") })
         let credential = await client.credential()
         XCTAssertEqual(credential.profileToken, "fixture-proof")
+    }
+
+    @MainActor
+    func testLineupResultsUseSiloWatchFilesForMatchingMoviesAndEpisodes() async throws {
+        let suite = "SiloResults.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let profile = MediaServerProfile(name: "Silo", serverURL: "https://silo-contract.test",
+            username: "viewer", userID: "account:1", software: .silo, siloProfileID: "profile:1")
+        defaults.set(try JSONEncoder().encode([profile]), forKey: "NullSports.mediaServers")
+        let network = session()
+        defer { network.invalidateAndCancel() }
+        let client = try SiloClient(address: profile.serverURL, credential: .init(accessToken: "fixture-key"),
+            profileID: profile.siloProfileID, deviceID: "fixture-device", session: network)
+        let library = MediaLibrary(defaults: defaults, metadataCredentials: .init(tmdb: "", tvdb: ""),
+                                   trackingKey: { nil }, serverClientFactory: { _ in client })
+        MediaIntegrationProtocol.install { request in
+            let url = try XCTUnwrap(request.url)
+            switch url.path {
+            case "/api/v2/system/info":
+                return .json(#"{"server_version":"2.0.0","api_major":2}"#)
+            case "/api/v2/catalog":
+                let term = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value
+                if term == "Test Film" { return .json(#"{"items":[{"content_id":"film1","type":"movie","title":"Test Film","year":2026}]}"#) }
+                XCTAssertEqual(term, "Test Series")
+                return .json(#"{"items":[{"content_id":"show1","type":"series","title":"Test Series"}]}"#)
+            case "/api/v2/catalog/items/film1":
+                return .json(#"{"content_id":"film1","type":"movie","title":"Test Film","year":2026}"#)
+            case "/api/v2/catalog/items/show1":
+                return .json(#"{"content_id":"show1","type":"series","title":"Test Series"}"#)
+            case "/api/v2/catalog/series/show1/seasons/2/episodes":
+                return .json(#"{"items":[{"content_id":"episode1","title":"Test Episode","season_number":2,"episode_number":4}]}"#)
+            case "/api/v2/watch/film1", "/api/v2/watch/episode1":
+                let id = url.lastPathComponent
+                return .json(#"{"content_id":"\#(id)","versions":[{"file_id":"42","resolution":"1080p","codec_video":"h264","codec_audio":"aac","container":"mkv","file_size":1024,"bitrate":8000,"duration_seconds":3600,"chapters":[{"start_seconds":60,"title":"Chapter Two"}]}]}"#)
+            default:
+                XCTFail("Unexpected request to \(url.path)")
+                return .json("{}", status: 404)
+            }
+        }
+        let anotherSource = UUID()
+        let film = MediaItem(id: "other-film", name: "Test Film", type: "Movie", overview: nil,
+                             productionYear: 2026, primaryImageAspectRatio: nil, childCount: nil, serverID: anotherSource)
+        let episode = MediaItem(id: "other-episode", name: "Test Episode", type: "Episode", overview: nil,
+                                productionYear: nil, primaryImageAspectRatio: nil, childCount: nil,
+                                indexNumber: 4, parentIndexNumber: 2, seriesName: "Test Series", serverID: anotherSource)
+        for (title, expectedID) in [(film, "film1"), (episode, "episode1")] {
+            let sources = try await library.playbackSources(for: title, on: profile)
+            let source = try XCTUnwrap(sources.first)
+            XCTAssertEqual(sources.count, 1)
+            XCTAssertEqual(source.serverID, profile.id)
+            XCTAssertEqual(source.itemID, expectedID)
+            XCTAssertEqual(source.siloFileID, "42")
+            XCTAssertEqual(source.chapters.first?.start, 60)
+        }
     }
 
     /// Silo says why it won't play a file; the viewer is told that, not a
