@@ -179,15 +179,19 @@ struct MobileLeagueMenu: View {
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity)
             .frame(height: Self.rowHeight - Self.cardInset * 2)
-            // A game's card: its colours across it, left to right, under
-            // the same faint edge. The chosen one is a little stronger as
-            // well as ticked.
-            .background(LinearGradient(colors: Self.fill(entry.league, selected: isSelected),
-                                       startPoint: .leading, endPoint: .trailing), in: card)
-            .overlay(card.strokeBorder(Color.white.opacity(isSelected ? 0.14 : 0.045), lineWidth: 1))
+            // A game's card: a rich dark base under its league-mark gradient so
+            // rows stay vivid and opaque over the schedule underneath.
+            .background {
+                ZStack {
+                    card.fill(Color(red: 0.08, green: 0.085, blue: 0.10).opacity(0.90))
+                    card.fill(LinearGradient(colors: Self.fill(entry.league, selected: isSelected),
+                                             startPoint: .leading, endPoint: .trailing))
+                }
+            }
+            .overlay(card.strokeBorder(Color.white.opacity(isSelected ? 0.18 : 0.07), lineWidth: 1))
             .contentShape(card)
             .padding(.vertical, Self.cardInset)
-            .opacity(quiet ? 0.45 : 1)
+            .opacity(quiet ? 0.58 : 1)
         }
         .buttonStyle(MobileLeagueRowStyle())
         .accessibilityElement(children: .ignore)
@@ -198,7 +202,7 @@ struct MobileLeagueMenu: View {
     /// The colours a league's card is filled with, from its mark. Every
     /// league takes the green of the Sports mark.
     static func fill(_ league: SportsLeague?, selected: Bool) -> [Color] {
-        let strength = selected ? 0.36 : 0.26
+        let strength = selected ? 0.42 : 0.30
         let stops = (league?.markColors ?? ["#30D158"]).compactMap { stop($0, strength: strength) }
         // A gradient needs two stops; a mark of one colour fills its card evenly.
         return stops.count == 1 ? stops + stops : stops

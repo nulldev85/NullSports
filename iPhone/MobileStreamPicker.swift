@@ -19,6 +19,18 @@ struct MobileStreamPickerBoard: View {
         statuses.filter { filter == nil || $0.name == filter }
     }
 
+    private func brand(forName name: String) -> MediaServerBrand? {
+        statuses.first(where: { $0.name == name })?.brand
+    }
+
+    private func brand(for source: MediaPlaybackSource) -> MediaServerBrand? {
+        if let serverID = source.serverID,
+           let match = statuses.first(where: { $0.id == serverID })?.brand {
+            return match
+        }
+        return brand(forName: source.group)
+    }
+
     var body: some View {
         // The panel runs edge to edge, into the side margins a Duo keeps for
         // its clock and tabs and a phone on its side for the island; only
@@ -82,6 +94,7 @@ struct MobileStreamPickerBoard: View {
                         ForEach(statuses) { status in
                             filterButton(status.name, title: status.name,
                                          count: sources.filter { $0.group == status.name }.count,
+                                         brand: status.brand,
                                          waiting: status.isWaiting)
                         }
                     }
@@ -92,9 +105,15 @@ struct MobileStreamPickerBoard: View {
         .padding(LineupPanelStyle.inset)
     }
 
-    private func filterButton(_ value: String?, title: String, count: Int, waiting: Bool = false) -> some View {
+    private func filterButton(_ value: String?, title: String, count: Int,
+                              brand: MediaServerBrand? = nil, waiting: Bool = false) -> some View {
         Button { filter = value } label: {
             HStack(spacing: 6) {
+                if let brand {
+                    MediaServerLogo(brand: brand)
+                        .frame(width: 16, height: 16)
+                        .accessibilityHidden(true)
+                }
                 Text(title).font(.inter(14, .semibold)).lineLimit(1)
                 if waiting { ProgressView().controlSize(.mini).tint(LineupPanelStyle.quiet) }
                 else { Text("\(count)").font(.interDigits(12, .semibold)).foregroundStyle(LineupPanelStyle.quiet) }
@@ -117,11 +136,21 @@ struct MobileStreamPickerBoard: View {
         LazyVStack(alignment: .leading, spacing: 4) {
             ForEach(sections) { section in
                 if sections.count > 1 {
-                    Text(section.title.uppercased()).font(.inter(12, .heavy))
-                        .foregroundStyle(LineupPanelStyle.caption).padding(.horizontal, 12).padding(.top, 10)
+                    HStack(spacing: 6) {
+                        if let brand = brand(forName: section.title) {
+                            MediaServerLogo(brand: brand)
+                                .frame(width: 15, height: 15)
+                                .accessibilityHidden(true)
+                        }
+                        Text(section.title.uppercased()).font(.inter(12, .heavy))
+                            .foregroundStyle(LineupPanelStyle.caption)
+                    }
+                    .padding(.horizontal, 12).padding(.top, 10)
                 }
                 ForEach(section.sources) { source in
-                    Button { choose(source) } label: { MobileStreamResultRow(source: source) }
+                    Button { choose(source) } label: {
+                        MobileStreamResultRow(source: source, brand: brand(for: source))
+                    }
                         .buttonStyle(MobileStreamRowStyle())
                         .accessibilityIdentifier("lineup.streams.result.\(source.id)")
                 }
@@ -136,7 +165,14 @@ struct MobileStreamPickerBoard: View {
                     if status.isWaiting { ProgressView().tint(LineupPanelStyle.quiet) }
                     else { Image(systemName: status.symbol).foregroundStyle(LineupPanelStyle.quiet) }
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(status.name).font(.inter(14, .semibold)).foregroundStyle(LineupStyle.text)
+                        HStack(spacing: 6) {
+                            if let brand = status.brand {
+                                MediaServerLogo(brand: brand)
+                                    .frame(width: 14, height: 14)
+                                    .accessibilityHidden(true)
+                            }
+                            Text(status.name).font(.inter(14, .semibold)).foregroundStyle(LineupStyle.text)
+                        }
                         Text(status.detail).font(.inter(13)).foregroundStyle(LineupPanelStyle.quiet)
                             .fixedSize(horizontal: false, vertical: true)
                         if let tried = status.tried {
@@ -157,6 +193,7 @@ struct MobileStreamPickerBoard: View {
 
 private struct MobileStreamResultRow: View {
     let source: MediaPlaybackSource
+    var brand: MediaServerBrand? = nil
     @AppStorage(MediaStreamRow.serverFormatKey) private var serverFormat = true
     @AppStorage(MediaStreamRow.badgesAboveKey) private var badgesAbove = false
     private var detail: String {
@@ -190,7 +227,14 @@ private struct MobileStreamResultRow: View {
                     lineupLines
                 }
                 if !badgesAbove { badgeRow }
-                Text(source.group).font(.inter(12, .semibold)).foregroundStyle(LineupPanelStyle.caption)
+                HStack(spacing: 5) {
+                    if let brand {
+                        MediaServerLogo(brand: brand)
+                            .frame(width: 14, height: 14)
+                            .accessibilityHidden(true)
+                    }
+                    Text(source.group).font(.inter(12, .semibold)).foregroundStyle(LineupPanelStyle.caption)
+                }
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold))

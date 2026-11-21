@@ -12,6 +12,11 @@ struct MobileMenuItem: Identifiable {
     var symbol: String?
     /// Original-color integration artwork, fitted to the same icon slot.
     var imageName: String?
+    /// A media server's official logo mark, fitted to the same icon slot.
+    var serverBrand: MediaServerBrand? = nil
+    /// Optional brand gradient colors filling the row card (for example,
+    /// each media server's official logo colors in the Library switcher).
+    var rowTintColors: [Color]? = nil
     var isSelected = false
     var isEnabled = true
     var isDestructive = false
@@ -25,13 +30,17 @@ struct MobileMenuItem: Identifiable {
     var badge: String? = nil
     var action: () -> Void = {}
 
-    init(_ title: String, symbol: String? = nil, imageName: String? = nil, id: String? = nil,
+    init(_ title: String, symbol: String? = nil, imageName: String? = nil,
+         serverBrand: MediaServerBrand? = nil, rowTintColors: [Color]? = nil,
+         id: String? = nil,
          isSelected: Bool = false, isEnabled: Bool = true, isDestructive: Bool = false, namesEngine: Bool = false,
          children: [MobileMenuSection]? = nil, action: @escaping () -> Void = {}) {
         self.id = id ?? title
         self.title = title
         self.symbol = symbol
         self.imageName = imageName
+        self.serverBrand = serverBrand
+        self.rowTintColors = rowTintColors
         self.isSelected = isSelected
         self.isEnabled = isEnabled
         self.isDestructive = isDestructive
@@ -202,10 +211,18 @@ struct MobileMenuRow: View {
     }
 
     private var label: some View {
-        HStack(spacing: 12) {
-            if let imageName = item.imageName {
+        let rowShape = RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2)
+        return HStack(spacing: 12) {
+            if let brand = item.serverBrand {
+                MediaServerLogo(brand: brand)
+                    .frame(width: 26, height: 26)
+                    .frame(width: 30, height: 30)
+                    .accessibilityHidden(true)
+            } else if let imageName = item.imageName {
                 Image(imageName).renderingMode(.original).resizable().scaledToFit()
-                    .frame(width: 28, height: 28).accessibilityHidden(true)
+                    .frame(width: 26, height: 26)
+                    .frame(width: 30, height: 30)
+                    .accessibilityHidden(true)
             } else if let symbol = item.symbol {
                 LineupIconTile(symbol: symbol, size: 28)
             }
@@ -236,11 +253,33 @@ struct MobileMenuRow: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .frame(minHeight: MobileDropdownPanel.rowHeight)
-        .background(item.isSelected ? LineupPresentationStyle.selection(presentationTint ?? LineupStyle.highlight)
-                    : MobileMenuGlass.well,
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).inset(by: 2)
-            .strokeBorder(MobileMenuGlass.wellEdge, lineWidth: 1))
+        .background {
+            if let tintColors = item.rowTintColors, !tintColors.isEmpty {
+                let stops = tintColors.count == 1 ? tintColors + tintColors : tintColors
+                let strength = item.isSelected ? 0.44 : 0.30
+                ZStack {
+                    rowShape.fill(Color(red: 0.08, green: 0.085, blue: 0.10).opacity(0.92))
+                    rowShape.fill(LinearGradient(colors: stops.map { $0.opacity(strength) },
+                                                 startPoint: .leading, endPoint: .trailing))
+                }
+            } else {
+                rowShape.fill(item.isSelected
+                              ? LineupPresentationStyle.selection(presentationTint ?? LineupStyle.highlight)
+                              : MobileMenuGlass.well)
+            }
+        }
+        .overlay {
+            if let tintColors = item.rowTintColors, !tintColors.isEmpty {
+                let stops = tintColors.count == 1 ? tintColors + tintColors : tintColors
+                rowShape.strokeBorder(
+                    LinearGradient(colors: stops.map { $0.opacity(item.isSelected ? 0.55 : 0.24) },
+                                   startPoint: .leading, endPoint: .trailing),
+                    lineWidth: item.isSelected ? 1.2 : 1
+                )
+            } else {
+                rowShape.strokeBorder(MobileMenuGlass.wellEdge, lineWidth: 1)
+            }
+        }
         .contentShape(Rectangle())
         .opacity(item.isEnabled ? 1 : 0.4)
         .accessibilityElement(children: .combine)
@@ -453,31 +492,40 @@ private struct MobileChoiceRowsHeight: PreferenceKey {
 
 // MARK: - The menus' surface
 
-/// What every dropdown, sub-menu, choice sheet and hold menu is drawn on: the
-/// welcome screen's sign-in card, a little darker. Black at seventy-two per
-/// cent with a faint white edge, nothing frosted and no shadow, so the screen
-/// shows through it; rows are drawn as that card's fields are.
+/// What every dropdown, sub-menu, choice sheet and hold menu is drawn on:
+/// a rich frosted charcoal surface so menu text and colored rows read cleanly
+/// without underlying cards or artwork bleeding through.
 enum MobileMenuGlass {
-    /// The card's ground, darkened from its 0.6 so text stays easy to read
-    /// over a busy screen.
-    static let tint = Color.black.opacity(0.72)
+    static let tint = Color(red: 0.055, green: 0.060, blue: 0.075).opacity(0.92)
     /// A row's well and its edge, as the card draws a field.
-    static let well = Color.white.opacity(0.14)
-    static let wellEdge = Color.white.opacity(0.12)
+    static let well = Color.white.opacity(0.11)
+    static let wellEdge = Color.white.opacity(0.11)
     static let pressed = Color.white.opacity(0.09)
-    static let edge = Color.white.opacity(0.11)
-    /// The screen steps back a little less than it did behind a solid panel,
-    /// or there would be nothing left to see through the menu.
-    static let backdrop = 0.32
-    static let sheetBackdrop = 0.48
+    static let edge = Color.white.opacity(0.15)
+    /// Dim the content underneath enough that menus stand cleanly in front.
+    static let backdrop = 0.56
+    static let sheetBackdrop = 0.62
 }
 
 extension View {
-    /// The menus' see-through panel, in the menu's own shape.
+    /// The menus' frosted dark panel, in the menu's own shape.
     func mobileMenuSurface<S: InsettableShape>(_ shape: S) -> some View {
-        background(MobileMenuGlass.tint, in: shape)
-            .overlay(shape.strokeBorder(MobileMenuGlass.edge, lineWidth: 1))
+        background {
+            ZStack {
+                shape.fill(.ultraThinMaterial)
+                shape.fill(MobileMenuGlass.tint)
+            }
             .clipShape(shape)
+        }
+        .overlay(
+            shape.strokeBorder(
+                LinearGradient(colors: [Color.white.opacity(0.20), Color.white.opacity(0.07)],
+                               startPoint: .top, endPoint: .bottom),
+                lineWidth: 1
+            )
+        )
+        .clipShape(shape)
+        .shadow(color: .black.opacity(0.45), radius: 22, y: 10)
     }
 }
 

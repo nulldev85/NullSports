@@ -241,13 +241,28 @@ struct MediaServersView: View {
     /// collections, servers, Seerr -- is in Settings › Library.
     private var optionsSections: [MobileMenuSection] {
         let shown = serverLibraryProfile
-        let lineup = MobileMenuItem("Lineup", symbol: "square.stack.3d.up", id: "server-library-lineup",
+        let lineup = MobileMenuItem("Lineup", imageName: "LineupBrandMark",
+                                    rowTintColors: [LineupStyle.highlight, LineupStyle.highlight.opacity(0.65)],
+                                    id: "server-library-lineup",
                                     isSelected: shown == nil) { serverLibrary = "" }
         let servers = media.serverLibraryProfiles.map { server in
-            MobileMenuItem(server.name, symbol: "externaldrive.fill", id: "server-library-" + server.id.uuidString,
+            MobileMenuItem(server.name, serverBrand: server.brand,
+                           rowTintColors: Self.libraryRowColors(for: server.brand),
+                           id: "server-library-" + server.id.uuidString,
                            isSelected: shown?.id == server.id) { serverLibrary = server.id.uuidString }
         }
         return [MobileMenuSection(id: "libraries", items: [lineup] + servers)]
+    }
+
+    private static func libraryRowColors(for brand: MediaServerBrand) -> [Color] {
+        switch brand {
+        case .jellyfin:
+            return [Color(red: 170/255, green: 92/255, blue: 195/255), Color(red: 0, green: 164/255, blue: 220/255)]
+        case .emby:
+            return [Color(red: 82/255, green: 181/255, blue: 75/255), Color(red: 0.18, green: 0.52, blue: 0.20)]
+        case .silo:
+            return [Color(red: 0.09, green: 0.31, blue: 1.0), Color(red: 0.91, green: 0.12, blue: 0.26), Color(red: 1.0, green: 0.52, blue: 0.08)]
+        }
     }
     #endif
 }

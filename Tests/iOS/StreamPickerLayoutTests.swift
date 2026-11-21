@@ -21,8 +21,8 @@ final class StreamPickerLayoutTests: XCTestCase {
         server.serverName = "Nullfin"
         let many = try (0..<44).map { try source(id: "stream-\($0)", name: "Episode stream \($0)") }
         let statuses = [StreamServerStatus(id: UUID(), name: "VOD", phase: .found(1)),
-                        StreamServerStatus(id: UUID(), name: "Nullfin", phase: .found(1)),
-                        StreamServerStatus(id: UUID(), name: "Another Media Server", phase: .looking)]
+                        StreamServerStatus(id: UUID(), name: "Nullfin", brand: .jellyfin, phase: .found(1)),
+                        StreamServerStatus(id: UUID(), name: "Another Media Server", brand: .silo, phase: .looking)]
         for (name, size, sources, filter) in [
             ("compact-one-result", CGSize(width: 320, height: 568), [vod], nil as String?),
             ("long-results", CGSize(width: 393, height: 852), [vod, server], nil),

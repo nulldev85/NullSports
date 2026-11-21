@@ -184,7 +184,7 @@ struct MobilePlayerView: View {
                 }
             }
             if playbackOptionsOpen && !MobileScreenLock.shared.isLocked {
-                Color.black.opacity(0.35)
+                Color.black.opacity(0.38)
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture { closePlaybackOptions() }
@@ -192,11 +192,10 @@ struct MobilePlayerView: View {
                 VStack(spacing: 0) {
                     PlaybackOptionsPanel(tabs: PlaybackOptionsTab.allCases.filter { $0 != .chapters || !chapters.isEmpty },
                                          close: closePlaybackOptions, rows: playbackOptionRows)
-                        .frame(maxWidth: 620)
-                        .padding(.horizontal, 16).padding(.top, 12)
+                        .frame(maxWidth: .infinity)
                     Spacer(minLength: 0)
                 }
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         // Locked, the picture plays on under a layer that takes every touch.

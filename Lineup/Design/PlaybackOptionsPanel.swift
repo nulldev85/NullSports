@@ -87,7 +87,13 @@ struct PlaybackOptionsPanel: View {
     }
 
     var body: some View {
+        #if os(tvOS)
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        #else
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: cornerRadius,
+                                           bottomTrailingRadius: cornerRadius, topTrailingRadius: 0,
+                                           style: .continuous)
+        #endif
         VStack(alignment: .leading, spacing: 0) {
             header
                 .lineupFocusRegion()
@@ -107,6 +113,7 @@ struct PlaybackOptionsPanel: View {
             .lineupFocusRegion()
         }
         .foregroundStyle(LineupStyle.mediaText)
+        #if os(tvOS)
         .background {
             ZStack {
                 shape.fill(.ultraThinMaterial)
@@ -130,6 +137,28 @@ struct PlaybackOptionsPanel: View {
         }
         .clipShape(shape)
         .lineupShadow(.overlay)
+        #else
+        .background {
+            ZStack {
+                shape.fill(.ultraThinMaterial)
+                shape.fill(Color(red: 0.055, green: 0.060, blue: 0.078).opacity(0.92))
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [Color.white.opacity(0.08), .clear],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 56)
+                    Spacer(minLength: 0)
+                }
+                shape.strokeBorder(
+                    LinearGradient(colors: [Color.white.opacity(0.10), Color.white.opacity(0.20)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1
+                )
+            }
+            .clipShape(shape)
+            .lineupShadow(.overlay)
+            .ignoresSafeArea(edges: [.top, .horizontal])
+        }
+        #endif
         .environment(\.colorScheme, .dark)
         .animation(.spring(response: 0.24, dampingFraction: 0.84), value: tab)
         #if os(tvOS)
@@ -182,7 +211,7 @@ struct PlaybackOptionsPanel: View {
         #if os(tvOS)
         16
         #else
-        10
+        8
         #endif
     }
 
@@ -241,7 +270,7 @@ struct PlaybackOptionsPanel: View {
 
     private var panelHeight: CGFloat {
         #if os(iOS)
-        verticalSizeClass == .compact ? 248 : 360
+        verticalSizeClass == .compact ? 175 : 232
         #else
         460
         #endif
@@ -325,8 +354,8 @@ struct PlaybackOptionsPanel: View {
             GridItem(.flexible(), spacing: spacing)
         ]
         #else
-        let spacing: CGFloat = 10
-        let padding: CGFloat = 14
+        let spacing: CGFloat = 8
+        let padding: CGFloat = 12
         let columns = [
             GridItem(.flexible(), spacing: spacing),
             GridItem(.flexible(), spacing: spacing)
@@ -434,8 +463,8 @@ struct PlaybackOptionsPanel: View {
         let groupSpacing: CGFloat = 20
         let outerPadding: CGFloat = 24
         #else
-        let groupSpacing: CGFloat = 14
-        let outerPadding: CGFloat = 14
+        let groupSpacing: CGFloat = 12
+        let outerPadding: CGFloat = 12
         #endif
         let cardShape = RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
         return LazyVStack(alignment: .leading, spacing: groupSpacing) {
