@@ -53,6 +53,11 @@ struct MobileGuidePlayer: View {
     /// bar. Nil where there are none to show.
     var onToggleStats: (() -> Void)? = nil
     var statsShown = false
+    /// The next scheduled program on this channel, when available from EPG.
+    var nextProgram: CurrentProgram? = nil
+    /// When true and metadata is shown inline, folds the provider badge inside
+    /// the Now Playing card to save vertical room for the guide beneath.
+    var embedsProviderInMetadata = false
     @State private var controlsVisible = true
     @State private var editingTimeline = false
     @State private var timelineBounds = CGRect.zero
@@ -157,7 +162,7 @@ struct MobileGuidePlayer: View {
             .overlay {
                 if expanded && MobileScreenLock.shared.isLocked { MobileScreenLockOverlay() }
             }
-            if !expanded, let providerName {
+            if !expanded, let providerName, !(showsMetadata && embedsProviderInMetadata) {
                 providerIdentity(providerName)
                     .foregroundStyle(LineupStyle.secondary)
                     .padding(.horizontal, 16)
@@ -174,46 +179,7 @@ struct MobileGuidePlayer: View {
                 .padding(10).background(LineupStyle.background)
             }
             if !expanded && showsMetadata {
-                let replay = controller.catchUp
-                HStack(alignment: .top, spacing: 12) {
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(LineupStyle.lightPurple.opacity(0.7))
-                        .frame(width: 3, height: 72)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack(spacing: 8) {
-                            Text(replay == nil ? "NOW SHOWING" : "REPLAY")
-                                .font(.inter(9, .bold))
-                                .tracking(1.5)
-                                .foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
-                            if replay == nil && program?.isNew == true {
-                                Text("NEW")
-                                    .font(.inter(9, .bold))
-                                    .padding(.horizontal, 5).padding(.vertical, 2)
-                                    .background(LineupStyle.raised, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                            }
-                            Spacer(minLength: 4)
-                            if let replay {
-                                timeRange(replay.programmeStart, replay.programmeEnd)
-                            } else if let program {
-                                timeRange(program.start, program.end)
-                            }
-                        }
-                        // A recording names the programme it is playing, which
-                        // is not the one on now.
-                        Text(replay?.title ?? program?.title ?? "Live channel · No guide information")
-                            .font(.inter(.headline))
-                            .lineLimit(2)
-                            .accessibilityAddTraits(.isHeader)
-                        Text(stream.name)
-                            .font(.inter(.caption))
-                            .foregroundStyle(LineupStyle.lightPurple.opacity(0.7))
-                            .lineLimit(1)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .accessibilityElement(children: .combine)
+                inlineNowPlayingCard
             }
         }
         .foregroundStyle(LineupStyle.text)
@@ -653,5 +619,150 @@ struct MobileGuidePlayer: View {
         Text(text).font(.inter(.caption2, .semibold)).lineLimit(1)
             .padding(.horizontal, 9).padding(.vertical, 7)
             .lineupPlayerPanelGlass(Capsule())
+    }
+
+    private var inlineNowPlayingCard: some View {
+        let replay = controller.catchUp
+        let now = Date()
+        let logoURL = stream.streamIcon.flatMap(URL.init(string:))
+        let progress = replay == nil ? program.flatMap {
+            MobileGuideProgramProgress.fraction(start: $0.start, end: $0.end, now: now)
+        } : nil
+        let remaining = replay == nil ? program.flatMap {
+            MobileGuideProgramProgress.remainingLabel(end: $0.end, now: now)
+        } : nil
+        let cardShape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+
+        return HStack(spacing: 11) {
+            LineupArtView(url: logoURL, width: 52) { loaded in
+                if let image = loaded {
+                    image.resizable().scaledToFit().padding(6)
+                } else {
+                    Image(systemName: "tv")
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.72))
+                }
+            }
+            .frame(width: 52, height: 42)
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8))
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    if replay == nil {
+                        HStack(spacing: 4) {
+                            MobileLiveDot()
+                            Text("LIVE")
+                                .font(.inter(9, .heavy)).tracking(0.8)
+                                .foregroundStyle(LineupStyle.liveStatus)
+                        }
+                    } else {
+                        Text("REPLAY")
+                            .font(.inter(9, .heavy)).tracking(0.8)
+                            .foregroundStyle(LineupStyle.highlight)
+                    }
+                    if replay == nil && program?.isNew == true {
+                        Text("NEW")
+                            .font(.inter(8, .heavy)).tracking(0.5)
+                            .foregroundStyle(Color(red: 0.45, green: 0.74, blue: 1.0))
+                            .padding(.horizontal, 5).padding(.vertical, 1.5)
+                            .background(Color(red: 0.24, green: 0.54, blue: 1.0).opacity(0.22), in: Capsule())
+                            .overlay(Capsule().strokeBorder(Color(red: 0.45, green: 0.74, blue: 1.0).opacity(0.35), lineWidth: 0.6))
+                    }
+                    if embedsProviderInMetadata, let providerName {
+                        HStack(spacing: 3) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(providerName)
+                                .font(.inter(9, .bold))
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                        .foregroundStyle(Color.white.opacity(0.68))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.white.opacity(0.08), in: Capsule())
+                        .accessibilityLabel("IPTV provider: \(providerName)")
+                        .accessibilityIdentifier("lineup.playback.provider")
+                    }
+                    Spacer(minLength: 4)
+                    if let replay {
+                        timeRange(replay.programmeStart, replay.programmeEnd)
+                    } else if let remaining {
+                        Text(remaining)
+                            .font(.interDigits(10, .bold))
+                            .foregroundStyle(Color.white.opacity(0.66))
+                            .lineLimit(1)
+                    } else if let program {
+                        timeRange(program.start, program.end)
+                    }
+                }
+
+                Text(replay?.title ?? program?.title ?? "Live channel · No guide information")
+                    .font(.inter(15.5, .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .accessibilityAddTraits(.isHeader)
+
+                if let progress {
+                    GeometryReader { bar in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.white.opacity(0.12))
+                            Capsule()
+                                .fill(LineupStyle.highlight)
+                                .frame(width: max(4, bar.size.width * progress))
+                        }
+                    }
+                    .frame(height: 3)
+                    .accessibilityHidden(true)
+                }
+
+                HStack(spacing: 6) {
+                    Text(stream.name)
+                        .font(.inter(11.5, .semibold))
+                        .foregroundStyle(Color.white.opacity(0.60))
+                        .lineLimit(1)
+                    if replay == nil, let nextProgram {
+                        Text("·")
+                            .font(.inter(11, .bold))
+                            .foregroundStyle(Color.white.opacity(0.30))
+                        Text("Next: \(nextProgram.title)")
+                            .font(.inter(11.5, .medium))
+                            .foregroundStyle(Color.white.opacity(0.46))
+                            .lineLimit(1)
+                    } else if replay == nil, let program {
+                        Spacer(minLength: 4)
+                        timeRange(program.start, program.end)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 92)
+        .background(Color(red: 0.082, green: 0.086, blue: 0.105), in: cardShape)
+        .overlay(cardShape.strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .frame(height: 104)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Elapsed fraction and compact remaining-time string for live TV programs.
+enum MobileGuideProgramProgress {
+    static func fraction(start: Date, end: Date, now: Date) -> Double? {
+        let duration = end.timeIntervalSince(start)
+        guard duration > 0 else { return nil }
+        return min(1, max(0, now.timeIntervalSince(start) / duration))
+    }
+
+    static func remainingLabel(end: Date, now: Date) -> String? {
+        let seconds = end.timeIntervalSince(now)
+        guard seconds > 0 else { return nil }
+        let minutes = max(1, Int(ceil(seconds / 60)))
+        if minutes >= 60 {
+            let hours = minutes / 60
+            let rem = minutes % 60
+            return rem == 0 ? "\(hours)h left" : "\(hours)h \(rem)m left"
+        }
+        return "\(minutes)m left"
     }
 }

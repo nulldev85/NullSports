@@ -37,4 +37,32 @@ final class MobileGuideViewModeTests: XCTestCase {
         XCTAssertTrue(MobileGuideSearchPolicy.shouldCloseAfterSubmission("   \n"))
         XCTAssertFalse(MobileGuideSearchPolicy.shouldCloseAfterSubmission("ESPN"))
     }
+
+    func testCategoryStyleMapsCommonIPTVCategoriesAndFallsBackCleanly() {
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "US | NFL & NBA Sports"), "sportscourt.fill")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "4K UHD 60FPS"), "sparkles.tv.fill")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "HBO & Cinema Movies"), "film.fill")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "Breaking News & Weather"), "newspaper.fill")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "US Local Broadcasts"), "antenna.radiowaves.left.and.right")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "Kids & Family"), "sparkles")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "24/7 Classics"), "play.circle.fill")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "MTV Music"), "music.note")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "Discovery Documentary"), "globe.americas.fill")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "US Entertainment"), "tv.fill")
+        XCTAssertEqual(MobileGuideCategoryStyle.symbol(for: "Miscellaneous Channels"), "rectangle.stack.fill")
+    }
+
+    func testLiveProgramProgressComputesClampedFractionAndRemainingLabel() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let end = start.addingTimeInterval(3600)
+        XCTAssertEqual(MobileGuideProgramProgress.fraction(start: start, end: end, now: start.addingTimeInterval(900)) ?? -1, 0.25, accuracy: 0.001)
+        XCTAssertEqual(MobileGuideProgramProgress.fraction(start: start, end: end, now: start.addingTimeInterval(-60)), 0)
+        XCTAssertEqual(MobileGuideProgramProgress.fraction(start: start, end: end, now: end.addingTimeInterval(60)), 1)
+        XCTAssertNil(MobileGuideProgramProgress.fraction(start: start, end: start, now: start))
+
+        XCTAssertEqual(MobileGuideProgramProgress.remainingLabel(end: end, now: start.addingTimeInterval(41 * 60)), "19m left")
+        XCTAssertEqual(MobileGuideProgramProgress.remainingLabel(end: end, now: start), "1h left")
+        XCTAssertEqual(MobileGuideProgramProgress.remainingLabel(end: start.addingTimeInterval(95 * 60), now: start), "1h 35m left")
+        XCTAssertNil(MobileGuideProgramProgress.remainingLabel(end: end, now: end))
+    }
 }

@@ -85,6 +85,7 @@ struct MobileGuideView: View {
     /// The hidden categories and what is left, worked out once per change
     /// rather than at each of their many mentions in a redraw.
     @State private var categoryMemo = MobileGuideCategoryMemo()
+    @State private var countMemo = MobileGuideCountMemo()
     @State private var resetPosition = UUID()
     @StateObject private var playbackSlot = MobilePlaybackSlot()
     /// A new selection gets a new controller; see `MobilePlaybackSlot`.
@@ -173,6 +174,32 @@ struct MobileGuideView: View {
         return value
     }
 
+    /// Per-category, per-provider, and total visible channel counts cached once
+    /// per stream revision + hidden-categories set so scrolling never recounts.
+    private var channelCounts: MobileGuideCountMemo.Value {
+        let key = MobileGuideCountMemo.Key(library: ObjectIdentifier(library),
+                                           revision: library.streamsRevision,
+                                           hiddenRaw: hiddenCategories)
+        if let kept = countMemo.value(for: key) { return kept }
+        let hidden = hiddenCategoryIDs
+        var byCategory: [String: Int] = [:]
+        var byProvider: [String: Int] = [:]
+        var total = 0
+        for stream in library.streams {
+            if let category = stream.categoryID {
+                if hidden.contains(category) { continue }
+                byCategory[category, default: 0] += 1
+                if let split = category.firstIndex(of: "|") {
+                    byProvider[String(category[..<split]), default: 0] += 1
+                }
+            }
+            total += 1
+        }
+        let value = MobileGuideCountMemo.Value(byCategory: byCategory, byProvider: byProvider, total: total)
+        countMemo.keep(value, for: key)
+        return value
+    }
+
     private var defaultCategoryProfile: UUID? {
         if library.providerRoot !== library, let id = UUID(uuidString: defaultProviderValue),
            library.isProviderEnabled(id) { return id }
@@ -246,8 +273,8 @@ struct MobileGuideView: View {
     private var guideViewport: some View {
         GeometryReader { viewport in
             let showsMetadata = viewport.size.height > 400
-            let metadataHeight: CGFloat = showsMetadata ? 106 : 0
-            let providerHeight: CGFloat = library.activeProfile == nil ? 0 : providerInfoHeight
+            let metadataHeight: CGFloat = showsMetadata ? 104 : 0
+            let providerHeight: CGFloat = (library.activeProfile == nil || showsMetadata) ? 0 : providerInfoHeight
             let timelineHeight: CGFloat = playback.catchUpSource != nil && playback.error == nil
                 ? MobilePlayerLayout.inlineTimelineHeight : 0
             // Width bounds the picture upright on a phone; on a wide screen
@@ -310,8 +337,11 @@ struct MobileGuideView: View {
                 .accessibilityHidden(fillsScreen)
                 if let stream = selectedStream {
                     TimelineView(.periodic(from: .now, by: 5)) { clock in
+                        let programs = library.guidePrograms(for: stream)
+                        let currentProgram = programs.first { $0.start <= clock.date && clock.date < $0.end }
+                        let upcomingProgram = programs.filter { $0.start >= clock.date }.min { $0.start < $1.start }
                         MobileGuidePlayer(controller: playback, stream: stream,
-                            program: library.guidePrograms(for: stream).first { $0.start <= clock.date && clock.date < $0.end },
+                            program: currentProgram,
                             expanded: fillsScreen, showsMetadata: showsMetadata,
                             videoHeight: fillsScreen ? fullHeight : videoHeight,
                             screenInsets: viewport.safeAreaInsets,
@@ -325,7 +355,9 @@ struct MobileGuideView: View {
                             onLastChannel: { if let last = lastChannel { tune(last) } },
                             channelBanner: channelBanner,
                             watchingGameID: watchingGame?.id,
-                            onWatchGame: { watchGame($0) })
+                            onWatchGame: { watchGame($0) },
+                            nextProgram: upcomingProgram,
+                            embedsProviderInMetadata: true)
                             .frame(height: fillsScreen ? fullHeight : videoHeight + providerHeight + metadataHeight + timelineHeight, alignment: .top)
                             .background(LineupStyle.background)
                     }
@@ -421,9 +453,17 @@ struct MobileGuideView: View {
     }
 
     /// Over a category's guide, in place of a bar: back to the categories,
-    /// the category's name, and the guide's options.
+    /// the category's name, quick search, and the guide's options.
     private var guideHeader: some View {
-        HStack(spacing: 12) {
+        let subtitle: String? = {
+            guard !showsSearch else { return nil }
+            let countText = channels.isEmpty ? nil : "\(channels.count) \(channels.count == 1 ? "CHANNEL" : "CHANNELS")"
+            if let provider = filterProviderName, let countText {
+                return "\(provider.uppercased()) · \(countText)"
+            }
+            return filterProviderName?.uppercased() ?? countText
+        }()
+        return HStack(spacing: 12) {
             Button { showsChannels = false } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 16, weight: .bold, design: .rounded))
@@ -435,24 +475,43 @@ struct MobileGuideView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Categories")
             .accessibilityHint("Goes back to the list of categories")
-            VStack(alignment: .leading, spacing: 0) {
-                if !showsSearch, let provider = filterProviderName {
-                    Text(provider.uppercased())
-                        .font(.inter(11, .heavy)).tracking(0.6)
-                        .foregroundStyle(LineupPresentationStyle.secondary)
-                        .lineLimit(1)
-                }
+            VStack(alignment: .leading, spacing: 1) {
                 Text(showsSearch ? "Search" : filterTitle)
-                    .font(.inter(20, .heavy))
+                    .font(.inter(19, .heavy))
                     .foregroundStyle(LineupStyle.text)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.inter(10, .bold)).tracking(0.6)
+                        .foregroundStyle(LineupPresentationStyle.secondary.opacity(0.84))
+                        .lineLimit(1)
+                }
             }
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
-                setOptions(!optionsOpen)
+            HStack(spacing: 8) {
+                Button {
+                    if showsSearch {
+                        closeSearch()
+                    } else {
+                        optionsOpen = false
+                        showsSearch = true
+                    }
+                } label: {
+                    Image(systemName: showsSearch ? "xmark" : "magnifyingglass")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(LineupPresentationStyle.text)
+                        .frame(width: 36, height: 36)
+                        .background(LineupPresentationStyle.card, in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(showsSearch ? "Close search" : "Search channels")
+                MobileDropdownButton(isOpen: optionsOpen, label: "TV Guide options") {
+                    setOptions(!optionsOpen)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -479,10 +538,18 @@ struct MobileGuideView: View {
     }
 
     private var categoryPage: some View {
-        MobileGuideCategoryList(
+        let counts = channelCounts
+        let favCount = library.favoriteStreamOrder.reduce(0) { total, id in
+            total + (library.stream(withID: id) != nil ? 1 : 0)
+        }
+        return MobileGuideCategoryList(
             categories: visibleCategories,
             hasFavorites: !library.favoriteStreamOrder.isEmpty,
             hasRecents: !library.recentStreams.isEmpty,
+            favoritesCount: favCount,
+            recentsCount: library.recentStreams.count,
+            totalChannelsCount: counts.total,
+            categoryCounts: counts.byCategory,
             defaultCategoryID: savedDefaultFilter?.categoryID,
             allowsDefault: { library.categorySource(for: $0.id).profileID != nil },
             open: openChannels,
@@ -490,6 +557,8 @@ struct MobileGuideView: View {
             hide: { setCategory($0.id, hidden: true) },
             manageCategories: { managingCategories = true },
             viewModeTitle: guideViewMode.title,
+            viewModeSymbol: guideViewMode.symbol,
+            showMasthead: !topBand,
             isRefreshing: library.channelsAreSyncing,
             search: {
                 showsSearch = true
@@ -537,12 +606,16 @@ struct MobileGuideView: View {
     private var categoriesHeader: some View {
         HStack(alignment: .bottom) {
             HStack(spacing: 10) {
-                Rectangle().fill(LineupStyle.highlight).frame(width: 3, height: 31)
+                Image("LineupBrandMark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("TV GUIDE").font(.inter(20, .black)).tracking(-0.5)
-                        .foregroundStyle(LineupStyle.text.opacity(0.84))
-                    Text("\(visibleCategories.count) CATEGORIES")
-                        .font(.inter(10, .bold)).lineLimit(1)
+                        .foregroundStyle(LineupStyle.text.opacity(0.95))
+                    Text("\(channelCounts.total.formatted()) CHANNELS")
+                        .font(.inter(10, .bold)).tracking(0.6).lineLimit(1)
                         .foregroundStyle(LineupStyle.secondary.opacity(0.76))
                 }
             }
@@ -591,13 +664,26 @@ struct MobileGuideView: View {
                   let split = category.firstIndex(of: "|") else { return nil }
             return String(category[..<split])
         }
-        let favorites = Set(library.favoriteStreamOrder.compactMap(provider(of:)))
-        let recents = Set(library.recentStreamOrder.compactMap(provider(of:)))
+        var favoriteCounts: [String: Int] = [:]
+        for id in library.favoriteStreamOrder {
+            if let key = provider(of: id) { favoriteCounts[key, default: 0] += 1 }
+        }
+        var recentCounts: [String: Int] = [:]
+        for id in library.recentStreamOrder {
+            if let key = provider(of: id) { recentCounts[key, default: 0] += 1 }
+        }
+        let counts = channelCounts.byProvider
         return library.providerRoot.enabledProfiles.compactMap { profile in
             byProvider[profile.id].map {
-                .init(id: profile.id, name: profile.name, categories: $0,
-                      hasFavorites: favorites.contains(profile.id.uuidString),
-                      hasRecents: recents.contains(profile.id.uuidString))
+                let key = profile.id.uuidString
+                let favs = favoriteCounts[key] ?? 0
+                let recs = recentCounts[key] ?? 0
+                return .init(id: profile.id, name: profile.name, categories: $0,
+                             hasFavorites: favs > 0,
+                             hasRecents: recs > 0,
+                             favoritesCount: favs,
+                             recentsCount: recs,
+                             channelCount: counts[key] ?? 0)
             }
         }
     }
@@ -1147,14 +1233,19 @@ struct MobileGuideView: View {
     private func channelListRow(_ stream: XtreamStream, now: Date) -> some View {
         let programs = library.guidePrograms(for: stream)
         let program = programs.first { $0.start <= now && now < $0.end }
+        let nextProgram = programs.filter { $0.start >= now }.min { $0.start < $1.start }
         let logoURL = stream.streamIcon.flatMap(URL.init(string:))
         let quality = LiveChannelQuality(name: stream.name).label?
             .split(separator: "·", maxSplits: 1).first.map(String.init)
+        let isWatching = selectedStream?.id == stream.id
+        let isFavorite = library.isFavorite(stream) && !filter.isFavorites
+        let progress = program.flatMap { MobileGuideProgramProgress.fraction(start: $0.start, end: $0.end, now: now) }
+        let remaining = program.flatMap { MobileGuideProgramProgress.remainingLabel(end: $0.end, now: now) }
         let shape = RoundedRectangle(cornerRadius: 15, style: .continuous)
 
         return Button { selectChannel(stream) } label: {
             HStack(spacing: 0) {
-                LineupArtView(url: logoURL, width: 118) { loaded in
+                LineupArtView(url: logoURL, width: 112) { loaded in
                     if let image = loaded {
                         image.resizable().scaledToFit().padding(9)
                     } else {
@@ -1163,55 +1254,120 @@ struct MobileGuideView: View {
                             .foregroundStyle(Color.white.opacity(0.82))
                     }
                 }
-                .frame(width: 118, height: 80)
+                .frame(width: 112, height: 84)
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.08))
+                    .frame(width: 1)
+                    .padding(.vertical, 12)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(stream.name)
-                        .font(.inter(12, .semibold))
-                        .foregroundStyle(LineupStyle.secondary.opacity(0.82))
-                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(stream.name)
+                            .font(.inter(11.5, .semibold))
+                            .foregroundStyle(Color.white.opacity(0.64))
+                            .lineLimit(1)
+                        if isFavorite {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 8.5, weight: .bold))
+                                .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.25))
+                                .accessibilityHidden(true)
+                        }
+                        Spacer(minLength: 4)
+                        if isWatching {
+                            HStack(spacing: 3) {
+                                Image(systemName: "speaker.wave.2.fill").font(.system(size: 8, weight: .bold))
+                                Text("WATCHING").font(.inter(8, .heavy)).tracking(0.4)
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 2.5)
+                            .background(LineupStyle.highlight.opacity(0.90), in: Capsule())
+                        }
+                    }
+
                     Text(program?.title ?? "Program guide not available")
-                        .font(.inter(15, .heavy))
-                        .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.46)
-                                                        : LineupStyle.text.opacity(0.68))
+                        .font(.inter(15, program == nil ? .semibold : .bold))
+                        .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.48) : Color.white)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
+
+                    if let progress {
+                        GeometryReader { bar in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.white.opacity(0.12))
+                                Capsule()
+                                    .fill(isWatching ? LineupStyle.highlight : LineupStyle.liveStatus)
+                                    .frame(width: max(4, bar.size.width * progress))
+                            }
+                        }
+                        .frame(height: 3)
+                        .padding(.vertical, 1)
+                        .accessibilityHidden(true)
+                    }
+
                     HStack(spacing: 6) {
                         if let program {
                             if program.start <= now && now < program.end {
                                 MobileLiveDot()
                                 Text("LIVE")
                                     .foregroundStyle(LineupStyle.liveStatus)
+                                if let remaining {
+                                    Text("· \(remaining)")
+                                        .foregroundStyle(Color.white.opacity(0.56))
+                                }
                             } else {
                                 Text(program.start, format: .dateTime.hour().minute())
-                                .foregroundStyle(LineupStyle.secondary.opacity(0.70))
+                                    .foregroundStyle(Color.white.opacity(0.62))
+                            }
+                            if program.isNew == true {
+                                Text("NEW")
+                                    .font(.inter(8, .heavy)).tracking(0.5)
+                                    .foregroundStyle(Color(red: 0.45, green: 0.74, blue: 1.0))
+                                    .padding(.horizontal, 5).padding(.vertical, 1.5)
+                                    .background(Color(red: 0.24, green: 0.54, blue: 1.0).opacity(0.22), in: Capsule())
                             }
                         }
                         if let quality {
                             Text(quality.uppercased())
-                                .foregroundStyle(LineupStyle.secondary.opacity(0.76))
+                                .foregroundStyle(Color.white.opacity(0.76))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.black.opacity(0.22), in: Capsule())
+                                .background(Color.black.opacity(0.28), in: Capsule())
+                        }
+                        if let nextProgram {
+                            Spacer(minLength: 4)
+                            Text("Next: \(nextProgram.title)")
+                                .font(.inter(10, .medium))
+                                .foregroundStyle(Color.white.opacity(0.42))
+                                .lineLimit(1)
                         }
                     }
-                    .font(.inter(9, .heavy))
+                    .font(.inter(9.5, .heavy))
                     .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 10)
+                .padding(.leading, 11)
                 .padding(.trailing, 12)
+                .padding(.vertical, 10)
             }
-            .frame(minHeight: 80)
+            .frame(minHeight: 84)
             .background {
-                MobileChannelLogoTint(url: logoURL, width: 118, fallback: LineupStyle.raised)
-                    .clipShape(shape)
+                ZStack {
+                    Color(red: 0.08, green: 0.085, blue: 0.10)
+                    MobileChannelLogoTint(url: logoURL, width: 112, fallback: LineupStyle.raised)
+                }
+                .clipShape(shape)
             }
             .clipShape(shape)
             .contentShape(shape)
         }
         .buttonStyle(.plain)
-        .overlay(shape.strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+        .overlay(
+            shape.strokeBorder(
+                isWatching ? LineupStyle.highlight.opacity(0.85) : Color.white.opacity(0.075),
+                lineWidth: isWatching ? 1.5 : 1
+            )
+        )
         .lineupHoldMenu(stream.name, symbol: "tv", press: .dim, items: { channelMenuItems(stream) }) {
             selectChannel(stream)
         }
@@ -1290,28 +1446,50 @@ struct MobileGuideView: View {
     }
 
     private func ruler(now: Date, logoWidth: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            // The corner over the channel column, empty: the phone's own
-            // clock already says what time it is. It stays, so the ruler's
-            // times slide under it rather than over the logos' column.
+        let nowX = window.x(now)
+        let showNowMarker = now >= window.start && now <= window.end
+        return HStack(spacing: 0) {
             MobileGuidePinnedColumn(scroll: gridScroll) {
-                Color.black
-                    .frame(width: logoWidth, height: 40)
+                MobileGuideRulerCorner(scroll: gridScroll, now: now, width: logoWidth) {
+                    returnToNow()
+                }
             }
             .zIndex(2)
-            .accessibilityHidden(true)
             ZStack(alignment: .topLeading) {
                 ForEach(window.ticks, id: \.self) { date in
-                    Text(date, format: .dateTime.hour().minute())
-                        .font(.interDigits(.caption2, .semibold))
-                        .foregroundStyle(LineupStyle.secondary.opacity(0.66))
-                        .padding(.leading, 7).frame(width: MobileGuideWindow.pointsPerSecond * 1800, height: 32, alignment: .leading)
-                        .offset(x: window.x(date))
+                    let isPastTick = date.addingTimeInterval(1800) <= now
+                    ZStack(alignment: .bottomLeading) {
+                        Text(date, format: .dateTime.hour().minute())
+                            .font(.interDigits(.caption2, .semibold))
+                            .foregroundStyle(isPastTick ? LineupStyle.secondary.opacity(0.42) : LineupStyle.secondary.opacity(0.76))
+                            .padding(.leading, 7)
+                            .frame(width: MobileGuideWindow.pointsPerSecond * 1800, height: 34, alignment: .leading)
+                        Rectangle()
+                            .fill(Color.white.opacity(0.14))
+                            .frame(width: 1, height: 7)
+                    }
+                    .frame(width: MobileGuideWindow.pointsPerSecond * 1800, height: 40, alignment: .topLeading)
+                    .offset(x: window.x(date))
+                }
+                if showNowMarker {
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Circle()
+                            .fill(LineupStyle.liveStatus)
+                            .frame(width: 7, height: 7)
+                        Rectangle()
+                            .fill(LineupStyle.liveStatus)
+                            .frame(width: 1.5, height: 6)
+                    }
+                    .frame(width: 7, height: 40)
+                    .offset(x: nowX - 3.5)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
             }.frame(width: window.width, height: 40, alignment: .topLeading)
         }
         .background(Color.black)
-        .overlay(alignment: .bottom) { Rectangle().fill(LineupStyle.line).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.10)).frame(height: 1) }
     }
 
     /// Lineup's verified match, shown only while picking a channel for a game.
@@ -1321,12 +1499,15 @@ struct MobileGuideView: View {
 
     private func channelTile(_ stream: XtreamStream, logoWidth: CGFloat) -> some View {
         let logoURL = stream.streamIcon.flatMap(URL.init(string:))
+        let isWatching = selectedStream?.id == stream.id
+        let showFavoriteStar = library.isFavorite(stream) && !filter.isFavorites
+        let tileShape = RoundedRectangle(cornerRadius: 11, style: .continuous)
         return Group {
             ZStack(alignment: .center) {
                 LineupArtView(url: logoURL, width: logoWidth) { loaded in
                     if let image = loaded {
                         image.resizable().scaledToFit()
-                            .frame(width: logoWidth - 16, height: min(42, cardHeight - 12), alignment: .center)
+                            .frame(width: logoWidth - 18, height: min(42, cardHeight - 12), alignment: .center)
                     } else {
                         Text(stream.name).font(.inter(.caption2, .semibold)).lineLimit(3)
                             .multilineTextAlignment(.center).padding(8)
@@ -1336,10 +1517,15 @@ struct MobileGuideView: View {
             }
             .frame(width: logoWidth - 8, height: cardHeight)
             .background {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(Color.white.opacity(MobileGuideLayoutMetrics.logoPanelOverlayOpacity))
+                tileShape.fill(Color.white.opacity(MobileGuideLayoutMetrics.logoPanelOverlayOpacity))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .clipShape(tileShape)
+            .overlay(
+                tileShape.strokeBorder(
+                    isWatching ? LineupStyle.highlight.opacity(0.88) : Color.white.opacity(0.06),
+                    lineWidth: isWatching ? 1.5 : 0.8
+                )
+            )
             .overlay(alignment: .bottom) {
                 if isRecommended(stream) {
                     Text("RECOMMENDED")
@@ -1352,10 +1538,24 @@ struct MobileGuideView: View {
                 }
             }
             .overlay(alignment: .topLeading) {
-                if library.isFavorite(stream) {
-                    Image(systemName: "star.fill").font(.inter(.caption2))
-                        .padding(4).background(LineupStyle.background.opacity(0.85), in: Circle())
+                if showFavoriteStar {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.25))
+                        .padding(3.5)
+                        .background(Color.black.opacity(0.76), in: Circle())
                         .padding(3)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if isWatching {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(LineupStyle.highlight, in: Circle())
+                        .padding(3)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(width: logoWidth, height: rowHeight, alignment: .center)
@@ -1372,28 +1572,32 @@ struct MobileGuideView: View {
         let logoURL = stream.streamIcon.flatMap(URL.init(string:))
         let programs = library.guidePrograms(for: stream)
         let segments = window.segments(programs.map { (start: $0.start, end: $0.end) })
+        let isPlayingChannel = selectedStream?.id == stream.id
+        let nowX = window.x(now)
+        let showNowLine = now >= window.start && now <= window.end
         return ZStack(alignment: .leading) {
             ForEach(segments) { segment in
                 let program = segment.programIndex.map { programs[$0] }
                 let cellX = window.x(segment.start)
                 let width = max(1, window.x(segment.end) - cellX - 5)
                 let live = program.map { $0.start <= now && now < $0.end } ?? false
+                let isPast = program.map { $0.end <= now } ?? (segment.end <= now)
+                let progress = program.map {
+                    now.timeIntervalSince($0.start) / $0.end.timeIntervalSince($0.start)
+                } ?? 0
+                let progressWidth = MobileGuideLayoutMetrics.liveProgressWidth(cardWidth: width, progress: progress)
+                let cellShape = RoundedRectangle(cornerRadius: 10, style: .continuous)
                 Button { selectChannel(stream) } label: {
                     ZStack(alignment: .leading) {
                         MobileChannelLogoTint(url: logoURL, width: logoWidth, fallback: LineupStyle.raised)
                             .frame(width: width, height: cardHeight)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .clipShape(cellShape)
                         if program != nil, live {
                             // Show elapsed time as a translucent wash over the
-                            // program tile, not a separate progress bar.
-                            let progress = program.map {
-                                now.timeIntervalSince($0.start) / $0.end.timeIntervalSince($0.start)
-                            } ?? 0
+                            // program tile, accented by a razor-thin bottom bar.
                             Rectangle()
                                 .fill(Color.black.opacity(MobileGuideLayoutMetrics.liveProgressOverlayOpacity))
-                                .frame(width: MobileGuideLayoutMetrics.liveProgressWidth(cardWidth: width,
-                                                                                         progress: progress),
-                                       height: cardHeight)
+                                .frame(width: progressWidth, height: cardHeight)
                                 .allowsHitTesting(false)
                                 .accessibilityHidden(true)
                         }
@@ -1401,9 +1605,11 @@ struct MobileGuideView: View {
                                             viewportWidth: viewportWidth) {
                           VStack(alignment: .leading, spacing: 5) {
                             Text(program?.title ?? "No listing")
-                                .font(.inter(.caption, program == nil ? .regular : .semibold)).lineLimit(2)
-                                .foregroundStyle(program == nil ? LineupStyle.secondary.opacity(0.52)
-                                                               : LineupStyle.text.opacity(0.68))
+                                .font(.inter(.caption, program == nil ? .regular : (live ? .bold : .semibold))).lineLimit(2)
+                                .foregroundStyle(program == nil
+                                                 ? LineupStyle.secondary.opacity(0.45)
+                                                 : (live ? Color.white
+                                                    : (isPast ? Color.white.opacity(0.38) : Color.white.opacity(0.78))))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if let program {
                                 HStack(spacing: 5) {
@@ -1415,27 +1621,54 @@ struct MobileGuideView: View {
                                     }
                                     if program.isNew == true {
                                         Text("NEW")
-                                            .font(.inter(8, .heavy)).tracking(0.6)
-                                            .foregroundStyle(LineupStyle.text.opacity(0.85))
-                                            .padding(.horizontal, 4).padding(.vertical, 1.5)
-                                            .background(LineupStyle.raised,
-                                                        in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+                                            .font(.inter(7.5, .heavy)).tracking(0.5)
+                                            .foregroundStyle(Color(red: 0.45, green: 0.74, blue: 1.0).opacity(isPast ? 0.52 : 1))
+                                            .padding(.horizontal, 4.5).padding(.vertical, 1.5)
+                                            .background(Color(red: 0.24, green: 0.54, blue: 1.0).opacity(isPast ? 0.12 : 0.22),
+                                                        in: Capsule())
                                     }
                                 }
-                                .font(.inter(9, .medium))
-                                .foregroundStyle(live ? LineupStyle.liveStatus : LineupStyle.secondary.opacity(0.68))
+                                .font(.inter(9, live ? .heavy : .medium))
+                                .foregroundStyle(live ? LineupStyle.liveStatus
+                                                 : (isPast ? LineupStyle.secondary.opacity(0.42) : LineupStyle.secondary.opacity(0.72)))
                                 .lineLimit(1)
                             }
                           }
                         }
+                        if program != nil, live {
+                            VStack(spacing: 0) {
+                                Spacer(minLength: 0)
+                                HStack(spacing: 0) {
+                                    Rectangle()
+                                        .fill(isPlayingChannel ? LineupStyle.highlight : LineupStyle.liveStatus.opacity(0.85))
+                                        .frame(width: max(2, progressWidth), height: 2)
+                                    Spacer(minLength: 0)
+                                }
+                            }
+                            .frame(width: width, height: cardHeight)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                        }
                     }
                     .frame(width: width, height: cardHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .opacity(isPast && !live ? 0.66 : 1)
+                    .clipShape(cellShape)
+                    .overlay(
+                        cellShape.strokeBorder(
+                            live && isPlayingChannel
+                                ? LineupStyle.highlight.opacity(0.88)
+                                : (live ? Color.white.opacity(0.16) : Color.white.opacity(0.045)),
+                            lineWidth: live && isPlayingChannel ? 1.5 : (live ? 1 : 0.75)
+                        )
+                    )
+                    .contentShape(cellShape)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Watch \(stream.name) live. \(program?.title ?? "No guide information")")
                 .offset(x: cellX)
+            }
+            if showNowLine {
+                MobileGuideNowLine(scroll: gridScroll, x: nowX, height: rowHeight)
             }
         }.frame(width: window.width, height: rowHeight, alignment: .leading)
     }
@@ -1516,6 +1749,93 @@ final class MobileGuideCategoryMemo {
     struct Value {
         let hidden: Set<String>
         let visible: [XtreamCategory]
+    }
+    private var kept: (key: Key, value: Value)?
+
+    func value(for key: Key) -> Value? {
+        guard let kept, kept.key == key else { return nil }
+        return kept.value
+    }
+
+    func keep(_ value: Value, for key: Key) { kept = (key, value) }
+}
+
+/// Pinned top-left corner of the EPG ruler. Reads `scroll.x` locally so
+/// sideways scrolling never re-evaluates `MobileGuideView.body`: shows a
+/// quiet live time pill at rest and turns into a tappable `NOW` jump button
+/// once scrolled into future hours.
+private struct MobileGuideRulerCorner: View {
+    let scroll: MobileGuideGridScroll
+    let now: Date
+    let width: CGFloat
+    let onReturnToNow: () -> Void
+
+    var body: some View {
+        let scrolledAhead = scroll.x > 24
+        ZStack {
+            Color.black
+            if scrolledAhead {
+                Button(action: onReturnToNow) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.uturn.backward")
+                            .font(.system(size: 9, weight: .heavy))
+                        Text("NOW")
+                            .font(.inter(10, .heavy)).tracking(0.6)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(LineupStyle.liveStatus, in: Capsule())
+                }
+                .buttonStyle(MobileCardButtonStyle())
+                .accessibilityLabel("Return to now")
+            } else {
+                HStack(spacing: 5) {
+                    MobileLiveDot()
+                    Text(now, format: .dateTime.hour().minute())
+                        .font(.interDigits(10.5, .bold))
+                        .foregroundStyle(Color.white.opacity(0.76))
+                }
+                .padding(.horizontal, 9).padding(.vertical, 5)
+                .background(Color.white.opacity(0.065), in: Capsule())
+                .accessibilityHidden(true)
+            }
+        }
+        .frame(width: width, height: 40)
+    }
+}
+
+/// Thin live playhead line across a program row. Reads `scroll.x` locally so
+/// it vanishes the moment it reaches the pinned logo column instead of showing
+/// through translucent channel tiles, without re-evaluating the parent view.
+private struct MobileGuideNowLine: View {
+    let scroll: MobileGuideGridScroll
+    let x: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        if x >= scroll.x {
+            Rectangle()
+                .fill(LineupStyle.liveStatus.opacity(0.55))
+                .frame(width: 1.5, height: height)
+                .offset(x: x - 0.75)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// Cached per-category, per-provider, and total visible channel counts.
+/// Not observed, matching `MobileGuideCategoryMemo`.
+final class MobileGuideCountMemo {
+    struct Key: Equatable {
+        let library: ObjectIdentifier
+        let revision: Int
+        let hiddenRaw: String
+    }
+    struct Value {
+        let byCategory: [String: Int]
+        let byProvider: [String: Int]
+        let total: Int
     }
     private var kept: (key: Key, value: Value)?
 
