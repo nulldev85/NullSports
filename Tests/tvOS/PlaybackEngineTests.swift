@@ -7,7 +7,7 @@ import LineupAetherPlayback
 @MainActor
 final class PlaybackEngineTests: XCTestCase {
     func testSettingsEngineChoicesExposeTheirPinnedVersions() {
-        XCTAssertEqual(TVPlaybackEngine.aether.version, "7.62.1")
+        XCTAssertEqual(TVPlaybackEngine.aether.version, "7.71.2")
         XCTAssertEqual(TVPlaybackEngine.vlc.version, "3.6.0")
         XCTAssertEqual(TVPlaybackEngine.mpv.version, "1.1.0-n9.0.2")
     }
@@ -633,34 +633,39 @@ final class PlaybackEngineTests: XCTestCase {
         controller.start(urls: [hls, transport], channelID: 101)
         fixture.vlc.state = .opening
         XCTAssertTrue(controller.loading)
+        XCTAssertFalse(controller.reconnecting)
         XCTAssertEqual(fixture.vlc.loads.map(\.url), [hls])
 
-        // If the primary .m3u8 transport hangs with no video for 4.5s, cut over
-        // promptly to .ts instead of waiting 15-45s on a blank screen.
-        fixture.now += 4.5
+        // If the primary .m3u8 transport hangs with no video for 6s, cut over
+        // promptly to .ts without flashing "Reconnecting" before video starts.
+        fixture.now += 6.0
         controller.checkPlayback()
         XCTAssertEqual(fixture.vlc.loads.map(\.url), [hls, transport])
+        XCTAssertTrue(controller.loading)
+        XCTAssertFalse(controller.reconnecting)
 
-        // Once .ts produces video, clear loading and remember .ts for this host.
+        // Once .ts produces video, clear loading and persist .ts for this host.
         fixture.vlc.state = .playing
         fixture.vlc.hasVideoOutOverride = true
         fixture.now += 0.5
         controller.checkPlayback()
         XCTAssertFalse(controller.loading)
 
-        // Next channel on the same host starts on .ts immediately without stalling.
+        // Next channel on a fresh controller using the same defaults starts on .ts immediately.
+        let secondController = fixture.controller()
+        defer { secondController.stop() }
         let nextHLS = try XCTUnwrap(URL(string: "https://iptv.example.invalid/live/202.m3u8"))
         let nextTS = try XCTUnwrap(URL(string: "https://iptv.example.invalid/live/202.ts"))
         fixture.vlc.hasVideoOutOverride = false
-        controller.start(urls: [nextHLS, nextTS], channelID: 202)
+        secondController.start(urls: [nextHLS, nextTS], channelID: 202)
         XCTAssertEqual(fixture.vlc.loads.last?.url, nextTS)
 
         // If .ts ever stops early on a channel, clear the preference and cut over fast (2.5s) to .m3u8.
         fixture.vlc.state = .stopped
         fixture.now += 2.5
-        controller.checkPlayback()
+        secondController.checkPlayback()
         XCTAssertEqual(fixture.vlc.loads.last?.url, nextHLS)
-        XCTAssertEqual(TVLiveTransportPreference.ordered([nextHLS, nextTS]), [nextHLS, nextTS])
+        XCTAssertEqual(TVLiveTransportPreference.ordered([nextHLS, nextTS], defaults: fixture.defaults), [nextHLS, nextTS])
     }
 
     @MainActor private final class Fixture {
@@ -672,12 +677,12 @@ final class PlaybackEngineTests: XCTestCase {
         let mpv = MockTVBackend(.mpv)
         var now: TimeInterval = 1_000
         init(_ kind: TVPlaybackEngine = .vlc) throws {
-            TVLiveTransportPreference.reset()
             defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            TVLiveTransportPreference.reset(defaults: defaults)
             defaults.set(kind.rawValue, forKey: TVPlaybackEngine.storageKey)
         }
         func clean() {
-            TVLiveTransportPreference.reset()
+            TVLiveTransportPreference.reset(defaults: defaults)
             defaults.removePersistentDomain(forName: suite)
         }
         func backend(_ kind: TVPlaybackEngine) -> MockTVBackend {

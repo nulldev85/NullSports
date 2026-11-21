@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import CryptoKit
 import LineupAetherPlayback
 import LineupMPVPlayback
 
@@ -30,7 +31,7 @@ struct PlaybackClockReader<Content: View>: View {
 
     init(place: TVPlaybackPlace? = nil, defaults: UserDefaults = .standard, primaryOutput: Bool = true,
          uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         connectionCooldown: TimeInterval = 0.35,
+         connectionCooldown: TimeInterval = 0.5,
          backendFactory: @escaping @MainActor (TVPlaybackEngine) -> any TVPlaybackBackend = makeTVPlaybackBackend) {
         self.place = place
         self.defaults = defaults
@@ -365,7 +366,7 @@ struct PlaybackClockReader<Content: View>: View {
         // transport delivers video, open that transport first for near-instant
         // zaps unless the caller explicitly asked to preserve provider order.
         if isLive && !recording {
-            self.urls = preserveURLOrder ? urls : TVLiveTransportPreference.ordered(urls)
+            self.urls = preserveURLOrder ? urls : TVLiveTransportPreference.ordered(urls, defaults: defaults)
         } else {
             self.urls = Array(urls.reversed())
         }
@@ -711,7 +712,7 @@ struct PlaybackClockReader<Content: View>: View {
             if reconnecting { reconnecting = false }
             sawPicture = true
             if isLive, catchUp == nil, !sourceIsRecording, urlIndex == 1, urls.count > 1 {
-                TVLiveTransportPreference.recordSuccess(for: urls[urlIndex])
+                TVLiveTransportPreference.recordSuccess(for: urls[urlIndex], defaults: defaults)
             }
             let size = backend.videoSize
             let height = Int(size.height)
@@ -726,7 +727,7 @@ struct PlaybackClockReader<Content: View>: View {
             let age = health.age(now: now)
             if (state == .stopped || state == .ended), age >= 2.5 {
                 fastLiveCutover = engineTitle + " reported the stream " + Self.describe(state)
-            } else if age >= 4.5 {
+            } else if age >= 6.0 {
                 fastLiveCutover = "No picture came after \(Int(age)) seconds"
             } else {
                 fastLiveCutover = nil
@@ -766,10 +767,11 @@ struct PlaybackClockReader<Content: View>: View {
         if isLive, catchUp == nil, !sourceIsRecording, neverPlayed,
            retries.attempts == 0, urlIndex == 0, urls.count > 1 {
             // Try the provider's alternate transport before retrying a live
-            // address that has never delivered a picture.
-            TVLiveTransportPreference.clearIfMatching(urls[0])
+            // address that has never delivered a picture. Keep showing the
+            // initial loading state rather than "Reconnecting" before video starts.
+            TVLiveTransportPreference.clearIfMatching(urls[0], defaults: defaults)
             urlIndex = 1
-            reconnecting = true
+            reconnecting = sawPicture
             log(reason + ". Trying the alternate live transport")
             openCurrent()
             return
@@ -1558,15 +1560,26 @@ struct PlaybackClockReader<Content: View>: View {
 }
 
 /// Remembers when a live provider's alternate transport (for example `.ts`
-/// after `.m3u8` stalled) delivered video, so later channels on the same host
-/// open the working transport immediately during this session.
+/// after `.m3u8` stalled) delivered video, persisted per hashed host so later
+/// channels on the same provider open the working transport immediately without
+/// repeating a stalled transport cutover across sessions.
 @MainActor enum TVLiveTransportPreference {
-    private static var preferredExtensionByHost: [String: String] = [:]
+    private static let storageKey = "Lineup.tv.liveTransportByHost.v1"
 
-    static func ordered(_ urls: [URL]) -> [URL] {
+    private static func hostKey(_ url: URL) -> String? {
+        guard let host = url.host?.lowercased(), !host.isEmpty else { return nil }
+        return SHA256.hash(data: Data(host.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func read(from defaults: UserDefaults) -> [String: String] {
+        defaults.dictionary(forKey: storageKey) as? [String: String] ?? [:]
+    }
+
+    static func ordered(_ urls: [URL], defaults: UserDefaults = .standard) -> [URL] {
         guard urls.count > 1,
-              let host = urls.first?.host?.lowercased(),
-              let preferred = preferredExtensionByHost[host],
+              let first = urls.first,
+              let key = hostKey(first),
+              let preferred = read(from: defaults)[key],
               let index = urls.firstIndex(where: { $0.pathExtension.lowercased() == preferred }),
               index > 0 else {
             return urls
@@ -1577,23 +1590,27 @@ struct PlaybackClockReader<Content: View>: View {
         return reordered
     }
 
-    static func recordSuccess(for url: URL) {
-        guard let host = url.host?.lowercased(), !host.isEmpty else { return }
+    static func recordSuccess(for url: URL, defaults: UserDefaults = .standard) {
+        guard let key = hostKey(url) else { return }
         let ext = url.pathExtension.lowercased()
         guard !ext.isEmpty else { return }
-        preferredExtensionByHost[host] = ext
+        var map = read(from: defaults)
+        guard map[key] != ext else { return }
+        map[key] = ext
+        defaults.set(map, forKey: storageKey)
     }
 
-    static func clearIfMatching(_ url: URL) {
-        guard let host = url.host?.lowercased() else { return }
+    static func clearIfMatching(_ url: URL, defaults: UserDefaults = .standard) {
+        guard let key = hostKey(url) else { return }
         let ext = url.pathExtension.lowercased()
-        if preferredExtensionByHost[host] == ext {
-            preferredExtensionByHost.removeValue(forKey: host)
-        }
+        var map = read(from: defaults)
+        guard map[key] == ext else { return }
+        map.removeValue(forKey: key)
+        defaults.set(map, forKey: storageKey)
     }
 
-    static func reset() {
-        preferredExtensionByHost.removeAll()
+    static func reset(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: storageKey)
     }
 }
 

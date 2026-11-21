@@ -262,13 +262,15 @@ final class TVVLCBackend: TVPlaybackBackend {
         if player.media != nil { player.stop() }
         let media = VLCMedia(url: url)
         if isLive {
-            // Keep live zap times near-instant (~1.2s buffer instead of a forced
-            // 5-second black screen on every channel tune).
-            media.addOption(":network-caching=1200")
-            media.addOption(":live-caching=1200")
+            // Balanced 2.5s live buffer: halves the previous 5s startup delay
+            // without starving bursty IPTV links or gluing disjoint live TCP
+            // reconnects onto a drifted PCR clock via http-reconnect.
+            media.addOption(":network-caching=2500")
+            media.addOption(":live-caching=2500")
             media.addOption(":audio-language=en")
         } else {
             media.addOption(":network-caching=2500")
+            media.addOption(":http-reconnect=true")
             if let startPosition { media.addOption(":start-time=\(startPosition)") }
             // VLC reads each language by its code and its two-letter form.
             if !languages.audio.isEmpty { media.addOption(":audio-language=" + Self.vlcLanguages(languages.audio)) }
@@ -277,7 +279,6 @@ final class TVVLCBackend: TVPlaybackBackend {
             media.addOption(":freetype-background-opacity=\(subtitleStyle.background ? 204 : 0)")
             media.addOption(":freetype-background-color=0")
         }
-        media.addOption(":http-reconnect=true")
         player.media = media
         player.currentVideoSubTitleDelay = Int((subtitleStyle.delay * 1_000_000).rounded())
     }
