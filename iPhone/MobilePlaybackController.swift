@@ -163,6 +163,7 @@ final class MobilePlaybackController: ObservableObject {
     private var scrubDestination: Double?
     private let scrubSeeks = PlaybackSeekCoalescer()
     private var seekLanding = PlaybackSeekLanding()
+    private var pendingSeekTarget: (target: Double, deadline: TimeInterval)?
     private var requestedInitialPosition: TimeInterval?
     private var appliedInitialPosition = false
     /// A channel runs at the live edge and is buffered for a link that may
@@ -270,7 +271,12 @@ final class MobilePlaybackController: ObservableObject {
     /// The same view, readable by the dismissal so it can still the picture.
     var videoViewForExit: MobileVideoHost? { videoView }
     private var currentURL: URL?
-    private var pausedByUser = false
+    @Published private(set) var pausedByUser = false
+    /// Immediate Play/Pause control state reflecting the viewer's toggle on the
+    /// same frame, without waiting for the decoder's next poll tick.
+    var showsPauseControl: Bool {
+        isPlaying || (!pausedByUser && !loading && error == nil && retryAt == nil && currentURL != nil)
+    }
     private var health = LivePlaybackHealth(now: ProcessInfo.processInfo.systemUptime)
     private var retries = LivePlaybackRetry()
     /// How long a live stream may stay without a picture before it is
@@ -427,6 +433,7 @@ final class MobilePlaybackController: ObservableObject {
                 guard activeEngineIsPlaying, raw > 0 else { return }
             }
             appliedInitialPosition = true
+            if !asset.requiresServerSeek, !seekLanding.accepts(sourcePosition, now: ProcessInfo.processInfo.systemUptime) { return }
             let sampled = MobilePlaybackProgress(position: sourcePosition, duration: duration)
             if progress != sampled { progress = sampled }
             return
@@ -506,6 +513,7 @@ final class MobilePlaybackController: ObservableObject {
         skipTask?.cancel()
         skipTask = nil
         skipTarget = nil
+        pendingSeekTarget = nil
         scrubSeeks.cancel()
         resumeAfterScrubbing = !pausedByUser
         if resumeAfterScrubbing { toggle() }
@@ -562,6 +570,7 @@ final class MobilePlaybackController: ObservableObject {
         guard let current = progress, current.duration > 0 else { return }
         guard seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: current.duration)
+        pendingSeekTarget = nil
         if let native = nativeSiloPlayback, native.asset?.requiresServerSeek == true {
             scrubSeeks.cancel()
             native.seek(to: target)
@@ -579,12 +588,40 @@ final class MobilePlaybackController: ObservableObject {
     private func performSeek(to target: Double) {
         guard nativeSiloPlayback?.asset?.requiresServerSeek != true else { return }
         guard let current = progress, current.duration > 0 else { return }
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+        let playerTarget = max(0, target - offset)
+        if !dispatchEngineSeek(to: playerTarget), !isLive {
+            pendingSeekTarget = (target, ProcessInfo.processInfo.systemUptime + 5)
+            diag.record("queued seek to \(Int(target))s while \(engine.rawValue) prepares")
+        }
+    }
+
+    private func dispatchEngineSeek(to playerTarget: Double) -> Bool {
         switch engine {
         case .aether:
-            aetherSession?.seek(to: target)
+            guard let session = aetherSession, session.canAcceptSeek else { return false }
+            session.seek(to: playerTarget)
+            return true
         case .mpv:
-            mpvSession?.seek(to: target)
+            guard let session = mpvSession, session.isSeekable else { return false }
+            session.seek(to: playerTarget)
+            return true
         }
+    }
+
+    private func flushPendingSeekIfReady() {
+        guard let pending = pendingSeekTarget else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now < pending.deadline else {
+            pendingSeekTarget = nil
+            return
+        }
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+        let playerTarget = max(0, pending.target - offset)
+        guard dispatchEngineSeek(to: playerTarget) else { return }
+        pendingSeekTarget = nil
+        seekLanding.expect(pending.target, now: now)
+        diag.record("dispatched queued seek to \(Int(pending.target))s via \(engine.rawValue)")
     }
 
     /// Back or on by `seconds`. A title steps through itself. A channel the
@@ -601,6 +638,17 @@ final class MobilePlaybackController: ObservableObject {
     }
 
     // MARK: - Surface
+
+    func isVideoAttached(_ view: MobileVideoHost) -> Bool {
+        guard videoView === view else { return false }
+        let expected: UIView?
+        switch engine {
+        case .aether: expected = aetherSession?.surface
+        case .mpv: expected = mpvSession?.surface
+        }
+        guard let expected else { return true }
+        return view.hasEngineSurface(expected)
+    }
 
     func attachVideo(_ view: MobileVideoHost) {
         pendingTeardown?.cancel()
@@ -874,6 +922,7 @@ final class MobilePlaybackController: ObservableObject {
                 self.refreshMediaInfo()
                 self.notePresentedVideo()
                 if self.isScrubbing { continue }
+                self.flushPendingSeekIfReady()
                 self.sampleProgress()
                 // A recording's place is kept while it is paused too, so the
                 // timeline still reads right after a skip made without resuming.
@@ -893,6 +942,7 @@ final class MobilePlaybackController: ObservableObject {
         let siloDelay = subtitleDelaySeconds
         if !siloCaptions.isEmpty { siloSidecarRestore?.cancel(); siloSidecarRestore = nil }
         liveQualityReporter.reset()
+        pendingSeekTarget = nil
         resetStartGate()
         if aetherSession?.isOpen == true { aetherSession?.stop() }
         if mpvSession?.isOpen == true { mpvSession?.stop() }
@@ -2020,6 +2070,7 @@ final class MobilePlaybackController: ObservableObject {
         isScrubbing = false
         resumeAfterScrubbing = false
         scrubDestination = nil
+        pendingSeekTarget = nil
         scrubSeeks.cancel()
         seekLanding.reset()
         monitor?.cancel()
@@ -2114,8 +2165,11 @@ struct MobileVideoSurface: UIViewRepresentable {
         return view
     }
     func updateUIView(_ uiView: MobileVideoHost, context: Context) {
+        let changed = uiView.controller !== controller
         uiView.controller = controller
-        uiView.scheduleAttachment()
+        if changed || !controller.isVideoAttached(uiView) {
+            uiView.scheduleAttachment()
+        }
     }
     static func dismantleUIView(_ uiView: MobileVideoHost, coordinator: ()) {
         uiView.controller?.detachVideo(uiView)
@@ -2133,6 +2187,7 @@ final class MobileVideoHost: UIView {
         backgroundColor = .black
         clipsToBounds = true
         autoresizesSubviews = true
+        isUserInteractionEnabled = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -2262,6 +2317,9 @@ final class MobileVideoHost: UIView {
     }
 
     private weak var engineSurface: UIView?
+    func hasEngineSurface(_ surface: UIView) -> Bool {
+        engineSurface === surface && surface.superview === self
+    }
     func installEngineSurface(_ surface: UIView) {
         if engineSurface === surface, surface.superview === self {
             if surface.frame != bounds { surface.frame = bounds }

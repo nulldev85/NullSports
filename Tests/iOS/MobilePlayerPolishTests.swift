@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import UIKit
 import Combine
 @testable import LineupiOS
@@ -175,6 +176,112 @@ final class MobilePlayerPolishTests: XCTestCase {
         XCTAssertTrue(request.url?.path.hasSuffix("/trickplay/160/1.jpg") == true)
         let skipped = try await client.seekPreview(userID: "user", itemID: "packed-aiostreams-id", mediaSourceID: "addon-release-id")
         XCTAssertNil(skipped)
+    }
+
+    func testSkipActionCapturesDestinationAndSuppressesEarlyKeyframeBounceBack() {
+        let segments = MobilePlaybackSegments(
+            intro: MobileIntroSegment(start: 30, end: 115),
+            recap: MobileIntroSegment(start: 0, end: 25)
+        )
+        let recap = MobileSkipAction.active(segments: segments, position: 10, duration: 2400,
+                                            introEnabled: true, recapEnabled: true, recentlySkipped: nil)
+        XCTAssertEqual(recap, MobileSkipAction(kind: .recap, destination: 25))
+        XCTAssertEqual(recap?.title, "Skip Recap")
+
+        let intro = MobileSkipAction.active(segments: segments, position: 45, duration: 2400,
+                                            introEnabled: true, recapEnabled: true, recentlySkipped: nil)
+        XCTAssertEqual(intro, MobileSkipAction(kind: .intro, destination: 115))
+        XCTAssertEqual(intro?.title, "Skip Intro")
+
+        // If a decoder keyframe lands just shy of the intro end, do not flash Skip Intro back.
+        let nearEnd = MobileSkipAction.active(segments: segments, position: 113, duration: 2400,
+                                              introEnabled: true, recapEnabled: true, recentlySkipped: intro)
+        XCTAssertNil(nearEnd)
+
+        // If the viewer deliberately rewinds well back into the intro, offer Skip Intro again.
+        let rewound = MobileSkipAction.active(segments: segments, position: 50, duration: 2400,
+                                              introEnabled: true, recapEnabled: true, recentlySkipped: intro)
+        XCTAssertEqual(rewound, intro)
+    }
+
+    func testVideoHostIsNonInteractiveAndTracksAttachmentCleanly() {
+        let controller = MobilePlaybackController()
+        let host = MobileVideoHost(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        XCTAssertFalse(host.isUserInteractionEnabled, "Video host must never intercept SwiftUI player control touches")
+        XCTAssertFalse(controller.isVideoAttached(host))
+        controller.attachVideo(host)
+        XCTAssertTrue(controller.isVideoAttached(host))
+        controller.shutdown()
+    }
+
+    func testPlaybackOptionsPanelRendersCleanlyInLandscapeAndPortrait() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first { $0.isKeyWindow }
+        let window = UIWindow(windowScene: scene)
+        let parent = UIViewController()
+        window.rootViewController = parent
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKey() }
+
+        let sampleRows: (PlaybackOptionsTab) -> [PlaybackOptionRow] = { tab in
+            switch tab {
+            case .info:
+                return [
+                    PlaybackOptionRow(title: "The Bear", detail: "S02E07 · Forks", section: "Now Playing", symbol: "play.rectangle.fill"),
+                    PlaybackOptionRow(title: "Richie spends a week staging at an acclaimed restaurant.", key: "overview", section: "Now Playing", style: .overview),
+                    PlaybackOptionRow(title: "Playback engine", detail: "AetherEngine", section: "Details", symbol: "cpu"),
+                    PlaybackOptionRow(title: "Audio", detail: "English · EAC3", section: "Details", symbol: "waveform")
+                ]
+            case .stats:
+                return [
+                    PlaybackOptionRow(title: "Playback", detail: "Playing", symbol: "play.circle.fill"),
+                    PlaybackOptionRow(title: "Engine", detail: "AetherEngine", symbol: "cpu"),
+                    PlaybackOptionRow(title: "Resolution", detail: "3840 × 2160", symbol: "sparkles.tv"),
+                    PlaybackOptionRow(title: "Source bitrate", detail: "18.4 Mbps", symbol: "gauge.with.dots.needle.67percent"),
+                    PlaybackOptionRow(title: "Formats", detail: "Dolby Vision · Dolby Atmos · HEVC", symbol: "rectangle.badge.checkmark")
+                ] + PlaybackOptionRow.metrics(buffer: 14.2, dropped: 0, network: 24.8)
+            case .video:
+                return PlaybackOptionRow.speedRows(1.0) { _ in } + [
+                    PlaybackOptionRow(title: "Fit picture", selected: true, section: "Aspect Ratio", symbol: "arrow.down.right.and.arrow.up.left", action: {}),
+                    PlaybackOptionRow(title: "Auto-play next", detail: "On", section: "Up Next", symbol: "forward.end.fill", style: .toggle, action: {})
+                ]
+            case .audio:
+                return [
+                    PlaybackOptionRow(title: "English · 5.1 EAC3", selected: true, key: "a1", section: "Audio Track", symbol: "waveform", action: {}),
+                    PlaybackOptionRow(title: "Codec", detail: "EAC3", section: "Stream Details", symbol: "speaker.wave.2")
+                ]
+            case .subtitles:
+                return [
+                    PlaybackOptionRow(title: "English (SDH)", selected: true, key: "s1", section: "Subtitle Track", symbol: "captions.bubble", action: {}),
+                    PlaybackOptionRow(title: "Find subtitles online", section: "Online", symbol: "magnifyingglass", style: .action, action: {})
+                ] + PlaybackOptionRow.subtitleTiming(0) { _ in }
+            case .chapters:
+                return PlaybackOptionRow.chapterRows([PlaybackChapter(start: 0, title: "Cold Open"), PlaybackChapter(start: 180, title: "Intro")], position: 10, clock: MobilePlaybackProgress.timecode) { _ in }
+            }
+        }
+
+        let panel = PlaybackOptionsPanel(tabs: PlaybackOptionsTab.allCases, close: {}, rows: sampleRows)
+            .frame(maxWidth: 620)
+            .padding(16)
+            .background(Color.black)
+        let host = UIHostingController(rootView: panel.preferredColorScheme(.dark))
+        parent.addChild(host)
+        host.view.frame = CGRect(x: 0, y: 0, width: 660, height: 420)
+        parent.view.addSubview(host.view)
+        host.didMove(toParent: parent)
+        try await Task.sleep(for: .milliseconds(250))
+        host.view.layoutIfNeeded()
+        XCTAssertGreaterThan(host.view.bounds.height, 0)
+        let image = UIGraphicsImageRenderer(bounds: host.view.bounds).image { _ in
+            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+        }
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "PlaybackOptionsPanel-Redesigned"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        host.willMove(toParent: nil)
+        host.view.removeFromSuperview()
+        host.removeFromParent()
     }
 }
 

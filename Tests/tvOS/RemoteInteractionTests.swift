@@ -70,4 +70,28 @@ final class RemoteInteractionTests: XCTestCase {
         XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 5, direction: -1, duration: 300), 0)
         XCTAssertEqual(PlaybackSeekPolicy.remoteCommandTarget(from: 295, direction: 1, duration: 300), 299)
     }
+
+    func testTVSkipActionCapturesDestinationAndSuppressesEarlyKeyframeBounceBack() {
+        let segments = MobilePlaybackSegments(
+            intro: MobileIntroSegment(start: 30, end: 115),
+            recap: MobileIntroSegment(start: 0, end: 25)
+        )
+        let recap = TVSkipAction.active(segments: segments, position: 12, duration: 2400,
+                                        introEnabled: true, recapEnabled: true, recentlySkipped: nil)
+        XCTAssertEqual(recap, TVSkipAction(kind: .recap, destination: 25))
+        XCTAssertEqual(recap?.title, "Skip Recap")
+
+        let intro = TVSkipAction.active(segments: segments, position: 45, duration: 2400,
+                                        introEnabled: true, recapEnabled: true, recentlySkipped: nil)
+        XCTAssertEqual(intro, TVSkipAction(kind: .intro, destination: 115))
+        XCTAssertEqual(intro?.title, "Skip Intro")
+
+        let nearEnd = TVSkipAction.active(segments: segments, position: 113, duration: 2400,
+                                          introEnabled: true, recapEnabled: true, recentlySkipped: intro)
+        XCTAssertNil(nearEnd, "An early-landing keyframe just before intro end must not flash Skip Intro back")
+
+        let rewound = TVSkipAction.active(segments: segments, position: 50, duration: 2400,
+                                          introEnabled: true, recapEnabled: true, recentlySkipped: intro)
+        XCTAssertEqual(rewound, intro, "Rewinding well back into the intro should offer Skip Intro again")
+    }
 }

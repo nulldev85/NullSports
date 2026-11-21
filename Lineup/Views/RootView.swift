@@ -113,6 +113,9 @@ struct RootView: View {
 @MainActor @Observable
 final class TVTabBarState {
     private(set) var hidden = false
+    /// Incremented whenever focus leaves the Settings tab downward so Settings
+    /// lands on its left category sidebar instead of the sub-settings column.
+    var focusSettingsSidebar = 0
     @ObservationIgnored private var pagesOpen: Set<UUID> = []
 
     func pageAppeared(_ id: UUID) { pagesOpen.insert(id); sync() }
@@ -241,6 +244,7 @@ struct MainView: View {
     /// When the remote last left the tabs. Not observed: nothing is drawn
     /// from it.
     @State private var tabsLeft = TVTabsLeft()
+    @State private var settingsEntryTask: Task<Void, Never>?
     /// The accent chosen on the phone, which iCloud brings here: the tabs
     /// are drawn again in it when it changes, as the phone's are.
     @AppStorage(LineupAccent.storageKey) private var accent = LineupAccent.red.hex
@@ -289,7 +293,21 @@ struct MainView: View {
         // Moving along the tabs shows each one, as the system's tabs did.
         .onChange(of: tabFocus) { from, tab in
             let now = ProcessInfo.processInfo.systemUptime
-            guard let tab else { tabsLeft.at = now; return }
+            settingsEntryTask?.cancel()
+            settingsEntryTask = nil
+            guard let tab else {
+                tabsLeft.at = now
+                if from == 3, selectedTab == 3, !tabBar.hidden,
+                   media.errorMessage == nil, library.errorMessage == nil {
+                    settingsEntryTask = Task { @MainActor in
+                        await Task.yield()
+                        guard !Task.isCancelled, tabFocus == nil, selectedTab == 3,
+                              !tabBar.hidden, media.errorMessage == nil, library.errorMessage == nil else { return }
+                        tabBar.focusSettingsSidebar += 1
+                    }
+                }
+                return
+            }
             guard tab != selectedTab else { return }
             // Coming up from a tab's screen is never a choice of another
             // tab, wherever the focus engine put the remote; moving along

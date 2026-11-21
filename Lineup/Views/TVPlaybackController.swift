@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import CryptoKit
 import LineupAetherPlayback
 import LineupMPVPlayback
 
@@ -30,7 +31,7 @@ struct PlaybackClockReader<Content: View>: View {
 
     init(place: TVPlaybackPlace? = nil, defaults: UserDefaults = .standard, primaryOutput: Bool = true,
          uptime: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         connectionCooldown: TimeInterval = 1,
+         connectionCooldown: TimeInterval = 0.5,
          backendFactory: @escaping @MainActor (TVPlaybackEngine) -> any TVPlaybackBackend = makeTVPlaybackBackend) {
         self.place = place
         self.defaults = defaults
@@ -82,6 +83,7 @@ struct PlaybackClockReader<Content: View>: View {
     var lentToFullScreen = false {
         didSet { if lentToFullScreen != oldValue { placeSurface() } }
     }
+    @Published private(set) var loading = false
     @Published private(set) var reconnecting = false
     @Published private(set) var error: String?
     @Published private(set) var isPlaying = false { didSet { reportLibraryTracking() } }
@@ -173,7 +175,7 @@ struct PlaybackClockReader<Content: View>: View {
         }
         session?.failed = { [weak self] message in self?.failoverNotice = message }
         session?.preparing = { [weak self] in self?.error = nil; self?.reconnecting = true }
-        session?.retryFailed = { [weak self] message in self?.reconnecting = false; self?.error = message }
+        session?.retryFailed = { [weak self] message in self?.loading = false; self?.reconnecting = false; self?.error = message }
     }
     /// How to play this channel's recording, while a channel the provider
     /// records is playing live. Nil for a channel that isn't recorded, for a
@@ -199,12 +201,18 @@ struct PlaybackClockReader<Content: View>: View {
     private var urls: [URL] = []
     private var urlIndex = 0
     private var muted = false
-    private var pausedByUser = false
+    @Published private(set) var pausedByUser = false
+    /// Immediate Play/Pause control state reflecting the viewer's toggle on the
+    /// same frame, without waiting for the decoder's next poll tick.
+    var showsPauseControl: Bool {
+        isPlaying || (!pausedByUser && !reconnecting && error == nil && retryAt == nil && !urls.isEmpty)
+    }
     private(set) var isScrubbing = false
     private var resumeAfterScrubbing = false
     private var scrubDestination: Double?
     private let scrubSeeks = PlaybackSeekCoalescer()
     private var seekLanding = PlaybackSeekLanding()
+    private var pendingSeekTarget: (target: Double, deadline: TimeInterval)?
     private var requestedInitialPosition: TimeInterval?
     private var appliedInitialPosition = false
     /// A channel, or a film or an episode. A channel that stops is
@@ -345,7 +353,8 @@ struct PlaybackClockReader<Content: View>: View {
 
     func start(urls: [URL], muted: Bool = false, initialPosition: TimeInterval? = nil,
                channelID: Int? = nil, resetFailover: Bool = true, isLive: Bool = true,
-               keepTrackChoices: Bool = false, expectedDuration: TimeInterval? = nil, recording: Bool = false) {
+               keepTrackChoices: Bool = false, expectedDuration: TimeInterval? = nil, recording: Bool = false,
+               preserveURLOrder: Bool = false) {
         let previousDuration = duration
         restarting = true
         stop()
@@ -353,8 +362,14 @@ struct PlaybackClockReader<Content: View>: View {
         selectConfiguredBackend()
         sourceIsRecording = recording
         // Live sources arrive in provider preference order, just as on iPhone.
-        // Keep the existing ordering for recordings and library titles.
-        self.urls = isLive && !recording ? urls : Array(urls.reversed())
+        // If an earlier channel on this host already proved the alternate live
+        // transport delivers video, open that transport first for near-instant
+        // zaps unless the caller explicitly asked to preserve provider order.
+        if isLive && !recording {
+            self.urls = preserveURLOrder ? urls : TVLiveTransportPreference.ordered(urls, defaults: defaults)
+        } else {
+            self.urls = Array(urls.reversed())
+        }
         // A picture turned down to nothing stays muted whatever it is
         // reopened with: a retry or a change of channel passes on the mute
         // as it stood, which partway through fading out was still off.
@@ -386,18 +401,19 @@ struct PlaybackClockReader<Content: View>: View {
         retries.reset()
         urlIndex = 0
         error = nil
-        guard !self.urls.isEmpty else { error = "This stream is unavailable."; return }
+        guard !self.urls.isEmpty else { loading = false; error = "This stream is unavailable."; return }
         holdScreenAwake()
         // A player stopped a moment ago -- the preview, as its channel goes
         // full screen -- is still closing its connection on VLC's own thread.
         // An account allowed one connection at a time refuses a second one
         // opened over it, or drops the first, and both read as a stream that
-        // failed. The new one waits until the old has had a second to go. A
+        // failed. The new one waits briefly until the old has had a moment to go. A
         // player reopening its own stream needs no wait: VLC finishes closing
         // a player's last stream before it opens that player's next.
         let now = uptime()
         if connectionCooldown > 0, let closed = Self.lastStreamClosed,
            closed.by != ObjectIdentifier(self), now - closed.at < connectionCooldown {
+            loading = true
             retryAt = closed.at + connectionCooldown
             health = freshHealth()
         } else {
@@ -405,7 +421,8 @@ struct PlaybackClockReader<Content: View>: View {
         }
         monitor = Task { [weak self] in
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+                let intervalMs = (self?.sawPicture == true) ? 500 : 200
+                do { try await Task.sleep(for: .milliseconds(intervalMs)) } catch { return }
                 guard let self else { return }
                 self.checkPlayback()
             }
@@ -420,8 +437,10 @@ struct PlaybackClockReader<Content: View>: View {
         ambientGeneration = UUID()
         ambientPictureSize = .zero
         videoHeight = 0
+        pendingSeekTarget = nil
         resetSubtitles()
         sawPicture = false
+        loading = true
         loggedCondition = nil
         let place = isLive ? nil : openingPlace
         log((retries.attempts == 0 ? "Opening" : "Reopening") + " the stream with " + engineTitle
@@ -473,6 +492,7 @@ struct PlaybackClockReader<Content: View>: View {
         if let native = nativeSiloPlayback, let asset = native.asset {
             guard let time = native.sourcePosition(playerTime: time) else { return }
             if let length = asset.duration, duration != length { duration = length }
+            if !asset.requiresServerSeek, !seekLanding.accepts(time, now: uptime()) { return }
             elapsed = time
             appliedInitialPosition = true
             return
@@ -525,6 +545,7 @@ struct PlaybackClockReader<Content: View>: View {
         guard !isLive, duration.isFinite, duration > 0, !isScrubbing else { return }
         isScrubbing = true
         scrubDestination = elapsed
+        pendingSeekTarget = nil
         scrubSeeks.cancel()
         resumeAfterScrubbing = !pausedByUser
         if resumeAfterScrubbing { togglePlayback() }
@@ -535,7 +556,8 @@ struct PlaybackClockReader<Content: View>: View {
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
         scrubDestination = target
         guard nativeSiloPlayback?.asset?.requiresServerSeek != true else { return }
-        scrubSeeks.preview(target) { [weak self] in self?.backend.seek(to: $0) }
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+        scrubSeeks.preview(max(0, target - offset)) { [weak self] in self?.backend.seek(to: $0) }
     }
 
     func endScrubbing(at seconds: Double) {
@@ -556,6 +578,7 @@ struct PlaybackClockReader<Content: View>: View {
     func seek(to seconds: Double) {
         guard duration > 0, seconds.isFinite else { return }
         let target = PlaybackSeekPolicy.clamped(seconds, duration: duration)
+        pendingSeekTarget = nil
         if let native = nativeSiloPlayback, native.asset?.requiresServerSeek == true {
             scrubSeeks.cancel()
             native.seek(to: target)
@@ -565,8 +588,35 @@ struct PlaybackClockReader<Content: View>: View {
         appliedInitialPosition = true
         reopenPosition = nil
         seekLanding.expect(target, now: uptime())
-        scrubSeeks.commit(target) { [weak self] in self?.backend.seek(to: $0) }
+        scrubSeeks.commit(target) { [weak self] in self?.performBackendSeek(to: $0) }
         elapsed = target
+    }
+
+    private func performBackendSeek(to target: Double) {
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+        let playerTarget = max(0, target - offset)
+        if backend.isSeekable {
+            backend.seek(to: playerTarget)
+        } else if !isLive {
+            pendingSeekTarget = (target, uptime() + 5)
+            log("Queued seek to \(PlaybackJournal.clock(target)) while \(engineTitle) prepares")
+        }
+    }
+
+    private func flushPendingSeekIfReady() {
+        guard let pending = pendingSeekTarget else { return }
+        let now = uptime()
+        guard now < pending.deadline else {
+            pendingSeekTarget = nil
+            return
+        }
+        guard backend.isSeekable else { return }
+        pendingSeekTarget = nil
+        let offset = nativeSiloPlayback?.asset?.lease.timelineOffset ?? 0
+        let playerTarget = max(0, pending.target - offset)
+        seekLanding.expect(pending.target, now: now)
+        backend.seek(to: playerTarget)
+        log("Dispatched queued seek to \(PlaybackJournal.clock(pending.target))")
     }
 
     /// Steps by `seconds` and clamps inside the item through the active engine.
@@ -595,6 +645,7 @@ struct PlaybackClockReader<Content: View>: View {
         if ambientPictureSize != pictureSize { ambientPictureSize = pictureSize }
         guard !isScrubbing else { return }
         holdAudioLevel()
+        flushPendingSeekIfReady()
         let time = backend.time, playing = backend.isPlaying
         updateProgress(time: time, playing: playing)
         if seekLanding.isWaiting(now: uptime()) { health = freshHealth(); return }
@@ -657,8 +708,12 @@ struct PlaybackClockReader<Content: View>: View {
         }
         if isPlaying != playing { isPlaying = playing }
         if playing && hasVideo {
+            if loading { loading = false }
             if reconnecting { reconnecting = false }
             sawPicture = true
+            if isLive, catchUp == nil, !sourceIsRecording, urlIndex == 1, urls.count > 1 {
+                TVLiveTransportPreference.recordSuccess(for: urls[urlIndex], defaults: defaults)
+            }
             let size = backend.videoSize
             let height = Int(size.height)
             if height > 0, height != videoHeight { videoHeight = height }
@@ -666,25 +721,43 @@ struct PlaybackClockReader<Content: View>: View {
                 width: Int(size.width), height: height, frameRate: mediaInfo.frameRate,
                 live: isLive && catchUp == nil, playing: playing, picture: health.hasShownPicture)
         }
-        guard recover else { return }
+        let fastLiveCutover: String?
+        if isLive, catchUp == nil, !sourceIsRecording, !health.hasShownPicture,
+           retries.attempts == 0, urlIndex == 0, urls.count > 1 {
+            let age = health.age(now: now)
+            if (state == .stopped || state == .ended), age >= 2.5 {
+                fastLiveCutover = engineTitle + " reported the stream " + Self.describe(state)
+            } else if age >= 6.0 {
+                fastLiveCutover = "No picture came after \(Int(age)) seconds"
+            } else {
+                fastLiveCutover = nil
+            }
+        } else {
+            fastLiveCutover = nil
+        }
+        guard recover || fastLiveCutover != nil else { return }
         if isLive, !health.hasShownPicture, urls.indices.contains(urlIndex) {
             let url = urls[urlIndex]
             Task { await LiveQualityVerifier.shared.forgetPlayback(url: url) }
         }
-        if engineKind == .mpv, !health.hasShownPicture {
+        if engineKind == .mpv, !health.hasShownPicture, fastLiveCutover == nil {
             fallbackFromMPVToVLC("MPV did not produce a picture")
             return
         }
         let reason: String
-        switch health.stall {
-        case .frozenWhileArriving:
-            reason = "The picture stood still for \(isLive ? 45 : 60) seconds while the stream kept arriving"
-        case .nothingArriving:
-            reason = "Nothing arrived for \(isLive ? 12 : 30) seconds"
-        case .neverPlayed:
-            reason = "No picture came after \(Int(health.age(now: now))) seconds"
-        case .failed, nil:
-            reason = engineTitle + " reported the stream " + Self.describe(state)
+        if let fastLiveCutover {
+            reason = fastLiveCutover
+        } else {
+            switch health.stall {
+            case .frozenWhileArriving:
+                reason = "The picture stood still for \(isLive ? 45 : 60) seconds while the stream kept arriving"
+            case .nothingArriving:
+                reason = "Nothing arrived for \(isLive ? 12 : 30) seconds"
+            case .neverPlayed:
+                reason = "No picture came after \(Int(health.age(now: now))) seconds"
+            case .failed, nil:
+                reason = engineTitle + " reported the stream " + Self.describe(state)
+            }
         }
         // A channel the server closed while it played is opened again at once
         // on the same address, as other players do. Waiting, then trying the
@@ -694,9 +767,11 @@ struct PlaybackClockReader<Content: View>: View {
         if isLive, catchUp == nil, !sourceIsRecording, neverPlayed,
            retries.attempts == 0, urlIndex == 0, urls.count > 1 {
             // Try the provider's alternate transport before retrying a live
-            // address that has never delivered a picture.
+            // address that has never delivered a picture. Keep showing the
+            // initial loading state rather than "Reconnecting" before video starts.
+            TVLiveTransportPreference.clearIfMatching(urls[0], defaults: defaults)
             urlIndex = 1
-            reconnecting = true
+            reconnecting = sawPicture
             log(reason + ". Trying the alternate live transport")
             openCurrent()
             return
@@ -722,6 +797,7 @@ struct PlaybackClockReader<Content: View>: View {
             // Another channel live is no answer to a recording that won't play.
             if catchUp == nil, switchToNextChannel() { return }
             error = "The stream disconnected. Select Retry to reconnect."
+            loading = false
             reconnecting = false
             holdScreenAwake()
             return
@@ -848,7 +924,8 @@ struct PlaybackClockReader<Content: View>: View {
         log("Retry chosen")
         // Asked for before the stream opens, so it opens there.
         start(urls: restartURLs, muted: muted, initialPosition: place,
-              channelID: currentChannelID, isLive: isLive, keepTrackChoices: true, recording: sourceIsRecording)
+              channelID: currentChannelID, isLive: isLive, keepTrackChoices: true,
+              recording: sourceIsRecording, preserveURLOrder: true)
     }
     /// A channel reconnects at its live edge; a film or an episode starts over
     /// from its beginning -- and stays a film. Restart used to reopen it as a
@@ -880,6 +957,7 @@ struct PlaybackClockReader<Content: View>: View {
     func togglePlayback() {
         pausedByUser.toggle()
         if pausedByUser {
+            loading = false
             backend.pause()
             // A channel the provider records picks up from here, however
             // long the pause: the broadcast doesn't wait, but its recording
@@ -902,7 +980,7 @@ struct PlaybackClockReader<Content: View>: View {
             health = freshHealth()
             if retryAt == nil { backend.play() }
         }
-        isPlaying = backend.isPlaying
+        isPlaying = !pausedByUser && backend.isPlaying
         holdScreenAwake()
     }
 
@@ -1361,6 +1439,7 @@ struct PlaybackClockReader<Content: View>: View {
         isScrubbing = false
         resumeAfterScrubbing = false
         scrubDestination = nil
+        pendingSeekTarget = nil
         scrubSeeks.cancel()
         seekLanding.reset()
         monitor?.cancel()
@@ -1377,6 +1456,7 @@ struct PlaybackClockReader<Content: View>: View {
         // Opened again, the channel plays from its live edge.
         liveHoldSince = nil
         liveHeldSeconds = 0
+        loading = false
         reconnecting = false
         isPlaying = false
         ambientGeneration = UUID()
@@ -1420,6 +1500,7 @@ struct PlaybackClockReader<Content: View>: View {
         monitor?.cancel()
         monitor = nil
         retryAt = nil
+        loading = false
         reconnecting = false
         isPlaying = false
         if duration > 0 { elapsed = duration }
@@ -1475,6 +1556,61 @@ struct PlaybackClockReader<Content: View>: View {
         case .esAdded: "listing its tracks"
         @unknown default: "in an unknown state"
         }
+    }
+}
+
+/// Remembers when a live provider's alternate transport (for example `.ts`
+/// after `.m3u8` stalled) delivered video, persisted per hashed host so later
+/// channels on the same provider open the working transport immediately without
+/// repeating a stalled transport cutover across sessions.
+@MainActor enum TVLiveTransportPreference {
+    private static let storageKey = "Lineup.tv.liveTransportByHost.v1"
+
+    private static func hostKey(_ url: URL) -> String? {
+        guard let host = url.host?.lowercased(), !host.isEmpty else { return nil }
+        return SHA256.hash(data: Data(host.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func read(from defaults: UserDefaults) -> [String: String] {
+        defaults.dictionary(forKey: storageKey) as? [String: String] ?? [:]
+    }
+
+    static func ordered(_ urls: [URL], defaults: UserDefaults = .standard) -> [URL] {
+        guard urls.count > 1,
+              let first = urls.first,
+              let key = hostKey(first),
+              let preferred = read(from: defaults)[key],
+              let index = urls.firstIndex(where: { $0.pathExtension.lowercased() == preferred }),
+              index > 0 else {
+            return urls
+        }
+        var reordered = urls
+        let winner = reordered.remove(at: index)
+        reordered.insert(winner, at: 0)
+        return reordered
+    }
+
+    static func recordSuccess(for url: URL, defaults: UserDefaults = .standard) {
+        guard let key = hostKey(url) else { return }
+        let ext = url.pathExtension.lowercased()
+        guard !ext.isEmpty else { return }
+        var map = read(from: defaults)
+        guard map[key] != ext else { return }
+        map[key] = ext
+        defaults.set(map, forKey: storageKey)
+    }
+
+    static func clearIfMatching(_ url: URL, defaults: UserDefaults = .standard) {
+        guard let key = hostKey(url) else { return }
+        let ext = url.pathExtension.lowercased()
+        var map = read(from: defaults)
+        guard map[key] == ext else { return }
+        map.removeValue(forKey: key)
+        defaults.set(map, forKey: storageKey)
+    }
+
+    static func reset(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: storageKey)
     }
 }
 
@@ -1590,6 +1726,12 @@ struct TVPlaybackStatus: View {
             ProgressView("Reconnecting…").padding(26)
                 .lineupLiquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous),
                                    fallback: Color.black.opacity(0.8), border: .clear)
+                .allowsHitTesting(false)
+        } else if controller.loading {
+            ProgressView("Loading stream…").padding(26)
+                .lineupLiquidGlass(RoundedRectangle(cornerRadius: 24, style: .continuous),
+                                   fallback: Color.black.opacity(0.8), border: .clear)
+                .allowsHitTesting(false)
         }
     }
 }

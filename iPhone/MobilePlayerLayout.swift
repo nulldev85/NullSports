@@ -70,6 +70,20 @@ extension View {
     }
 }
 
+/// Immediate tactile press feedback for fullscreen player controls so every
+/// tap registers on touch-down rather than feeling inert while playback
+/// commands settle asynchronously.
+struct MobilePlayerButtonStyle: ButtonStyle {
+    var pressedScale: CGFloat = 0.90
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? pressedScale : 1)
+            .opacity(configuration.isPressed ? 0.78 : 1)
+            .animation(.interactiveSpring(response: 0.16, dampingFraction: 0.72), value: configuration.isPressed)
+    }
+}
+
 private struct MobilePlayerGlass<S: InsettableShape>: ViewModifier {
     let shape: S
     let interactive: Bool

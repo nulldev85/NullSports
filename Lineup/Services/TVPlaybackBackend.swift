@@ -148,6 +148,9 @@ final class TVVLCBackend: TVPlaybackBackend {
         let value: (info: PlaybackMediaInfo, pictureSize: CGSize)
     }
     private var cachedMetadata: MetadataSnapshot?
+    private var cachedSubtitles: (at: TimeInterval, tracks: [PlaybackSubtitleTrack])?
+    private var cachedAudioTracks: (at: TimeInterval, tracks: [PlaybackStreamTrack])?
+    private var cachedVideoTracks: (at: TimeInterval, tracks: [PlaybackStreamTrack])?
     let surface = UIView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
 
     init() {
@@ -211,21 +214,39 @@ final class TVVLCBackend: TVPlaybackBackend {
         set { player.audio?.isMuted = newValue }
     }
     var subtitles: [PlaybackSubtitleTrack] {
-        PlaybackSubtitleTrack.vlcTracks(names: player.videoSubTitlesNames as? [String] ?? [],
+        let now = ProcessInfo.processInfo.systemUptime
+        if let cachedSubtitles, now - cachedSubtitles.at < 2, !cachedSubtitles.tracks.isEmpty {
+            return cachedSubtitles.tracks
+        }
+        let tracks = PlaybackSubtitleTrack.vlcTracks(names: player.videoSubTitlesNames as? [String] ?? [],
             indexes: (player.videoSubTitlesIndexes as? [NSNumber] ?? []).map(\.intValue))
+        cachedSubtitles = (now, tracks)
+        return tracks
     }
     var selectedSubtitleIndex: Int? {
         let value = Int(player.currentVideoSubTitleIndex)
         return value >= 0 ? value : nil
     }
     var audioTracks: [PlaybackStreamTrack] {
-        PlaybackStreamTrack.vlcTracks(names: player.audioTrackNames as? [String] ?? [],
+        let now = ProcessInfo.processInfo.systemUptime
+        if let cachedAudioTracks, now - cachedAudioTracks.at < 2, !cachedAudioTracks.tracks.isEmpty {
+            return cachedAudioTracks.tracks
+        }
+        let tracks = PlaybackStreamTrack.vlcTracks(names: player.audioTrackNames as? [String] ?? [],
             indexes: (player.audioTrackIndexes as? [NSNumber] ?? []).map(\.intValue), kind: "Audio")
+        cachedAudioTracks = (now, tracks)
+        return tracks
     }
     var selectedAudioIndex: Int? { Int(player.currentAudioTrackIndex) }
     var videoTracks: [PlaybackStreamTrack] {
-        PlaybackStreamTrack.vlcTracks(names: player.videoTrackNames as? [String] ?? [],
+        let now = ProcessInfo.processInfo.systemUptime
+        if let cachedVideoTracks, now - cachedVideoTracks.at < 2, !cachedVideoTracks.tracks.isEmpty {
+            return cachedVideoTracks.tracks
+        }
+        let tracks = PlaybackStreamTrack.vlcTracks(names: player.videoTrackNames as? [String] ?? [],
             indexes: (player.videoTrackIndexes as? [NSNumber] ?? []).map(\.intValue), kind: "Video")
+        cachedVideoTracks = (now, tracks)
+        return tracks
     }
     var selectedVideoIndex: Int? { Int(player.currentVideoTrackIndex) }
 
@@ -234,14 +255,22 @@ final class TVVLCBackend: TVPlaybackBackend {
 
     func load(url: URL, startPosition: TimeInterval?, isLive: Bool, expectedDuration: TimeInterval?, primary: Bool, matchContent: Bool) {
         cachedMetadata = nil
+        cachedSubtitles = nil
+        cachedAudioTracks = nil
+        cachedVideoTracks = nil
         chapterCache = nil
         if player.media != nil { player.stop() }
         let media = VLCMedia(url: url)
-        media.addOption(":network-caching=5000")
         if isLive {
-            media.addOption(":live-caching=5000")
+            // Balanced 2.5s live buffer: halves the previous 5s startup delay
+            // without starving bursty IPTV links or gluing disjoint live TCP
+            // reconnects onto a drifted PCR clock via http-reconnect.
+            media.addOption(":network-caching=2500")
+            media.addOption(":live-caching=2500")
             media.addOption(":audio-language=en")
         } else {
+            media.addOption(":network-caching=2500")
+            media.addOption(":http-reconnect=true")
             if let startPosition { media.addOption(":start-time=\(startPosition)") }
             // VLC reads each language by its code and its two-letter form.
             if !languages.audio.isEmpty { media.addOption(":audio-language=" + Self.vlcLanguages(languages.audio)) }
@@ -250,7 +279,6 @@ final class TVVLCBackend: TVPlaybackBackend {
             media.addOption(":freetype-background-opacity=\(subtitleStyle.background ? 204 : 0)")
             media.addOption(":freetype-background-color=0")
         }
-        media.addOption(":http-reconnect=true")
         player.media = media
         player.currentVideoSubTitleDelay = Int((subtitleStyle.delay * 1_000_000).rounded())
     }
@@ -272,12 +300,16 @@ final class TVVLCBackend: TVPlaybackBackend {
     }
 
     func addSubtitle(file: URL, title: String, language: String) -> Bool {
-        player.addPlaybackSlave(file, type: .subtitle, enforce: true) == 0
+        cachedSubtitles = nil
+        return player.addPlaybackSlave(file, type: .subtitle, enforce: true) == 0
     }
     func play() { player.play() }
     func pause() { player.pause() }
     func stop() {
         cachedMetadata = nil
+        cachedSubtitles = nil
+        cachedAudioTracks = nil
+        cachedVideoTracks = nil
         player.stop()
         player.media = nil
     }

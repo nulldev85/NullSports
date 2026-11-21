@@ -70,14 +70,12 @@ struct MobileGuidePlayer: View {
                 LineupAmbientGlow(frames: { await controller.captureFrame() },
                                   enabled: expanded && !controller.loading && controller.error == nil
                                     && !controller.pictureInPictureActive)
-                // A transparent tap-catching layer, separate from the embedded VLC
-                // view itself. VLCKit inserts its own rendering subview into that
-                // UIKit view, and a plain SwiftUI gesture attached directly to a
-                // UIViewRepresentable doesn't reliably win against touch handling
-                // that library owns — this overlay guarantees ours does.
-                Color.clear
+                // A transparent tap-catching layer above the non-interactive
+                // video host. Using a normal tap gesture ensures buttons and
+                // controls stacked above it always win taps cleanly.
+                Color.black.opacity(0.001)
                     .contentShape(Rectangle())
-                    .highPriorityGesture(TapGesture().onEnded { toggleControls() })
+                    .onTapGesture { toggleControls() }
                     .accessibilityLabel("Video. Tap to show playback controls")
                 if let error = controller.error {
                     VStack(spacing: 8) {
@@ -141,7 +139,7 @@ struct MobileGuidePlayer: View {
                 }
             }
             .foregroundStyle(LineupStyle.mediaText)
-            .animation(.easeInOut(duration: 0.2), value: controlsVisible)
+            .animation(.easeOut(duration: 0.16), value: controlsVisible)
             .animation(.easeInOut(duration: 0.2), value: controller.failoverNotice)
             .animation(.easeInOut(duration: 0.2), value: controller.catchUpSource != nil)
             .animation(.easeInOut(duration: 0.25), value: channelBanner)
@@ -342,9 +340,10 @@ struct MobileGuidePlayer: View {
                             controller.skip(by: -CatchUpPolicy.skip)
                         }
                     }
-                    control(controller.isPlaying ? "pause.fill" : "play.fill",
-                            label: controller.isPlaying ? "Pause" : "Play", size: expanded ? 72 : 42) {
+                    control(controller.showsPauseControl ? "pause.fill" : "play.fill",
+                            label: controller.showsPauseControl ? "Pause" : "Play", size: expanded ? 72 : 42) {
                         controller.toggle()
+                        showControls()
                     }
                     if controller.catchUpSource != nil {
                         // Live there is nowhere further on to go; only a
@@ -492,9 +491,9 @@ struct MobileGuidePlayer: View {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .frame(width: 44, height: 46)
-                .contentShape(Rectangle())
+                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MobilePlayerButtonStyle())
         .accessibilityLabel(label)
     }
 
@@ -594,7 +593,7 @@ struct MobileGuidePlayer: View {
                 .frame(width: size, height: size)
                 .contentShape(Circle())
                 .lineupPlayerControlGlass(Circle(), prominent: size >= 42 && symbol.hasSuffix(".fill") && (symbol.hasPrefix("play") || symbol.hasPrefix("pause")))
-        }.buttonStyle(.plain).accessibilityLabel(label)
+        }.buttonStyle(MobilePlayerButtonStyle()).accessibilityLabel(label)
     }
 
     private func timeRange(_ start: Date, _ end: Date) -> some View {
@@ -616,9 +615,10 @@ struct MobileGuidePlayer: View {
                     .lineLimit(1).minimumScaleFactor(0.75)
             }
             .padding(.horizontal, 9).padding(.vertical, 7)
+            .contentShape(Capsule())
             .lineupPlayerControlGlass(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MobilePlayerButtonStyle(pressedScale: 0.94))
         .accessibilityLabel(badgeAccessibilityLabel)
     }
 

@@ -3,6 +3,10 @@ import UIKit
 import LineupAetherPlayback
 import LineupMPVPlayback
 
+private final class TVSettingsSidebarFocusTracker {
+    var leftAt: TimeInterval = 0
+}
+
 /// A single translucent settings surface, with stable category navigation and
 /// a separately scrolling list. All actions still use their original stores.
 struct AccountView: View {
@@ -10,11 +14,13 @@ struct AccountView: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(MediaLibrary.self) private var media
     @Environment(\.tvTabIsActive) private var tabIsActive
+    @Environment(\.tvTabBar) private var tabBar
     @StateObject private var browseRows = TVLibraryBrowseRows()
     @EnvironmentObject private var cloud: CloudSettingsSync
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var category: TVSettingsCategory
     @FocusState private var sidebarFocus: TVSettingsCategory?
+    @State private var sidebarTracker = TVSettingsSidebarFocusTracker()
     @Namespace private var settingsFocus
     @State private var addingProvider = false
     @State private var choosingProvider = false
@@ -154,14 +160,28 @@ struct AccountView: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .modifier(TVSettingsGlass())
             .focusScope(settingsFocus)
+            .focusSection()
+            .defaultFocus($sidebarFocus, category, priority: .userInitiated)
             .padding(.horizontal, layout.margin)
             .padding(.top, 28).padding(.bottom, 28)
         }
         .background(TVSettingsBackdrop().ignoresSafeArea())
         .foregroundStyle(TVSettingsPalette.text)
-        .onChange(of: sidebarFocus) { _, value in
-            guard let value, category != value else { return }
-            category = value
+        .onChange(of: sidebarFocus) { from, value in
+            let now = ProcessInfo.processInfo.systemUptime
+            guard let value else { sidebarTracker.leftAt = now; return }
+            // Returning Left from the sub-settings column (or Down from the tab
+            // bar) must land on the active category rather than whichever row
+            // happened to align horizontally with the sub-setting row.
+            if from == nil, now - sidebarTracker.leftAt >= 0.2, value != category {
+                sidebarFocus = category
+                return
+            }
+            if category != value { category = value }
+        }
+        .onChange(of: tabBar?.focusSettingsSidebar ?? 0) { _, token in
+            guard token > 0, tabIsActive, sidebarFocus == nil else { return }
+            sidebarFocus = category
         }
     }
 
@@ -201,6 +221,7 @@ struct AccountView: View {
             Spacer(minLength: 0)
         }
         .focusSection()
+        .defaultFocus($sidebarFocus, category, priority: .userInitiated)
         .accessibilityIdentifier("settings.sidebar")
     }
 
