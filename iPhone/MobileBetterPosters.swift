@@ -1,20 +1,44 @@
 import SwiftUI
 
 /// Keep the ordinary poster visible during a provider request and on failure.
-/// Both downloads go through the same bounded, off-main artwork cache.
+/// Both downloads go through the same bounded, off-main artwork cache, and the
+/// fallback view keeps a stable identity even when a BetterPosters URL arrives
+/// asynchronously so an in-flight download is never torn down mid-flight.
 struct MobileRatedPoster<Content: View>: View {
     let url: URL?
     let fallback: URL?
+    var secondaryFallback: URL? = nil
     let pixels: Int
-    @ViewBuilder var content: (Image?) -> Content
+    private let content: (Image?, Bool) -> Content
+
+    init(url: URL?, fallback: URL?, secondaryFallback: URL? = nil, pixels: Int,
+         @ViewBuilder content: @escaping (Image?) -> Content) {
+        self.url = url
+        self.fallback = fallback
+        self.secondaryFallback = secondaryFallback
+        self.pixels = pixels
+        self.content = { image, _ in content(image) }
+    }
+
+    init(url: URL?, fallback: URL?, secondaryFallback: URL? = nil, pixels: Int,
+         @ViewBuilder content: @escaping (Image?, Bool) -> Content) {
+        self.url = url
+        self.fallback = fallback
+        self.secondaryFallback = secondaryFallback
+        self.pixels = pixels
+        self.content = content
+    }
 
     var body: some View {
-        if let url, url != fallback {
-            MobileLibraryArtView(url: fallback, pixels: pixels) { ordinary in
-                MobileLibraryArtView(url: url, pixels: pixels) { rated in content(rated ?? ordinary) }
+        MobileLibraryArtView(url: fallback, fallbackURL: secondaryFallback, pixels: pixels) { ordinary, ordinaryLoading in
+            if let url, url != fallback {
+                MobileLibraryArtView(url: url, pixels: pixels) { rated, ratedLoading in
+                    let resolved = rated ?? ordinary
+                    content(resolved, resolved == nil && (ordinaryLoading || ratedLoading))
+                }
+            } else {
+                content(ordinary, ordinary == nil && ordinaryLoading)
             }
-        } else {
-            MobileLibraryArtView(url: fallback, pixels: pixels, content: content)
         }
     }
 }

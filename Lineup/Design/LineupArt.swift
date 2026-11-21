@@ -114,10 +114,24 @@ enum LineupArt {
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         // A shelf arriving is a dozen pictures from one server at once, and
         // the default few connections made the last of them wait for the
-        // first.
+        // first. Bound request timeouts so one stalled socket cannot block a
+        // host slot for a full minute.
         configuration.httpMaximumConnectionsPerHost = 10
+        configuration.timeoutIntervalForRequest = 18
+        configuration.timeoutIntervalForResource = 45
         return URLSession(configuration: configuration)
     }()
+
+    /// Parses a poster/artwork string into a URL, percent-encoding stray spaces
+    /// or non-ASCII characters common in IPTV VOD and third-party catalogs.
+    static func resolvedURL(_ raw: String?) -> URL? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        if let url = URL(string: trimmed) { return url }
+        if let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed) {
+            return URL(string: encoded)
+        }
+        return nil
+    }
 
     private static func key(_ url: URL, _ pixels: Int) -> NSString {
         "\(url.absoluteString)|\(pixels)" as NSString
@@ -136,6 +150,12 @@ enum LineupArt {
     static func ready(_ url: URL?, pixels: Int) -> UIImage? {
         guard let url else { return nil }
         return cache.object(forKey: key(url, pixels))
+    }
+
+    /// True when the server definitively reported this artwork does not exist.
+    static func isPermanentlyMissing(_ url: URL?, pixels: Int) -> Bool {
+        guard let url else { return true }
+        return missing.contains(key(url, pixels) as String)
     }
 
     /// A carousel can change once the picture is decoded, or the server has
@@ -163,34 +183,56 @@ enum LineupArt {
         return await running.task(key) { await fetch(url, pixels: pixels, key: key) }.value
     }
 
-    /// One trip for one picture: bytes, then pixels, then kept.
+    /// One trip (with one automatic retry on transient failure) for one
+    /// picture: bytes, then pixels, then kept.
     private static func fetch(_ url: URL, pixels: Int, key: String) async -> UIImage? {
-        do {
-            // A file:// or data: URL reaches this too; URLSession handles both.
-            let (data, response) = try await session.data(from: url)
-            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-                // Only an answer that will not change is worth remembering.
-                // The server saying it has no such picture is one; the server
-                // having a bad minute is not, and writing those down would
-                // empty every shelf in the app for anyone who opened it on a
-                // weak connection.
-                if http.statusCode == 404 || http.statusCode == 410 { missing.insert(key) }
+        for attempt in 0..<2 {
+            do {
+                // A file:// or data: URL reaches this too; URLSession handles both.
+                let (data, response) = try await session.data(from: url)
+                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                    // Only an answer that will not change is worth remembering.
+                    // The server saying it has no such picture is one; the server
+                    // having a bad minute (429/5xx) is transient and retried once.
+                    if http.statusCode == 404 || http.statusCode == 410 {
+                        missing.insert(key)
+                        return nil
+                    }
+                    if attempt == 0 && (http.statusCode == 429 || (500..<600).contains(http.statusCode)) {
+                        try? await Task.sleep(for: .milliseconds(450))
+                        continue
+                    }
+                    return nil
+                }
+                if let image = await decode(data, to: pixels) {
+                    let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+                    cache.setObject(image, forKey: key as NSString, cost: cost)
+                    return image
+                }
+                // Only permanently mark missing when the server actually sent a
+                // non-empty image MIME payload that could not be decoded. An
+                // empty body or HTML error page from a proxy/CDN is transient.
+                let mime = (response as? HTTPURLResponse)?.mimeType?.lowercased() ?? response.mimeType?.lowercased() ?? ""
+                if !data.isEmpty && mime.hasPrefix("image/") {
+                    missing.insert(key)
+                    return nil
+                }
+                if attempt == 0 {
+                    try? await Task.sleep(for: .milliseconds(450))
+                    continue
+                }
+                return nil
+            } catch {
+                // Cancelled, timed out, or dropped connection: retry once on
+                // transient network error, and never remember it as missing.
+                if attempt == 0 && !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(450))
+                    continue
+                }
                 return nil
             }
-            guard let image = await decode(data, to: pixels) else {
-                // Bytes that are not a picture will not become one.
-                missing.insert(key)
-                return nil
-            }
-            let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
-            cache.setObject(image, forKey: key as NSString, cost: cost)
-            return image
-        } catch {
-            // Cancelled, timed out, no route to the host: none of it is an
-            // answer about the picture, so none of it is remembered. Asking
-            // again later is the whole point.
-            return nil
         }
+        return nil
     }
 
     /// Decoding happens here and not at the point it is drawn, which is the

@@ -161,8 +161,29 @@ struct MediaServersView: View {
             .navigationDestination(isPresented: $collectionsOpen) { MobileLibraryCollectionsView() }
             .toolbar {
                 LineupToolbarItem(placement: .primaryAction) {
-                    MobileDropdownButton(isOpen: optionsOpen, label: "Choose a Library") {
-                        setOptions(!optionsOpen)
+                    HStack(spacing: 8) {
+                        if serverLibraryProfile == nil {
+                            Button {
+                                optionsOpen = false
+                                searchingLibrary = true
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 36, height: 36)
+                                    .background {
+                                        ZStack {
+                                            Circle().fill(.ultraThinMaterial)
+                                            Circle().fill(Color.black.opacity(0.42))
+                                        }
+                                    }
+                                    .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.8))
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Search Library")
+                        }
+                        librarySwitcherPill
                     }
                 }
             }
@@ -228,6 +249,53 @@ struct MediaServersView: View {
     }
 
     #if !os(tvOS)
+    private var librarySwitcherPill: some View {
+        let server = serverLibraryProfile
+        let title = server?.name ?? "Lineup"
+        let tintColors = server.map { Self.libraryRowColors(for: $0.brand) }
+            ?? [LineupStyle.highlight, LineupStyle.highlight.opacity(0.65)]
+        return Button {
+            setOptions(!optionsOpen)
+        } label: {
+            HStack(spacing: 6) {
+                if let server {
+                    MediaServerLogo(brand: server.brand)
+                        .frame(width: 16, height: 16)
+                } else {
+                    Image("LineupBrandMark")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 16, height: 16)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                }
+                Text(title)
+                    .font(.inter(12.5, .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.74))
+                    .rotationEffect(.degrees(optionsOpen ? 180 : 0))
+            }
+            .padding(.horizontal, 11).frame(height: 36)
+            .background {
+                ZStack {
+                    Capsule().fill(.ultraThinMaterial)
+                    Capsule().fill(Color.black.opacity(0.46))
+                    Capsule().fill(
+                        LinearGradient(colors: tintColors.map { $0.opacity(0.24) },
+                                       startPoint: .leading, endPoint: .trailing)
+                    )
+                }
+            }
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.20), lineWidth: 0.8))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Choose a Library, currently \(title)")
+        .accessibilityValue(optionsOpen ? "Expanded" : "Collapsed")
+    }
+
     private func setOptions(_ open: Bool) {
         guard optionsOpen != open else { return }
         withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.86)) {
@@ -1035,7 +1103,7 @@ struct MediaCatalogsScreen: View {
             }
             .padding(.horizontal, horizontalPadding)
             #else
-            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: nil, divided: false) {
+            PhoneShelfHeader(title: media.shelfTitle(catalog), symbol: Self.shelfSymbol(catalog.id), divided: false) {
                 // Which server a shelf comes from, once there is more than
                 // one: two of them can each have a "Trending Movies".
                 if let server = media.serverName(for: catalog) {
@@ -1044,19 +1112,26 @@ struct MediaCatalogsScreen: View {
                             MediaServerLogo(brand: brand).frame(width: 11, height: 11)
                         }
                         Text(server.uppercased())
-                            .font(.inter(10, .bold)).tracking(1.2)
-                            .foregroundStyle(LineupPanelStyle.quiet)
+                            .font(.inter(9.5, .heavy)).tracking(0.8)
+                            .foregroundStyle(Color.white.opacity(0.72))
                             .lineLimit(1)
                     }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.white.opacity(0.07), in: Capsule())
                     .layoutPriority(-1)
                 }
                 NavigationLink(value: catalog.root) {
                     HStack(spacing: 3) {
                         Text("See All")
-                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .heavy, design: .rounded))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10.5, weight: .heavy, design: .rounded))
+                            .foregroundStyle(LineupStyle.highlight)
                     }
-                    .font(.inter(14, .bold))
-                    .foregroundStyle(LineupStyle.highlight)
+                    .font(.inter(12, .bold))
+                    .foregroundStyle(Color.white.opacity(0.88))
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.7))
                     .fixedSize()
                 }.lineupFlatButton()
             }
@@ -1709,7 +1784,7 @@ struct MediaCatalogsScreen: View {
             .padding(.horizontal, horizontalPadding)
             .lineupFocusRegion()
             #else
-            PhoneShelfHeader(title: title, symbol: nil, divided: false) { EmptyView() }
+            PhoneShelfHeader(title: title, symbol: Self.shelfSymbol(id), divided: false) { EmptyView() }
             #endif
             #if !os(tvOS)
             let shape = MediaArtShape.forItems(items, shelfID: id)
@@ -1930,19 +2005,38 @@ struct MediaCatalogsScreen: View {
 /// the rows sit straight on the page, without one.
 struct PhoneShelfHeader<Accessory: View>: View {
     let title: String
-    /// The Library's shelves go without one: their names are the heading.
     let symbol: String?
     var divided = true
     @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
         VStack(spacing: 0) {
-            LineupPanelHeader(title: title, systemImage: symbol) {
-                HStack(spacing: 10) { accessory() }
-            }
-            .padding(.top, divided ? 12 : 4).padding(.bottom, divided ? 8 : 2)
             if divided {
+                LineupPanelHeader(title: title, systemImage: symbol) {
+                    HStack(spacing: 10) { accessory() }
+                }
+                .padding(.top, 12).padding(.bottom, 8)
                 Rectangle().fill(LineupPanelStyle.divider).frame(height: 1)
+            } else {
+                HStack(spacing: 9) {
+                    if let symbol {
+                        Image(systemName: symbol)
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(LineupStyle.highlight)
+                            .frame(width: 24, height: 24)
+                            .background(LineupStyle.highlight.opacity(0.16),
+                                        in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .accessibilityHidden(true)
+                    }
+                    Text(title)
+                        .font(.inter(17, .heavy))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 8)
+                    HStack(spacing: 8) { accessory() }
+                }
+                .padding(.top, 4).padding(.bottom, 2)
             }
         }
         .padding(.horizontal, LineupPanelStyle.inset)

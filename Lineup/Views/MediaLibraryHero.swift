@@ -224,8 +224,9 @@ struct MediaLibraryHero: View {
                         .frame(width: readableWidth, alignment: .center)
                         .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
                     #else
+                    heroEyebrow(rank: min(index, max(0, items.count - 1)) + 1)
                     MobileFanartTitle(item: item, width: readableWidth,
-                                      height: min(100, titleSize * 2.2), alignment: .center) {
+                                      height: min(92, titleSize * 2.1), alignment: .center) {
                         Text(item.name)
                             .font(.inter(titleSize, .bold))
                             .foregroundStyle(.white)
@@ -272,6 +273,9 @@ struct MediaLibraryHero: View {
                         onOpen(item)
                     }
                     .frame(width: min(buttonMaxWidth, contentWidth), alignment: .center)
+                    #else
+                    phoneHeroActions(for: item)
+                        .padding(.top, 4)
                     #endif
                 }
                 // This frame is explicit rather than an ideal/max width. A
@@ -382,12 +386,59 @@ struct MediaLibraryHero: View {
     static let phoneHeroAspect: CGFloat = 7 / 8
     #endif
 
+    #if !os(tvOS)
+    private func heroEyebrow(rank: Int) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(LineupStyle.highlight)
+                .frame(width: 5, height: 5)
+            Text("\(catalog.title.uppercased()) · #\(rank)")
+                .font(.inter(9.5, .heavy)).tracking(0.8)
+                .foregroundStyle(Color.white.opacity(0.86))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .background(Color.black.opacity(0.46), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.7))
+    }
+
+    private func phoneHeroActions(for item: MediaItem) -> some View {
+        let isFav = item.isFavorite || media.isLocalFavorite(item)
+        return HStack(spacing: 10) {
+            Button { onOpen(item) } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 12, weight: .bold))
+                    Text(item.hasDetailPage ? "View & Watch" : "Watch Now")
+                        .font(.inter(13.5, .bold))
+                }
+                .foregroundStyle(.black)
+                .padding(.horizontal, 18).frame(height: 38)
+                .background(Color.white, in: Capsule())
+                .shadow(color: .black.opacity(0.32), radius: 10, y: 4)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                let next = !isFav
+                media.setLocalFavorite(next, for: item)
+                Task { await media.setFavorite(next, for: item) }
+            } label: {
+                Image(systemName: isFav ? "heart.fill" : "heart")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(isFav ? LineupStyle.highlight : .white)
+                    .frame(width: 38, height: 38)
+                    .background(Color.white.opacity(0.14), in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.8))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isFav ? "Remove \(item.name) from Favorites" : "Add \(item.name) to Favorites")
+        }
+    }
+    #endif
+
     private func artworkURL(for item: MediaItem) -> URL? {
-        #if os(tvOS)
         media.backdropURL(for: item, width: artWidth) ?? media.imageURL(for: item, width: artWidth)
-        #else
-        media.backdropURL(for: item, width: artWidth)
-        #endif
     }
 
     private func rotate(pixels: Int) async {
@@ -432,9 +483,9 @@ struct MediaLibraryHero: View {
     private var artWidth: Int { 1100 }
     private var heroHorizontalPadding: CGFloat { 22 }
     // Artwork runs behind the status/navigation area; copy begins below it.
-    private var heroTopPadding: CGFloat { 86 }
-    private var heroBottomPadding: CGFloat { 58 }
-    private var heroSpacing: CGFloat { 7 }
+    private var heroTopPadding: CGFloat { 82 }
+    private var heroBottomPadding: CGFloat { 42 }
+    private var heroSpacing: CGFloat { 8 }
     private var titleSize: CGFloat { 34 }
     private var metaSize: CGFloat { 13 }
     private var overviewSize: CGFloat { 14 }
@@ -446,15 +497,21 @@ struct MediaLibraryHero: View {
     private var pageIndicator: some View {
         HStack(spacing: 5) {
             ForEach(items.indices, id: \.self) { page in
+                #if os(tvOS)
                 Capsule()
                     .fill(.white.opacity(page == index ? 0.92 : 0.3))
                     .frame(width: page == index ? 18 : 5, height: 5)
+                #else
+                Capsule()
+                    .fill(page == index ? LineupStyle.highlight : Color.white.opacity(0.32))
+                    .frame(width: page == index ? 20 : 5, height: 5)
+                #endif
             }
         }
         #if os(tvOS)
         .padding(.bottom, 28)
         #else
-        .padding(.bottom, 18)
+        .padding(.bottom, 14)
         #endif
         .animation(.easeOut(duration: 0.2), value: index)
         .accessibilityHidden(true)

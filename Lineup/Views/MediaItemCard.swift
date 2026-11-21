@@ -281,7 +281,7 @@ struct MediaItemCard: View {
             artworkFrame(playback: playback)
                 .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
-                    .stroke(LineupStyle.line, lineWidth: 1))
+                    .stroke(posterBorderColor, lineWidth: 1))
                 .lineupFocusLayer(artworkIsFocused, in: RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
                 // An episode the server does not have yet: the day it airs.
                 .overlay(alignment: .topLeading) {
@@ -296,12 +296,22 @@ struct MediaItemCard: View {
                 }
                 .overlay(alignment: .topTrailing) {
                     if playback?.watched == true {
+                        #if os(tvOS)
                         Image(systemName: "checkmark")
                             .font(.system(size: 11, weight: .heavy, design: .rounded))
                             .foregroundStyle(LineupStyle.background)
                             .frame(width: 25, height: 25)
                             .background(LineupStyle.lightPurple, in: Circle())
                             .padding(9)
+                        #else
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .black, design: .rounded))
+                            .foregroundStyle(Color(red: 0.20, green: 0.86, blue: 0.48))
+                            .frame(width: 24, height: 24)
+                            .background(Color.black.opacity(0.74), in: Circle())
+                            .overlay(Circle().strokeBorder(Color(red: 0.20, green: 0.86, blue: 0.48).opacity(0.55), lineWidth: 1))
+                            .padding(8)
+                        #endif
                     }
                 }
             #if os(tvOS)
@@ -314,18 +324,21 @@ struct MediaItemCard: View {
                 // of them is all one kind, so nothing below has to line up
                 // with a film's year, and no empty lines are held for it.
                 // One line, so a row of them is only as tall as it needs.
-                Text(item.name).font(titleFont).lineLimit(1)
+                Text(item.name).font(titleFont).foregroundStyle(Color.white.opacity(0.95)).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 if let count = groupingCount {
                     Text(count)
                         .font(.inter(.caption2, .medium))
-                        .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                        .foregroundStyle(Color.white.opacity(0.54))
                         .lineLimit(1)
                 }
             } else {
                 // Two lines are held whether or not the title needs them, so
                 // the line under it lands on the same baseline across a row.
-                Text(shape.showTitle(for: item) ?? item.name).font(titleFont).lineLimit(2, reservesSpace: true)
+                Text(shape.showTitle(for: item) ?? item.name)
+                    .font(titleFont)
+                    .foregroundStyle(Color.white.opacity(0.95))
+                    .lineLimit(2, reservesSpace: true)
                     .frame(height: titleHeight, alignment: .topLeading)
                 // The television shows a poster and its title and nothing
                 // more; the phone keeps the line on every card, so a row
@@ -341,7 +354,7 @@ struct MediaItemCard: View {
                     }
                 }
                 .font(.inter(.caption2, .medium))
-                .foregroundStyle(LineupStyle.lightPurple.opacity(0.58))
+                .foregroundStyle(Color.white.opacity(0.52))
                 .lineLimit(1)
                 .frame(height: metadataHeight, alignment: .topLeading)
             }
@@ -410,9 +423,16 @@ struct MediaItemCard: View {
                 #else
                 let art = Self.art(for: item, shape: shape, in: media, scale: displayScale)
                 MobileRatedPoster(url: shape.isPoster ? media.betterPosterURL(for: item) : nil,
-                                  fallback: art.url, pixels: art.pixels) { loaded in
-                    if let image = loaded { image.resizable().scaledToFill() }
-                    else { Image(systemName: item.isFolder ? "rectangle.stack.fill" : "film.fill").font(.inter(.largeTitle)) }
+                                  fallback: art.url,
+                                  secondaryFallback: media.fallbackPosterURL(for: item),
+                                  pixels: art.pixels) { loaded, isLoading in
+                    if let image = loaded {
+                        image.resizable().scaledToFill()
+                    } else {
+                        MobilePosterPlaceholder(title: shape.showTitle(for: item) ?? item.name,
+                                                isFolder: item.isFolder,
+                                                isLoading: isLoading)
+                    }
                 }
                 #endif
             }
@@ -450,12 +470,21 @@ struct MediaItemCard: View {
         if shape.isPoster, item.type == "Episode" {
             url = media.seriesPosterURL(for: item, width: size.width)
                 ?? media.series(of: item).flatMap { media.imageURL(for: $0, width: size.width) }
+                ?? media.imageURL(for: item, width: size.width)
         } else {
             url = media.imageURL(for: item, width: size.width)
         }
         return (url, size.longestEdge)
     }
     #endif
+
+    private var posterBorderColor: Color {
+        #if os(tvOS)
+        LineupStyle.line
+        #else
+        Color.white.opacity(0.09)
+        #endif
+    }
 
     private static func artWidth(_ shape: MediaArtShape) -> CGFloat {
         #if os(tvOS)
@@ -588,6 +617,51 @@ struct MediaArtworkProgress: View {
     private var rowToEdge: CGFloat { 8 }
     #endif
 }
+
+#if !os(tvOS)
+/// Smooth breathing skeleton while a poster is actively loading, settling into
+/// a tasteful typographic emblem card only when no artwork is available.
+private struct MobilePosterPlaceholder: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let title: String
+    let isFolder: Bool
+    let isLoading: Bool
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.11, green: 0.115, blue: 0.145), Color(red: 0.065, green: 0.07, blue: 0.09)],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            if isLoading {
+                if reduceMotion {
+                    Color.white.opacity(0.05)
+                } else {
+                    Color.white.opacity(0.07)
+                        .phaseAnimator([false, true]) { layer, bright in
+                            layer.opacity(bright ? 0.12 : 0.03)
+                        } animation: { _ in
+                            .easeInOut(duration: 0.95)
+                        }
+                }
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: isFolder ? "rectangle.stack.fill" : "film")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.30))
+                    Text(title)
+                        .font(.inter(11.5, .bold))
+                        .foregroundStyle(Color.white.opacity(0.46))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(3)
+                        .padding(.horizontal, 12)
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+#endif
 
 /// The app's progress bar on the art: the accent on a grey track. Along the
 /// card's foot it runs flush, squared off and rounded only by the card's own

@@ -229,6 +229,32 @@ final class MobileLibraryShelfTests: XCTestCase {
         XCTAssertTrue(fixture.media.favoriteMedia.isEmpty)
     }
 
+    func testArtworkFallbackAndURLResolutionRecoversFromFailedPrimaryPoster() async {
+        XCTAssertEqual(LineupArt.resolvedURL("https://img.invalid/poster.jpg")?.absoluteString,
+                       "https://img.invalid/poster.jpg")
+        XCTAssertEqual(LineupArt.resolvedURL("  https://img.invalid/my poster.jpg ")?.absoluteString,
+                       "https://img.invalid/my%20poster.jpg")
+        XCTAssertNil(LineupArt.resolvedURL("   "))
+        XCTAssertNil(LineupArt.resolvedURL(nil))
+
+        let model = MobileLibraryArtwork()
+        let primary = URL(string: "https://server.invalid/missing-poster.jpg")!
+        let fallback = URL(string: "https://tmdb.invalid/backup-poster.jpg")!
+        let request = MobileLibraryArtworkRequest(url: primary, pixels: 400, fallbackURL: fallback)
+        let backupImage = UIImage(systemName: "film")!
+        var attempted: [URL] = []
+
+        await model.load(request, cached: { _, _ in nil }, fetch: { url, _ in
+            attempted.append(url)
+            return url == fallback ? backupImage : nil
+        })
+
+        XCTAssertEqual(attempted, [primary, fallback])
+        XCTAssertTrue(model.image(for: request) === backupImage)
+        XCTAssertTrue(model.hasSettled(for: request))
+        XCTAssertFalse(model.isLoading(for: request))
+    }
+
     private func titles(_ count: Int, type: String = "Movie") -> [MediaItem] {
         (0..<count).map { title("title-\($0)", type: type) }
     }

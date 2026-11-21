@@ -44,13 +44,17 @@ private struct MobileServerLibraryContent: View {
     /// its teams' colours, rather than painted on anything.
     private var accent: Color { LineupPanelStyle.quiet }
 
-    /// What is chosen: the server's colours faint across the app's card.
+    /// What is chosen: the server's colours rich across a dark card.
     private func chosenFill<S: Shape>(_ shape: S) -> some View {
         ZStack {
-            shape.fill(LineupStyle.surface)
-            shape.fill(LinearGradient(colors: brand.cardTints.map { $0.opacity(0.19) },
+            shape.fill(Color(red: 0.10, green: 0.105, blue: 0.13))
+            shape.fill(LinearGradient(colors: brand.cardTints.map { $0.opacity(0.32) },
                                       startPoint: .leading, endPoint: .trailing))
         }
+    }
+
+    private var brandStroke: Color {
+        (brand.cardTints.first ?? LineupStyle.highlight).opacity(0.46)
     }
 
     /// Three across on a phone held upright, and as many more as fit on a
@@ -184,33 +188,36 @@ private struct MobileServerLibraryContent: View {
     }
 
     private func title(chevron: Bool) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Text(shownTitle)
-                .font(.inter(32, .heavy)).foregroundStyle(LineupStyle.text)
-                .lineLimit(1).minimumScaleFactor(0.7)
+                .font(.inter(28, .black)).tracking(-0.4).foregroundStyle(.white)
+                .lineLimit(1).minimumScaleFactor(0.75)
             if chevron {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 18, weight: .bold)).foregroundStyle(accent)
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.72))
+                    .frame(width: 24, height: 24)
+                    .background(Color.white.opacity(0.09), in: Circle())
             }
         }
     }
 
     private var tabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ForEach(ServerLibraryModel.Tab.allCases) { tab in
                     let chosen = model.tab == tab
                     Button {
                         model.tab = tab
                     } label: {
                         Text(tab.title)
-                            .font(.inter(17, chosen ? .bold : .semibold))
-                            .foregroundStyle(chosen ? LineupStyle.text : LineupPanelStyle.quiet)
-                            .padding(.horizontal, 22).frame(height: 44)
+                            .font(.inter(14, chosen ? .bold : .semibold))
+                            .foregroundStyle(chosen ? .white : Color.white.opacity(0.62))
+                            .padding(.horizontal, 16).frame(height: 36)
                             .background {
-                                if chosen { chosenFill(Capsule()) } else { Capsule().fill(LineupStyle.surface) }
+                                if chosen { chosenFill(Capsule()) } else { Capsule().fill(Color.white.opacity(0.065)) }
                             }
-                            .overlay(Capsule().strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+                            .overlay(Capsule().strokeBorder(chosen ? brandStroke : Color.white.opacity(0.08), lineWidth: chosen ? 1 : 0.75))
                             .animation(.easeOut(duration: 0.18), value: chosen)
                     }
                     .buttonStyle(.plain)
@@ -276,7 +283,7 @@ private struct MobileServerLibraryContent: View {
     }
 
     private func rowTitle(_ row: ServerLibraryRow) -> some View {
-        Text(row.title).font(.inter(24, .heavy)).foregroundStyle(LineupStyle.text).lineLimit(1)
+        Text(row.title).font(.inter(20, .heavy)).foregroundStyle(.white).lineLimit(1)
     }
 
     // MARK: Library
@@ -381,19 +388,19 @@ private struct MobileServerLibraryContent: View {
     }
 
     private func control(symbol: String, title: String, detail: String?, active: Bool = false) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol).font(.system(size: 16, weight: .bold))
-            Text(title).font(.inter(17, .semibold))
+        HStack(spacing: 6) {
+            Image(systemName: symbol).font(.system(size: 13, weight: .bold))
+            Text(title).font(.inter(13.5, .semibold))
             if let detail {
-                Text(detail).font(.inter(13, .semibold)).foregroundStyle(LineupPanelStyle.quiet)
+                Text(detail).font(.inter(12, .semibold)).foregroundStyle(Color.white.opacity(0.56))
             }
         }
-        .foregroundStyle(LineupStyle.text)
-        .padding(.horizontal, 16).frame(height: 44)
+        .foregroundStyle(active ? .white : Color.white.opacity(0.88))
+        .padding(.horizontal, 13).frame(height: 36)
         .background {
-            if active { chosenFill(Capsule()) } else { Capsule().fill(LineupStyle.surface) }
+            if active { chosenFill(Capsule()) } else { Capsule().fill(Color.white.opacity(0.065)) }
         }
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+        .overlay(Capsule().strokeBorder(active ? brandStroke : Color.white.opacity(0.08), lineWidth: active ? 1 : 0.75))
     }
 
     // MARK: Collections

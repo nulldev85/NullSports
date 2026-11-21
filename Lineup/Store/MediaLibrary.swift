@@ -3967,9 +3967,21 @@ final class MediaLibrary {
         }
         // A source that names its artwork outright is asked for that address
         // directly, and the server is never reached at all.
-        if let poster = item.posterURL { return URL(string: poster) }
+        if let poster = item.posterURL { return LineupArt.resolvedURL(poster) }
         guard let profile = profile(for: item) else { return nil }
         return try? client(for: profile).artworkURL(for: item, type: "primary", maxWidth: width)
+    }
+
+    /// Secondary poster URL used when a server's own `/Images/Primary` endpoint
+    /// 404s or fails while a TMDB/metadata poster is already known for the item.
+    func fallbackPosterURL(for item: MediaItem) -> URL? {
+        let item = displayItem(item)
+        if let poster = LineupArt.resolvedURL(item.posterURL) { return poster }
+        if item.type == "Episode", let series = series(of: item),
+           let seriesPoster = LineupArt.resolvedURL(displayItem(series).posterURL) {
+            return seriesPoster
+        }
+        return nil
     }
 
     /// Episode primary art is normally a 16:9 still. A mixed Continue Watching
@@ -3981,7 +3993,7 @@ final class MediaLibrary {
             _ = providerCatalogRevision
             guard let ready = providerVOD.ready(episode.serverID),
                   let cover = ready.index.show(seriesID: seriesID, in: ready.catalog)?.cover else { return nil }
-            return URL(string: cover)
+            return LineupArt.resolvedURL(cover)
         }
         guard episode.type == "Episode", episode.seriesID != nil,
               let profile = profile(for: episode) else { return nil }
@@ -3992,7 +4004,7 @@ final class MediaLibrary {
     // every hero, so each of these answers nil unless the item claims one.
     func backdropURL(for item: MediaItem, width: Int = 1280) -> URL? {
         let item = displayItem(item)
-        if let backdrop = item.backdropURL { return URL(string: backdrop) }
+        if let backdrop = item.backdropURL { return LineupArt.resolvedURL(backdrop) }
         guard item.hasBackdrop, let profile = profile(for: item) else { return nil }
         return try? client(for: profile).artworkURL(for: item, type: "backdrop", maxWidth: width)
     }
