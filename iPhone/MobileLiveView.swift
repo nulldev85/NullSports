@@ -16,6 +16,7 @@ struct MobileLiveView: View {
     @State private var league: SportsLeague?
     @State private var soccerCompetition: String?
     @State private var onlyFollowed = false
+    @State private var finalsExpanded = false
     @StateObject private var gameReplays = MobileGameReplayStore()
     @State private var selectedGameReplay: MobileGameReplaySelection?
     @State private var catchUpChannel: MobileSportsCatchUpChannel?
@@ -92,6 +93,9 @@ struct MobileLiveView: View {
         /// Upcoming games already grouped, so the section loop does not filter
         /// the whole list again for each day it draws.
         let days: [(day: Date, games: [SportsGame])]
+        /// Today's completed games, held in a collapsed drawer below the live
+        /// and upcoming slate.
+        let final: [SportsGame]
     }
 
     private func slate() -> Slate {
@@ -102,6 +106,7 @@ struct MobileLiveView: View {
                 && (league != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
         }
         let calendar = Calendar.current
+        let now = Date()
         var byDay: [Date: [SportsGame]] = [:]
         var live: [SportsGame] = []
         // Followed teams' games sit in the list where their time puts them;
@@ -113,8 +118,21 @@ struct MobileLiveView: View {
                 byDay[calendar.startOfDay(for: game.start), default: []].append(game)
             }
         }
+        let rawForFinals = league.map { library.gamesByLeague[$0] ?? [] }
+            ?? SportsLeague.allCases.flatMap { library.gamesByLeague[$0] ?? [] }
+        let finalGames = rawForFinals.map(gameStats.shield).filter {
+            let age = now.timeIntervalSince($0.start)
+            let recent = calendar.isDateInToday($0.start) || (age >= 0 && age < 12 * 60 * 60)
+            return $0.state == "post"
+                && recent
+                && library.isListed($0)
+                && !hidden.contains($0.league)
+                && (!onlyFollowed || library.isFollowing($0))
+                && (league != .soccer || soccerCompetition == nil || $0.competition?.id == soccerCompetition)
+        }.sorted { $0.start > $1.start }
         return Slate(all: all, mine: [], live: live,
-                     days: byDay.keys.sorted().map { ($0, byDay[$0] ?? []) })
+                     days: byDay.keys.sorted().map { ($0, byDay[$0] ?? []) },
+                     final: finalGames)
     }
 
     /// Everything on now in every league, for the scoreboard under the
@@ -563,36 +581,39 @@ struct MobileLiveView: View {
     }
 
     private func masthead(_ slate: Slate) -> some View {
-        HStack(alignment: .bottom) {
+        let liveCount = slate.live.count + slate.mine.filter(\.isLive).count
+        let hasLive = liveCount > 0
+        return HStack(alignment: .center) {
             HStack(spacing: 10) {
-                Rectangle().fill(LineupStyle.highlight).frame(width: 3, height: 31)
+                Image("LineupBrandMark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("LINEUP").font(.inter(20, .black)).tracking(-0.5)
-                        .foregroundStyle(LineupStyle.text.opacity(0.84))
-                    Text("\(rootLibrary.enabledProfiles.count) PROVIDERS ENABLED")
-                        .font(.inter(10, .bold)).lineLimit(1)
+                        .foregroundStyle(LineupStyle.text.opacity(0.95))
+                    Text(Date().formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()).uppercased())
+                        .font(.inter(10, .bold)).tracking(0.8).lineLimit(1)
                         .foregroundStyle(LineupStyle.secondary.opacity(0.76))
                 }
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(Date(), format: .dateTime.weekday(.abbreviated).month(.abbreviated).day())
-                    .font(.inter(.caption2, .medium)).foregroundStyle(LineupStyle.secondary.opacity(0.72))
-                HStack(spacing: 5) {
-                    if slate.live.isEmpty && !slate.mine.contains(where: \.isLive) {
-                        Circle().fill(LineupStyle.secondary.opacity(0.76)).frame(width: 5, height: 5)
-                    } else {
-                        MobileLiveDot()
-                    }
-                    let liveCount = slate.live.count + slate.mine.filter(\.isLive).count
-                    Text(liveCount == 0 ? "\(slate.all.count) \(league?.isRacing == true ? "EVENTS" : "MATCHUPS")" : "\(liveCount) LIVE NOW")
-                        .font(.inter(10, .bold)).tracking(1)
+            Spacer(minLength: 8)
+            HStack(spacing: 6) {
+                if hasLive {
+                    MobileLiveDot()
+                } else {
+                    Circle().fill(LineupStyle.secondary.opacity(0.68)).frame(width: 5, height: 5)
                 }
-                .foregroundStyle(slate.live.isEmpty && !slate.mine.contains(where: \.isLive)
-                                 ? LineupStyle.secondary.opacity(0.76) : LineupStyle.liveStatus)
+                Text(hasLive ? "\(liveCount) LIVE" : "\(slate.all.count) \(league?.isRacing == true ? "EVENTS" : "MATCHUPS")")
+                    .font(.inter(10.5, .heavy)).tracking(0.8)
             }
+            .foregroundStyle(hasLive ? LineupStyle.liveStatus : LineupStyle.secondary.opacity(0.82))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(hasLive ? LineupStyle.liveStatus.opacity(0.14) : Color.white.opacity(0.06), in: Capsule())
+            .overlay(Capsule().strokeBorder(hasLive ? LineupStyle.liveStatus.opacity(0.32) : Color.white.opacity(0.09), lineWidth: 0.8))
         }
-        .padding(.horizontal, 20).padding(.bottom, 17)
+        .padding(.horizontal, 20).padding(.bottom, 14)
         .frame(height: Self.mastheadHeight, alignment: .bottom)
     }
 
@@ -697,7 +718,11 @@ struct MobileLiveView: View {
     /// player's frame changes, so the controller, decoder, PiP layer and network
     /// connection all remain the same objects throughout the transition.
     private func slateList(_ slate: Slate) -> some View {
-        ScrollView {
+        let featured = previewStream == nil
+            ? MobileFeaturedGamePicker.pick(from: slate.live, isFollowing: { library.isFollowing($0) })
+            : nil
+        let remainingLive = featured.map { hero in slate.live.filter { $0.id != hero.id } } ?? slate.live
+        return ScrollView {
             // A refresh of the channels is said in the pop-up at the top of the
             // screen, not in a line of its own above the games.
             LazyVStack(spacing: 0) {
@@ -706,15 +731,21 @@ struct MobileLiveView: View {
                         .font(.inter(.caption)).foregroundStyle(LineupStyle.lightPurple.opacity(0.65))
                         .padding(16)
                 }
+                if let featured {
+                    featuredHero(featured)
+                        .padding(.horizontal, Self.inset)
+                        .padding(.top, 2)
+                        .padding(.bottom, remainingLive.isEmpty ? LineupPanelStyle.gap : 14)
+                }
                 if !slate.mine.isEmpty {
                     let onNow = slate.mine.filter(\.isLive).count
                     slateSection("My Teams", systemImage: "star",
                                detail: onNow > 0 ? "\(onNow) live" : "\(slate.mine.count) today",
                                games: slate.mine, showsDay: true)
                 }
-                if !slate.live.isEmpty {
+                if !remainingLive.isEmpty {
                     slateSection("On Air", systemImage: "dot.radiowaves.left.and.right",
-                               detail: "\(slate.live.count) live", games: slate.live)
+                               detail: "\(slate.live.count) live", games: remainingLive)
                 }
                 ForEach(slate.days, id: \.day) { day, dayGames in
                     let today = Calendar.current.isDateInToday(day)
@@ -723,17 +754,20 @@ struct MobileLiveView: View {
                                detail: day.formatted(.dateTime.month(.abbreviated).day()),
                                games: dayGames)
                 }
-                if slate.all.isEmpty && onlyFollowed && !library.isScheduleLoading {
+                if slate.all.isEmpty && slate.final.isEmpty && onlyFollowed && !library.isScheduleLoading {
                     LineupUnavailableView("Nothing for your teams",
                         systemImage: "star",
                         description: Text("None of the teams you follow are playing in this range. Tap My Teams again to see everything."))
                         .padding(.top, 40)
-                } else if slate.all.isEmpty && !library.isScheduleLoading {
+                } else if slate.all.isEmpty && slate.final.isEmpty && !library.isScheduleLoading {
                     LineupUnavailableView(
                         library.scheduleAvailable(for: league) ? "No games scheduled" : "Schedule unavailable",
                         systemImage: "sportscourt",
                         description: Text("Pull down to refresh, or find your channels in Guide."))
                         .padding(.top, 40)
+                }
+                if !slate.final.isEmpty {
+                    finalsSection(slate.final, isStandalone: slate.all.isEmpty)
                 }
                 if MobileGameReplayPolicy.isVisible(myTeams: onlyFollowed, league: league) {
                     MobileGameReplaysSection(library: library, store: gameReplays, enabled: isActive) { selection in
@@ -753,9 +787,84 @@ struct MobileLiveView: View {
         .transition(.identity)
     }
 
-    private func matchup(_ game: SportsGame, showsDay: Bool = false) -> some View {
-        MobileMatchupRow(game: game, showsDay: showsDay,
-                         isWatching: previewStream != nil && previewGame?.id == game.id)
+    private func featuredHero(_ game: SportsGame) -> some View {
+        let followed = followedSides(of: game)
+        return MobileFeaturedGameHero(game: game, awayFollowed: followed.away, homeFollowed: followed.home)
+            .lineupHoldMenu(game.matchupLine, symbol: "sportscourt", tint: LineupStyle.leagueColor(game.league), press: .well,
+                            items: { gameMenuItems(game) },
+                            onPresent: { menu in loadCatchUpOption(for: game, menu: menu) }) {
+                open(game)
+            }
+            .accessibilityHint("Watch featured game or choose a channel")
+    }
+
+    private func finalsSection(_ games: [SportsGame], isStandalone: Bool) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86)) {
+                    finalsExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(LineupPanelStyle.quiet.opacity(0.84))
+                    Text("FINAL")
+                        .font(.inter(12.5, .heavy)).tracking(0.8)
+                        .foregroundStyle(LineupStyle.text.opacity(0.84))
+                    Text("\(games.count) \(games.count == 1 ? "GAME" : "GAMES")")
+                        .font(.inter(10.5, .bold)).tracking(0.4)
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.84))
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Color.white.opacity(0.08), in: Capsule())
+                    Spacer(minLength: 6)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11.5, weight: .bold))
+                        .foregroundStyle(LineupStyle.secondary.opacity(0.75))
+                        .rotationEffect(.degrees(finalsExpanded ? 180 : 0))
+                }
+                .padding(.horizontal, 14).padding(.vertical, 12)
+                .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+            }
+            .buttonStyle(MobileCardButtonStyle())
+            .padding(.horizontal, Self.inset)
+            .padding(.top, isStandalone ? 6 : 4)
+            .padding(.bottom, finalsExpanded ? 10 : LineupPanelStyle.gap)
+            .accessibilityLabel("Final games, \(games.count)")
+            .accessibilityValue(finalsExpanded ? "Expanded" : "Collapsed")
+
+            if finalsExpanded {
+                ForEach(games) { game in
+                    matchup(game, isFinal: true)
+                        .padding(.horizontal, Self.inset)
+                        .padding(.bottom, game.id == games.last?.id ? LineupPanelStyle.gap : 9)
+                }
+            }
+        }
+    }
+
+    private func followedSides(of game: SportsGame) -> (away: Bool, home: Bool) {
+        guard !game.isEvent else { return (false, false) }
+        var away = false
+        var home = false
+        for side in library.followableSides(of: game) where library.isFollowing(side.key) {
+            if side.name == game.awayTeam { away = true }
+            if side.name == game.homeTeam { home = true }
+        }
+        return (away, home)
+    }
+
+    private func matchup(_ game: SportsGame, showsDay: Bool = false, isFinal: Bool = false) -> some View {
+        let followed = followedSides(of: game)
+        return MobileMatchupRow(game: game, showsDay: showsDay,
+                                isWatching: !isFinal && previewStream != nil && previewGame?.id == game.id,
+                                awayFollowed: followed.away,
+                                homeFollowed: followed.home,
+                                isFinal: isFinal)
             // A card whose game has not changed is not drawn again. Every
             // card on screen used to be laid out afresh -- badges, halos and
             // all -- whenever anything on the tab changed: the sports list
@@ -766,13 +875,21 @@ struct MobileLiveView: View {
             .lineupHoldMenu(game.matchupLine, symbol: "sportscourt", tint: LineupStyle.leagueColor(game.league), press: .well,
                             items: { gameMenuItems(game) },
                             onPresent: { menu in loadCatchUpOption(for: game, menu: menu) }) {
+                if isFinal {
+                    if let side = library.followableSides(of: game).first,
+                       let target = MobileTeamPageTarget(side: side, competition: game.competition?.id) {
+                        teamPage = target
+                    }
+                    return
+                }
                 guard !game.isUpcoming else {
                     upcomingGame = game
                     return
                 }
                 open(game)
             }
-            .accessibilityHint(game.isUpcoming ? "Show the game, where to watch it and a reminder" : "Watch game or choose a channel")
+            .accessibilityHint(isFinal ? "Open team details"
+                               : (game.isUpcoming ? "Show the game, where to watch it and a reminder" : "Watch game or choose a channel"))
     }
 
     /// Touch and hold on any game: watch it or be reminded, another channel,
@@ -795,15 +912,17 @@ struct MobileLiveView: View {
                     watchSideBySide(game)
                 })
             }
-        } else {
+        } else if game.isUpcoming {
             let on = reminders.reminds(game)
             items.append(MobileMenuItem(on ? "Remove Reminder" : "Remind Me", symbol: on ? "bell.slash" : "bell") {
                 reminders.toggleGame(game)
             })
         }
-        items.append(MobileMenuItem("Choose Another Channel", symbol: "list.bullet.rectangle") {
-            choosingChannel = game
-        })
+        if game.isLive || game.isUpcoming {
+            items.append(MobileMenuItem("Choose Another Channel", symbol: "list.bullet.rectangle") {
+                choosingChannel = game
+            })
+        }
         // Each side's page: its schedule, standing, roster, injuries, news.
         for side in library.followableSides(of: game) {
             if let target = MobileTeamPageTarget(side: side, competition: game.competition?.id) {
@@ -1137,6 +1256,8 @@ struct MobileCardButtonStyle: ButtonStyle {
 private struct MobileMatchupRow: View, Equatable {
     nonisolated static func == (lhs: MobileMatchupRow, rhs: MobileMatchupRow) -> Bool {
         lhs.game == rhs.game && lhs.showsDay == rhs.showsDay && lhs.isWatching == rhs.isWatching
+            && lhs.awayFollowed == rhs.awayFollowed && lhs.homeFollowed == rhs.homeFollowed
+            && lhs.isFinal == rhs.isFinal
     }
 
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -1145,18 +1266,33 @@ private struct MobileMatchupRow: View, Equatable {
     var showsDay = false
     /// The game in the preview above.
     var isWatching = false
+    var awayFollowed = false
+    var homeFollowed = false
+    var isFinal = false
 
     /// Both read from the game itself, so the card and the tests agree on what
     /// an event is and on where it is being held.
     private var isEvent: Bool { game.isEvent }
     private var whereItIs: String? { game.placeLine }
+    private var showsScores: Bool { game.isLive || isFinal }
+    private var awayLeads: Bool {
+        guard showsScores, let away = Int(game.awayScore), let home = Int(game.homeScore) else { return true }
+        return away >= home
+    }
+    private var homeLeads: Bool {
+        guard showsScores, let away = Int(game.awayScore), let home = Int(game.homeScore) else { return true }
+        return home >= away
+    }
+    private var crunchBadge: MobileGameCrunchBadge? {
+        isFinal ? nil : MobileGameCrunchBadge.badge(for: game)
+    }
 
     var body: some View {
         let awayColor = MobileTeamColor.readable(game.awayColor) ?? LineupStyle.leagueColor(game.league)
         let homeColor = MobileTeamColor.readable(game.homeColor) ?? awayColor
         let shape = RoundedRectangle(cornerRadius: 15, style: .continuous)
 
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 8) {
                 if isEvent {
                     VStack(alignment: .leading, spacing: 4) {
@@ -1167,30 +1303,49 @@ private struct MobileMatchupRow: View, Equatable {
                             MobileLeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 28)
                             Text(game.eventName ?? "")
                                 .font(.inter(.body, .semibold))
-                                .foregroundStyle(LineupStyle.text.opacity(0.72))
+                                .foregroundStyle(Color.white.opacity(isFinal ? 0.72 : 0.94))
                                 .lineLimit(2).multilineTextAlignment(.leading)
                         }
                         if let session = game.race?.title {
                             Text(session).font(.inter(.caption, .bold))
-                                .foregroundStyle(LineupStyle.highlight.opacity(0.78))
+                                .foregroundStyle(LineupStyle.highlight.opacity(0.86))
                         }
                         if let whereItIs { place(whereItIs) }
                     }
                 } else {
                     if let competition = game.competition {
                         Text(competition.name.uppercased()).font(.inter(10, .bold))
-                            .foregroundStyle(LineupStyle.secondary.opacity(0.68)).lineLimit(1)
+                            .foregroundStyle(LineupStyle.secondary.opacity(0.72)).lineLimit(1)
                     }
                     team(game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
-                         record: game.awayRecord, score: game.awayScore, isAway: true)
+                         record: game.awayRecord, score: game.awayScore, isAway: true,
+                         leads: awayLeads, followed: awayFollowed)
                     team(game.homeTeam, logo: game.homeLogo, rank: game.homeRank,
-                         record: game.homeRecord, score: game.homeScore, isAway: false)
+                         record: game.homeRecord, score: game.homeScore, isAway: false,
+                         leads: homeLeads, followed: homeFollowed)
                     if let whereItIs { place(whereItIs) }
                     if let detail = game.soccer?.detail { place(detail) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.09))
+                .frame(width: 1)
+                .padding(.vertical, 2)
+
             VStack(alignment: .leading, spacing: 6) {
-                SportsMark(league: game.league, competition: game.competition, size: 26)
+                HStack(spacing: 5) {
+                    SportsMark(league: game.league, competition: game.competition, size: 22)
+                    if let crunchBadge {
+                        Text(crunchBadge.label)
+                            .font(.inter(8.5, .heavy)).tracking(0.5)
+                            .foregroundStyle(crunchBadge.tint)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(crunchBadge.tint.opacity(0.18), in: Capsule())
+                            .overlay(Capsule().strokeBorder(crunchBadge.tint.opacity(0.42), lineWidth: 0.7))
+                            .lineLimit(1)
+                    }
+                }
                 if game.isLive {
                     HStack(alignment: .center, spacing: 5) {
                         MobileLiveDot()
@@ -1200,6 +1355,11 @@ private struct MobileMatchupRow: View, Equatable {
                     .foregroundStyle(LineupStyle.liveStatus)
                     .accessibilityElement(children: .ignore)
                         .accessibilityLabel("Live. \(game.status)")
+                } else if isFinal {
+                    Text(game.status.isEmpty ? "FINAL" : game.status.uppercased())
+                        .font(.inter(11, .heavy)).tracking(0.4)
+                        .foregroundStyle(Color.white.opacity(0.62))
+                        .lineLimit(2)
                 } else {
                     // A bare time only reads correctly under a heading that
                     // names the day. My Teams has no such heading -- it is
@@ -1208,24 +1368,59 @@ private struct MobileMatchupRow: View, Equatable {
                     Text(showsDay ? game.startLabel
                                   : game.start.formatted(.dateTime.hour().minute()))
                         .font(.interDigits(.caption, .semibold))
+                        .foregroundStyle(Color.white.opacity(0.88))
                 }
-                if !game.broadcast.isEmpty {
-                    Text(game.broadcast.uppercased()).font(.inter(9, .semibold)).tracking(0.5).lineLimit(2)
-                        .foregroundStyle(LineupStyle.secondary.opacity(0.68))
+                if let network = game.leadNetwork {
+                    Text(network.uppercased())
+                        .font(.inter(9, .bold)).tracking(0.4).lineLimit(1)
+                        .foregroundStyle(Color.white.opacity(0.82))
+                        .padding(.horizontal, 6).padding(.vertical, 2.5)
+                        .background(Color.white.opacity(0.09), in: Capsule())
                 }
-                Image(systemName: isWatching ? "speaker.wave.2.fill" : "play.fill").font(.system(size: 10, design: .rounded))
-                    .padding(.top, 2).accessibilityHidden(true)
-            }.frame(width: typeSize.isAccessibilitySize ? 100 : 76, alignment: .leading)
+                if isWatching {
+                    HStack(spacing: 4) {
+                        Image(systemName: "speaker.wave.2.fill").font(.system(size: 8, weight: .bold))
+                        Text("WATCHING").font(.inter(8, .heavy)).tracking(0.4)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(LineupStyle.highlight.opacity(0.88), in: Capsule())
+                    .padding(.top, 1)
+                    .accessibilityHidden(true)
+                } else if !isFinal {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 8.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(game.isLive ? Color.white.opacity(0.92) : Color.white.opacity(0.58))
+                        .frame(width: 22, height: 22)
+                        .background(game.isLive ? Color.white.opacity(0.14) : Color.white.opacity(0.07), in: Circle())
+                        .padding(.top, 1)
+                        .accessibilityHidden(true)
+                }
+            }.frame(width: typeSize.isAccessibilitySize ? 104 : 84, alignment: .leading)
         }
-        .foregroundStyle(LineupStyle.text.opacity(0.72))
+        .foregroundStyle(LineupStyle.text.opacity(0.86))
         .fixedSize(horizontal: false, vertical: true)
         // Keep a single rounded event tile, like each channel in Guide List,
         // with the visual weight carried by the teams' own colors.
         .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(minHeight: 78)
-        .background(LinearGradient(colors: [awayColor.opacity(0.19), homeColor.opacity(0.19)],
-                                   startPoint: .leading, endPoint: .trailing), in: shape)
-        .overlay(shape.strokeBorder(Color.white.opacity(0.045), lineWidth: 1))
+        .background {
+            ZStack {
+                shape.fill(Color(red: 0.08, green: 0.085, blue: 0.10).opacity(isFinal ? 0.78 : 0.86))
+                shape.fill(
+                    LinearGradient(
+                        colors: [awayColor.opacity(isFinal ? 0.14 : 0.24), homeColor.opacity(isFinal ? 0.14 : 0.24)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+            }
+        }
+        .overlay(
+            shape.strokeBorder(
+                isWatching ? LineupStyle.highlight.opacity(0.75) : Color.white.opacity(isFinal ? 0.05 : 0.08),
+                lineWidth: isWatching ? 1.5 : 1
+            )
+        )
         .contentShape(shape)
     }
 
@@ -1239,17 +1434,30 @@ private struct MobileMatchupRow: View, Equatable {
     }
 
     private func team(_ name: String, logo: String, rank: Int?, record: String?, score: String,
-                      isAway: Bool) -> some View {
-        HStack(spacing: 9) {
+                      isAway: Bool, leads: Bool, followed: Bool) -> some View {
+        let nameStyle = showsScores
+            ? (leads ? Color.white : Color.white.opacity(0.50))
+            : Color.white.opacity(0.92)
+        return HStack(spacing: 9) {
             // The disc went first and the ring that replaced it goes now: both
             // drew a circle around a mark that is not one. The badge lights
             // its own shape instead.
             TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 28, tight: true)
             VStack(alignment: .leading, spacing: 2) {
-                // A college team's Top 25 place, raised after its name.
-                mobileRankedName(name, rank: rank, size: 15).font(.inter(.subheadline, .semibold))
-                    .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                    .multilineTextAlignment(.leading)
+                HStack(spacing: 4) {
+                    // A college team's Top 25 place, raised after its name.
+                    mobileRankedName(name, rank: rank, size: 15)
+                        .font(.inter(.subheadline, showsScores && leads ? .bold : .semibold))
+                        .foregroundStyle(nameStyle)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                        .multilineTextAlignment(.leading)
+                    if followed {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.25))
+                            .accessibilityHidden(true)
+                    }
+                }
                 if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
                     // A tennis player's line holds their country, not a record.
                     Text(record).font(.interDigits(.caption2))
@@ -1258,10 +1466,12 @@ private struct MobileMatchupRow: View, Equatable {
                 }
             }
             Spacer(minLength: 3)
-            if game.isLive, let sets = game.tennis {
+            if showsScores, let sets = game.tennis {
                 TennisSetColumns(score: sets, isAway: isAway, size: 17)
-            } else if game.isLive {
-                Text(score).font(.interDigits(.title3, .bold))
+            } else if showsScores {
+                Text(score)
+                    .font(.interDigits(.title3, leads ? .heavy : .semibold))
+                    .foregroundStyle(leads ? Color.white : Color.white.opacity(0.48))
             }
         }
     }

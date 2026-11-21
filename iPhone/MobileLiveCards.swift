@@ -248,3 +248,265 @@ struct MobileNowPlayingStrip: View {
                                    : LineupStyle.secondary.opacity(0.72))
     }
 }
+
+/// Late-game excitement callout derived from the existing `GameAlertRules`.
+enum MobileGameCrunchBadge: Equatable {
+    case overtime(String)
+    case close
+
+    var label: String {
+        switch self {
+        case .overtime(let text): return text
+        case .close: return "CLOSE"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .overtime: return Color(red: 1.0, green: 0.27, blue: 0.27)
+        case .close: return Color(red: 1.0, green: 0.68, blue: 0.14)
+        }
+    }
+
+    static func badge(for game: SportsGame) -> Self? {
+        if GameAlertRules.isOvertime(game) {
+            if game.league == .soccer { return .overtime("ET") }
+            if game.league == .mlb { return .overtime("EXTRAS") }
+            return .overtime("OT")
+        }
+        if GameAlertRules.isCloseLate(game) {
+            return .close
+        }
+        return nil
+    }
+}
+
+/// Picks the most compelling live game for the Sports tab's hero card:
+/// a followed team in crunch time first, then OT / close late games, then
+/// followed live teams, then the tightest score margin on the board.
+enum MobileFeaturedGamePicker {
+    static func pick(from live: [SportsGame], isFollowing: (SportsGame) -> Bool) -> SportsGame? {
+        guard !live.isEmpty else { return nil }
+        return live.max { lhs, rhs in
+            rank(lhs, followed: isFollowing(lhs)) < rank(rhs, followed: isFollowing(rhs))
+        }
+    }
+
+    private static func rank(_ game: SportsGame, followed: Bool) -> (Int, Int, Int, Int, Int) {
+        let ot = GameAlertRules.isOvertime(game) ? 1 : 0
+        let close = GameAlertRules.isCloseLate(game) ? 1 : 0
+        let myTeam = followed ? 1 : 0
+        let margin = GameAlertRules.margin(of: game)
+        let hasScore = (!game.isEvent && margin != nil) ? 1 : 0
+        let closeness = margin.map { -$0 } ?? -999
+        let tier: Int
+        if myTeam == 1 && (ot == 1 || close == 1) { tier = 6 }
+        else if ot == 1 { tier = 5 }
+        else if close == 1 { tier = 4 }
+        else if myTeam == 1 { tier = 3 }
+        else if hasScore == 1 { tier = 2 }
+        else { tier = 1 }
+        let rankedBoost = (game.awayRank != nil ? 1 : 0) + (game.homeRank != nil ? 1 : 0)
+        return (tier, myTeam, closeness, rankedBoost, game.isEvent ? 0 : 1)
+    }
+}
+
+/// Spotlight hero card at the top of the Sports tab when a game is live and
+/// the inline preview player is closed.
+struct MobileFeaturedGameHero: View {
+    let game: SportsGame
+    var awayFollowed = false
+    var homeFollowed = false
+
+    private var awayValue: Int? { Int(game.awayScore) }
+    private var homeValue: Int? { Int(game.homeScore) }
+    private var awayLeads: Bool {
+        guard let away = awayValue, let home = homeValue else { return true }
+        return away >= home
+    }
+    private var homeLeads: Bool {
+        guard let away = awayValue, let home = homeValue else { return true }
+        return home >= away
+    }
+    private var crunchBadge: MobileGameCrunchBadge? { MobileGameCrunchBadge.badge(for: game) }
+
+    var body: some View {
+        let awayColor = MobileTeamColor.readable(game.awayColor) ?? LineupStyle.leagueColor(game.league)
+        let homeColor = MobileTeamColor.readable(game.homeColor) ?? awayColor
+        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+
+        VStack(spacing: 14) {
+            HStack(spacing: 7) {
+                SportsMark(league: game.league, competition: game.competition, size: 18)
+                Text((game.competition?.name ?? game.league.shortName).uppercased())
+                    .font(.inter(11, .heavy)).tracking(0.8)
+                    .foregroundStyle(Color.white.opacity(0.76))
+                    .lineLimit(1)
+                if let crunchBadge {
+                    Text(crunchBadge.label)
+                        .font(.inter(9.5, .heavy)).tracking(0.6)
+                        .foregroundStyle(crunchBadge.tint)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(crunchBadge.tint.opacity(0.18), in: Capsule())
+                        .overlay(Capsule().strokeBorder(crunchBadge.tint.opacity(0.45), lineWidth: 0.8))
+                } else if awayFollowed || homeFollowed {
+                    HStack(spacing: 3) {
+                        Image(systemName: "star.fill").font(.system(size: 8.5, weight: .bold))
+                        Text("MY TEAM").font(.inter(9.5, .heavy)).tracking(0.5)
+                    }
+                    .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.25))
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Color(red: 1.0, green: 0.80, blue: 0.25).opacity(0.16), in: Capsule())
+                }
+                Spacer(minLength: 6)
+                HStack(spacing: 5) {
+                    MobileLiveDot()
+                    Text(game.status.isEmpty ? "Live" : game.status)
+                        .font(.inter(11, .heavy))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(LineupStyle.liveStatus)
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .background(Color.black.opacity(0.38), in: Capsule())
+                .overlay(Capsule().strokeBorder(LineupStyle.liveStatus.opacity(0.32), lineWidth: 0.8))
+            }
+
+            if game.isEvent {
+                HStack(spacing: 14) {
+                    MobileLeagueLogo(league: game.isNFLRedZone ? .nfl : game.league, size: 46)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(game.eventName ?? game.league.shortName)
+                            .font(.inter(18, .bold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                        if let session = game.race?.title {
+                            Text(session)
+                                .font(.inter(13, .semibold))
+                                .foregroundStyle(LineupStyle.highlight)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 4)
+            } else {
+                HStack(alignment: .center, spacing: 8) {
+                    heroSide(name: game.awayTeam, logo: game.awayLogo, rank: game.awayRank,
+                             record: game.awayRecord, leads: awayLeads, followed: awayFollowed)
+                    VStack(spacing: 4) {
+                        if let sets = game.tennis {
+                            TennisSetColumns(score: sets, isAway: true, size: 17)
+                            TennisSetColumns(score: sets, isAway: false, size: 17)
+                        } else {
+                            HStack(spacing: 8) {
+                                Text(game.awayScore.isEmpty ? "0" : game.awayScore)
+                                    .font(.interDigits(30, .black))
+                                    .foregroundStyle(awayLeads ? Color.white : Color.white.opacity(0.46))
+                                Text("–")
+                                    .font(.inter(18, .bold))
+                                    .foregroundStyle(Color.white.opacity(0.28))
+                                Text(game.homeScore.isEmpty ? "0" : game.homeScore)
+                                    .font(.interDigits(30, .black))
+                                    .foregroundStyle(homeLeads ? Color.white : Color.white.opacity(0.46))
+                            }
+                            .minimumScaleFactor(0.75)
+                            .lineLimit(1)
+                        }
+                        if let detail = game.soccer?.detail {
+                            Text(detail)
+                                .font(.inter(10, .semibold))
+                                .foregroundStyle(Color.white.opacity(0.62))
+                                .lineLimit(1)
+                        }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    heroSide(name: game.homeTeam, logo: game.homeLogo, rank: game.homeRank,
+                             record: game.homeRecord, leads: homeLeads, followed: homeFollowed)
+                }
+                .padding(.vertical, 2)
+            }
+
+            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
+
+            HStack(spacing: 8) {
+                if let network = game.leadNetwork {
+                    Text(network.uppercased())
+                        .font(.inter(10, .heavy)).tracking(0.6)
+                        .foregroundStyle(Color.white.opacity(0.86))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Color.white.opacity(0.11), in: Capsule())
+                        .lineLimit(1)
+                }
+                if let place = game.placeLine {
+                    Text(place)
+                        .font(.inter(11, .medium))
+                        .foregroundStyle(Color.white.opacity(0.56))
+                        .lineLimit(1).truncationMode(.tail)
+                }
+                Spacer(minLength: 6)
+                HStack(spacing: 5) {
+                    Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
+                    Text("Watch Live").font(.inter(12, .bold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(Color.white.opacity(0.16), in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.24), lineWidth: 0.8))
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .background {
+            ZStack {
+                shape.fill(Color(red: 0.075, green: 0.080, blue: 0.098))
+                shape.fill(
+                    LinearGradient(colors: [awayColor.opacity(0.32), Color.clear, homeColor.opacity(0.32)],
+                                   startPoint: .leading, endPoint: .trailing)
+                )
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [Color.white.opacity(0.08), .clear],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 56)
+                    Spacer(minLength: 0)
+                }
+            }
+            .clipShape(shape)
+        }
+        .overlay(
+            shape.strokeBorder(
+                LinearGradient(colors: [Color.white.opacity(0.22), Color.white.opacity(0.06)],
+                               startPoint: .top, endPoint: .bottom),
+                lineWidth: 1
+            )
+        )
+        .shadow(color: .black.opacity(0.35), radius: 16, y: 8)
+        .contentShape(shape)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Featured live game. \(game.spokenScoreline)")
+    }
+
+    private func heroSide(name: String, logo: String, rank: Int?, record: String?,
+                          leads: Bool, followed: Bool) -> some View {
+        VStack(spacing: 5) {
+            TeamBadge(url: logo, fallback: String(name.prefix(3)).uppercased(), size: 44, tight: true)
+            HStack(spacing: 3) {
+                mobileRankedName(name, rank: rank, size: 13)
+                    .font(.inter(13, leads ? .bold : .semibold))
+                    .foregroundStyle(leads ? Color.white : Color.white.opacity(0.62))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.8)
+                if followed {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundStyle(Color(red: 1.0, green: 0.80, blue: 0.25))
+                }
+            }
+            if let record = record?.trimmingCharacters(in: .whitespacesAndNewlines), !record.isEmpty {
+                Text(record)
+                    .font(.interDigits(10.5, .medium))
+                    .foregroundStyle(Color.white.opacity(0.50))
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}

@@ -283,6 +283,58 @@ final class MobilePlayerPolishTests: XCTestCase {
         host.view.removeFromSuperview()
         host.removeFromParent()
     }
+
+    func testSportsTabCrunchBadgeAndFeaturedGamePicker() {
+        func makeGame(id: String, league: SportsLeague = .nba, awayScore: String, homeScore: String,
+                      status: String, state: String = "in", soccer: SoccerScore? = nil) -> SportsGame {
+            SportsGame(
+                id: id, league: league, start: Date().addingTimeInterval(-3600),
+                awayTeam: "Away \(id)", homeTeam: "Home \(id)",
+                awayAbbreviation: "AWY", homeAbbreviation: "HME",
+                awayLogo: "", homeLogo: "",
+                awayScore: awayScore, homeScore: homeScore,
+                awayColor: nil, homeColor: nil, awayRecord: nil, homeRecord: nil,
+                venue: nil, location: nil, status: status, state: state,
+                broadcast: "ESPN", eventName: nil, soccer: soccer
+            )
+        }
+
+        let nbaOT = makeGame(id: "ot", awayScore: "112", homeScore: "110", status: "OT 2:14")
+        let nbaClose = makeGame(id: "close", awayScore: "106", homeScore: "104", status: "4th 1:42")
+        let nbaBlowout = makeGame(id: "blowout", awayScore: "58", homeScore: "37", status: "2nd 6:20")
+        let nbaTightEarly = makeGame(id: "early", awayScore: "42", homeScore: "41", status: "2nd 5:00")
+        let nbaFinal = makeGame(id: "final", awayScore: "110", homeScore: "108", status: "Final", state: "post")
+        let mlbExtras = makeGame(id: "mlb", league: .mlb, awayScore: "4", homeScore: "4", status: "Top 10th")
+        let soccerET = makeGame(
+            id: "soc", league: .soccer, awayScore: "2", homeScore: "2", status: "95'",
+            soccer: SoccerScore(awayPenalties: nil, homePenalties: nil, awayAggregate: nil, homeAggregate: nil, period: 3, clockSeconds: 95 * 60)
+        )
+
+        XCTAssertEqual(MobileGameCrunchBadge.badge(for: nbaOT), .overtime("OT"))
+        XCTAssertEqual(MobileGameCrunchBadge.badge(for: mlbExtras), .overtime("EXTRAS"))
+        XCTAssertEqual(MobileGameCrunchBadge.badge(for: soccerET), .overtime("ET"))
+        XCTAssertEqual(MobileGameCrunchBadge.badge(for: nbaClose), .close)
+        XCTAssertNil(MobileGameCrunchBadge.badge(for: nbaBlowout))
+        XCTAssertNil(MobileGameCrunchBadge.badge(for: nbaFinal))
+
+        XCTAssertNil(MobileFeaturedGamePicker.pick(from: [], isFollowing: { _ in false }))
+        XCTAssertEqual(
+            MobileFeaturedGamePicker.pick(from: [nbaBlowout, nbaClose, nbaOT], isFollowing: { _ in false })?.id,
+            "ot"
+        )
+        XCTAssertEqual(
+            MobileFeaturedGamePicker.pick(from: [nbaBlowout, nbaClose, nbaOT], isFollowing: { $0.id == "close" })?.id,
+            "close"
+        )
+        XCTAssertEqual(
+            MobileFeaturedGamePicker.pick(from: [nbaBlowout, nbaTightEarly], isFollowing: { $0.id == "blowout" })?.id,
+            "blowout"
+        )
+        XCTAssertEqual(
+            MobileFeaturedGamePicker.pick(from: [nbaBlowout, nbaTightEarly], isFollowing: { _ in false })?.id,
+            "early"
+        )
+    }
 }
 
 private actor PreviewRequestCounter {
