@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import AVFoundation
 
 struct MobilePlayerView: View {
@@ -64,6 +65,7 @@ struct MobilePlayerView: View {
     @State private var showingOnlineSubtitles = false
     @State private var showingSubtitleSettings = false
     @State private var onlineSubtitleSession = UUID()
+    @State private var recentlySkipped: MobileSkipAction?
 
     var body: some View {
         ZStack {
@@ -72,15 +74,13 @@ struct MobilePlayerView: View {
             LineupAmbientGlow(frames: { await controller.captureFrame() },
                               enabled: !controller.loading && controller.error == nil
                                 && !controller.pictureInPictureActive)
-            // A transparent tap-catching layer, separate from the embedded VLC
-            // view itself. VLCKit inserts its own rendering subview into that
-            // UIKit view, and a plain SwiftUI gesture attached directly to a
-            // UIViewRepresentable doesn't reliably win against touch handling
-            // that library owns — this overlay guarantees ours does.
-            Color.clear
+            // A transparent tap-catching layer above the non-interactive video
+            // host. Using a normal tap gesture (instead of highPriorityGesture)
+            // ensures buttons and overlays stacked above it always win taps.
+            Color.black.opacity(0.001)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
-                .highPriorityGesture(TapGesture().onEnded { toggleControls() })
+                .onTapGesture { handleBackdropTap() }
                 .accessibilityLabel("Video. Tap to show playback controls")
             if let error = controller.error {
                 VStack(spacing: 16) {
@@ -130,8 +130,8 @@ struct MobilePlayerView: View {
                     LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
                         .frame(height: 170)
                     Spacer(minLength: 0)
-                    LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 240)
+                    LinearGradient(colors: [.clear, .black.opacity(0.68)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 250)
                 }
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
@@ -141,34 +141,62 @@ struct MobilePlayerView: View {
                     Spacer(minLength: 0)
                     bottomBar
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 10)
+                .padding(.horizontal, 18)
+                .padding(.top, 10)
+                .padding(.bottom, 16)
                 .transition(.opacity)
             }
-        }
-        .overlay(alignment: .top) {
-            if playbackOptionsOpen && !MobileScreenLock.shared.isLocked {
-                PlaybackOptionsPanel(tabs: PlaybackOptionsTab.allCases.filter { $0 != .chapters || !chapters.isEmpty },
-                                     close: closePlaybackOptions, rows: playbackOptionRows)
-                    .frame(maxWidth: 650)
-                    .padding(.horizontal, 16).padding(.top, 12)
-            }
-        }
-        // Next Episode, in the bottom-right corner while the controls are
-        // away, as on the television.
-        .overlay(alignment: .bottomTrailing) {
-            if MobileScreenLock.shared.isLocked {
-                EmptyView()
-            } else if showsNextEpisode, let offer = nextEpisode {
-                MobileNextEpisodeCard(offer: offer, play: { playNext(offer) },
-                                      decline: { nextEpisodeDeclined = true })
-                    .padding(.trailing, 16).padding(.bottom, 24)
+            // Next Episode, Skip Intro/Recap, and Post-Credits prompts sit above
+            // the video tap backdrop inside the main ZStack so every tap reaches
+            // them cleanly without competing against a backdrop gesture.
+            if !MobileScreenLock.shared.isLocked && !playbackOptionsOpen {
+                if showsNextEpisode, let offer = nextEpisode {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            MobileNextEpisodeCard(offer: offer, play: { playNext(offer) },
+                                                  decline: { nextEpisodeDeclined = true })
+                        }
+                    }
+                    .padding(.trailing, 20).padding(.bottom, 28)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
-            } else if !controlsVisible, skipAction != nil {
-                skipSegmentButton.padding(.trailing, 16).padding(.bottom, 24)
-            } else if !controlsVisible, showsPostCreditsNotice {
-                postCreditsNotice.padding(.trailing, 16).padding(.bottom, 24)
+                } else if !controlsVisible, let action = skipAction {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            skipSegmentButton(for: action)
+                        }
+                    }
+                    .padding(.trailing, 20).padding(.bottom, 28)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottomTrailing)))
+                } else if !controlsVisible, showsPostCreditsNotice {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            postCreditsNotice
+                        }
+                    }
+                    .padding(.trailing, 20).padding(.bottom, 28)
+                    .transition(.opacity)
+                }
+            }
+            if playbackOptionsOpen && !MobileScreenLock.shared.isLocked {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { closePlaybackOptions() }
+                    .transition(.opacity)
+                VStack(spacing: 0) {
+                    PlaybackOptionsPanel(tabs: PlaybackOptionsTab.allCases.filter { $0 != .chapters || !chapters.isEmpty },
+                                         close: closePlaybackOptions, rows: playbackOptionRows)
+                        .frame(maxWidth: 620)
+                        .padding(.horizontal, 16).padding(.top, 12)
+                    Spacer(minLength: 0)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             }
         }
         // Locked, the picture plays on under a layer that takes every touch.
@@ -179,13 +207,15 @@ struct MobilePlayerView: View {
         .task(id: urls) {
             segments = nil
             nextEpisodeDeclined = false
+            recentlySkipped = nil
             guard !isLive, let segmentsLookup else { return }
             let result = await segmentsLookup()
             guard !Task.isCancelled else { return }
             segments = result
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.86), value: showsNextEpisode)
-        .animation(.easeInOut(duration: 0.2), value: controlsVisible)
+        .animation(.easeOut(duration: 0.16), value: controlsVisible)
+        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: playbackOptionsOpen)
         .animation(.easeInOut(duration: 0.2), value: controller.failoverNotice)
         // The picture and its backing fill the screen; the controls do not.
         // Ignoring the safe area for the whole player put the close button, the
@@ -266,30 +296,46 @@ struct MobilePlayerView: View {
         !isLive && !controller.loading && subtitleIdentityLookup != nil && MobileOpenSubtitles.configured
     }
 
-    private var skipAction: (title: String, destination: Double)? {
+    private var skipAction: MobileSkipAction? {
         guard !isLive, segmentsLookup != nil, !isScrubbing, !controller.isScrubbing,
               !controller.loading, controller.error == nil, !showsNextEpisode,
               !controller.pictureInPictureActive, let progress = controller.progress else { return nil }
-        if recapEnabled, let destination = segments?.recap?.destination(at: progress.position, duration: progress.duration) {
-            return ("Skip Recap", destination)
-        }
-        if introEnabled, let destination = segments?.intro?.destination(at: progress.position, duration: progress.duration) {
-            return ("Skip Intro", destination)
-        }
-        return nil
+        return MobileSkipAction.active(segments: segments, position: progress.position, duration: progress.duration,
+                                       introEnabled: introEnabled, recapEnabled: recapEnabled,
+                                       recentlySkipped: recentlySkipped)
     }
 
-    private var skipSegmentButton: some View {
+    private func skipSegmentButton(for action: MobileSkipAction) -> some View {
         Button {
-            guard let action = skipAction else { return }
-            controller.seek(to: action.destination)
-            showControls()
+            performSkip(action)
         } label: {
-            Label(skipAction?.title ?? "Skip Intro", systemImage: "forward.end.fill")
+            Label(action.title, systemImage: "forward.end.fill")
                 .font(.inter(.subheadline, .bold))
-                .padding(.horizontal, 18).frame(minHeight: 48)
+                .foregroundStyle(LineupStyle.mediaText)
+                .padding(.horizontal, 20)
+                .frame(minHeight: 48)
+                .background(Color.black.opacity(0.32), in: Capsule())
                 .lineupPlayerControlGlass(Capsule())
-        }.buttonStyle(.plain)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(MobilePlayerButtonStyle(pressedScale: 0.94))
+        .accessibilityLabel(action.title)
+        .accessibilityIdentifier("lineup.playback.skipSegment")
+    }
+
+    private func performSkip(_ action: MobileSkipAction) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        recentlySkipped = action
+        controller.seek(to: action.destination)
+        if controlsVisible { scheduleAutoHide() }
+    }
+
+    private func handleBackdropTap() {
+        if playbackOptionsOpen {
+            closePlaybackOptions()
+        } else {
+            toggleControls()
+        }
     }
 
     private var showsPostCreditsNotice: Bool {
@@ -360,9 +406,10 @@ struct MobilePlayerView: View {
                 Text(controller.isPlaying ? "LIVE" : "PAUSED").font(.inter(.caption2, .bold))
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
+            .contentShape(Capsule())
             .lineupPlayerControlGlass(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MobilePlayerButtonStyle(pressedScale: 0.94))
         .accessibilityLabel(controller.isPlaying ? "Live. Tap to jump back to live." : "Paused. Tap to jump back to live.")
     }
 
@@ -426,9 +473,9 @@ struct MobilePlayerView: View {
     /// The title on the left with nothing behind it, the toolbar on the
     /// right, and the scrubber across the foot.
     private var bottomBar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if skipAction != nil {
-                HStack { Spacer(); skipSegmentButton }
+        VStack(alignment: .leading, spacing: 10) {
+            if let action = skipAction {
+                HStack { Spacer(); skipSegmentButton(for: action) }
             } else if showsPostCreditsNotice {
                 HStack { Spacer(); postCreditsNotice }
             }
@@ -437,37 +484,56 @@ struct MobilePlayerView: View {
                 MobileLibrarySeekBar(controller: controller, progress: progress, preview: seekPreview,
                                      inline: true, chapters: chapters) { editing in
                     isScrubbing = editing
-                    if editing { hideControlsTask?.cancel() } else { scheduleAutoHide() }
+                    if editing {
+                        recentlySkipped = nil
+                        hideControlsTask?.cancel()
+                    } else {
+                        scheduleAutoHide()
+                    }
                 }
             }
-            HStack(spacing: 4) {
-                if showsTransport {
-                    toolButton("gobackward.10", label: "Back 10 seconds") {
-                        controller.skip(by: -10)
-                        showControls()
+            LineupGlassGroup(spacing: 10) {
+                HStack(spacing: 10) {
+                    HStack(spacing: 2) {
+                        if showsTransport {
+                            toolButton("gobackward.10", label: "Back 10 seconds") {
+                                recentlySkipped = nil
+                                controller.skip(by: -10)
+                                showControls()
+                            }
+                        }
+                        toolButton(controller.showsPauseControl ? "pause.fill" : "play.fill",
+                                   label: controller.showsPauseControl ? "Pause" : "Play") {
+                            controller.toggle()
+                            showControls()
+                        }
+                        if showsTransport {
+                            toolButton("goforward.30", label: "Forward 30 seconds") {
+                                recentlySkipped = nil
+                                controller.skip(by: 30)
+                                showControls()
+                            }
+                        }
+                        if offersNext, let offer = nextEpisode {
+                            toolButton("forward.end.fill", label: "Next episode") { playNext(offer) }
+                        }
                     }
-                }
-                toolButton(controller.isPlaying ? "pause.fill" : "play.fill",
-                           label: controller.isPlaying ? "Pause" : "Play") {
-                    controller.toggle()
-                    showControls()
-                }
-                if showsTransport {
-                    toolButton("goforward.30", label: "Forward 30 seconds") {
-                        controller.skip(by: 30)
-                        showControls()
+                    .padding(.horizontal, 6)
+                    .contentShape(Capsule())
+                    .lineupPlayerControlGlass(Capsule())
+                    Spacer(minLength: 8)
+                    HStack(spacing: 2) {
+                        toolButton("slider.horizontal.3", label: "Playback Options") {
+                            hideControlsTask?.cancel()
+                            playbackOptionsOpen.toggle()
+                            if !playbackOptionsOpen { showControls() }
+                        }
+                        toolButton("xmark", label: "Close", action: exit)
                     }
+                    .padding(.horizontal, 6)
+                    .contentShape(Capsule())
+                    .lineupPlayerControlGlass(Capsule())
                 }
-                if offersNext, let offer = nextEpisode {
-                    toolButton("forward.end.fill", label: "Next episode") { playNext(offer) }
-                }
-                Spacer()
-                toolButton("slider.horizontal.3", label: "Playback Options") {
-                    hideControlsTask?.cancel()
-                    playbackOptionsOpen.toggle()
-                    if !playbackOptionsOpen { showControls() }
-                }
-                toolButton("xmark", label: "Close", action: exit)
             }
         }
     }
@@ -504,61 +570,85 @@ struct MobilePlayerView: View {
         let media = controller.mediaInfo
         switch tab {
         case .info:
-            var rows = [PlaybackOptionRow(title: synopsis?.heading ?? name, detail: synopsis?.detail),
-                        .init(title: "Playback engine", detail: controller.engineTitle),
-                        .init(title: "Audio", detail: controller.selectedAudioTitle),
-                        .init(title: "Subtitles", detail: controller.selectedSubtitleTitle)]
-            if let overview = synopsis?.overview, !overview.isEmpty { rows.insert(.init(title: overview), at: 1) }
+            var rows = [PlaybackOptionRow(title: synopsis?.heading ?? name, detail: synopsis?.detail,
+                                          section: "Now Playing", symbol: "play.rectangle.fill")]
+            if let overview = synopsis?.overview, !overview.isEmpty {
+                rows.append(.init(title: overview, key: "overview", section: "Now Playing", style: .overview))
+            }
+            rows.append(.init(title: "Playback engine", detail: controller.engineTitle, section: "Details", symbol: "cpu"))
+            rows.append(.init(title: "Audio", detail: controller.selectedAudioTitle, section: "Details", symbol: "waveform"))
+            rows.append(.init(title: "Subtitles", detail: controller.selectedSubtitleTitle, section: "Details", symbol: "captions.bubble"))
             if let position = controller.progress?.position,
                let index = chapters.lastIndex(where: { $0.start <= position }) {
-                rows.append(.init(title: "Chapter", detail: chapters[index].label(at: index)))
+                rows.append(.init(title: "Chapter", detail: chapters[index].label(at: index),
+                                  section: "Details", symbol: "bookmark.fill"))
             }
             return rows
         case .stats:
             let status = controller.loading ? "Loading" : controller.isPlaying ? "Playing" : "Paused"
-            var rows = [PlaybackOptionRow(title: "Playback", detail: status),
-                        .init(title: "Engine", detail: controller.engineTitle)]
-            if let sourceBitrate { rows.append(.init(title: "Source bitrate", detail: sourceBitrate)) }
-            if let host = urls.first?.host { rows.append(.init(title: "Source", detail: host)) }
+            var rows = [PlaybackOptionRow(title: "Playback", detail: status, symbol: "play.circle.fill"),
+                        .init(title: "Engine", detail: controller.engineTitle, symbol: "cpu")]
             if let width = controller.videoWidth, let height = controller.videoHeight {
-                rows.append(.init(title: "Resolution", detail: "\(width) × \(height)"))
+                rows.append(.init(title: "Resolution", detail: "\(width) × \(height)", symbol: "sparkles.tv"))
             }
-            if !media.badges.isEmpty { rows.append(.init(title: "Formats", detail: media.badges.joined(separator: " · "))) }
-            return rows + PlaybackOptionRow.metrics(buffer: controller.forwardBufferSeconds, dropped: controller.droppedFrames,
-                                                    network: controller.networkMbps)
+            if let sourceBitrate {
+                rows.append(.init(title: "Source bitrate", detail: sourceBitrate, symbol: "gauge.with.dots.needle.67percent"))
+            }
+            rows += PlaybackOptionRow.metrics(buffer: controller.forwardBufferSeconds, dropped: controller.droppedFrames,
+                                              network: controller.networkMbps)
+            if !media.badges.isEmpty {
+                rows.append(.init(title: "Formats", detail: media.badges.joined(separator: " · "),
+                                  symbol: "rectangle.badge.checkmark"))
+            }
+            if let host = urls.first?.host {
+                rows.append(.init(title: "Source", detail: host, symbol: "server.rack"))
+            }
+            return rows
         case .video:
             var rows = controller.videoTracks.map { track in
                 PlaybackOptionRow(title: track.title, selected: track.id == controller.selectedVideoID,
-                                  key: "video-\(track.id)", action: { controller.selectVideoTrack(track.id) })
+                                  key: "video-\(track.id)", section: "Video Track", symbol: "film",
+                                  action: { controller.selectVideoTrack(track.id) })
             }
             if rows.isEmpty, let height = controller.videoHeight {
-                rows.append(.init(title: "Source quality", detail: "\(height)p"))
+                rows.append(.init(title: "Source quality", detail: "\(height)p", section: "Video Track", symbol: "sparkles.tv"))
             }
             if !isLive { rows += PlaybackOptionRow.speedRows(controller.playbackSpeed, set: controller.setPlaybackSpeed) }
             rows.append(.init(title: "Fit picture", selected: !controller.videoFills,
+                              section: "Aspect Ratio", symbol: "arrow.down.right.and.arrow.up.left",
                               action: { controller.setVideoFill(false) }))
             rows.append(.init(title: "Fill screen", selected: controller.videoFills,
+                              section: "Aspect Ratio", symbol: "arrow.up.left.and.arrow.down.right",
                               action: { controller.setVideoFill(true) }))
             if !isLive && nextEpisode != nil {
                 rows.append(.init(title: "Auto-play next", detail: autoPlayNext ? "On" : "Off",
+                                  section: "Up Next", symbol: "forward.end.fill", style: .toggle,
                                   action: { autoPlayNext.toggle() }))
             }
             return rows
         case .audio:
             var rows = controller.audioTracks.map { track in
                 PlaybackOptionRow(title: track.title, selected: track.id == controller.selectedAudioID,
-                                  key: track.id, action: { controller.selectAudioTrack(track) })
+                                  key: track.id, section: "Audio Track", symbol: "waveform",
+                                  action: { controller.selectAudioTrack(track) })
             }
-            if let codec = media.audioCodec { rows.append(.init(title: "Codec", detail: codec.uppercased())) }
-            if let channels = media.audioChannels { rows.append(.init(title: "Channels", detail: media.audioLayout ?? String(channels))) }
-            return rows.isEmpty ? [.init(title: "No audio track information")] : rows
+            if let codec = media.audioCodec {
+                rows.append(.init(title: "Codec", detail: codec.uppercased(), section: "Stream Details", symbol: "speaker.wave.2"))
+            }
+            if let channels = media.audioChannels {
+                rows.append(.init(title: "Channels", detail: media.audioLayout ?? String(channels),
+                                  section: "Stream Details", symbol: "hifispeaker.2"))
+            }
+            return rows.isEmpty ? [.init(title: "No audio track information", section: "Audio Track", symbol: "speaker.slash")] : rows
         case .subtitles:
             var rows = controller.subtitleTracks.map { track in
                 PlaybackOptionRow(title: track.title, selected: track.id == controller.selectedSubtitleID,
-                                  key: track.id, action: { controller.selectSubtitle(track) })
+                                  key: track.id, section: "Subtitle Track", symbol: "captions.bubble",
+                                  action: { controller.selectSubtitle(track) })
             }
             if offersOnlineSubtitles && controller.canAttachOnlineSubtitles {
-                rows.append(.init(title: "Find subtitles online", action: {
+                rows.append(.init(title: "Find subtitles online", section: "Online",
+                                  symbol: "magnifyingglass", style: .action, action: {
                     closePlaybackOptions()
                     onlineSubtitleSession = controller.subtitleSessionID
                     showingOnlineSubtitles = true
@@ -568,10 +658,13 @@ struct MobilePlayerView: View {
                 rows += PlaybackOptionRow.subtitleTiming(controller.subtitleDelaySeconds, set: controller.setSubtitleDelay)
                 rows.append(.init(title: "Remember delay on this device",
                                   detail: controller.remembersSubtitleDelay ? "On" : "Off",
+                                  section: "Timing", symbol: "clock.arrow.circlepath", style: .toggle,
                                   action: controller.toggleRememberedSubtitleDelay))
                 rows.append(.init(title: "Subtitle position", detail: controller.subtitlesAtTop ? "Top" : "Bottom",
+                                  section: "Appearance", symbol: "arrow.up.and.down.text.horizontal",
                                   action: { controller.setSubtitlesAtTop(!controller.subtitlesAtTop) }))
-                rows.append(.init(title: "Subtitle appearance and language", detail: controller.subtitlePreferences.sizeName, action: {
+                rows.append(.init(title: "Subtitle appearance and language", detail: controller.subtitlePreferences.sizeName,
+                                  section: "Appearance", symbol: "textformat.size", style: .action, action: {
                     closePlaybackOptions()
                     showingSubtitleSettings = true
                 }))
@@ -580,6 +673,7 @@ struct MobilePlayerView: View {
         case .chapters:
             return PlaybackOptionRow.chapterRows(chapters, position: controller.progress?.position ?? 0,
                                                   clock: MobilePlaybackProgress.timecode) { start in
+                recentlySkipped = nil
                 controller.seek(to: start)
                 closePlaybackOptions()
             }
@@ -590,10 +684,10 @@ struct MobilePlayerView: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .frame(width: 44, height: 46)
-                .contentShape(Rectangle())
+                .frame(width: 46, height: 46)
+                .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MobilePlayerButtonStyle())
         .accessibilityLabel(label)
     }
 
@@ -622,7 +716,36 @@ struct MobilePlayerView: View {
                 .frame(width: size, height: size)
                 .contentShape(Circle())
                 .lineupPlayerControlGlass(Circle(), prominent: size >= 70)
-        }.buttonStyle(.plain).accessibilityLabel(label)
+        }.buttonStyle(MobilePlayerButtonStyle()).accessibilityLabel(label)
+    }
+}
+
+/// Active Skip Intro / Skip Recap prompt, carrying the exact destination that
+/// was rendered so a tap always seeks cleanly and never bounces back if a
+/// decoder keyframe lands just shy of the segment end.
+struct MobileSkipAction: Equatable {
+    enum Kind: Hashable { case intro, recap }
+
+    let kind: Kind
+    let destination: Double
+    var title: String { kind == .recap ? "Skip Recap" : "Skip Intro" }
+
+    static func active(segments: MobilePlaybackSegments?, position: Double, duration: Double,
+                       introEnabled: Bool, recapEnabled: Bool,
+                       recentlySkipped: MobileSkipAction?) -> MobileSkipAction? {
+        let candidate: MobileSkipAction?
+        if recapEnabled, let destination = segments?.recap?.destination(at: position, duration: duration) {
+            candidate = MobileSkipAction(kind: .recap, destination: destination)
+        } else if introEnabled, let destination = segments?.intro?.destination(at: position, duration: duration) {
+            candidate = MobileSkipAction(kind: .intro, destination: destination)
+        } else {
+            candidate = nil
+        }
+        guard let candidate else { return nil }
+        if recentlySkipped == candidate, position >= candidate.destination - 4 {
+            return nil
+        }
+        return candidate
     }
 }
 
