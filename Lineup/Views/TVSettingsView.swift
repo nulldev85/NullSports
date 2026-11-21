@@ -10,6 +10,7 @@ struct AccountView: View {
     @Environment(SportsLibrary.self) private var library
     @Environment(MediaLibrary.self) private var media
     @Environment(\.tvTabIsActive) private var tabIsActive
+    @Environment(\.tvTabBar) private var tabBar
     @StateObject private var browseRows = TVLibraryBrowseRows()
     @EnvironmentObject private var cloud: CloudSettingsSync
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -154,6 +155,8 @@ struct AccountView: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .modifier(TVSettingsGlass())
             .focusScope(settingsFocus)
+            .focusSection()
+            .defaultFocus($sidebarFocus, category, priority: .userInitiated)
             .padding(.horizontal, layout.margin)
             .padding(.top, 28).padding(.bottom, 28)
         }
@@ -162,6 +165,10 @@ struct AccountView: View {
         .onChange(of: sidebarFocus) { _, value in
             guard let value, category != value else { return }
             category = value
+        }
+        .onChange(of: tabBar?.focusSettingsSidebar ?? 0) { _, token in
+            guard token > 0, tabIsActive, sidebarFocus == nil else { return }
+            sidebarFocus = category
         }
     }
 

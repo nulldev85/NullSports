@@ -94,13 +94,4 @@ final class RemoteInteractionTests: XCTestCase {
                                           introEnabled: true, recapEnabled: true, recentlySkipped: intro)
         XCTAssertEqual(rewound, intro, "Rewinding well back into the intro should offer Skip Intro again")
     }
-
-    func testToolbarFocusNavStepsDeterministicallyAcrossGapAndClampsAtEnds() {
-        let controls: [TVPlayerControl] = [.skipBack, .playPause, .skipForward, .episodes, .playbackOptions, .close]
-        XCTAssertNil(TVPlayerFocusNav.horizontalTarget(from: .skipBack, in: controls, step: -1))
-        XCTAssertEqual(TVPlayerFocusNav.horizontalTarget(from: .episodes, in: controls, step: 1), .playbackOptions)
-        XCTAssertEqual(TVPlayerFocusNav.horizontalTarget(from: .playbackOptions, in: controls, step: -1), .episodes)
-        XCTAssertEqual(TVPlayerFocusNav.horizontalTarget(from: .playbackOptions, in: controls, step: 1), .close)
-        XCTAssertNil(TVPlayerFocusNav.horizontalTarget(from: .close, in: controls, step: 1))
-    }
 }

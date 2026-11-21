@@ -654,8 +654,7 @@ struct PlayerView: View {
                         ? TVEpisodesShown(season: episodeList?.season, episodes: episodeChoices,
                                           loading: !episodesLoaded, choose: chooseEpisode, close: closeEpisodes)
                         : nil,
-                    onUpToPlaybackOffer: showsNextEpisode || showsSkip ? { focusPicture() } : nil,
-                    onRightToStats: statsShown ? { statsEntryFocused = true } : nil)
+                    onUpToPlaybackOffer: showsNextEpisode || showsSkip ? { focusPicture() } : nil)
                     .padding(.trailing, statsInset)
                     .transition(.opacity)
             }
@@ -1470,19 +1469,6 @@ enum TVPlayerControl: Hashable {
     case episode(String)
 }
 
-/// Deterministic horizontal and vertical navigation for the fullscreen player
-/// toolbar so Siri Remote clicks step cleanly across the wide middle gap and
-/// snap directly up to the timeline without hunting geometrically.
-enum TVPlayerFocusNav {
-    static func horizontalTarget(from current: TVPlayerControl, in ordered: [TVPlayerControl],
-                                 step: Int) -> TVPlayerControl? {
-        guard let index = ordered.firstIndex(of: current) else { return nil }
-        let next = index + step
-        guard ordered.indices.contains(next) else { return nil }
-        return ordered[next]
-    }
-}
-
 private struct TVPlayerChrome: View {
     let title: String
     let program: CurrentProgram?
@@ -1516,8 +1502,6 @@ private struct TVPlayerChrome: View {
     let episodes: TVEpisodesShown?
     /// Up from the seek bar reaches the Skip or Next Episode offer.
     var onUpToPlaybackOffer: (() -> Void)? = nil
-    /// Right past Close enters the Live Stats panel when it is open beside the picture.
-    var onRightToStats: (() -> Void)? = nil
     @State private var lastToolbarControl: TVPlayerControl?
 
 
@@ -1527,55 +1511,12 @@ private struct TVPlayerChrome: View {
         return onShowEpisodes == nil ? .goLive : .episodes
     }
 
-    private var hasScrubber: Bool {
-        (!isLive && controller.duration > 0) || showsTimeline
-    }
-
-    private var orderedToolbarControls: [TVPlayerControl] {
-        var controls: [TVPlayerControl] = []
-        if !isLive { controls += [.skipBack, .playPause, .skipForward] }
-        if onShowEpisodes != nil { controls.append(.episodes) }
-        if isLive {
-            controls.append(.goLive)
-            if controller.canStartOver { controls.append(.startOver) }
-            controls.append(.mute)
-            if lastChannelName != nil { controls.append(.lastChannel) }
-            if onChooseChannel != nil { controls.append(.chooseChannel) }
-            if onToggleStats != nil { controls.append(.stats) }
-            if alert != nil { controls.append(.alert) }
-        }
-        controls += [.playbackOptions, .close]
-        return controls
-    }
-
-    private func handleToolbarMove(_ direction: MoveCommandDirection) {
-        guard let current = focusedControl.wrappedValue else { return }
-        switch direction {
-        case .left:
-            if let target = TVPlayerFocusNav.horizontalTarget(from: current, in: orderedToolbarControls, step: -1) {
-                focusedControl.wrappedValue = target
-                onInteraction()
+    private var isToolbarControl: (TVPlayerControl) -> Bool {
+        { control in
+            switch control {
+            case .scrubber, .episode: return false
+            default: return true
             }
-        case .right:
-            if let target = TVPlayerFocusNav.horizontalTarget(from: current, in: orderedToolbarControls, step: 1) {
-                focusedControl.wrappedValue = target
-                onInteraction()
-            } else if let onRightToStats {
-                focusedControl.wrappedValue = nil
-                onRightToStats()
-                onInteraction()
-            }
-        case .up:
-            if hasScrubber {
-                focusedControl.wrappedValue = .scrubber
-                onInteraction()
-            } else if let onUpToPlaybackOffer {
-                focusedControl.wrappedValue = nil
-                onUpToPlaybackOffer()
-                onInteraction()
-            }
-        default:
-            break
         }
     }
 
@@ -1765,7 +1706,6 @@ private struct TVPlayerChrome: View {
                                        focus: focusedControl, id: .close, action: onClose)
                     }
                     .focusSection()
-                    .onMoveCommand(perform: handleToolbarMove)
                     }
                     }
                     .padding(.horizontal, 72).padding(.bottom, 52)
@@ -1775,7 +1715,7 @@ private struct TVPlayerChrome: View {
         .ignoresSafeArea()
         .defaultFocus(focusedControl, preferredFocus ?? firstAction, priority: .userInitiated)
         .onChange(of: focusedControl.wrappedValue) { _, next in
-            if let next, orderedToolbarControls.contains(next) {
+            if let next, isToolbarControl(next) {
                 lastToolbarControl = next
             }
         }

@@ -621,6 +621,48 @@ final class PlaybackEngineTests: XCTestCase {
         XCTAssertTrue(controller.showsPauseControl)
     }
 
+    func testLiveStreamCutsOverFastOnStalledTransportAndRemembersWorkingTransportForHost() throws {
+        let fixture = try Fixture(.vlc)
+        defer { fixture.clean() }
+        let controller = fixture.controller()
+        defer { controller.stop() }
+        let hls = try XCTUnwrap(URL(string: "https://iptv.example.invalid/live/101.m3u8"))
+        let transport = try XCTUnwrap(URL(string: "https://iptv.example.invalid/live/101.ts"))
+
+        fixture.vlc.hasVideoOutOverride = false
+        controller.start(urls: [hls, transport], channelID: 101)
+        fixture.vlc.state = .opening
+        XCTAssertTrue(controller.loading)
+        XCTAssertEqual(fixture.vlc.loads.map(\.url), [hls])
+
+        // If the primary .m3u8 transport hangs with no video for 4.5s, cut over
+        // promptly to .ts instead of waiting 15-45s on a blank screen.
+        fixture.now += 4.5
+        controller.checkPlayback()
+        XCTAssertEqual(fixture.vlc.loads.map(\.url), [hls, transport])
+
+        // Once .ts produces video, clear loading and remember .ts for this host.
+        fixture.vlc.state = .playing
+        fixture.vlc.hasVideoOutOverride = true
+        fixture.now += 0.5
+        controller.checkPlayback()
+        XCTAssertFalse(controller.loading)
+
+        // Next channel on the same host starts on .ts immediately without stalling.
+        let nextHLS = try XCTUnwrap(URL(string: "https://iptv.example.invalid/live/202.m3u8"))
+        let nextTS = try XCTUnwrap(URL(string: "https://iptv.example.invalid/live/202.ts"))
+        fixture.vlc.hasVideoOutOverride = false
+        controller.start(urls: [nextHLS, nextTS], channelID: 202)
+        XCTAssertEqual(fixture.vlc.loads.last?.url, nextTS)
+
+        // If .ts ever stops early on a channel, clear the preference and cut over fast (2.5s) to .m3u8.
+        fixture.vlc.state = .stopped
+        fixture.now += 2.5
+        controller.checkPlayback()
+        XCTAssertEqual(fixture.vlc.loads.last?.url, nextHLS)
+        XCTAssertEqual(TVLiveTransportPreference.ordered([nextHLS, nextTS]), [nextHLS, nextTS])
+    }
+
     @MainActor private final class Fixture {
         static let url = URL(string: "https://example.invalid/movie.mkv")!
         let suite = "PlaybackEngineTests.\(UUID())"
@@ -630,10 +672,14 @@ final class PlaybackEngineTests: XCTestCase {
         let mpv = MockTVBackend(.mpv)
         var now: TimeInterval = 1_000
         init(_ kind: TVPlaybackEngine = .vlc) throws {
+            TVLiveTransportPreference.reset()
             defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
             defaults.set(kind.rawValue, forKey: TVPlaybackEngine.storageKey)
         }
-        func clean() { defaults.removePersistentDomain(forName: suite) }
+        func clean() {
+            TVLiveTransportPreference.reset()
+            defaults.removePersistentDomain(forName: suite)
+        }
         func backend(_ kind: TVPlaybackEngine) -> MockTVBackend {
             switch kind {
             case .vlc: vlc
@@ -664,7 +710,8 @@ private final class MockTVBackend: TVPlaybackBackend {
     var state = TVPlaybackState.stopped
     var errorMessage: String? { nil }
     var isPlaying: Bool { state == .playing }
-    var hasVideoOut: Bool { isOpen }
+    var hasVideoOutOverride: Bool?
+    var hasVideoOut: Bool { hasVideoOutOverride ?? isOpen }
     var videoSize: CGSize { CGSize(width: 1920, height: 1080) }
     var mediaInfo = PlaybackMediaInfo()
     var pictureSize = CGSize.zero
